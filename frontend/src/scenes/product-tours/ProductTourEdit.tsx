@@ -16,17 +16,20 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductTourStep } from '~/types'
 
+import { AnnouncementContentEditor } from './AnnouncementContentEditor'
 import { AutoShowSection } from './components/AutoShowSection'
 import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourCustomization } from './components/ProductTourCustomization'
 import { ProductTourStepsEditor } from './editor'
 import { ProductTourEditTab, productTourLogic } from './productTourLogic'
+import { isAnnouncement } from './productToursLogic'
 
 export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     const {
         productTour,
         productTourLoading,
         productTourForm,
+        productTourFormAllErrors,
         targetingFlagFilters,
         isProductTourFormSubmitting,
         editTab,
@@ -43,18 +46,19 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
     }
 
     const conditions = productTourForm.content?.conditions || {}
+    const entityKeyword = isAnnouncement(productTour) ? 'announcement' : 'tour'
 
     return (
         <Form logic={productTourLogic} props={{ id }} formKey="productTourForm">
             <SceneContent>
                 <SceneTitleSection
                     name={productTour.name}
-                    description="Edit product tour settings"
+                    description={`Edit ${entityKeyword} settings`}
                     resourceType={{ type: 'product_tour' }}
                     isLoading={productTourLoading}
                     actions={
                         <>
-                            <EditInToolbarButton tourId={id} />
+                            {!isAnnouncement(productTour) && <EditInToolbarButton tourId={id} />}
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
                             </LemonButton>
@@ -75,7 +79,14 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     onChange={(newTab) => setEditTab(newTab as ProductTourEditTab)}
                     tabs={[
                         { key: ProductTourEditTab.Configuration, label: 'Configuration' },
-                        ...(showStepsEditor ? [{ key: ProductTourEditTab.Steps, label: 'Steps' }] : []),
+                        ...(showStepsEditor
+                            ? [
+                                  {
+                                      key: ProductTourEditTab.Steps,
+                                      label: isAnnouncement(productTour) ? 'Content' : 'Steps',
+                                  },
+                              ]
+                            : []),
                         { key: ProductTourEditTab.Customization, label: 'Customization' },
                     ]}
                 />
@@ -90,20 +101,12 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             />
                         </LemonField>
 
-                        <LemonField name="description" label="Description">
-                            <LemonInput
-                                placeholder="Optional description"
-                                value={productTourForm.description}
-                                onChange={(value) => setProductTourFormValue('description', value)}
-                            />
-                        </LemonField>
-
                         <LemonDivider />
 
                         <div>
                             <h3 className="font-semibold mb-2">Display conditions</h3>
                             <p className="text-secondary text-sm mb-4">
-                                Configure how and when this tour is shown to users.
+                                Configure how and when this {entityKeyword} is shown to users.
                             </p>
 
                             <div className="space-y-4">
@@ -112,7 +115,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                         <div>
                                             <h4 className="font-semibold">Auto-show this tour</h4>
                                             <p className="text-secondary text-sm mb-0">
-                                                Automatically show this tour to users who match your conditions
+                                                Automatically show this {entityKeyword} to users who match your
+                                                conditions
                                             </p>
                                         </div>
                                         <LemonSwitch
@@ -126,7 +130,9 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                             <div>
                                                 <h5 className="font-semibold mb-3">
                                                     Who to show&nbsp;
-                                                    <Tooltip title="Only auto-show the tour to users who match these conditions">
+                                                    <Tooltip
+                                                        title={`Only auto-show the ${entityKeyword} to users who match these conditions`}
+                                                    >
                                                         <IconInfo />
                                                     </Tooltip>
                                                 </h5>
@@ -179,7 +185,8 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 <div className="border rounded p-4 bg-surface-primary">
                                     <h4 className="font-semibold mb-2">Manual trigger</h4>
                                     <p className="text-secondary text-sm mb-4">
-                                        Show this tour when users click an element matching this CSS selector.
+                                        Show this {entityKeyword} when users click an element matching this CSS
+                                        selector.
                                     </p>
                                     <LemonInput
                                         className="font-mono"
@@ -201,18 +208,37 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                     </div>
                 )}
 
-                {editTab === ProductTourEditTab.Steps && (
-                    <ProductTourStepsEditor
-                        steps={productTourForm.content?.steps ?? []}
-                        appearance={productTourForm.content?.appearance}
-                        onChange={(steps: ProductTourStep[]) => {
-                            setProductTourFormValue('content', {
-                                ...productTourForm.content,
-                                steps,
-                            })
-                        }}
-                    />
-                )}
+                {editTab === ProductTourEditTab.Steps &&
+                    (isAnnouncement(productTour) ? (
+                        <>
+                            {productTourFormAllErrors._form && (
+                                <LemonField name="_form" className="mb-4">
+                                    <span />
+                                </LemonField>
+                            )}
+                            <AnnouncementContentEditor
+                                step={productTourForm.content?.steps?.[0]}
+                                appearance={productTourForm.content?.appearance}
+                                onChange={(step: ProductTourStep) => {
+                                    setProductTourFormValue('content', {
+                                        ...productTourForm.content,
+                                        steps: [step],
+                                    })
+                                }}
+                            />
+                        </>
+                    ) : (
+                        <ProductTourStepsEditor
+                            steps={productTourForm.content?.steps ?? []}
+                            appearance={productTourForm.content?.appearance}
+                            onChange={(steps: ProductTourStep[]) => {
+                                setProductTourFormValue('content', {
+                                    ...productTourForm.content,
+                                    steps,
+                                })
+                            }}
+                        />
+                    ))}
 
                 {editTab === ProductTourEditTab.Customization && (
                     <ProductTourCustomization

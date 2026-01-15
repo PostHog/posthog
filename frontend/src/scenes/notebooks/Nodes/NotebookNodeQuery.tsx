@@ -282,6 +282,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               ? urls.insightNew({ query })
               : undefined,
     Settings,
+    settingsPlacement: 'inline',
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {

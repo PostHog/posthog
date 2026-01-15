@@ -284,6 +284,7 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    Logs = 'logs',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
@@ -599,6 +600,10 @@ export interface ConversationsSettings {
     widget_domains?: string[] | null
 }
 
+export interface LogsSettings {
+    capture_console_logs?: boolean
+}
+
 export interface TeamType extends TeamBasicType {
     created_at: string
     updated_at: string
@@ -624,6 +629,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
+    logs_settings?: LogsSettings | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
@@ -3314,6 +3320,20 @@ export type ProductTourProgressionTriggerType = 'button' | 'click'
 
 export type ProductTourStepType = 'element' | 'modal' | 'survey'
 
+export type ProductTourButtonAction = 'dismiss' | 'link'
+
+export interface ProductTourStepButton {
+    text: string
+    action: ProductTourButtonAction
+    /** URL to open when action is 'link' */
+    link?: string
+}
+
+export interface ProductTourStepButtons {
+    primary?: ProductTourStepButton
+    secondary?: ProductTourStepButton
+}
+
 /** Preset width options for product tour tooltips */
 export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
 
@@ -3350,6 +3370,8 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** Button configuration for tour steps (modals / announcements) */
+    buttons?: ProductTourStepButtons
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3391,9 +3413,14 @@ export interface ProductTourAppearance {
     boxShadow?: string
     showOverlay?: boolean
     whiteLabel?: boolean
+    /** defaults to true, auto-set to false for announcements/banners */
+    dismissOnClickOutside?: boolean
 }
 
+export type ProductTourType = 'tour' | 'announcement'
+
 export interface ProductTourContent {
+    type?: ProductTourType
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     conditions?: ProductTourDisplayConditions
@@ -4000,6 +4027,7 @@ export enum PropertyType {
     Assignee = 'Assignee',
     StringArray = 'StringArray',
     Flag = 'Flag',
+    Semver = 'Semver',
 }
 
 export enum PropertyDefinitionType {
@@ -4643,6 +4671,7 @@ export const INTEGRATION_KINDS = [
     'bing-ads',
     'vercel',
     'azure-blob',
+    'firebase',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]

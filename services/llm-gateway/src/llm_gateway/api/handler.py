@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.analytics import get_analytics_service
@@ -27,6 +27,20 @@ from llm_gateway.observability import capture_exception
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
+
+
+async def adjust_output_throttles(request: Request, actual_output_tokens: int) -> None:
+    """Adjust all output throttles after response completes."""
+    throttle_context = getattr(request.state, "throttle_context", None)
+    if not throttle_context or not throttle_context.request_id:
+        return
+
+    output_throttles = getattr(request.app.state, "output_throttles", [])
+    for throttle in output_throttles:
+        try:
+            await throttle.adjust_after_response(throttle_context.request_id, actual_output_tokens)
+        except Exception:
+            logger.warning("failed_to_adjust_output_throttle", throttle=type(throttle).__name__)
 
 
 @dataclass
@@ -67,6 +81,7 @@ async def handle_llm_request(
     provider_config: ProviderConfig,
     llm_call: Callable[..., Awaitable[Any]],
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> dict[str, Any] | StreamingResponse:
     settings = get_settings()
     start_time = time.monotonic()
@@ -88,9 +103,10 @@ async def handle_llm_request(
             start_time=start_time,
             timeout=settings.streaming_timeout,
             product=product,
+            http_request=http_request,
         )
 
-    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
+    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
     try:
         return await _handle_non_streaming_request(
             request_data=request_data,
@@ -101,10 +117,11 @@ async def handle_llm_request(
             start_time=start_time,
             timeout=settings.request_timeout,
             product=product,
+            http_request=http_request,
         )
 
     except TimeoutError:
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout").inc()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
         logger.error(f"Timeout in {provider_config.endpoint_name} endpoint")
         raise HTTPException(
             status_code=504,
@@ -113,7 +130,7 @@ async def handle_llm_request(
     except HTTPException:
         raise
     except Exception as e:
-        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__).inc()
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         logger.exception(f"Error in {provider_config.endpoint_name} endpoint: {e}")
         status_code = getattr(e, "status_code", 500)
@@ -128,7 +145,7 @@ async def handle_llm_request(
             },
         ) from e
     finally:
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
 
 
 async def _handle_streaming_request(
@@ -140,10 +157,11 @@ async def _handle_streaming_request(
     start_time: float,
     timeout: float,
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> StreamingResponse:
     async def stream_generator() -> AsyncGenerator[bytes, None]:
-        ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).inc()
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).inc()
+        ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
@@ -156,12 +174,16 @@ async def _handle_streaming_request(
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
-                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time_to_first)
-                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model).observe(time_to_first)
+                    PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
+                    TIME_TO_FIRST_CHUNK.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
                 yield chunk
 
         except asyncio.CancelledError:
-            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name, model=model).inc()
+            STREAMING_CLIENT_DISCONNECT.labels(provider=provider_config.name, model=model, product=product).inc()
             raise
         except TimeoutError:
             status_code = "504"
@@ -175,19 +197,21 @@ async def _handle_streaming_request(
             logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
             raise
         finally:
-            ACTIVE_STREAMS.labels(provider=provider_config.name, model=model).dec()
-            CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model).dec()
+            ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).dec()
+            CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
             REQUEST_COUNT.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,
                 model=model,
                 status_code=status_code,
                 auth_method=user.auth_method,
+                product=product,
             ).inc()
             REQUEST_LATENCY.labels(
                 endpoint=provider_config.endpoint_name,
                 provider=provider_config.name,
                 streaming="true",
+                product=product,
             ).observe(time.monotonic() - start_time)
 
             try:
@@ -226,6 +250,7 @@ async def _handle_non_streaming_request(
     start_time: float,
     timeout: float,
     product: str = "llm_gateway",
+    http_request: Request | None = None,
 ) -> dict[str, Any]:
     provider_start = time.monotonic()
     response_dict: dict[str, Any] | None = None
@@ -233,7 +258,9 @@ async def _handle_non_streaming_request(
 
     try:
         response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
-        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model).observe(time.monotonic() - provider_start)
+        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+            time.monotonic() - provider_start
+        )
         response_dict = response.model_dump() if hasattr(response, "model_dump") else response
 
         REQUEST_COUNT.labels(
@@ -242,6 +269,7 @@ async def _handle_non_streaming_request(
             model=model,
             status_code="200",
             auth_method=user.auth_method,
+            product=product,
         ).inc()
 
         if "usage" in response_dict:
@@ -250,14 +278,18 @@ async def _handle_non_streaming_request(
             output_tokens = usage.get(provider_config.output_tokens_field, 0)
 
             if 0 <= input_tokens <= 1_000_000:
-                TOKENS_INPUT.labels(provider=provider_config.name, model=model).inc(input_tokens)
+                TOKENS_INPUT.labels(provider=provider_config.name, model=model, product=product).inc(input_tokens)
             if 0 <= output_tokens <= 1_000_000:
-                TOKENS_OUTPUT.labels(provider=provider_config.name, model=model).inc(output_tokens)
+                TOKENS_OUTPUT.labels(provider=provider_config.name, model=model, product=product).inc(output_tokens)
+
+            if http_request and output_tokens is not None:
+                await adjust_output_throttles(http_request, output_tokens)
 
         REQUEST_LATENCY.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
             streaming="false",
+            product=product,
         ).observe(time.monotonic() - start_time)
 
         return response_dict

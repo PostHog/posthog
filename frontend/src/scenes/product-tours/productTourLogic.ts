@@ -269,9 +269,30 @@ export const productTourLogic = kea<productTourLogicType>([
     forms(({ actions, props }) => ({
         productTourForm: {
             defaults: NEW_PRODUCT_TOUR as ProductTourForm,
-            errors: ({ name }: ProductTourForm) => ({
-                name: !name ? 'Name is required' : undefined,
-            }),
+            alwaysShowErrors: true,
+            errors: ({ name, content }: ProductTourForm) => {
+                const errors: Record<string, string | undefined> = {
+                    name: !name ? 'Name is required' : undefined,
+                }
+
+                if (content.type === 'announcement') {
+                    for (const step of content.steps || []) {
+                        const primaryButton = step.buttons?.primary
+                        const secondaryButton = step.buttons?.secondary
+
+                        if (primaryButton?.action === 'link' && !primaryButton.link?.trim()) {
+                            errors._form = 'Primary button requires a URL'
+                            break
+                        }
+                        if (secondaryButton?.action === 'link' && !secondaryButton.link?.trim()) {
+                            errors._form = 'Secondary button requires a URL'
+                            break
+                        }
+                    }
+                }
+
+                return errors
+            },
             submit: async (formValues: ProductTourForm) => {
                 const processedContent: ProductTourContent = {
                     ...formValues.content,

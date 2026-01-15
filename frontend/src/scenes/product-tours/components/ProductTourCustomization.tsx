@@ -1,15 +1,15 @@
-import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
-import { prepareStepForRender } from 'scenes/product-tours/editor/generateStepHtml'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { ProductTourAppearance, ProductTourStep } from '~/types'
+
+import { ProductTourPreview } from './ProductTourPreview'
 
 const DEFAULT_APPEARANCE: ProductTourAppearance = {
     backgroundColor: '#ffffff',
@@ -86,20 +86,7 @@ function TourStepPreview({
     selectedStepIndex: number
     onStepChange: (index: number) => void
 }): JSX.Element {
-    const previewRef = useRef<HTMLDivElement>(null)
     const step = steps[selectedStepIndex]
-
-    useEffect(() => {
-        if (previewRef.current && step) {
-            renderProductTourPreview({
-                step: prepareStepForRender(step) as any,
-                appearance: appearance as any,
-                parentElement: previewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [step, appearance, selectedStepIndex, steps.length])
 
     const stepOptions = steps.map((_, index) => ({
         label: `Step ${index + 1}`,
@@ -120,7 +107,14 @@ function TourStepPreview({
                 )}
             </div>
             <div className="flex justify-center p-8 bg-[#f0f0f0] rounded min-h-[200px]">
-                <div ref={previewRef} />
+                {step && (
+                    <ProductTourPreview
+                        step={step}
+                        appearance={appearance}
+                        stepIndex={selectedStepIndex}
+                        totalSteps={steps.length}
+                    />
+                )}
             </div>
         </div>
     )
