@@ -1148,6 +1148,21 @@ class TestUpgradeImpersonation(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["error"] == "Unable to upgrade impersonation"
 
+    def test_upgrade_returns_400_when_staff_demoted_mid_session(self):
+        self.login_as_read_only()
+
+        # Revoke staff privileges mid-session
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to upgrade impersonation"
+
 
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):
