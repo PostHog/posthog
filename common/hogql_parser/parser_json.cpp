@@ -1955,7 +1955,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       json["value"] = Json(stod(text));  // Float
       return json;
     } else {
-      json["value"] = Json(stoll(text));  // Integer
+      json["value"] = static_cast<int64_t>(stoll(text));  // Integer
       return json;
     }
 
