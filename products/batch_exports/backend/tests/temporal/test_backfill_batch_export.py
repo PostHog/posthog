@@ -1,5 +1,4 @@
 import uuid
-import random
 import asyncio
 import datetime as dt
 import zoneinfo
@@ -18,7 +17,6 @@ import temporalio.testing
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.models import Team
 from posthog.temporal.tests.utils.datetimes import date_range
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -51,26 +49,16 @@ def timezone(request) -> zoneinfo.ZoneInfo:
 
 
 @pytest_asyncio.fixture
-async def team_with_tz(timezone, aorganization):
-    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name, timezone=str(timezone))
-
-    yield team
-
-    await sync_to_async(team.delete)()
-
-
-@pytest_asyncio.fixture
-async def temporal_schedule_with_tz(temporal_client, team_with_tz):
-    """Manage a test Temporal Schedule yielding its handle."""
+async def temporal_schedule_every_5_minutes(temporal_client, team):
+    """Manage a test Temporal Schedule with interval 'every 5 minutes'."""
     batch_export = await acreate_batch_export(
-        team_id=team_with_tz.pk,
-        name="no-op-export",
+        team_id=team.pk,
+        name="no-op-export-every-5-minutes",
         destination_data={
             "type": "NoOp",
             "config": {},
         },
-        interval="every 1 minutes",
+        interval="every 5 minutes",
         paused=True,
     )
 
@@ -81,17 +69,60 @@ async def temporal_schedule_with_tz(temporal_client, team_with_tz):
 
 
 @pytest_asyncio.fixture
-async def temporal_schedule(temporal_client, team):
-    """Manage a test Temporal Schedule yielding its handle."""
+async def temporal_schedule_hourly(temporal_client, team):
+    """Manage a test Temporal Schedule with interval 'hour'."""
     batch_export = await acreate_batch_export(
         team_id=team.pk,
-        name="no-op-export",
+        name="no-op-export-hourly",
         destination_data={
             "type": "NoOp",
             "config": {},
         },
-        interval="every 1 minutes",
+        interval="hour",
         paused=True,
+    )
+
+    handle = temporal_client.get_schedule_handle(str(batch_export.id))
+    yield handle
+
+    await adelete_batch_export(batch_export, temporal_client)
+
+
+@pytest.fixture(
+    params=[
+        ("day", "UTC", None),
+        ("day", "US/Pacific", None),
+        ("day", "UTC", 3600),  # 1 hour offset
+        ("day", "US/Pacific", 7200),  # 2 hour offset
+        ("day", "Asia/Kathmandu", 10800),  # 3 hour offset
+        ("week", "UTC", None),
+        ("week", "US/Pacific", None),
+        ("week", "UTC", 3600),  # 1 hour offset
+        ("week", "US/Pacific", 7200),  # 2 hour offset
+        ("week", "Europe/Berlin", 108000),  # 3 day and 6 hour offset
+        ("week", "Asia/Kathmandu", 108000),  # 3 day and 6 hour offset
+    ]
+)
+def schedule_interval_timezone_and_offset(request):
+    """Parametrized fixture for timezone and interval_offset combinations."""
+    return request.param
+
+
+@pytest_asyncio.fixture
+async def temporal_schedule_with_tz_and_offset(temporal_client, team, schedule_interval_timezone_and_offset):
+    """Manage a test Temporal Schedule with parametrized interval, timezone, and offset."""
+    interval, timezone, interval_offset = schedule_interval_timezone_and_offset
+    batch_export = await acreate_batch_export(
+        team_id=team.pk,
+        name=f"no-op-export-{interval}-{timezone}-{interval_offset or 0}",
+        destination_data={
+            "type": "NoOp",
+            "config": {},
+        },
+        interval=interval,
+        paused=True,
+        timezone=timezone,
+        interval_offset=interval_offset,
     )
 
     handle = temporal_client.get_schedule_handle(str(batch_export.id))
@@ -145,25 +176,25 @@ async def temporal_schedule(temporal_client, team):
             ],
         ),
         (
-            dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-            dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+            dt.datetime(2023, 1, 5, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
             dt.timedelta(days=1),
             [
                 (
-                    dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+                    dt.datetime(2023, 1, 2, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
                 ),
                 (
-                    dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 2, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+                    dt.datetime(2023, 1, 3, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
                 ),
                 (
-                    dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 3, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+                    dt.datetime(2023, 1, 4, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
                 ),
                 (
-                    dt.datetime(2023, 1, 4, 0, 0, 0, tzinfo=dt.UTC),
-                    dt.datetime(2023, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
+                    dt.datetime(2023, 1, 4, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
+                    dt.datetime(2023, 1, 5, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("US/Pacific")),
                 ),
             ],
         ),
@@ -201,6 +232,21 @@ async def temporal_schedule(temporal_client, team):
                 ),
             ],
         ),
+        (
+            dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+            dt.datetime(2023, 1, 15, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+            dt.timedelta(days=7),
+            [
+                (
+                    dt.datetime(2023, 1, 1, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+                    dt.datetime(2023, 1, 8, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+                ),
+                (
+                    dt.datetime(2023, 1, 8, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+                    dt.datetime(2023, 1, 15, 6, 0, 0, tzinfo=zoneinfo.ZoneInfo("Europe/Berlin")),
+                ),
+            ],
+        ),
     ],
 )
 def test_backfill_range(start_at, end_at, step, expected):
@@ -214,10 +260,40 @@ def test_backfill_range(start_at, end_at, step, expected):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_get_schedule_frequency(activity_environment, temporal_worker, temporal_schedule):
+async def test_get_schedule_frequency_every_5_minutes_schedule(
+    activity_environment, temporal_worker, temporal_schedule_every_5_minutes
+):
     """Test get_schedule_frequency returns the correct interval."""
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
     expected = desc.schedule.spec.intervals[0].every.total_seconds()
+
+    result = await activity_environment.run(get_schedule_frequency, desc.id)
+
+    assert result == expected == 5 * 60
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_schedule_frequency_hourly_schedule(activity_environment, temporal_worker, temporal_schedule_hourly):
+    """Test get_schedule_frequency returns correct frequency for daily calendar spec."""
+    desc = await temporal_schedule_hourly.describe()
+    expected = desc.schedule.spec.intervals[0].every.total_seconds()
+
+    result = await activity_environment.run(get_schedule_frequency, desc.id)
+
+    assert result == expected == 3600
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_schedule_frequency_with_tz_and_offset(
+    activity_environment, temporal_worker, temporal_schedule_with_tz_and_offset, schedule_interval_timezone_and_offset
+):
+    """Test get_schedule_frequency returns correct frequency for weekly calendar spec."""
+    desc = await temporal_schedule_with_tz_and_offset.describe()
+    interval, timezone, interval_offset = schedule_interval_timezone_and_offset
+    if interval == "day":
+        expected = 24 * 60 * 60
+    elif interval == "week":
+        expected = 7 * 24 * 3600
 
     result = await activity_environment.run(get_schedule_frequency, desc.id)
 
@@ -225,13 +301,15 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_client, temporal_schedule):
+async def test_backfill_schedule_activity(
+    activity_environment, temporal_worker, temporal_client, temporal_schedule_every_5_minutes
+):
     """Test backfill_schedule activity schedules all backfill runs."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
     backfill_id = str(uuid.uuid4())
 
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
     inputs = BackfillScheduleInputs(
         schedule_id=desc.id,
         start_at=start_at.isoformat(),
@@ -295,7 +373,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
@@ -383,7 +461,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = None
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
@@ -474,7 +552,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
 
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
@@ -517,7 +595,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
     end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
 
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
@@ -675,7 +753,7 @@ async def test_backfill_utc_batch_export_workflow_with_timezone_aware_bounds(
     start_at = dt.datetime(2023, 1, 1, hour, 0, 0, tzinfo=timezone)
     end_at = dt.datetime(2023, 1, 1, hour, 5, 0, tzinfo=timezone)
 
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(
@@ -842,7 +920,7 @@ async def test_backfill_batch_export_workflow_no_start_at(temporal_worker, tempo
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = None
     end_at = dt.datetime(2023, 1, 1, 0, 5, 0, tzinfo=dt.UTC)
-    desc = await temporal_schedule.describe()
+    desc = await temporal_schedule_every_5_minutes.describe()
 
     workflow_id = str(uuid.uuid4())
     inputs = BackfillBatchExportInputs(

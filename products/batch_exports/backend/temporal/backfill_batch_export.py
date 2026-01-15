@@ -45,14 +45,64 @@ class HeartbeatDetails(typing.NamedTuple):
     last_batch_data_interval_end: str
 
 
+def _get_frequency_from_calendar_spec(calendar_spec: temporalio.client.ScheduleCalendarSpec) -> float:
+    """Infer frequency in seconds from a ScheduleCalendarSpec.
+
+    This handles common patterns:
+    - Daily: only hour is set (day_of_month defaults to all days, day_of_week defaults to all days, month defaults to
+        all months)
+    - Weekly: day_of_week is set to a single day
+
+    Raises:
+        ValueError: If the calendar spec pattern cannot be inferred.
+    """
+    # Check if it's a weekly schedule (single day_of_week specified)
+    if calendar_spec.day_of_week:
+        # If day_of_week is set to a single day (not default 0-6), it's weekly
+        day_ranges = calendar_spec.day_of_week
+        if len(day_ranges) == 1:
+            day_range = day_ranges[0]
+            # Single day specified (start == end and not the default 0-6 range) = weekly
+            if day_range.start == day_range.end and not (day_range.start == 0 and day_range.end == 6):
+                return 7 * 24 * 3600  # 7 days in seconds
+
+    # Check if it's a daily schedule
+    # Daily schedules typically only set hour, with default day_of_month (1-31)
+    # and default day_of_week (0-6) or no day_of_week
+    if calendar_spec.hour:
+        # Check if day_of_week is default (all days) or not set
+        is_default_day_of_week = not calendar_spec.day_of_week or (
+            len(calendar_spec.day_of_week) == 1
+            and calendar_spec.day_of_week[0].start == 0
+            and calendar_spec.day_of_week[0].end == 6
+        )
+        # Check if day_of_month is default (all days) or not set
+        is_default_day_of_month = not calendar_spec.day_of_month or (
+            len(calendar_spec.day_of_month) == 1
+            and calendar_spec.day_of_month[0].start == 1
+            and calendar_spec.day_of_month[0].end == 31
+        )
+        # Check if all months are set
+        is_default_month = not calendar_spec.month or (
+            len(calendar_spec.month) == 1 and calendar_spec.month[0].start == 1 and calendar_spec.month[0].end == 12
+        )
+
+        if is_default_day_of_week and is_default_day_of_month and is_default_month:
+            return 24 * 3600  # 1 day in seconds
+
+    raise ValueError(f"Cannot infer frequency from calendar spec: {calendar_spec.comment or 'unknown pattern'}")
+
+
 @temporalio.activity.defn
 async def get_schedule_frequency(schedule_id: str) -> float:
     """Return a Temporal Schedule's frequency.
 
-    This assumes that the Schedule has one interval set.
+    Supports both ScheduleIntervalSpec and ScheduleCalendarSpec.
+    For calendar specs, currently supports daily and weekly patterns.
 
     Raises:
          TemporalScheduleNotFoundError: If the Temporal Schedule whose frequency we are trying to get doesn't exist.
+         ValueError: If the schedule spec cannot be parsed or is unsupported.
     """
     client = await connect(
         settings.TEMPORAL_HOST,
@@ -73,8 +123,20 @@ async def get_schedule_frequency(schedule_id: str) -> float:
         else:
             raise
 
-    interval = desc.schedule.spec.intervals[0]
-    return interval.every.total_seconds()
+    spec = desc.schedule.spec
+
+    if spec.intervals:
+        # Handle ScheduleIntervalSpec
+        if len(spec.intervals) != 1:
+            raise ValueError(f"Expected exactly one interval spec, got {len(spec.intervals)}")
+        return spec.intervals[0].every.total_seconds()
+    elif spec.calendars:
+        # Handle ScheduleCalendarSpec
+        if len(spec.calendars) != 1:
+            raise ValueError(f"Expected exactly one calendar spec, got {len(spec.calendars)}")
+        return _get_frequency_from_calendar_spec(spec.calendars[0])
+    else:
+        raise ValueError("Schedule spec has neither intervals nor calendars")
 
 
 @dataclasses.dataclass
