@@ -87,6 +87,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         """
         user = cast(User, request.user)
 
+        self._raise_if_sso_enforced(user)
+
         # Get existing credentials to exclude
         existing_credentials = WebauthnCredential.objects.filter(user=user, verified=True)
         exclude_credentials = [
@@ -132,6 +134,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         The credential is stored but marked as unverified until the user proves they can use it.
         """
         user = cast(User, request.user)
+
+        self._raise_if_sso_enforced(user)
 
         # Get challenge from session
         challenge_b64 = request.session.pop(WEBAUTHN_REGISTRATION_CHALLENGE_KEY, None)
@@ -196,6 +200,22 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 {"error": f"Registration failed: could not complete registration"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    def _raise_if_sso_enforced(self, user: User) -> None:
+        organization = user.current_organization
+        if not organization:
+            return
+
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(
+            user.email, organization=organization
+        )
+        if not sso_enforcement:
+            return
+
+        raise serializers.ValidationError(
+            "Passkeys can't be added because your organization requires SSO.",
+            code="sso_enforced",
+        )
 
 
 class WebAuthnLoginViewSet(viewsets.ViewSet):
