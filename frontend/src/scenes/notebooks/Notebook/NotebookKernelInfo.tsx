@@ -6,6 +6,7 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { cpuCoreOptions, idleTimeoutOptions, memoryGbOptions, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
@@ -32,6 +33,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const logic = notebookKernelInfoLogic({ shortId })
+    useAttachedLogic(logic, notebookLogic)
     const {
         kernelInfo,
         kernelInfoLoading,
