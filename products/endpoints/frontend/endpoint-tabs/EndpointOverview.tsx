@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { endpointLogic } from '../endpointLogic'
+import { endpointSceneLogic } from '../endpointSceneLogic'
 
 interface EndpointOverviewProps {
     tabId: string
@@ -13,29 +14,36 @@ interface EndpointOverviewProps {
 
 export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
+    const { viewingVersion, isViewingOldVersion, selectedVersionData } = useValues(endpointSceneLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
     }
 
     const hasParameters = endpoint.parameters && Object.keys(endpoint.parameters).length > 0
+    const displayedVersion = isViewingOldVersion && viewingVersion ? viewingVersion : endpoint.current_version
+
+    // When viewing an old version, show the version's is_active status; otherwise show endpoint status
+    const displayIsActive =
+        isViewingOldVersion && selectedVersionData ? selectedVersionData.is_active : endpoint.is_active
+    const statusLabel = isViewingOldVersion ? 'Version status' : 'Status'
 
     return (
         <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1200px]:grid-cols-[1fr_26rem]">
             <div className="flex flex-col gap-0 overflow-hidden">
                 <div className="inline-flex deprecated-space-x-8">
-                    <div className="flex flex-col">
-                        <LemonLabel>Status</LemonLabel>
-                        <LemonTag type={endpoint.is_active ? 'success' : 'danger'}>
-                            <b className="uppercase">{endpoint.is_active ? 'Active' : 'Inactive'}</b>
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>{statusLabel}</LemonLabel>
+                        <LemonTag type={displayIsActive ? 'success' : 'danger'} className="w-fit">
+                            {displayIsActive ? 'Active' : 'Inactive'}
                         </LemonTag>
                     </div>
                     <div className="flex flex-col">
                         <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">
-                            Current version
+                            {isViewingOldVersion ? 'Viewing version' : 'Latest version'}
                         </LemonLabel>
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold">v{endpoint.current_version}</span>
+                            <span className="text-sm font-semibold">v{displayedVersion}</span>
                             <span className="text-xs text-muted">({endpoint.versions_count} total)</span>
                         </div>
                     </div>

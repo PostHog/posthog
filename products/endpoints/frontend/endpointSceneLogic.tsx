@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
@@ -10,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataWarehouseSyncInterval, EndpointType } from '~/types'
+import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -56,15 +57,19 @@ export enum EndpointTab {
     QUERY = 'query',
     CONFIGURATION = 'configuration',
     PLAYGROUND = 'playground',
+    VERSIONS = 'versions',
     HISTORY = 'history',
 }
 
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
-    props({} as EndpointSceneLogicProps),
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
+    props({} as EndpointSceneLogicProps),
     tabAwareScene(),
     connect((props: EndpointSceneLogicProps) => ({
-        actions: [endpointLogic({ tabId: props.tabId }), ['loadEndpoint', 'loadEndpointSuccess']],
+        actions: [
+            endpointLogic({ tabId: props.tabId }),
+            ['loadEndpoint', 'loadEndpointSuccess', 'setSelectedCodeExampleVersion'],
+        ],
         values: [endpointLogic({ tabId: props.tabId }), ['endpoint', 'endpointLoading']],
     })),
     actions({
@@ -76,6 +81,18 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
+        setVersionDescription: (description: string | null) => ({ description }),
+        selectVersion: (version: number | null) => ({ version }),
+        returnToCurrentVersion: true,
+        updateVersionMaterialization: (
+            version: number,
+            data: Partial<
+                Pick<
+                    EndpointVersionType,
+                    'is_materialized' | 'sync_frequency' | 'description' | 'cache_age_seconds' | 'is_active'
+                >
+            >
+        ) => ({ version, data }),
     }),
     reducers({
         localQuery: [
@@ -129,8 +146,34 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setEndpointName: (_, { name }) => name,
             },
         ],
+        versionDescription: [
+            null as string | null,
+            {
+                setVersionDescription: (_, { description }) => description,
+            },
+        ],
+        viewingVersion: [
+            null as number | null,
+            {
+                selectVersion: (_, { version }) => version,
+                returnToCurrentVersion: () => null,
+                loadEndpointSuccess: () => null, // Reset when loading endpoint
+            },
+        ],
     }),
     loaders(() => ({
+        versions: {
+            __default: [] as EndpointVersionType[],
+            loadVersions: async ({ name }: { name: string }) => {
+                return await api.endpoint.listVersions(name)
+            },
+        },
+        selectedVersionData: {
+            __default: null as EndpointVersionType | null,
+            loadSelectedVersion: async ({ name, version }: { name: string; version: number }) => {
+                return await api.endpoint.getVersion(name, version)
+            },
+        },
         endpointResult: {
             __default: null as string | null,
             loadEndpointResult: async ({ name, data }: { name: string; data: EndpointRunRequest }) => {
@@ -154,10 +197,44 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
     })),
     selectors({
+        isViewingOldVersion: [
+            (s) => [s.viewingVersion, s.endpoint],
+            (viewingVersion: number | null, endpoint: EndpointType | null): boolean => {
+                if (viewingVersion === null || endpoint === null) {
+                    return false
+                }
+                return viewingVersion !== endpoint.current_version
+            },
+        ],
+        currentEndpointData: [
+            (s) => [s.endpoint, s.viewingVersion, s.selectedVersionData],
+            (
+                endpoint: EndpointType | null,
+                viewingVersion: number | null,
+                selectedVersionData: EndpointVersionType | null
+            ): EndpointType | EndpointVersionType | null => {
+                if (viewingVersion === null) {
+                    return endpoint
+                }
+                return selectedVersionData
+            },
+        ],
         currentQuery: [
-            (s) => [s.localQuery, s.endpoint],
-            (localQuery: Node | null, endpoint: EndpointType | null): Node | null =>
-                localQuery || endpoint?.query || null,
+            (s) => [s.localQuery, s.endpoint, s.viewingVersion, s.selectedVersionData],
+            (
+                localQuery: Node | null,
+                endpoint: EndpointType | null,
+                viewingVersion: number | null,
+                selectedVersionData: EndpointVersionType | null
+            ): Node | null => {
+                if (localQuery && viewingVersion === null) {
+                    return localQuery
+                }
+                if (viewingVersion !== null && selectedVersionData) {
+                    return selectedVersionData.query
+                }
+                return endpoint?.query || null
+            },
         ],
         queryToRender: [
             (s) => [s.currentQuery],
@@ -201,12 +278,97 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             ],
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
             actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
             actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
+            actions.setIsMaterialized(endpoint?.is_materialized ?? null)
+            if (endpoint?.name) {
+                actions.loadVersions({ name: endpoint.name })
+
+                // Check if there's a version parameter in the URL
+                const { searchParams } = router.values
+                if (searchParams.version) {
+                    const version = parseInt(searchParams.version, 10)
+                    if (!isNaN(version) && version !== endpoint.current_version) {
+                        actions.selectVersion(version)
+                    }
+                }
+            }
+        },
+        selectVersion: ({ version }) => {
+            const endpoint = values.endpoint
+            if (!endpoint) {
+                return
+            }
+            // Reset code example version dropdown to match viewing version
+            actions.setSelectedCodeExampleVersion(null)
+
+            // Reset local state to prevent leaking endpoint's values when viewing old versions
+            actions.setIsMaterialized(null)
+            actions.setSyncFrequency(null)
+            actions.setCacheAge(null)
+            actions.setVersionDescription(null)
+
+            if (version !== null) {
+                // Load the selected version data
+                actions.loadSelectedVersion({ name: endpoint.name, version })
+            }
+        },
+        loadSelectedVersionSuccess: ({ selectedVersionData }) => {
+            const endpoint = values.endpoint
+            if (!endpoint || !selectedVersionData) {
+                return
+            }
+            // Update payload JSON to include version parameter when viewing old version
+            if (selectedVersionData.version !== endpoint.current_version) {
+                const currentPayload = values.payloadJson
+                try {
+                    const payload = currentPayload ? JSON.parse(currentPayload) : {}
+                    payload.version = selectedVersionData.version
+                    actions.setPayloadJson(JSON.stringify(payload, null, 2))
+                } catch {
+                    // If current payload is invalid JSON, create new one with version
+                    actions.setPayloadJson(JSON.stringify({ version: selectedVersionData.version }, null, 2))
+                }
+            }
+        },
+        returnToCurrentVersion: () => {
+            const endpoint = values.endpoint
+            if (!endpoint) {
+                return
+            }
+            actions.selectVersion(null)
+            actions.setLocalQuery(null)
+            // Reset payload to default when returning to current version
+            const initialPayload = generateInitialPayloadJson(endpoint)
+            actions.setPayloadJson(initialPayload)
+        },
+        updateVersionMaterialization: async ({ version, data }) => {
+            const endpoint = values.endpoint
+            if (!endpoint) {
+                return
+            }
+            try {
+                await api.endpoint.updateVersion(endpoint.name, version, data)
+                // Refresh versions list
+                actions.loadVersions({ name: endpoint.name })
+                // Reload the selected version to show updated data
+                if (values.viewingVersion === version) {
+                    actions.loadSelectedVersion({ name: endpoint.name, version })
+                }
+                // Reset local state after successful update
+                actions.setIsMaterialized(null)
+                actions.setSyncFrequency(null)
+                actions.setCacheAge(null)
+                actions.setVersionDescription(null)
+                lemonToast.success('Version updated')
+            } catch (error) {
+                console.error('Failed to update version materialization:', error)
+                lemonToast.error('Failed to update version')
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -215,12 +377,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             if (name && didPathChange) {
-                const isSameEndpoint = values.endpointName === name
+                const isSameEndpoint = values.endpoint?.name === name
 
                 if (!currentLocation.initial && isSameEndpoint) {
                     // Already viewing this endpoint, skip reload
+                    // But still load versions if they're empty (e.g., navigating from Endpoints table)
+                    if (values.versions.length === 0) {
+                        actions.loadVersions({ name })
+                    }
                 } else {
-                    actions.setEndpointName(name)
                     actions.loadEndpoint(name)
                 }
             }
@@ -230,6 +395,23 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
                 actions.setActiveTab(EndpointTab.QUERY)
             }
+
+            // Handle version parameter changes
+            if (values.endpoint && values.endpoint.name === name) {
+                const urlVersion = searchParams.version ? parseInt(searchParams.version, 10) : null
+                const currentlyViewingVersion = values.viewingVersion
+
+                // If URL version changed, update the viewing version
+                if (urlVersion !== currentlyViewingVersion) {
+                    if (urlVersion && !isNaN(urlVersion)) {
+                        actions.selectVersion(urlVersion)
+                    } else if (!urlVersion && currentlyViewingVersion !== null) {
+                        // No version in URL but we're viewing a version - return to current
+                        actions.selectVersion(null)
+                    }
+                }
+            }
+            // Note: Version parameter on initial load is handled in loadEndpointSuccess
         },
     })),
 ])

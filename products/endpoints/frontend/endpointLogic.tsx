@@ -57,7 +57,11 @@ export const endpointLogic = kea<endpointLogicType>([
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
         endpointDescription: [
             null as string | null,
-            { setEndpointDescription: (_, { endpointDescription }) => endpointDescription },
+            {
+                setEndpointDescription: (_, { endpointDescription }) => endpointDescription,
+                loadEndpointSuccess: () => null, // Reset to null so it falls back to endpoint.description
+                updateEndpointSuccess: () => null, // Reset after successful update
+            },
         ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
         selectedCodeExampleVersion: [
@@ -184,6 +188,8 @@ export const endpointLogic = kea<endpointLogicType>([
                 }
             },
             updateEndpointSuccess: ({ response, showViewButton }) => {
+                // Update the local endpoint state with the response to avoid stale data
+                actions.loadEndpointSuccess(response)
                 if (showViewButton) {
                     lemonToast.success(<>Endpoint updated</>, {
                         button: {

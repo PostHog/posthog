@@ -37,8 +37,55 @@ class EndpointVersion(models.Model):
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional description or notes for this version",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="endpoint_versions_created",
+    )
+
+    cache_age_seconds = models.IntegerField(
+        default=300,
+        help_text="Cache age in seconds when this version was created",
+    )
+    is_materialized = models.BooleanField(
+        default=False,
+        help_text="Whether this version's query results are materialized",
+    )
+    sync_frequency = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="Sync frequency for materialization (hourly, daily, weekly)",
+    )
+    last_materialized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this version was last materialized",
+    )
+    materialization_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message from last materialization attempt",
+    )
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="endpoint_versions",
+        help_text="The underlying materialized view for this version",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is available for execution via the API",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -58,6 +105,40 @@ class EndpointVersion(models.Model):
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
 
+    def can_materialize(self) -> tuple[bool, str]:
+        """Check if this version can be materialized.
+
+        Returns: (can_materialize: bool, reason: str)
+        """
+        query_kind = self.query.get("kind") if self.query else None
+
+        MATERIALIZABLE_QUERY_TYPES = {
+            "HogQLQuery",
+            "TrendsQuery",
+            "FunnelsQuery",
+            "LifecycleQuery",
+            "RetentionQuery",
+            "PathsQuery",
+            "StickinessQuery",
+        }
+
+        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+            return (
+                False,
+                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+            )
+
+        if self.query.get("variables"):
+            return False, "Queries with variables cannot be materialized."
+
+        if query_kind == "HogQLQuery":
+            hogql_query = self.query.get("query")
+            if not hogql_query or not isinstance(hogql_query, str):
+                return False, "Query is empty or invalid."
+
+        return True, ""
+
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Model for storing endpoints that can be accessed via API endpoints.
@@ -70,7 +151,9 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
 
     name = models.CharField(
-        max_length=128, validators=[validate_endpoint_name], help_text="URL-safe name for the endpoint"
+        max_length=128,
+        validators=[validate_endpoint_name],
+        help_text="URL-safe name for the endpoint",
     )
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
@@ -89,7 +172,9 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     # Parameter schema for query customization
     parameters = models.JSONField(
-        default=dict, blank=True, help_text="JSON schema defining expected parameters for query customization"
+        default=dict,
+        blank=True,
+        help_text="JSON schema defining expected parameters for query customization",
     )
 
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
@@ -207,7 +292,10 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
             supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return False, f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}"
+            return (
+                False,
+                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+            )
 
         if self.query.get("variables"):
             return False, "Queries with variables cannot be materialized."
@@ -233,16 +321,22 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         This increments current_version and creates an EndpointVersion record.
         Should be called when the query changes during an update.
+        Snapshots current configuration values (cache_age, sync_frequency).
         """
         self.current_version += 1
         self.query = query
         self.save(update_fields=["current_version", "query", "updated_at"])
 
+        # Snapshot configuration values from current endpoint state
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,
             query=query,
             created_by=user,
+            cache_age_seconds=self.cache_age_seconds or 300,
+            # Note: New versions are not auto-materialized, even if the current version is materialized
+            is_materialized=False,
+            sync_frequency=None,
         )
 
         return version
