@@ -41,6 +41,7 @@ import {
     IconStickiness,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -267,6 +268,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     conversations: {
         icon: <IconChat />,
+    },
+    toolbar: {
+        icon: <IconToolbar />,
     },
 }
 

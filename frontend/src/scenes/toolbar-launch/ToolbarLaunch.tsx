@@ -1,6 +1,6 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
+import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -67,7 +67,6 @@ export function ToolbarLaunch(): JSX.Element {
                 description="PostHog toolbar launches PostHog right in your app or website."
                 resourceType={{
                     type: 'toolbar',
-                    forceIcon: <IconToolbar />,
                 }}
             />
 

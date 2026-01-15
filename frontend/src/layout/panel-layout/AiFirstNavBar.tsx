@@ -481,6 +481,27 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
 
     return (
         <div className="flex flex-col gap-px h-[187px]">
+            {/* Fill remaining slots with skeletons or empty placeholder to prevent reflow */}
+            {skeletonCount > 0 &&
+                (isInitialLoading ? (
+                    Array.from({ length: skeletonCount }).map((_, i) => (
+                        <WrappingLoadingSkeleton key={`skeleton-${i}`} fullWidth>
+                            <ButtonPrimitive inert aria-hidden>
+                                Loading...
+                            </ButtonPrimitive>
+                        </WrappingLoadingSkeleton>
+                    ))
+                ) : (
+                    // Empty placeholder to maintain height when fewer than MAX conversations
+                    <div className="invisible" aria-hidden>
+                        {Array.from({ length: skeletonCount }).map((_, i) => (
+                            <ButtonPrimitive key={`placeholder-${i}`} inert>
+                                &nbsp;
+                            </ButtonPrimitive>
+                        ))}
+                    </div>
+                ))}
+
             {recentConversations.map((conversation) => {
                 const isActive = conversation.id === currentConversationId
                 return (
@@ -488,7 +509,6 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
                         key={conversation.id}
                         to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
                         buttonProps={{
-                            fullWidth: true,
                             active: isActive,
                             menuItem: true,
                         }}
@@ -511,27 +531,6 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
                 )
             })}
             <AllConversationsMenu isCollapsed={false} />
-
-            {/* Fill remaining slots with skeletons or empty placeholder to prevent reflow */}
-            {skeletonCount > 0 &&
-                (isInitialLoading ? (
-                    Array.from({ length: skeletonCount }).map((_, i) => (
-                        <WrappingLoadingSkeleton key={`skeleton-${i}`} fullWidth>
-                            <ButtonPrimitive inert aria-hidden>
-                                Loading...
-                            </ButtonPrimitive>
-                        </WrappingLoadingSkeleton>
-                    ))
-                ) : (
-                    // Empty placeholder to maintain height when fewer than MAX conversations
-                    <div className="invisible" aria-hidden>
-                        {Array.from({ length: skeletonCount }).map((_, i) => (
-                            <ButtonPrimitive key={`placeholder-${i}`} inert>
-                                &nbsp;
-                            </ButtonPrimitive>
-                        ))}
-                    </div>
-                ))}
 
             {!isInitialLoading && recentConversations.length === 0 && (
                 <div className="text-muted text-xs px-2 py-1">No chats yet</div>
