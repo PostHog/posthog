@@ -1136,6 +1136,18 @@ class TestUpgradeImpersonation(APIBaseTest):
         )
         assert response.status_code == 400
 
+    @patch("ee.admin.loginas_views.get_original_user_from_session", return_value=None)
+    def test_upgrade_returns_400_when_staff_user_not_found(self, mock_get_staff):
+        self.login_as_read_only()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Some reason"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "Unable to upgrade impersonation"
+
 
 @override_settings(SESSION_COOKIE_AGE=100)
 class TestSessionAgeMiddleware(APIBaseTest):
