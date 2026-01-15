@@ -32,7 +32,7 @@ import {
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
-import { VariableUsage } from './notebookNodeContent'
+import { DuckSqlUsage, VariableUsage, extractDuckSqlTables, normalizeDuckSqlIdentifier } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import {
     PythonExecutionResult,
@@ -43,6 +43,7 @@ import {
 } from './pythonExecution'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 
 type RunPythonCellParams = {
     notebookId: string
@@ -193,12 +194,17 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setPythonRunLoading: (loading: boolean) => ({ loading }),
         setPythonRunQueued: (queued: boolean) => ({ queued }),
         runDuckSqlNode: true,
+        runDuckSqlNodeWithMode: (payload: { mode: DuckSqlRunMode }) => payload,
         setDuckSqlRunLoading: (loading: boolean) => ({ loading }),
+        setDuckSqlRunQueued: (queued: boolean) => ({ queued }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable', 'comments', 'pythonNodeSummaries', 'notebook']],
+        values: [
+            props.notebookLogic,
+            ['editor', 'isEditable', 'comments', 'pythonNodeSummaries', 'duckSqlNodeSummaries', 'notebook'],
+        ],
     })),
 
     reducers(({ props }) => ({
@@ -275,6 +281,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setDuckSqlRunLoading: (_, { loading }) => loading,
             },
         ],
+        duckSqlRunQueued: [
+            false,
+            {
+                setDuckSqlRunQueued: (_, { queued }) => queued,
+            },
+        ],
     })),
 
     selectors({
@@ -329,6 +341,70 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.pythonNodeSummaries, s.pythonNodeIndex],
             (pythonNodeSummaries, pythonNodeIndex) =>
                 pythonNodeIndex >= 0 ? pythonNodeSummaries.slice(pythonNodeIndex + 1) : [],
+        ],
+        duckSqlNodeIndex: [
+            (s) => [s.duckSqlNodeSummaries, s.nodeId],
+            (duckSqlNodeSummaries, nodeId) => duckSqlNodeSummaries.findIndex((node) => node.nodeId === nodeId),
+        ],
+        downstreamDuckSqlNodes: [
+            (s) => [s.duckSqlNodeSummaries, s.duckSqlNodeIndex],
+            (duckSqlNodeSummaries, duckSqlNodeIndex) =>
+                duckSqlNodeIndex >= 0 ? duckSqlNodeSummaries.slice(duckSqlNodeIndex + 1) : [],
+        ],
+        duckSqlReturnVariable: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): string => resolveDuckSqlReturnVariable(nodeAttributes.returnVariable ?? ''),
+        ],
+        duckSqlTablesUsed: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): string[] => extractDuckSqlTables(nodeAttributes.code ?? ''),
+        ],
+        duckSqlUpstreamTableSources: [
+            (s) => [s.duckSqlNodeSummaries, s.duckSqlNodeIndex, s.duckSqlTablesUsed],
+            (duckSqlNodeSummaries, duckSqlNodeIndex, duckSqlTablesUsed): Record<string, DuckSqlUsage> => {
+                const upstream = duckSqlNodeIndex >= 0 ? duckSqlNodeSummaries.slice(0, duckSqlNodeIndex) : []
+                const upstreamMap = new Map<string, DuckSqlUsage>()
+                upstream.forEach((node) => {
+                    const normalized = normalizeDuckSqlIdentifier(node.returnVariable)
+                    if (!normalized || upstreamMap.has(normalized)) {
+                        return
+                    }
+                    upstreamMap.set(normalized, {
+                        nodeId: node.nodeId,
+                        duckSqlIndex: node.duckSqlIndex,
+                        title: node.title,
+                    })
+                })
+
+                return duckSqlTablesUsed.reduce<Record<string, DuckSqlUsage>>((acc, table) => {
+                    const normalized = normalizeDuckSqlIdentifier(table)
+                    const source = upstreamMap.get(normalized)
+                    if (source) {
+                        acc[table] = source
+                    }
+                    return acc
+                }, {})
+            },
+        ],
+        duckSqlReturnVariableUsage: [
+            (s) => [s.downstreamDuckSqlNodes, s.duckSqlReturnVariable],
+            (downstreamDuckSqlNodes, duckSqlReturnVariable): DuckSqlUsage[] => {
+                if (!duckSqlReturnVariable) {
+                    return []
+                }
+                const normalized = normalizeDuckSqlIdentifier(duckSqlReturnVariable)
+                return downstreamDuckSqlNodes.flatMap((node) =>
+                    node.tablesUsed.some((table) => normalizeDuckSqlIdentifier(table) === normalized)
+                        ? [
+                              {
+                                  nodeId: node.nodeId,
+                                  duckSqlIndex: node.duckSqlIndex,
+                                  title: node.title,
+                              },
+                          ]
+                        : []
+                )
+            },
         ],
 
         usageByVariable: [
@@ -608,6 +684,64 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 updateAttributes: actions.updateAttributes,
                 setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
             })
+        },
+        runDuckSqlNodeWithMode: async ({ mode }) => {
+            if (props.nodeType !== NotebookNodeType.DuckSQL) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+
+            const currentIndex = values.duckSqlNodeSummaries.findIndex((node) => node.nodeId === values.nodeId)
+            if (currentIndex === -1 || mode === 'auto' || mode === 'cell') {
+                await actions.runDuckSqlNode()
+                return
+            }
+
+            const nodesToRun =
+                mode === 'cell_upstream'
+                    ? values.duckSqlNodeSummaries.slice(0, currentIndex + 1)
+                    : values.duckSqlNodeSummaries.slice(currentIndex)
+
+            const nodesToRunWithLogic = nodesToRun
+                .map((node) => ({
+                    node,
+                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
+                }))
+                .filter(
+                    (
+                        entry
+                    ): entry is {
+                        node: (typeof nodesToRun)[number]
+                        nodeLogic: BuiltLogic<notebookNodeLogicType>
+                    } => !!entry.nodeLogic
+                )
+
+            nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setDuckSqlRunQueued(true))
+
+            try {
+                for (const { node, nodeLogic } of nodesToRunWithLogic) {
+                    nodeLogic.actions.setDuckSqlRunQueued(false)
+                    const nodeAttributes = nodeLogic.values.nodeAttributes as { code?: string; returnVariable?: string }
+                    const nodeCode = nodeAttributes.code ?? node.code ?? ''
+                    const nodeReturnVariable = nodeAttributes.returnVariable ?? node.returnVariable ?? 'duck_df'
+                    const executed = await runDuckSqlCell({
+                        notebookId: notebook.short_id,
+                        code: nodeCode,
+                        returnVariable: nodeReturnVariable,
+                        updateAttributes: nodeLogic.actions.updateAttributes,
+                        setDuckSqlRunLoading: nodeLogic.actions.setDuckSqlRunLoading,
+                    })
+
+                    if (!executed) {
+                        break
+                    }
+                }
+            } finally {
+                nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setDuckSqlRunQueued(false))
+            }
         },
 
         runPythonNodeWithMode: async ({ mode }) => {

@@ -25,11 +25,12 @@ import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlay, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -76,6 +77,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         nodeId,
         pythonRunLoading,
         duckSqlRunLoading,
+        duckSqlRunQueued,
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
@@ -90,7 +92,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         copyToClipboard,
         convertToBacklink,
         runPythonNodeWithMode,
-        runDuckSqlNode,
+        runDuckSqlNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -165,9 +167,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${resolvedDuckSqlReturnVariable}`)
     const duckSqlIsStale = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash !== duckSqlCodeHash
     const duckSqlIsFresh = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash === duckSqlCodeHash
-    const duckSqlRunIconClass = duckSqlIsFresh ? 'text-success' : duckSqlIsStale ? 'text-danger' : undefined
-    const duckSqlRunTooltip = `Run Duck SQL query.${duckSqlIsStale ? ' Stale.' : ''}`
-
     const menuItems: LemonMenuItems = [
         {
             label: 'Copy',
@@ -256,13 +255,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 ) : null}
 
                                                 {isDuckSqlNode ? (
-                                                    <LemonButton
-                                                        onClick={() => void runDuckSqlNode()}
-                                                        size="small"
-                                                        icon={<IconPlay className={duckSqlRunIconClass} />}
+                                                    <DuckSqlRunMenu
+                                                        isFresh={duckSqlIsFresh}
+                                                        isStale={duckSqlIsStale}
                                                         loading={duckSqlRunLoading}
+                                                        queued={duckSqlRunQueued}
                                                         disabledReason={pythonRunDisabledReason}
-                                                        tooltip={duckSqlRunTooltip}
+                                                        onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
 

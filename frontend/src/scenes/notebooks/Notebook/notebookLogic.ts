@@ -28,7 +28,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
+import { collectDuckSqlNodes, collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -512,6 +512,7 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+        duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
 
         pythonNodeIndices: [
             (s) => [s.content],

@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useLayoutEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
@@ -83,7 +83,9 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDuckSQLAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded } = useValues(nodeLogic)
+    const { expanded, duckSqlReturnVariableUsage, duckSqlTablesUsed, duckSqlUpstreamTableSources } =
+        useValues(nodeLogic)
+    const { navigateToNode } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
 
@@ -125,6 +127,12 @@ const Component = ({
 
     const isSettingsVisible = attributes.showSettings ?? false
     const showReturnVariableRow = expanded || isSettingsVisible
+    const hasDependencies = duckSqlTablesUsed.length > 0 || duckSqlReturnVariableUsage.length > 0
+
+    const usageLabel = (duckSqlIndex: number, title: string): string => {
+        const trimmedTitle = title.trim()
+        return trimmedTitle ? trimmedTitle : `Duck SQL cell ${duckSqlIndex}`
+    }
 
     if (!expanded && !showReturnVariableRow) {
         return null
@@ -164,20 +172,74 @@ const Component = ({
             {showReturnVariableRow ? (
                 <div
                     ref={footerRef}
-                    className="flex items-center gap-2 text-xs text-muted border-t p-2"
+                    className="flex flex-col gap-2 text-xs text-muted border-t p-2"
                     onClick={(event) => event.stopPropagation()}
                     onMouseDown={(event) => event.stopPropagation()}
                 >
-                    <span className="font-mono mt-0.5">
-                        <IconCornerDownRight />
-                    </span>
-                    <input
-                        type="text"
-                        className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
-                        value={attributes.returnVariable ?? ''}
-                        onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
-                        spellCheck={false}
-                    />
+                    <div className="flex items-center gap-2">
+                        <span className="font-mono mt-0.5">
+                            <IconCornerDownRight />
+                        </span>
+                        <input
+                            type="text"
+                            className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                            value={attributes.returnVariable ?? ''}
+                            onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                            spellCheck={false}
+                        />
+                        {duckSqlReturnVariableUsage.length > 0 ? (
+                            <span className="text-muted">
+                                Used in{' '}
+                                {duckSqlReturnVariableUsage.map((usage) => (
+                                    <button
+                                        key={usage.nodeId}
+                                        type="button"
+                                        className="text-muted hover:text-default underline underline-offset-2 ml-1"
+                                        onClick={() => navigateToNode(usage.nodeId)}
+                                    >
+                                        {usageLabel(usage.duckSqlIndex, usage.title)}
+                                    </button>
+                                ))}
+                            </span>
+                        ) : null}
+                    </div>
+                    {hasDependencies ? (
+                        <div className="flex flex-col gap-1 pl-6">
+                            {duckSqlTablesUsed.length > 0 ? (
+                                <div>
+                                    <div className="text-[10px] uppercase tracking-wide text-muted">Tables read</div>
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                        {duckSqlTablesUsed.map((table) => {
+                                            const upstreamSource = duckSqlUpstreamTableSources[table]
+                                            return (
+                                                <span
+                                                    key={table}
+                                                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default"
+                                                >
+                                                    {table}
+                                                    {upstreamSource ? (
+                                                        <>
+                                                            <span className="text-muted"> ← </span>
+                                                            <button
+                                                                type="button"
+                                                                className="text-muted hover:text-default underline underline-offset-2"
+                                                                onClick={() => navigateToNode(upstreamSource.nodeId)}
+                                                            >
+                                                                {usageLabel(
+                                                                    upstreamSource.duckSqlIndex,
+                                                                    upstreamSource.title
+                                                                )}
+                                                            </button>
+                                                        </>
+                                                    ) : null}
+                                                </span>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
         </div>
