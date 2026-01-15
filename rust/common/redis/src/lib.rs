@@ -179,17 +179,12 @@ impl CompressionConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RedisValueFormat {
+    #[default]
     Pickle,
     Utf8,
     RawBytes,
-}
-
-impl Default for RedisValueFormat {
-    fn default() -> Self {
-        Self::Pickle
-    }
 }
 
 #[async_trait]
