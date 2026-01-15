@@ -19,6 +19,7 @@ class TokenThrottle(Throttle):
     limit_key: LimitKey
     limit_multiplier: int = 1  # Override in subclass for global throttles (e.g., 10)
     token_type: str = "Token"  # Override: "Input" or "Output"
+    window_seconds: int = 3600
 
     def __init__(self, redis: Redis[bytes] | None):
         self._redis = redis
@@ -31,7 +32,7 @@ class TokenThrottle(Throttle):
             self._limiters[model] = TokenRateLimiter(
                 redis=self._redis,
                 limit=limit,
-                window_seconds=3600,
+                window_seconds=self.window_seconds,
             )
         return self._limiters[model]
 
@@ -59,6 +60,7 @@ class TokenThrottle(Throttle):
         return ThrottleResult.deny(
             detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
             scope=self.scope,
+            retry_after=self.window_seconds,
         )
 
 
@@ -100,6 +102,7 @@ class OutputTokenThrottle(TokenThrottle):
         return ThrottleResult.deny(
             detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
             scope=self.scope,
+            retry_after=self.window_seconds,
         )
 
     async def record_output_tokens(self, context: ThrottleContext, actual_tokens: int) -> None:

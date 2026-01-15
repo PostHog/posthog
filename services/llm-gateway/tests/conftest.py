@@ -17,22 +17,25 @@ from llm_gateway.rate_limiting.model_throttles import (
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 
 
-def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
+def create_test_app(
+    mock_db_pool: MagicMock,
+    throttles: list | None = None,
+) -> FastAPI:
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
+
+    default_throttles = [
+        ProductModelInputTokenThrottle(redis=None),
+        UserModelInputTokenThrottle(redis=None),
+        ProductModelOutputTokenThrottle(redis=None),
+        UserModelOutputTokenThrottle(redis=None),
+    ]
 
     @asynccontextmanager
     async def test_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
-        app.state.throttle_runner = ThrottleRunner(
-            throttles=[
-                ProductModelInputTokenThrottle(redis=None),
-                UserModelInputTokenThrottle(redis=None),
-                ProductModelOutputTokenThrottle(redis=None),
-                UserModelOutputTokenThrottle(redis=None),
-            ]
-        )
+        app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)
