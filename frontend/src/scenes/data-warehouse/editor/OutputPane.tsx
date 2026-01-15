@@ -678,7 +678,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
+                    <QueryExecutionDetails />
                 </div>
             </div>
             <RowDetailsModal

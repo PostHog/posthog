@@ -23,6 +23,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
@@ -344,6 +345,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
         return updated_playlist
 
 
+@extend_schema(tags=["replay"])
 class SessionRecordingPlaylistViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
@@ -541,6 +543,7 @@ class SessionRecordingPlaylistViewSet(
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["GET"], detail=True, url_path="recordings")
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(team_id=self.team.id, product=Product.REPLAY)
         playlist = self.get_object()
 
         limit = int(request.GET.get("limit", 50))

@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -451,7 +451,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     try {
                         await breakpoint(200)
                         if (asStatic) {
-                            cohort = await api.cohorts.duplicate(values.cohort.id)
+                            const sourceTable = values.cohort.is_static ? 'static_cohort_people' : 'cohort_people'
+                            const query: HogQLQuery = {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
+                            }
+                            cohort = await api.create('api/cohort', {
+                                is_static: true,
+                                name: `${values.cohort.name} (static copy)`,
+                                query,
+                            })
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'

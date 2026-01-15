@@ -179,17 +179,12 @@ impl CompressionConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RedisValueFormat {
+    #[default]
     Pickle,
     Utf8,
     RawBytes,
-}
-
-impl Default for RedisValueFormat {
-    fn default() -> Self {
-        Self::Pickle
-    }
 }
 
 #[async_trait]
@@ -215,6 +210,14 @@ pub trait Client {
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError>;
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError>;
+    /// Set raw bytes directly without any serialization or compression.
+    /// Used primarily for tests that need to write pickle-formatted data.
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn set_with_format(
         &self,
@@ -250,6 +253,18 @@ pub trait Client {
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
     async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError>;
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
 }
 
 // Module declarations

@@ -109,7 +109,10 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ) : undefined
                 }
             />
-            <FeedbackBanner feedbackButtonId="groups-list" />
+            <FeedbackBanner
+                feedbackButtonId="groups-list"
+                message="We're improving the groups experience. Send us your feedback!"
+            />
 
             <Query
                 uniqueKey={`groups-query-${tabId}`}

@@ -109,7 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -627,6 +627,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     )}
                                                                     className="mt-2"
                                                                     flagId={featureFlag.id}
+                                                                    context="form"
                                                                 />
                                                             )}
                                                         </LemonField>
@@ -717,7 +718,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <FeatureFlagEvaluationTags
                                                 tags={featureFlag.tags}
                                                 evaluationTags={featureFlag.evaluation_tags || []}
-                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                onSave={(updatedTags, updatedEvaluationTags) => {
                                                     const updatedFlag = {
                                                         ...featureFlag,
                                                         tags: updatedTags,
@@ -730,6 +731,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     (tag: string) => !featureFlag.tags?.includes(tag)
                                                 )}
                                                 flagId={featureFlag.id}
+                                                context="sidebar"
                                             />
                                         ) : (
                                             <SceneTags
@@ -1033,6 +1035,7 @@ function FeatureFlagRollout({
         variantErrors,
         experiment,
         experimentLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1223,6 +1226,27 @@ function FeatureFlagRollout({
                                 </div>
                             </>
                         )}
+
+                        {dependentFlags.length > 0 && (
+                            <div className="mt-4">
+                                <span className="card-secondary mt-4">Dependent flags</span>
+                                <div className="flex flex-col gap-1">
+                                    {dependentFlags.map((flag: DependentFlag) => (
+                                        <div key={flag.id} className="flex gap-1 items-center">
+                                            <span className="font-normal text-sm">{flag.key}</span>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.featureFlag(flag.id)}
+                                                aria-label={`Open ${flag.key}`}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <SceneDivider />
                     {featureFlag.filters.multivariate && (
@@ -1308,8 +1332,8 @@ function FeatureFlagRollout({
                                                         <FeatureFlagEvaluationTags
                                                             tags={featureFlag.tags}
                                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                                            staticOnly
                                                             flagId={featureFlag.id}
+                                                            context="static"
                                                         />
                                                     ) : (
                                                         <ObjectTags tags={featureFlag.tags} staticOnly />
@@ -1695,8 +1719,8 @@ function FeatureFlagRollout({
                                         <FeatureFlagEvaluationTags
                                             tags={featureFlag.tags}
                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                            staticOnly
                                             flagId={featureFlag.id}
+                                            context="static"
                                         />
                                     ) : (
                                         <ObjectTags tags={featureFlag.tags} staticOnly />

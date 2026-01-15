@@ -345,6 +345,15 @@ impl Client for ReadWriteClient {
         }
     }
 
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.set_bytes(k, v, ttl_seconds).await
+    }
+
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
         self.writer.set(k, v).await
     }
@@ -427,6 +436,41 @@ impl Client for ReadWriteClient {
             }
             Err(err) => Err(err),
         }
+    }
+
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
+        match self.reader.scard_multiple(keys.clone()).await {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica scard_multiple failed for {} keys, falling back to primary: {}",
+                    keys.len(),
+                    err
+                );
+                self.writer.scard_multiple(keys).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_sadd_expire(items, ttl_seconds).await
+    }
+
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError> {
+        self.writer.batch_set_nx_ex(items, ttl_seconds).await
+    }
+
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
+        self.writer.batch_del(keys).await
     }
 }
 

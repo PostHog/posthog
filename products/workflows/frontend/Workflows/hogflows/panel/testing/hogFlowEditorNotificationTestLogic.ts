@@ -59,6 +59,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         setSampleGlobalsError: (error: string | null) => ({ error }),
         setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
+        setSelectedPersonDistinctId: (distinctId: string | null) => ({ distinctId }),
     }),
     reducers({
         personSelectorOpen: [
@@ -77,12 +78,9 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         ],
         emailAddressOverride: [
             null as string | null,
+            { persist: true },
             {
                 setEmailAddressOverride: (_, { email }) => email,
-                loadSamplePersonByDistinctIdSuccess: (_, { sampleGlobals }) => {
-                    // Update email override when person changes
-                    return sampleGlobals?.person?.properties?.email ?? null
-                },
             },
         ],
         testResult: [
@@ -97,8 +95,16 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 setNextActionId: (_, { nextActionId }) => nextActionId,
             },
         ],
+        selectedPersonDistinctId: [
+            null as string | null,
+            { persist: true },
+            {
+                setSelectedPersonDistinctId: (_, { distinctId }) => distinctId,
+            },
+        ],
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
+            { persist: true },
             {
                 setSampleGlobals: (previousGlobals, { globals }) => {
                     try {
@@ -175,13 +181,14 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 try {
                     const parsedGlobals = JSON.parse(testInvocation.globals)
 
-                    // Override email in person properties if emailAddressOverride is set
-                    if (values.emailAddressOverride && parsedGlobals.person) {
+                    // Use emailAddressOverride if set, otherwise fall back to sampleGlobals person email
+                    const emailToUse = values.emailAddressOverride ?? values.sampleGlobals?.person?.properties?.email
+                    if (emailToUse && parsedGlobals.person) {
                         parsedGlobals.person = {
                             ...parsedGlobals.person,
                             properties: {
                                 ...parsedGlobals.person.properties,
-                                email: values.emailAddressOverride,
+                                email: emailToUse,
                             },
                         }
                     }
@@ -228,6 +235,8 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
     })),
     listeners(({ actions, values }) => ({
         loadSamplePersonByDistinctId: async ({ distinctId }) => {
+            // Store the selected distinctId so we can reload it later
+            actions.setSelectedPersonDistinctId(distinctId)
             try {
                 // First, get the person by distinct_id
                 const personResponse = await api.persons.list({ distinct_id: distinctId, limit: 1 })
@@ -286,6 +295,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             } catch (error: any) {
                 actions.setSampleGlobalsError(`Failed to load person: ${error.message || 'Unknown error'}`)
                 actions.loadSamplePersonByDistinctIdFailure('Failed to load person')
+                // prevent infinite retry loops for deleted persons
+                if (values.selectedPersonDistinctId === distinctId) {
+                    actions.setSelectedPersonDistinctId(null)
+                }
             }
         },
         setPersonSearchTerm: async ({ term }, breakpoint) => {
@@ -304,11 +317,16 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             }
         },
         loadSamplePersonsSuccess: ({ samplePersons }) => {
-            if (samplePersons.length > 0 && !values.sampleGlobals) {
-                const firstPerson = samplePersons[0]
-                const distinctId = firstPerson.distinct_ids?.[0]
+            if (samplePersons.length > 0) {
+                // Prefer persisted selectedPersonDistinctId if available, otherwise use first person
+                const distinctId = values.selectedPersonDistinctId ?? samplePersons[0].distinct_ids?.[0]
                 if (distinctId) {
-                    actions.loadSamplePersonByDistinctId({ distinctId })
+                    // Check if persisted sampleGlobals matches the selected person
+                    const persistedPersonMatches = values.sampleGlobals?.event?.distinct_id === distinctId
+                    // Only reload if we don't have globals or if they don't match the selected person
+                    if (!values.sampleGlobals || !persistedPersonMatches) {
+                        actions.loadSamplePersonByDistinctId({ distinctId })
+                    }
                 }
             }
         },
@@ -335,14 +353,12 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 const reorderedGlobals = reorderGlobalsForEmailAction(sampleGlobals)
                 actions.setSampleGlobals(JSON.stringify(reorderedGlobals, null, 2))
             }
-
-            if (sampleGlobals?.person?.properties?.email) {
-                actions.setEmailAddressOverride(sampleGlobals.person.properties.email)
-            }
         },
     })),
-    afterMount(({ actions }) => {
-        // Load sample persons on mount
+    afterMount(({ actions, values }) => {
+        if (values.sampleGlobals) {
+            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+        }
         actions.loadSamplePersons()
     }),
 ])

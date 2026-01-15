@@ -139,6 +139,7 @@ pub enum MockRedisValue {
     MinMax(String, String),
     StringWithFormat(String, RedisValueFormat),
     StringWithTTLAndFormat(String, u64, RedisValueFormat),
+    Bytes(Vec<u8>, Option<u64>),
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +246,21 @@ impl Client for MockRedisClient {
             Ok(string_data) => Ok(string_data.into_bytes()),
             Err(e) => Err(e),
         }
+    }
+
+    async fn set_bytes(
+        &self,
+        key: String,
+        value: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "set_bytes".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::Bytes(value, ttl_seconds),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
     }
 
     async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {
@@ -421,5 +437,68 @@ impl Client for MockRedisClient {
             .map(|k| self.mget_ret.get(k).and_then(|v| v.clone()))
             .collect();
         Ok(results)
+    }
+
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "scard_multiple".to_string(),
+            key: format!("keys={}", keys.len()),
+            value: MockRedisValue::VecString(keys.clone()),
+        });
+
+        let results: Vec<u64> = keys
+            .iter()
+            .map(|k| {
+                self.scard_ret
+                    .get(k)
+                    .and_then(|r| r.clone().ok())
+                    .unwrap_or(0)
+            })
+            .collect();
+        Ok(results)
+    }
+
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        _ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "batch_sadd_expire".to_string(),
+            key: format!("items={}", items.len()),
+            value: MockRedisValue::None,
+        });
+        Ok(())
+    }
+
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        _ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError> {
+        let keys: Vec<String> = items.iter().map(|(k, _)| k.clone()).collect();
+        self.lock_calls().push(MockRedisCall {
+            op: "batch_set_nx_ex".to_string(),
+            key: format!("items={}", items.len()),
+            value: MockRedisValue::VecString(keys.clone()),
+        });
+        Ok(keys
+            .iter()
+            .map(|k| {
+                self.set_nx_ex_ret
+                    .get(k)
+                    .and_then(|r| r.clone().ok())
+                    .unwrap_or(false)
+            })
+            .collect())
+    }
+
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "batch_del".to_string(),
+            key: format!("keys={}", keys.len()),
+            value: MockRedisValue::VecString(keys),
+        });
+        Ok(())
     }
 }

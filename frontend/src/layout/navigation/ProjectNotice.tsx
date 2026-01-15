@@ -87,7 +87,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                             {' '}
                             When you're ready, head on over to the{' '}
                             <Link
-                                to={urls.project(altTeamForIngestion.id, urls.useCaseSelection())}
+                                to={urls.project(altTeamForIngestion.id, urls.onboarding())}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
                                 onboarding wizard
@@ -104,7 +104,10 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 <>
                     This project has no events yet. Go to the{' '}
                     <Link
-                        to={urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL)}
+                        to={urls.onboarding({
+                            productKey: productFromUrl ?? ProductKey.PRODUCT_ANALYTICS,
+                            stepKey: OnboardingStepKey.INSTALL,
+                        })}
                         data-attr="real_project_with_no_events-ingestion_link"
                     >
                         onboarding wizard
@@ -117,7 +120,10 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                 </>
             ),
             action: {
-                to: urls.onboarding(productFromUrl ?? ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL),
+                to: urls.onboarding({
+                    productKey: productFromUrl ?? ProductKey.PRODUCT_ANALYTICS,
+                    stepKey: OnboardingStepKey.INSTALL,
+                }),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconGear />,
                 children: 'Go to wizard',

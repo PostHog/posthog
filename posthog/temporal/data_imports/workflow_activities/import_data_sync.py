@@ -1,23 +1,23 @@
 import uuid
 import dataclasses
-from contextlib import contextmanager
-from typing import Any, NoReturn, Optional
+from typing import Any, Optional
 
-from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
-from posthog.redis import get_client
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.data_imports.pipelines.common.extract import (
+    handle_non_retryable_error,
+    report_heartbeat_timeout,
+    trim_source_job_inputs,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
@@ -25,9 +25,8 @@ from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.util import NonRetryableException
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -53,136 +52,13 @@ class ImportDataActivityInputs:
         }
 
 
-@contextmanager
-def _get_redis():
-    try:
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
-
-        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis.ping()
-
-        yield redis
-    except Exception as e:
-        capture_exception(e)
-        yield None
-
-
-def _non_retryable_errors_key(job_inputs: PipelineInputs) -> str:
-    return (
-        f"posthog:data_warehouse:non_retryable_errors:{job_inputs.team_id}:{job_inputs.source_id}:{job_inputs.run_id}"
-    )
-
-
-def _trim_source_job_inputs(source: ExternalDataSource) -> None:
-    if not source.job_inputs:
-        return
-
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
-        if isinstance(value, str):
-            if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
-                did_update_inputs = True
-
-    if did_update_inputs:
-        source.save()
-
-
-def _report_heartbeat_timeout(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> None:
-    logger.debug("Checking for heartbeat timeout reporting...")
-
-    try:
-        info = activity.info()
-        heartbeat_timeout = info.heartbeat_timeout
-        current_attempt_scheduled_time = info.current_attempt_scheduled_time
-
-        if not heartbeat_timeout:
-            logger.debug(f"No heartbeat timeout set for this activity: {heartbeat_timeout}")
-            return
-
-        if not current_attempt_scheduled_time:
-            logger.debug(f"No current attempt scheduled time set for this activity: {current_attempt_scheduled_time}")
-            return
-
-        if info.attempt < 2:
-            logger.debug(f"First attempt of activity, no heartbeat timeout to report.")
-            return
-
-        heartbeat_details = info.heartbeat_details
-        if not isinstance(heartbeat_details, tuple | list) or len(heartbeat_details) < 1:
-            logger.debug(
-                f"No heartbeat details found to analyze for timeout: {heartbeat_details}. Class: {heartbeat_details.__class__.__name__}"
-            )
-            return
-
-        last_heartbeat = heartbeat_details[-1]
-        logger.debug(f"Resuming activity after failure. Last heartbeat details: {last_heartbeat}")
-
-        if not isinstance(last_heartbeat, dict):
-            logger.debug(
-                f"Last heartbeat details not in expected format (dict). Found: {type(last_heartbeat)}: {last_heartbeat}"
-            )
-            return
-
-        last_heartbeat_host = last_heartbeat.get("host", None)
-        last_heartbeat_timestamp = last_heartbeat.get("ts", None)
-
-        logger.debug(f"Last heartbeat was {last_heartbeat}")
-
-        if last_heartbeat_host is None or last_heartbeat_timestamp is None:
-            logger.debug(f"Incomplete heartbeat details. No host or timestamp found.")
-            return
-
-        try:
-            last_heartbeat_timestamp = float(last_heartbeat_timestamp)
-        except (TypeError, ValueError):
-            logger.debug(f"Last heartbeat timestamp could not be converted to float: {last_heartbeat_timestamp}")
-            return
-
-        gap_between_beats = current_attempt_scheduled_time.timestamp() - float(last_heartbeat_timestamp)
-        if gap_between_beats > heartbeat_timeout.total_seconds():
-            logger.debug(
-                "Last heartbeat was longer ago than the heartbeat timeout allows. Likely due to a pod OOM or restart.",
-                last_heartbeat_host=last_heartbeat_host,
-                last_heartbeat_timestamp=last_heartbeat_timestamp,
-                gap_between_beats=gap_between_beats,
-                heartbeat_timeout_seconds=heartbeat_timeout.total_seconds(),
-            )
-
-            posthoganalytics.capture(
-                "dwh_pod_heartbeat_timeout",
-                distinct_id=None,
-                properties={
-                    "team_id": inputs.team_id,
-                    "schema_id": str(inputs.schema_id),
-                    "source_id": str(inputs.source_id),
-                    "run_id": inputs.run_id,
-                    "host": last_heartbeat_host,
-                    "gap_between_beats": gap_between_beats,
-                    "heartbeat_timeout_seconds": heartbeat_timeout.total_seconds(),
-                    "task_queue": info.task_queue,
-                    "workflow_id": info.workflow_id,
-                    "workflow_run_id": info.workflow_run_id,
-                    "workflow_type": info.workflow_type,
-                    "attempt": info.attempt,
-                },
-            )
-        else:
-            logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
-    except Exception as e:
-        logger.debug(f"Error while reporting heartbeat timeout: {e}", exc_info=e)
-
-
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
 
-    _report_heartbeat_timeout(inputs, logger)
+    report_heartbeat_timeout(inputs, logger)
 
     with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
@@ -205,7 +81,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             dataset_name=model.folder_path(),
         )
 
-        _trim_source_job_inputs(model.pipeline)
+        trim_source_job_inputs(model.pipeline)
 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
@@ -282,26 +158,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
 
-def _handle_non_retryable_error(
-    job_inputs: PipelineInputs, error_msg: str, logger: FilteringBoundLogger, error: Exception
-) -> NoReturn:
-    with _get_redis() as redis_client:
-        if redis_client is None:
-            logger.debug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
-
-        retry_key = _non_retryable_errors_key(job_inputs)
-        attempts = redis_client.incr(retry_key)
-
-        if attempts <= 3:
-            redis_client.expire(retry_key, 86400)  # Expire after 24 hours
-            logger.debug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
-            raise
-
-    logger.debug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
-
-
 def _run(
     job_inputs: PipelineInputs,
     source: SourceResponse,
@@ -325,7 +181,7 @@ def _run(
             non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
         )
         if is_non_retryable_error:
-            _handle_non_retryable_error(job_inputs, error_msg, logger, e)
+            handle_non_retryable_error(job_inputs, error_msg, logger, e)
         else:
             logger.debug(
                 "Error encountered during import_data_activity_sync - re-raising",

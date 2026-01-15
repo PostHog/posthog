@@ -260,22 +260,54 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                     </span>
                                                     <span className="ml-auto flex items-center gap-1">
                                                         {(shortcut.keybind as string[][]).map(
-                                                            (keybindOption, index) => (
-                                                                <React.Fragment key={index}>
-                                                                    {index > 0 && (
-                                                                        <span className="text-xs opacity-75">or</span>
-                                                                    )}
-                                                                    <KeyboardShortcut
-                                                                        {...Object.fromEntries(
-                                                                            keybindOption.map((key: string) => [
-                                                                                key,
-                                                                                true,
-                                                                            ])
+                                                            (keybindOption, index) => {
+                                                                const isSequence = keybindOption.includes('then')
+                                                                if (isSequence) {
+                                                                    // Render sequence shortcuts as "s → q → l"
+                                                                    const keys = keybindOption.filter(
+                                                                        (k) => k !== 'then'
+                                                                    )
+                                                                    return (
+                                                                        <React.Fragment key={index}>
+                                                                            {index > 0 && (
+                                                                                <span className="text-xs opacity-75">
+                                                                                    or
+                                                                                </span>
+                                                                            )}
+                                                                            <kbd className="KeyboardShortcut gap-x-0.5 text-xs">
+                                                                                {keys.map((key, keyIndex) => (
+                                                                                    <React.Fragment key={key}>
+                                                                                        {keyIndex > 0 && (
+                                                                                            <span className="opacity-50">
+                                                                                                {' '}
+                                                                                            </span>
+                                                                                        )}
+                                                                                        <span>{key}</span>
+                                                                                    </React.Fragment>
+                                                                                ))}
+                                                                            </kbd>
+                                                                        </React.Fragment>
+                                                                    )
+                                                                }
+                                                                return (
+                                                                    <React.Fragment key={index}>
+                                                                        {index > 0 && (
+                                                                            <span className="text-xs opacity-75">
+                                                                                or
+                                                                            </span>
                                                                         )}
-                                                                        className="text-xs"
-                                                                    />
-                                                                </React.Fragment>
-                                                            )
+                                                                        <KeyboardShortcut
+                                                                            {...Object.fromEntries(
+                                                                                keybindOption.map((key: string) => [
+                                                                                    key,
+                                                                                    true,
+                                                                                ])
+                                                                            )}
+                                                                            className="text-xs"
+                                                                        />
+                                                                    </React.Fragment>
+                                                                )
+                                                            }
                                                         )}
                                                     </span>
                                                 </ButtonPrimitive>

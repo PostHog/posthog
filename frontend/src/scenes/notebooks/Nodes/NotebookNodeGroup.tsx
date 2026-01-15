@@ -1,20 +1,29 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconTrending } from '@posthog/icons'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { GroupCaption } from 'scenes/groups/components/GroupCaption'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { formatCurrency } from 'lib/utils/geography/currency'
+import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { calculateMRRData, getLifetimeValue, getPaidProducts } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
     const { id, groupTypeIndex, tabId, title } = attributes
@@ -82,17 +91,94 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                     </div>
                 ) : groupData ? (
                     <>
-                        <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
-                        <GroupCaption
-                            groupData={groupData}
-                            groupTypeName={groupTypeName}
-                            displayType={inGroupFeed ? 'col' : 'wrap'}
-                        />
+                        <div>
+                            <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
+                            <CopyToClipboardInline
+                                explicitValue={id}
+                                iconStyle={{ color: 'var(--color-accent)' }}
+                                description="group key"
+                                className="text-xs text-muted"
+                            >
+                                {stringWithWBR(id, 40)}
+                            </CopyToClipboardInline>
+                        </div>
+
+                        <GroupInfo groupData={groupData} />
                     </>
                 ) : null}
             </div>
         </div>
     )
+}
+
+export function GroupInfo({ groupData }: { groupData: Group }): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
+    const lifetimeValue = getLifetimeValue(groupData)
+
+    return (
+        <div className="flex flex-col">
+            <div>
+                <span className="text-secondary">First seen:</span>{' '}
+                {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
+            </div>
+            <MRR groupData={groupData} />
+            {lifetimeValue !== null && (
+                <div>
+                    <Tooltip title="Total worth of revenue from this customer over the whole relationship">
+                        <span className="text-secondary">Lifetime value: </span>{' '}
+                    </Tooltip>
+                    {formatCurrency(lifetimeValue, baseCurrency)}
+                </div>
+            )}
+            <PaidProducts groupData={groupData} />
+        </div>
+    )
+}
+
+export function MRR({ groupData }: { groupData: Group }): JSX.Element | null {
+    const { baseCurrency } = useValues(teamLogic)
+    const mrrData = calculateMRRData(groupData, baseCurrency)
+
+    if (!mrrData) {
+        return null
+    }
+
+    const icon =
+        mrrData.trendDirection === 'up' ? (
+            <IconTrending className="text-success" />
+        ) : mrrData.trendDirection === 'down' ? (
+            <IconTrendingDown className="text-danger" />
+        ) : mrrData.trendDirection === 'flat' ? (
+            <IconTrendingFlat />
+        ) : null
+
+    return (
+        <div>
+            <div className="flex gap-1 items-center">
+                <span className="text-secondary">MRR:</span>
+                <Tooltip title={mrrData.tooltipText}>
+                    <div className="flex gap-2 items-center">
+                        {formatCurrency(mrrData.mrr, baseCurrency)}
+                        {icon}
+                    </div>
+                </Tooltip>
+            </div>
+        </div>
+    )
+}
+
+export function PaidProducts({ groupData }: { groupData: Group }): JSX.Element | null {
+    const paidProducts = getPaidProducts(groupData)
+
+    if (paidProducts.length === 0) {
+        return null
+    }
+
+    const paidProductTags = paidProducts.map((product) => (
+        <LemonTag className="mr-1 mb-1" key={product} children={product} />
+    ))
+
+    return <div>Paid products: {paidProductTags}</div>
 }
 
 type NotebookNodeGroupAttributes = {

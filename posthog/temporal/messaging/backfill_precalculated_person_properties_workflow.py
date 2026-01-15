@@ -1,4 +1,3 @@
-import json
 import time
 import asyncio
 import datetime as dt
@@ -9,12 +8,11 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -140,6 +138,7 @@ async def backfill_precalculated_person_properties_activity(
                 ORDER BY p.person_id
                 LIMIT %(limit)s
                 OFFSET %(offset)s
+                FORMAT JSONEachRow
             """
 
             query_params = {
@@ -148,72 +147,65 @@ async def backfill_precalculated_person_properties_activity(
                 "offset": current_offset,
             }
 
+            batch_count = 0
+            events_to_produce = []
+
             with tags_context(
                 team_id=inputs.team_id,
                 feature=Feature.BEHAVIORAL_COHORTS,
                 product=Product.MESSAGING,
                 query_type="person_properties_backfill",
             ):
-                # Execute query using sync_execute in a thread to avoid blocking the event loop
-                persons = await asyncio.to_thread(
-                    sync_execute,
-                    persons_query,
-                    query_params,
-                    workload=Workload.OFFLINE,
-                    team_id=inputs.team_id,
-                    ch_user=ClickHouseUser.COHORTS,
-                )
+                async with get_client(team_id=inputs.team_id) as client:
+                    async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
+                        batch_count += 1
+                        person_id = str(row["person_id"])
+                        person_properties = row.get("properties") or {}
+                        distinct_ids = row["distinct_ids"]
+
+                        for filter_info in inputs.filters:
+                            # Evaluate person against filter using HogQL bytecode
+                            globals_dict = {
+                                "person": {
+                                    "id": person_id,
+                                    "properties": person_properties,
+                                },
+                                "project": {
+                                    "id": inputs.team_id,
+                                },
+                            }
+
+                            try:
+                                result = await asyncio.to_thread(
+                                    execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
+                                )
+                                matches = bool(result.result) if result else False
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=filter_info.condition_hash,
+                                    error=str(e),
+                                )
+                                matches = False
+
+                            # ALWAYS emit - both matches and non-matches for EACH distinct_id
+                            for distinct_id in distinct_ids:
+                                event = {
+                                    "distinct_id": distinct_id,
+                                    "person_id": person_id,
+                                    "team_id": inputs.team_id,
+                                    "condition": filter_info.condition_hash,
+                                    "matches": matches,
+                                    "source": f"cohort_backfill_{inputs.cohort_id}",
+                                }
+                                events_to_produce.append(event)
 
             # No more persons, we're done
-            if not persons:
+            if batch_count == 0:
                 break
 
-            logger.info(f"Fetched {len(persons)} persons at offset {current_offset}")
-
-            # Evaluate each person against each filter
-            events_to_produce = []
-
-            for person_id, properties, distinct_ids in persons:
-                person_id = str(person_id)
-                person_properties = json.loads(properties) if properties else {}
-
-                for filter_info in inputs.filters:
-                    # Evaluate person against filter using HogQL bytecode
-                    globals_dict = {
-                        "person": {
-                            "id": person_id,
-                            "properties": person_properties,
-                        },
-                        "project": {
-                            "id": inputs.team_id,
-                        },
-                    }
-
-                    try:
-                        result = await asyncio.to_thread(
-                            execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
-                        )
-                        matches = bool(result.result) if result else False
-                    except Exception as e:
-                        logger.warning(
-                            f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
-                            person_id=person_id,
-                            condition_hash=filter_info.condition_hash,
-                            error=str(e),
-                        )
-                        matches = False
-
-                    # ALWAYS emit - both matches and non-matches for EACH distinct_id
-                    for distinct_id in distinct_ids:
-                        event = {
-                            "distinct_id": distinct_id,
-                            "person_id": person_id,
-                            "team_id": inputs.team_id,
-                            "condition": filter_info.condition_hash,
-                            "matches": matches,
-                            "source": f"cohort_backfill_{inputs.cohort_id}",
-                        }
-                        events_to_produce.append(event)
+            logger.info(f"Streamed {batch_count} persons at offset {current_offset}")
 
             # Produce events to Kafka in batches
             if events_to_produce:
@@ -230,7 +222,6 @@ async def backfill_precalculated_person_properties_activity(
                 total_events_produced += len(events_to_produce)
                 logger.info(f"Produced {len(events_to_produce)} events for batch at offset {current_offset}")
 
-            batch_count = len(persons)
             total_processed += batch_count
             current_offset += batch_count
 

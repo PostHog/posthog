@@ -1148,9 +1148,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with "Required field 'auth' is missing"
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are still intact
         source.refresh_from_db()
@@ -1372,9 +1372,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with validation error
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are preserved
         source.refresh_from_db()

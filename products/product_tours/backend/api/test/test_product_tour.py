@@ -89,6 +89,74 @@ class TestProductTour(APIBaseTest):
         # Should not appear in normal list
         assert not ProductTour.objects.filter(id=tour.id).exists()
 
+    def test_announcement_cannot_have_multiple_steps(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Invalid announcement",
+                "content": {
+                    "type": "announcement",
+                    "steps": [
+                        {"id": "step-1", "type": "modal", "content": {}},
+                        {"id": "step-2", "type": "modal", "content": {}},
+                    ],
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Announcements must have exactly 1 step." in str(response.json())
+
+    def test_announcement_with_single_step_is_valid(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Valid announcement",
+                "content": {
+                    "type": "announcement",
+                    "steps": [
+                        {"id": "step-1", "type": "modal", "content": {}},
+                    ],
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_regular_tour_can_have_multiple_steps(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Multi-step tour",
+                "content": {
+                    "steps": [
+                        {"id": "step-1", "selector": "#btn1", "content": {}},
+                        {"id": "step-2", "selector": "#btn2", "content": {}},
+                        {"id": "step-3", "selector": "#btn3", "content": {}},
+                    ],
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_update_to_announcement_with_multiple_steps_fails(self):
+        tour = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Tour",
+                "content": {"steps": [{"id": "1", "type": "modal"}, {"id": "2", "type": "modal"}]},
+            },
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour['id']}/",
+            data={"content": {"type": "announcement", "steps": tour["content"]["steps"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
 
 class TestProductTourLinkedSurveys(APIBaseTest):
     def test_linked_survey_launched_when_tour_launched(self):

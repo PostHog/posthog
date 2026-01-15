@@ -6,14 +6,143 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { uuid } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { Breadcrumb, ProductTour, ProgressStatus } from '~/types'
+import {
+    Breadcrumb,
+    ProductTour,
+    ProductTourButtonAction,
+    ProductTourContent,
+    ProductTourStepButton,
+    ProductTourStepButtons,
+    ProgressStatus,
+    SurveyPosition,
+} from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+
+export const BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'dismiss', label: 'Dismiss' },
+    { value: 'link', label: 'Open link' },
+    { value: 'trigger_tour', label: 'Start tour' },
+]
+
+export const TOUR_BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'next_step', label: 'Next step' },
+    { value: 'previous_step', label: 'Previous step' },
+    ...BUTTON_ACTION_OPTIONS,
+]
+
+export const DEFAULT_PRIMARY_BUTTON: ProductTourStepButton = {
+    text: 'Got it',
+    action: 'dismiss',
+}
+
+export const DEFAULT_SECONDARY_BUTTON: ProductTourStepButton = {
+    text: 'Learn more',
+    action: 'link',
+    link: '',
+}
+
+export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number): ProductTourStepButtons {
+    const isFirstStep = stepIndex === 0
+    const isLastStep = stepIndex === totalSteps - 1
+
+    return {
+        primary: {
+            text: isLastStep ? 'Done' : 'Next',
+            action: isLastStep ? 'dismiss' : 'next_step',
+        },
+        ...(isFirstStep
+            ? {}
+            : {
+                  secondary: {
+                      text: 'Back',
+                      action: 'previous_step',
+                  },
+              }),
+    }
+}
+
+function createDefaultAnnouncementContent(): ProductTourContent {
+    return {
+        type: 'announcement',
+        steps: [
+            {
+                id: uuid(),
+                type: 'modal',
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'heading',
+                            attrs: { level: 2 },
+                            content: [{ type: 'text', text: 'Your announcement title' }],
+                        },
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Add your message here. You can use rich text formatting, images, and more.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                buttons: {
+                    primary: DEFAULT_PRIMARY_BUTTON,
+                },
+                modalPosition: SurveyPosition.MiddleCenter,
+            },
+        ],
+        appearance: {
+            showOverlay: false,
+            dismissOnClickOutside: false,
+        },
+    }
+}
+
+function createDefaultBannerContent(): ProductTourContent {
+    return {
+        type: 'announcement',
+        steps: [
+            {
+                id: uuid(),
+                type: 'banner',
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Your banner message here. Keep it short and actionable.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                bannerConfig: {
+                    behavior: 'sticky',
+                    action: {
+                        type: 'none',
+                    },
+                },
+            },
+        ],
+        appearance: {
+            showOverlay: false,
+            dismissOnClickOutside: false,
+            whiteLabel: true, // banners simply have no branding
+        },
+    }
+}
 
 export enum ProductToursTabs {
     Active = 'active',
@@ -33,6 +162,18 @@ export function isProductTourRunning(tour: Pick<ProductTour, 'start_date' | 'end
     return getProductTourStatus(tour) === ProgressStatus.Running
 }
 
+export function isAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return tour.content?.type === 'announcement'
+}
+
+export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
+}
+
+export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
+}
+
 export interface ProductToursFilters {
     archived: boolean
 }
@@ -44,6 +185,8 @@ export const productToursLogic = kea<productToursLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
         setTab: (tab: ProductToursTabs) => ({ tab }),
+        createAnnouncement: (name: string) => ({ name }),
+        createBanner: (name: string) => ({ name }),
     }),
     loaders(({ values }) => ({
         productTours: {
@@ -88,6 +231,33 @@ export const productToursLogic = kea<productToursLogicType>([
     listeners(({ actions }) => ({
         setTab: ({ tab }) => {
             actions.setFilters({ archived: tab === ProductToursTabs.Archived })
+        },
+        deleteProductTourSuccess: () => {
+            router.actions.push(urls.productTours())
+        },
+        createAnnouncement: async ({ name }) => {
+            try {
+                const announcement = await api.productTours.create({
+                    name,
+                    content: createDefaultAnnouncementContent(),
+                })
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(announcement.id))
+            } catch {
+                lemonToast.error('Failed to create announcement')
+            }
+        },
+        createBanner: async ({ name }) => {
+            try {
+                const banner = await api.productTours.create({
+                    name,
+                    content: createDefaultBannerContent(),
+                })
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(banner.id))
+            } catch {
+                lemonToast.error('Failed to create banner')
+            }
         },
     })),
     selectors({

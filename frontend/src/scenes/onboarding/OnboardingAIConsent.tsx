@@ -14,6 +14,7 @@ import { OnboardingStepKey } from '~/types'
 
 import { FlappyHog } from './FlappyHog'
 import { OnboardingStep } from './OnboardingStep'
+import { OnboardingStepComponentType } from './onboardingLogic'
 
 const EXAMPLE_PROMPTS = [
     'Show me recordings of users rage-clicking the paywall',
@@ -22,7 +23,7 @@ const EXAMPLE_PROMPTS = [
     'How many people actually use the dashboard?',
 ]
 
-export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
+export const OnboardingAIConsent: OnboardingStepComponentType = () => {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
 
@@ -42,11 +43,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
     }
 
     return (
-        <OnboardingStep
-            stepKey={stepKey}
-            title={isEnabledForOrganization ? 'PostHog AI is ready' : 'Activate PostHog AI'}
-            onContinue={handleContinue}
-        >
+        <OnboardingStep stepKey={OnboardingStepKey.AI_CONSENT} title="PostHog AI" onContinue={handleContinue}>
             <HogfettiComponent />
             <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
 
@@ -126,3 +123,5 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
         </OnboardingStep>
     )
 }
+
+OnboardingAIConsent.stepKey = OnboardingStepKey.AI_CONSENT

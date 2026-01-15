@@ -14,7 +14,11 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
+import { LemonMenuItems } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
+import { hashCodeForString } from 'lib/utils'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
@@ -24,10 +28,60 @@ import {
     NotebookNodeAttributes,
     NotebookNodeResource,
     NotebookNodeSettings,
+    NotebookNodeSettingsPlacement,
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import { VariableUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
+import {
+    PythonExecutionResult,
+    PythonExecutionVariable,
+    PythonKernelExecuteResponse,
+    buildPythonExecutionError,
+    buildPythonExecutionResult,
+} from './pythonExecution'
+
+export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
+
+type RunPythonCellParams = {
+    notebookId: string
+    code: string
+    exportedGlobals: { name: string; type: string }[]
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
+    setPythonRunLoading: (loading: boolean) => void
+}
+
+const runPythonCell = async ({
+    notebookId,
+    code,
+    exportedGlobals,
+    updateAttributes,
+    setPythonRunLoading,
+}: RunPythonCellParams): Promise<boolean> => {
+    setPythonRunLoading(true)
+    try {
+        const execution = (await api.notebooks.kernelExecute(notebookId, {
+            code,
+            return_variables: exportedGlobals.length > 0,
+        })) as PythonKernelExecuteResponse
+
+        updateAttributes({
+            pythonExecution: buildPythonExecutionResult(execution, exportedGlobals),
+            pythonExecutionCodeHash: hashCodeForString(code),
+        })
+        return true
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
+        updateAttributes({
+            pythonExecution: buildPythonExecutionError(message, exportedGlobals),
+            pythonExecutionCodeHash: hashCodeForString(code),
+        })
+        return false
+    } finally {
+        setPythonRunLoading(false)
+    }
+}
 
 export type NotebookNodeLogicProps = {
     nodeType: NotebookNodeType
@@ -38,6 +92,7 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
+    settingsPlacement?: NotebookNodeSettingsPlacement
 } & NotebookNodeAttributeProperties<any>
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -48,6 +103,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setExpanded: (expanded: boolean) => ({ expanded }),
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
+        setMenuItems: (menuItems: LemonMenuItems | null) => ({ menuItems }),
         insertAfter: (content: JSONContent) => ({ content }),
         insertAfterLastNodeOfType: (nodeType: string, content: JSONContent) => ({ content, nodeType }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
@@ -55,7 +111,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
         setNextNode: (node: RichContentNode | null) => ({ node }),
         deleteNode: true,
-        selectNode: true,
+        selectNode: (scroll?: boolean) => ({ scroll }),
         toggleEditing: (visible?: boolean) => ({ visible }),
         scrollIntoView: true,
         initializeNode: true,
@@ -65,11 +121,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         toggleEditingTitle: (editing?: boolean) => ({ editing }),
         copyToClipboard: true,
         convertToBacklink: (href: string) => ({ href }),
+        navigateToNode: (nodeId: string) => ({ nodeId }),
+        runPythonNode: (payload: { code: string }) => payload,
+        runPythonNodeWithMode: (payload: { mode: PythonRunMode }) => payload,
+        setPythonRunLoading: (loading: boolean) => ({ loading }),
+        setPythonRunQueued: (queued: boolean) => ({ queued }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable', 'comments']],
+        values: [props.notebookLogic, ['editor', 'isEditable', 'comments', 'pythonNodeSummaries', 'notebook']],
     })),
 
     reducers(({ props }) => ({
@@ -110,6 +171,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setActions: (_, { actions }) => actions.filter((x) => !!x) as NotebookNodeAction[],
             },
         ],
+        customMenuItems: [
+            null as LemonMenuItems | null,
+            {
+                setMenuItems: (_, { menuItems }) => menuItems,
+            },
+        ],
         messageListeners: [
             props.messageListeners as NotebookNodeMessagesListeners,
             {
@@ -128,6 +195,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 toggleEditingTitle: (state, { editing }) => (typeof editing === 'boolean' ? editing : !state),
             },
         ],
+        pythonRunLoading: [
+            false,
+            {
+                setPythonRunLoading: (_, { loading }) => loading,
+            },
+        ],
+        pythonRunQueued: [
+            false,
+            {
+                setPythonRunQueued: (_, { queued }) => queued,
+            },
+        ],
     })),
 
     selectors({
@@ -136,6 +215,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
         nodeType: [(_, p) => [p.nodeType], (nodeType) => nodeType],
         Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
+        settingsPlacement: [
+            () => [(_, props) => props],
+            (props): NotebookNodeSettingsPlacement => props.settingsPlacement ?? 'left',
+        ],
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes],
@@ -143,6 +226,67 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         ],
         // TODO: Fix the typing of nodeAttributes
         children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+
+        exportedGlobals: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
+        ],
+        pythonExecution: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): PythonExecutionResult | null => nodeAttributes.pythonExecution ?? null,
+        ],
+        displayedGlobals: [
+            (s) => [s.exportedGlobals, s.pythonExecution],
+            (exportedGlobals, pythonExecution): { name: string; type: string }[] => {
+                if (!pythonExecution?.variables?.length) {
+                    return exportedGlobals
+                }
+
+                const typeByName = new Map<string, string>(
+                    pythonExecution.variables.map((variable: PythonExecutionVariable) => [variable.name, variable.type])
+                )
+                return exportedGlobals.map(({ name, type }) => ({
+                    name,
+                    type: typeByName.get(name) ?? type,
+                }))
+            },
+        ],
+
+        pythonNodeIndex: [
+            (s) => [s.pythonNodeSummaries, s.nodeId],
+            (pythonNodeSummaries, nodeId) => pythonNodeSummaries.findIndex((node) => node.nodeId === nodeId),
+        ],
+
+        downstreamPythonNodes: [
+            (s) => [s.pythonNodeSummaries, s.pythonNodeIndex],
+            (pythonNodeSummaries, pythonNodeIndex) =>
+                pythonNodeIndex >= 0 ? pythonNodeSummaries.slice(pythonNodeIndex + 1) : [],
+        ],
+
+        usageByVariable: [
+            (s) => [s.downstreamPythonNodes, s.exportedGlobals],
+            (downstreamPythonNodes, exportedGlobals): Record<string, VariableUsage[]> => {
+                const usageMap: Record<string, VariableUsage[]> = {}
+
+                exportedGlobals.forEach(({ name }) => {
+                    const usages = downstreamPythonNodes.flatMap((node) =>
+                        node.globalsUsed.includes(name)
+                            ? [
+                                  {
+                                      nodeId: node.nodeId,
+                                      pythonIndex: node.pythonIndex,
+                                      title: node.title,
+                                  },
+                              ]
+                            : []
+                    )
+
+                    usageMap[name] = usages
+                })
+
+                return usageMap
+            },
+        ],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -203,12 +347,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             const logic = values.notebookLogic
             logic.values.editor?.deleteRange({ from: pos, to: pos + 1 }).run()
-            if (values.notebookLogic.values.editingNodeId === values.nodeId) {
-                values.notebookLogic.actions.setEditingNodeId(null)
+            if (values.notebookLogic.values.editingNodeIds[values.nodeId]) {
+                values.notebookLogic.actions.setEditingNodeEditing(values.nodeId, false)
             }
         },
 
-        selectNode: () => {
+        selectNode: ({ scroll }) => {
             const pos = props.getPos?.()
             if (!pos) {
                 return
@@ -217,8 +361,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
             if (editor) {
                 editor.setSelection(pos)
-                editor.scrollToSelection()
+                if (scroll ?? true) {
+                    editor.scrollToSelection()
+                }
             }
+        },
+
+        navigateToNode: ({ nodeId }) => {
+            const targetLogic = values.notebookLogic.values.findNodeLogicById(nodeId)
+            targetLogic?.actions.selectNode()
         },
 
         scrollIntoView: () => {
@@ -264,10 +415,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.updateAttributes(attributes)
         },
         toggleEditing: ({ visible }) => {
-            const shouldShowThis =
-                typeof visible === 'boolean' ? visible : values.notebookLogic.values.editingNodeId !== values.nodeId
+            const isEditing = values.notebookLogic.values.editingNodeIds[values.nodeId]
+            const shouldShowThis = typeof visible === 'boolean' ? visible : !isEditing
 
-            props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
+            props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowThis)
         },
         initializeNode: () => {
             const { __init } = values.nodeAttributes
@@ -327,6 +478,79 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 },
             })
             actions.deleteNode()
+        },
+        runPythonNode: async ({ code }) => {
+            if (props.nodeType !== NotebookNodeType.Python) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+            await runPythonCell({
+                notebookId: notebook.short_id,
+                code,
+                exportedGlobals: values.exportedGlobals,
+                updateAttributes: actions.updateAttributes,
+                setPythonRunLoading: actions.setPythonRunLoading,
+            })
+        },
+
+        runPythonNodeWithMode: async ({ mode }) => {
+            if (props.nodeType !== NotebookNodeType.Python) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+
+            const currentIndex = values.pythonNodeSummaries.findIndex((node) => node.nodeId === values.nodeId)
+            if (currentIndex === -1 || mode === 'auto' || mode === 'cell') {
+                await actions.runPythonNode({ code: (values.nodeAttributes as { code?: string }).code ?? '' })
+                return
+            }
+
+            const nodesToRun =
+                mode === 'cell_upstream'
+                    ? values.pythonNodeSummaries.slice(0, currentIndex + 1)
+                    : values.pythonNodeSummaries.slice(currentIndex)
+
+            const nodesToRunWithLogic = nodesToRun
+                .map((node) => ({
+                    node,
+                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
+                }))
+                .filter(
+                    (
+                        entry
+                    ): entry is {
+                        node: (typeof nodesToRun)[number]
+                        nodeLogic: BuiltLogic<notebookNodeLogicType>
+                    } => !!entry.nodeLogic
+                )
+
+            nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setPythonRunQueued(true))
+
+            try {
+                for (const { node, nodeLogic } of nodesToRunWithLogic) {
+                    nodeLogic.actions.setPythonRunQueued(false)
+                    const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
+                    const executed = await runPythonCell({
+                        notebookId: notebook.short_id,
+                        code: nodeCode,
+                        exportedGlobals: nodeLogic.values.exportedGlobals,
+                        updateAttributes: nodeLogic.actions.updateAttributes,
+                        setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
+                    })
+
+                    if (!executed) {
+                        break
+                    }
+                }
+            } finally {
+                nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setPythonRunQueued(false))
+            }
         },
     })),
 

@@ -387,6 +387,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewers": [],
                 "ongoing": True,
                 "activity_score": ANY,
+                "external_references": [],
             },
         ]
 
@@ -627,6 +628,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
+            "external_references": [],
         }
 
     def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):

@@ -1,6 +1,8 @@
 export const baseModifier: string[] = ['command', 'option']
 
 export const keyBinds: Record<string, string[]> = {
+    // Sequence shortcuts: use 'then' between keys (e.g., type "sql" to open SQL editor)
+    sqlEditor: ['s', 'then', 'q', 'then', 'l'],
     recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],

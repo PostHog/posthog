@@ -14,6 +14,7 @@ use axum::{
 };
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
+use common_hypercache::HyperCacheReader;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
@@ -58,6 +59,15 @@ pub struct State {
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
     pub ip_rate_limiter: IpRateLimiter,
+    /// Pre-initialized HyperCacheReader for feature flags (flags.json)
+    /// Initialized once at startup to avoid per-request AWS SDK initialization
+    pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
+    /// Used by the /flags/definitions endpoint
+    pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
+    /// Uses token-based lookup instead of team_id
+    pub team_hypercache_reader: Arc<HyperCacheReader>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -71,6 +81,9 @@ pub fn router(
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
+    flags_hypercache_reader: Arc<HyperCacheReader>,
+    flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    team_hypercache_reader: Arc<HyperCacheReader>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -134,6 +147,9 @@ pub fn router(
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
+        flags_hypercache_reader,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
     };
 
     // Very permissive CORS policy, as old SDK versions

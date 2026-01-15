@@ -1,8 +1,9 @@
 import colors from 'ansi-colors'
 import equal from 'fast-deep-equal'
-import { actions, afterMount, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
@@ -15,8 +16,8 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { humanFriendlyDetailedTime, parseTagsFilter } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Params } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     DateRange,
@@ -24,6 +25,8 @@ import {
     LogSeverityLevel,
     LogsQuery,
     LogsSparklineBreakdownBy,
+    ProductIntentContext,
+    ProductKey,
 } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
 import {
@@ -37,7 +40,7 @@ import {
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
-import { LogsOrderBy, ParsedLogMessage } from './types'
+import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -73,40 +76,57 @@ export const logsLogic = kea<logsLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsLogic']),
     tabAwareScene(),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
     tabAwareUrlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
+            const filtersFromUrl: Partial<LogsFilters> = {}
+            let hasFilterChanges = false
+
             if (params.dateRange) {
                 try {
                     const dateRange =
                         typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
                     if (!equal(dateRange, values.dateRange)) {
-                        actions.setDateRange(dateRange)
+                        filtersFromUrl.dateRange = dateRange
+                        hasFilterChanges = true
                     }
                 } catch {
                     // Ignore malformed dateRange JSON in URL
                 }
             }
             if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup, false)
+                filtersFromUrl.filterGroup = params.filterGroup
+                hasFilterChanges = true
             }
             if (params.searchTerm && !equal(params.searchTerm, values.searchTerm)) {
-                actions.setSearchTerm(params.searchTerm)
+                filtersFromUrl.searchTerm = params.searchTerm
+                hasFilterChanges = true
             }
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
                 if (parsed) {
                     const levels = parsed.filter(isValidSeverityLevel)
                     if (levels.length > 0 && !equal(levels, values.severityLevels)) {
-                        actions.setSeverityLevels(levels)
+                        filtersFromUrl.severityLevels = levels
+                        hasFilterChanges = true
                     }
                 }
             }
             if (params.serviceNames) {
                 const names = parseTagsFilter(params.serviceNames)
                 if (names && !equal(names, values.serviceNames)) {
-                    actions.setServiceNames(names)
+                    filtersFromUrl.serviceNames = names
+                    hasFilterChanges = true
                 }
             }
+
+            if (hasFilterChanges) {
+                actions.setFiltersFromUrl(filtersFromUrl)
+            }
+
+            // Non-filter params handled separately
             if (params.highlightedLogId !== undefined && params.highlightedLogId !== values.highlightedLogId) {
                 actions.setHighlightedLogId(params.highlightedLogId)
             }
@@ -193,18 +213,16 @@ export const logsLogic = kea<logsLogicType>([
 
         return {
             fetchLogsSuccess: () => clearInitialLogsLimit(),
-            setDateRange: () => buildUrlAndRunQuery(),
-            setFilterGroup: () => buildUrlAndRunQuery(),
-            setSearchTerm: () => buildUrlAndRunQuery(),
-            setSeverityLevels: () => buildUrlAndRunQuery(),
-            setServiceNames: () => buildUrlAndRunQuery(),
-            setOrderBy: () => buildUrlAndRunQuery(),
-            setLogsPageSize: () => updateUrlWithPageSize(),
-            setHighlightedLogId: () => updateHighlightURL(),
+            syncUrlAndRunQuery: () => buildUrlAndRunQuery(),
+            syncUrlWithPageSize: () => updateUrlWithPageSize(),
+            syncUrlWithHighlight: () => updateHighlightURL(),
         }
     }),
 
     actions({
+        syncUrlAndRunQuery: true,
+        syncUrlWithPageSize: true,
+        syncUrlWithHighlight: true,
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
         truncateLogs: (limit: number) => ({ limit }),
@@ -225,6 +243,11 @@ export const logsLogic = kea<logsLogicType>([
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
+        setFilters: (filters: Partial<LogsFilters>, pushToHistory: boolean = true) => ({ filters, pushToHistory }),
+        setFiltersFromUrl: (filters: Partial<LogsFilters>) => ({ filters }),
+        pushToFilterHistory: (filters: LogsFilters) => ({ filters }),
+        restoreFiltersFromHistory: (index: number) => ({ index }),
+        clearFilterHistory: true,
         setLiveLogsCheckpoint: (liveLogsCheckpoint: string | null) => ({ liveLogsCheckpoint }),
 
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
@@ -245,9 +268,6 @@ export const logsLogic = kea<logsLogicType>([
             operator,
             propertyType,
         }),
-        togglePinLog: (logId: string) => ({ logId }),
-        pinLog: (log: LogMessage) => ({ log }),
-        unpinLog: (logId: string) => ({ logId }),
         setHighlightedLogId: (highlightedLogId: string | null) => ({ highlightedLogId }),
         setHasMoreLogsToLoad: (hasMoreLogsToLoad: boolean) => ({ hasMoreLogsToLoad }),
         setLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
@@ -269,6 +289,20 @@ export const logsLogic = kea<logsLogicType>([
     }),
 
     reducers({
+        filterHistory: [
+            [] as LogsFiltersHistoryEntry[],
+            { persist: true },
+            {
+                pushToFilterHistory: (state, { filters }) => {
+                    if (state.length > 0 && equal(state[0].filters, filters)) {
+                        return state
+                    }
+                    const entry: LogsFiltersHistoryEntry = { filters, timestamp: Date.now() }
+                    return [entry, ...state].slice(0, 10)
+                },
+                clearFilterHistory: () => [],
+            },
+        ],
         logsPageSize: [
             DEFAULT_LOGS_PAGE_SIZE,
             {
@@ -286,6 +320,8 @@ export const logsLogic = kea<logsLogicType>([
             DEFAULT_DATE_RANGE as DateRange,
             {
                 setDateRange: (_, { dateRange }) => dateRange,
+                setFilters: (state, { filters }) => filters.dateRange ?? state,
+                setFiltersFromUrl: (state, { filters }) => filters.dateRange ?? state,
             },
         ],
         orderBy: [
@@ -298,24 +334,35 @@ export const logsLogic = kea<logsLogicType>([
             '' as LogsQuery['searchTerm'],
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+                setFilters: (state, { filters }) => filters.searchTerm ?? state,
+                setFiltersFromUrl: (state, { filters }) => filters.searchTerm ?? state,
             },
         ],
         severityLevels: [
             DEFAULT_SEVERITY_LEVELS,
             {
                 setSeverityLevels: (_, { severityLevels }) => severityLevels,
+                setFilters: (state, { filters }) => filters.severityLevels ?? state,
+                setFiltersFromUrl: (state, { filters }) => filters.severityLevels ?? state,
             },
         ],
         serviceNames: [
             DEFAULT_SERVICE_NAMES,
             {
                 setServiceNames: (_, { serviceNames }) => serviceNames,
+                setFilters: (state, { filters }) => filters.serviceNames ?? state,
+                setFiltersFromUrl: (state, { filters }) => filters.serviceNames ?? state,
             },
         ],
         filterGroup: [
             DEFAULT_UNIVERSAL_GROUP_FILTER,
             {
-                setFilterGroup: (_, { filterGroup }) => filterGroup,
+                setFilterGroup: (_, { filterGroup }) =>
+                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                setFilters: (state, { filters }) =>
+                    filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
+                setFiltersFromUrl: (state, { filters }) =>
+                    filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
             },
         ],
         liveLogsCheckpoint: [
@@ -388,14 +435,6 @@ export const logsLogic = kea<logsLogicType>([
             [] as string[],
             {
                 setExpandedAttributeBreaksdowns: (_, { expandedAttributeBreaksdowns }) => expandedAttributeBreaksdowns,
-            },
-        ],
-        pinnedLogs: [
-            [] as LogMessage[],
-            { persist: true },
-            {
-                pinLog: (state, { log }) => [...state, log],
-                unpinLog: (state, { logId }) => state.filter((log) => log.uuid !== logId),
             },
         ],
         liveTailRunning: [
@@ -544,6 +583,26 @@ export const logsLogic = kea<logsLogicType>([
 
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
+        filters: [
+            (s) => [s.dateRange, s.searchTerm, s.severityLevels, s.serviceNames, s.filterGroup],
+            (
+                dateRange: LogsFilters['dateRange'],
+                searchTerm: LogsFilters['searchTerm'],
+                severityLevels: LogsFilters['severityLevels'],
+                serviceNames: LogsFilters['serviceNames'],
+                filterGroup: LogsFilters['filterGroup']
+            ): LogsFilters => ({
+                dateRange,
+                searchTerm,
+                severityLevels,
+                serviceNames,
+                filterGroup,
+            }),
+        ],
+        hasFilterHistory: [
+            (s) => [s.filterHistory],
+            (filterHistory: LogsFiltersHistoryEntry[]) => filterHistory.length > 0,
+        ],
         liveTailDisabledReason: [
             (s) => [s.orderBy, s.dateRange, s.logsLoading, s.liveTailExpired],
             (
@@ -612,31 +671,6 @@ export const logsLogic = kea<logsLogicType>([
 
                 return result
             },
-        ],
-        pinnedParsedLogs: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]): ParsedLogMessage[] => {
-                return pinnedLogs.map((log: LogMessage) => {
-                    const cleanBody = colors.unstyle(log.body)
-                    let parsedBody: JsonType | null = null
-                    try {
-                        parsedBody = JSON.parse(cleanBody)
-                    } catch {
-                        // Not JSON, that's fine
-                    }
-                    return {
-                        ...log,
-                        attributes: stringifyLogAttributes(log.attributes),
-                        cleanBody,
-                        parsedBody,
-                        originalLog: log,
-                    }
-                })
-            },
-        ],
-        isPinned: [
-            (s) => [s.pinnedLogs],
-            (pinnedLogs: LogMessage[]) => (logId: string) => pinnedLogs.some((log) => log.uuid === logId),
         ],
         visibleLogsTimeRange: [
             (s) => [s.parsedLogs, s.orderBy],
@@ -746,14 +780,180 @@ export const logsLogic = kea<logsLogicType>([
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
+        fetchLogsSuccess: ({ logs }) => {
+            if (logs.length === 0) {
+                posthog.capture('logs no results returned')
+            } else {
+                posthog.capture('logs results returned', { count: logs.length })
+            }
+        },
+        fetchNextLogsPage: () => {
+            posthog.capture('logs load more requested')
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'search',
+                    search_term_length: searchTerm?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                actions.pushToFilterHistory(values.filters)
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setFilterGroup: () => {
+            // Don't run query if there's a filter without a value (user is still selecting)
+            const hasIncompleteUniversalFilterValue = (filterValue: UniversalFiltersGroupValue): boolean => {
+                if (!filterValue || typeof filterValue !== 'object') {
+                    return false
+                }
+
+                // If this is a nested UniversalFiltersGroup, recursively check its values
+                if ('type' in filterValue && 'values' in filterValue) {
+                    const groupValues = (filterValue as UniversalFiltersGroup).values ?? []
+                    return groupValues.some((child) => hasIncompleteUniversalFilterValue(child))
+                }
+
+                // ActionFilter: check for missing id
+                if ('id' in filterValue) {
+                    return (filterValue as { id: unknown }).id == null
+                }
+
+                // Property filter: check for missing or empty value
+                if ('value' in filterValue) {
+                    const val = (filterValue as { value: unknown }).value
+                    return val == null || (Array.isArray(val) && val.length === 0)
+                }
+
+                return false
+            }
+
+            const rootGroup = values.filterGroup?.values?.[0] as UniversalFiltersGroup | undefined
+            const hasIncompleteFilter =
+                rootGroup?.values?.some((filterValue) => hasIncompleteUniversalFilterValue(filterValue)) ?? false
+
+            if (hasIncompleteFilter) {
+                return
+            }
+
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'attributes' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                actions.pushToFilterHistory(values.filters)
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setSeverityLevels: ({ severityLevels }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'severity',
+                    severity_levels: severityLevels ?? [],
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                actions.pushToFilterHistory(values.filters)
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setServiceNames: ({ serviceNames }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', {
+                    filter_type: 'service',
+                    service_count: serviceNames?.length ?? 0,
+                })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                actions.pushToFilterHistory(values.filters)
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setDateRange: () => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'date_range' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                actions.pushToFilterHistory(values.filters)
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setFilters: ({ pushToHistory }) => {
+            if (values.hasRunQuery) {
+                posthog.capture('logs filter changed', { filter_type: 'bulk' })
+                actions.addProductIntent({
+                    product_type: ProductKey.LOGS,
+                    intent_context: ProductIntentContext.LOGS_SET_FILTERS,
+                })
+                if (pushToHistory) {
+                    actions.pushToFilterHistory(values.filters)
+                }
+            }
+            actions.syncUrlAndRunQuery()
+        },
+        setOrderBy: () => {
+            actions.syncUrlAndRunQuery()
+        },
+        setLogsPageSize: () => {
+            actions.syncUrlWithPageSize()
+        },
+        setHighlightedLogId: () => {
+            actions.syncUrlWithHighlight()
+        },
+        setLiveTailRunning: async ({ enabled }) => {
+            if (enabled) {
+                posthog.capture('logs live tail started')
+                actions.pollForNewLogs()
+            } else {
+                actions.cancelInProgressLiveTail(null)
+                actions.expireLiveTail()
+            }
+        },
         runQuery: async ({ debounce }, breakpoint) => {
             if (debounce) {
                 await breakpoint(debounce)
+            }
+            // Track query execution (skip initial page load)
+            if (values.hasRunQuery) {
+                posthog.capture('logs query executed', {
+                    has_search_term: !!values.searchTerm,
+                    has_filters: values.filterGroup.values.length > 0,
+                    severity_count: values.severityLevels?.length ?? 0,
+                    service_count: values.serviceNames?.length ?? 0,
+                })
             }
             actions.clearLogs()
             actions.fetchLogs()
             actions.fetchSparkline()
             actions.cancelInProgressLiveTail(null)
+        },
+        setFiltersFromUrl: () => {
+            actions.runQuery()
+        },
+        restoreFiltersFromHistory: ({ index }) => {
+            const entry = values.filterHistory[index]
+            if (entry) {
+                posthog.capture('logs filter history restored', {
+                    history_index: index,
+                    history_size: values.filterHistory.length,
+                })
+                actions.setFilters(entry.filters, false)
+            }
+        },
+        clearFilterHistory: () => {
+            posthog.capture('logs filter history cleared', {
+                history_size: values.filterHistory.length,
+            })
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
@@ -822,17 +1022,6 @@ export const logsLogic = kea<logsLogicType>([
 
             actions.setFilterGroup({ ...values.filterGroup, values: [newGroup] }, false)
         },
-        togglePinLog: ({ logId }) => {
-            const isPinned = values.pinnedLogs.some((log) => log.uuid === logId)
-            if (isPinned) {
-                actions.unpinLog(logId)
-            } else {
-                const logToPin = values.logs.find((log) => log.uuid === logId)
-                if (logToPin) {
-                    actions.pinLog(logToPin)
-                }
-            }
-        },
         applyLogsPageSize: ({ logsPageSize }) => {
             const currentCount = values.logs.length
 
@@ -875,14 +1064,6 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setHighlightedLogId(logs[logs.length - 1].uuid)
             } else if (currentIndex > 0) {
                 actions.setHighlightedLogId(logs[currentIndex - 1].uuid)
-            }
-        },
-        setLiveTailRunning: async ({ enabled }) => {
-            if (enabled) {
-                actions.pollForNewLogs()
-            } else {
-                actions.cancelInProgressLiveTail(null)
-                actions.expireLiveTail()
             }
         },
         pollForNewLogs: async () => {
@@ -1001,24 +1182,6 @@ export const logsLogic = kea<logsLogicType>([
                     .sort((a, b) => dayjs(a.time).diff(dayjs(b.time)) || a.severity.localeCompare(b.severity))
                     .filter((item) => latest_time_bucket.diff(dayjs(item.time), 'seconds') <= sparklineTimeWindow)
             )
-        },
-        copyLinkToLog: ({ logId }: { logId: string }) => {
-            const url = new URL(window.location.href)
-            url.searchParams.set('highlightedLogId', logId)
-            if (values.visibleLogsTimeRange) {
-                url.searchParams.set(
-                    'dateRange',
-                    JSON.stringify({
-                        date_from: values.visibleLogsTimeRange.date_from,
-                        date_to: values.visibleLogsTimeRange.date_to,
-                        explicitDate: true,
-                    })
-                )
-            }
-            if (values.logs.length > 0) {
-                url.searchParams.set('initialLogsLimit', String(values.logs.length))
-            }
-            void copyToClipboard(url.toString(), 'link to log')
         },
     })),
 
