@@ -1011,8 +1011,12 @@ class VercelIntegration:
             if not config:
                 continue
             user_mappings = config.get("user_mappings", {})
-            if user.pk in (int(v) for v in user_mappings.values()):
-                return True
+            for v in user_mappings.values():
+                try:
+                    if int(v) == user.pk:
+                        return True
+                except (ValueError, TypeError):
+                    capture_exception(ValueError(f"Corrupted user_mapping value: {v}"))
         return False
 
     @staticmethod
