@@ -1675,6 +1675,7 @@ class FileSystemIconType(StrEnum):
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
+    TOOLBAR = "toolbar"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -2009,6 +2010,7 @@ class IntegrationKind(StrEnum):
     BING_ADS = "bing-ads"
     VERCEL = "vercel"
     AZURE_BLOB = "azure-blob"
+    FIREBASE = "firebase"
 
 
 class IntervalType(StrEnum):

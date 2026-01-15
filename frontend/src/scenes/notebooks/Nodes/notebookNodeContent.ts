@@ -7,11 +7,13 @@ export type PythonNodeSummary = {
     code: string
     globalsUsed: string[]
     pythonIndex: number
+    title: string
 }
 
 export type VariableUsage = {
     nodeId: string
     pythonIndex: number
+    title: string
 }
 
 export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
@@ -32,6 +34,7 @@ export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSumm
                 code: typeof attrs.code === 'string' ? attrs.code : '',
                 globalsUsed: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
                 pythonIndex: nodes.length + 1,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
             })
         }
         if (Array.isArray(node.content)) {
