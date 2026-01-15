@@ -671,9 +671,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
-    @patch(
-        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
-    )
     def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
@@ -684,7 +681,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self):
+    def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self, mock_create_invocation):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
