@@ -25,6 +25,7 @@ import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
@@ -83,10 +84,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         actions,
         nodeId,
         pythonRunLoading,
+        duckSqlRunLoading,
+        duckSqlRunQueued,
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
+        duckSqlReturnVariable,
         customMenuItems,
+        kernelInfo,
     } = useValues(nodeLogic)
     const {
         setRef,
@@ -98,6 +103,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         copyToClipboard,
         convertToBacklink,
         runPythonNodeWithMode,
+        runDuckSqlNodeWithMode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -133,12 +139,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             if (heightAttr && heightAttr !== initialHeightAttr) {
                 updateAttributes({
                     height: contentRef.current?.clientHeight,
+                    ...(nodeType === NotebookNodeType.Python ? { autoHeight: false } : {}),
                 } as any)
             }
         }
 
         window.addEventListener('mouseup', onResizedEnd)
-    }, [resizeable, updateAttributes])
+    }, [nodeType, resizeable, updateAttributes])
 
     const onActionsAreaClick = (): void => {
         // Clicking in the area of the actions without selecting a specific action likely indicates the user wants to
@@ -154,12 +161,36 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
-    const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
-    const pythonAttributes = attributes as { code?: string; pythonExecutionCodeHash?: number | null }
+    const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
+    const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
+    const pythonAttributes = attributes as {
+        code?: string
+        pythonExecutionCodeHash?: number | null
+        pythonExecutionSandboxId?: string | null
+    }
     const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
     const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
-    const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
-    const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
+    const pythonExecutionSandboxId = pythonAttributes.pythonExecutionSandboxId ?? null
+    const kernelSandboxId = kernelInfo?.sandbox_id ?? null
+    const pythonHasExecution = pythonExecutionCodeHash !== null
+    const pythonSandboxMatches =
+        pythonExecutionSandboxId !== null && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
+    const pythonIsFresh = pythonHasExecution && pythonExecutionCodeHash === pythonCodeHash && pythonSandboxMatches
+    const pythonIsStale = pythonHasExecution && !pythonIsFresh
+    const duckSqlAttributes = attributes as {
+        code?: string
+        duckExecutionCodeHash?: number | null
+        duckExecutionSandboxId?: string | null
+        returnVariable?: string
+    }
+    const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
+    const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${duckSqlReturnVariable}`)
+    const duckSqlExecutionSandboxId = duckSqlAttributes.duckExecutionSandboxId ?? null
+    const duckSqlHasExecution = duckSqlExecutionCodeHash !== null
+    const duckSqlSandboxMatches =
+        duckSqlExecutionSandboxId !== null && kernelSandboxId !== null && duckSqlExecutionSandboxId === kernelSandboxId
+    const duckSqlIsFresh = duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches
+    const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
 
     const defaultMenuItems: LemonMenuItems = [
         !NON_COPYABLE_NODES.includes(nodeType)
@@ -175,6 +206,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   onClick: () => {
                       updateAttributes({
                           height: null,
+                          ...(nodeType === NotebookNodeType.Python ? { autoHeight: true } : {}),
                       } as any)
                   },
               }
@@ -247,8 +279,19 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         isStale={pythonIsStale}
                                                         loading={pythonRunLoading}
                                                         queued={pythonRunQueued}
-                                                        disabledReason={pythonRunDisabledReason}
+                                                        disabledReason={runDisabledReason}
                                                         onRun={(mode) => void runPythonNodeWithMode({ mode })}
+                                                    />
+                                                ) : null}
+
+                                                {isDuckSqlNode ? (
+                                                    <DuckSqlRunMenu
+                                                        isFresh={duckSqlIsFresh}
+                                                        isStale={duckSqlIsStale}
+                                                        loading={duckSqlRunLoading}
+                                                        queued={duckSqlRunQueued}
+                                                        disabledReason={runDisabledReason}
+                                                        onRun={(mode) => void runDuckSqlNodeWithMode({ mode })}
                                                     />
                                                 ) : null}
 
