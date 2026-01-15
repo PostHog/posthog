@@ -9,7 +9,7 @@ from posthog.models.utils import uuid7
 
 class TestWebOverviewDashboardFilters(ClickhouseTestMixin, APIBaseTest):
     def test_dashboard_filter_applies_when_no_existing_properties(self):
-        query = WebOverviewQuery(dateRange=DateRange(date_from="-30d"))
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-30d"), properties=[])
         runner = WebOverviewQueryRunner(team=self.team, query=query)
 
         runner.apply_dashboard_filters(
