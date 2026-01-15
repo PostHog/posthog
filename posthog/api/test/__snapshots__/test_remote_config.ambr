@@ -25,6 +25,9 @@
     }),
     'hasFeatureFlags': False,
     'heatmaps': False,
+    'logs': dict({
+      'captureConsoleLogs': False,
+    }),
     'productTours': False,
     'sessionRecording': dict({
       'consoleLogRecordingEnabled': True,

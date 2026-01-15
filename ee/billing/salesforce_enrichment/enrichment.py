@@ -1,11 +1,12 @@
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 from django.utils import timezone
 
 import posthoganalytics
+from dateutil import parser
 from simple_salesforce.format import format_soql
 
 from posthog.exceptions_capture import capture_exception
@@ -160,6 +161,8 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
         },
         "funding": company_data.get("funding", {}) if isinstance(company_data.get("funding"), dict) else {},
         "metrics": {},
+        "tags": company_data.get("tags", []) if isinstance(company_data.get("tags"), list) else [],
+        "tagsV2": company_data.get("tagsV2", []) if isinstance(company_data.get("tagsV2"), list) else [],
     }
 
     traction_metrics = (
@@ -171,6 +174,15 @@ def transform_harmonic_data(company_data: dict[str, Any]) -> dict[str, Any] | No
             transformed_data["metrics"][metric_name] = processed_metric
 
     return transformed_data
+
+
+def _extract_first_tag(tag_list: list, type_filter: str | None = None) -> str | None:
+    """Extract first tag with non-empty displayValue, optionally filtered by type."""
+    for tag in tag_list:
+        if isinstance(tag, dict) and (not type_filter or tag.get("type") == type_filter):
+            if value := tag.get("displayValue"):
+                return value
+    return None
 
 
 def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any]) -> dict[str, Any] | None:
@@ -189,6 +201,8 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
     funding = harmonic_data.get("funding", {})
     company_info = harmonic_data.get("company_info", {})
     metrics = harmonic_data.get("metrics", {})
+    tags = harmonic_data.get("tags", [])
+    tags_v2 = harmonic_data.get("tagsV2", [])
 
     current_metrics = {metric_name: metric_data.get("current_value") for metric_name, metric_data in metrics.items()}
 
@@ -198,11 +212,28 @@ def prepare_salesforce_update_data(account_id: str, harmonic_data: dict[str, Any
         period_data = historical.get(period, {})
         return period_data.get("value")
 
+    # Extract primary tag from tags array (prefer isPrimaryTag=true, fallback to first tag, then tagsV2)
+    primary_tag = None
+
+    if tags:
+        # First try isPrimaryTag, then first valid tag
+        for tag in tags:
+            if isinstance(tag, dict) and tag.get("isPrimaryTag") and (value := tag.get("displayValue")):
+                primary_tag = value
+                break
+        if not primary_tag:
+            primary_tag = _extract_first_tag(tags)
+
+    # Fallback to tagsV2: MARKET_VERTICAL first, then any
+    if not primary_tag and tags_v2:
+        primary_tag = _extract_first_tag(tags_v2, "MARKET_VERTICAL") or _extract_first_tag(tags_v2)
+
     update_data = {
         "Id": account_id,
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
+        "harmonic_industry__c": primary_tag,
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         "Founded_year__c": (
             int(company_info.get("founding_date", "").split("-")[0])
@@ -247,7 +278,7 @@ def bulk_update_salesforce_accounts(sf, update_records):
         sf: simple_salesforce.Salesforce client
         update_records: List of dicts with Id + field updates
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="bulk_update_salesforce_accounts")
 
     if not update_records:
         return
@@ -319,7 +350,7 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     Returns:
         List of account record dicts with Id, Name, Website (empty list if none found)
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="get_salesforce_accounts_by_domain", domain=domain)
 
     try:
         sf = get_salesforce_client()
@@ -371,7 +402,7 @@ async def query_salesforce_accounts_chunk_async(sf, offset=0, limit=5000):
         offset: Starting index for pagination
         limit: Number of accounts to retrieve
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="query_salesforce_accounts_chunk_async", offset=offset, limit=limit)
 
     # Try Redis cache first
     cache_start = time.time()
@@ -456,7 +487,7 @@ def _fetch_updated_account_fields(
     Returns:
         List of dicts containing the updated fields for each account
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="_fetch_updated_account_fields")
 
     if not accounts or not update_records:
         return []
@@ -491,6 +522,36 @@ def _fetch_updated_account_fields(
         return []
 
 
+def _normalize_datetime_string(value: str) -> datetime | None:
+    """Parse a datetime string into a UTC datetime object for comparison."""
+    try:
+        parsed = parser.parse(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except (ValueError, parser.ParserError):
+        return None
+
+
+def _values_match(sent_value: Any, fetched_value: Any) -> bool:
+    """Compare two values, handling datetime format differences.
+
+    Salesforce returns dates like "2025-07-23T00:00:00.000+0000"
+    but we send them as "2025-07-23T00:00:00Z". These are equivalent.
+    """
+    if sent_value == fetched_value:
+        return True
+
+    # Try datetime comparison if both are strings
+    if isinstance(sent_value, str) and isinstance(fetched_value, str):
+        sent_dt = _normalize_datetime_string(sent_value)
+        fetched_dt = _normalize_datetime_string(fetched_value)
+        if sent_dt is not None and fetched_dt is not None:
+            return sent_dt == fetched_dt
+
+    return False
+
+
 def _compare_update_with_fetched(
     update_records: list[dict[str, Any]],
     fetched_accounts: list[dict[str, Any]],
@@ -506,7 +567,7 @@ def _compare_update_with_fetched(
     Returns:
         Dict with comparison results including any mismatches found
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="_compare_update_with_fetched")
 
     # Build lookup by account ID
     fetched_by_id = {acc["Id"]: acc for acc in fetched_accounts}
@@ -539,7 +600,7 @@ def _compare_update_with_fetched(
                         "hint": "Possible field name typo - field not returned by Salesforce",
                     }
                 )
-            elif sent_value != fetched_value:
+            elif not _values_match(sent_value, fetched_value):
                 account_mismatches.append(
                     {
                         "field": field,
@@ -562,7 +623,7 @@ def _compare_update_with_fetched(
         logger.warning(
             "Field mismatches detected between sent and fetched Salesforce data",
             mismatch_count=len(mismatches),
-            mismatches=mismatches,
+            mismatches=mismatches[:5],
         )
 
     if missing_accounts:
@@ -739,7 +800,7 @@ async def enrich_accounts_chunked_async(
     Returns:
         Dict with total_accounts_in_chunk, records_processed, records_enriched, etc.
     """
-    logger = LOGGER.bind()
+    logger = LOGGER.bind(function="enrich_accounts_chunked_async", chunk_number=chunk_number)
     offset = chunk_number * chunk_size
 
     log_context = {"chunk_number": chunk_number, "chunk_size": chunk_size}

@@ -183,7 +183,7 @@ jobs:
                       text: ":white_check_mark: Resolved: *${{ steps.process.outputs.recovered_workflow }}* (${{ steps.commit.outputs.short_sha }})"
 
             - name: Calculate duration
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
+              if: steps.process.outputs.resolved == 'true'
               id: duration
               run: |
                   since="${{ steps.process.outputs.since }}"
@@ -193,7 +193,7 @@ jobs:
                   echo "mins=$mins" >> $GITHUB_OUTPUT
 
             - name: Update Slack to resolved
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
+              if: steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.update
@@ -220,7 +220,7 @@ jobs:
                             text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
 
             - name: Thread reply with resolution
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
+              if: steps.process.outputs.resolved == 'true'
               uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
               with:
                   method: chat.postMessage

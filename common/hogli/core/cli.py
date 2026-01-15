@@ -10,7 +10,7 @@ import os
 from collections import defaultdict
 
 import click
-from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand
+from hogli.core.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.core.manifest import REPO_ROOT, load_manifest
 
 BIN_DIR = REPO_ROOT / "bin"
@@ -215,8 +215,9 @@ def _register_script_commands() -> None:
             bin_script = config.get("bin_script")
             steps = config.get("steps")
             cmd = config.get("cmd")
+            hogli = config.get("hogli")
 
-            if not (bin_script or steps or cmd):
+            if not (bin_script or steps or cmd or hogli):
                 continue
 
             # Handle composition (steps field)
@@ -228,6 +229,12 @@ def _register_script_commands() -> None:
             # Handle direct commands (cmd field)
             if cmd:
                 command = DirectCommand(cli_name, config)
+                command.register(cli)
+                continue
+
+            # Handle hogli wrapper commands (hogli field)
+            if hogli:
+                command = HogliCommand(cli_name, config)
                 command.register(cli)
                 continue
 

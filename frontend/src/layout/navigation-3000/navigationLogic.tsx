@@ -631,15 +631,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
-                            ? {
-                                  identifier: Scene.Workflows,
-                                  label: 'Workflows',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.workflows(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Workflows,
+                            label: 'Workflows',
+                            icon: <IconDecisionTree />,
+                            to: urls.workflows(),
+                        },
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },

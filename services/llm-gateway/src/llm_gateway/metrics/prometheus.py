@@ -4,26 +4,26 @@ from prometheus_fastapi_instrumentator import Instrumentator
 REQUEST_COUNT = Counter(
     "llm_gateway_requests_total",
     "Total LLM Gateway requests",
-    labelnames=["endpoint", "provider", "model", "status_code", "auth_method"],
+    labelnames=["endpoint", "provider", "model", "status_code", "auth_method", "product"],
 )
 
 REQUEST_LATENCY = Histogram(
     "llm_gateway_request_duration_seconds",
     "Request latency",
-    labelnames=["endpoint", "provider", "streaming"],
+    labelnames=["endpoint", "provider", "streaming", "product"],
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0],
 )
 
 TOKENS_INPUT = Counter(
     "llm_gateway_tokens_input_total",
     "Total input tokens",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
 )
 
 TOKENS_OUTPUT = Counter(
     "llm_gateway_tokens_output_total",
     "Total output tokens",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
 )
 
 RATE_LIMIT_EXCEEDED = Counter(
@@ -35,13 +35,13 @@ RATE_LIMIT_EXCEEDED = Counter(
 PROVIDER_ERRORS = Counter(
     "llm_gateway_provider_errors_total",
     "Provider API errors",
-    labelnames=["provider", "error_type"],
+    labelnames=["provider", "error_type", "product"],
 )
 
 ACTIVE_STREAMS = Gauge(
     "llm_gateway_active_streams",
     "Currently active streaming connections",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
 )
 
 DB_POOL_SIZE = Gauge(
@@ -53,7 +53,7 @@ DB_POOL_SIZE = Gauge(
 PROVIDER_LATENCY = Histogram(
     "llm_gateway_provider_latency_seconds",
     "Latency to LLM provider API (excludes streaming time)",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
     buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
 )
 
@@ -83,20 +83,20 @@ REDIS_FALLBACK = Counter(
 STREAMING_CLIENT_DISCONNECT = Counter(
     "llm_gateway_streaming_client_disconnect_total",
     "Client disconnected during streaming",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
 )
 
 TIME_TO_FIRST_CHUNK = Histogram(
     "llm_gateway_time_to_first_chunk_seconds",
     "Time to first chunk for streaming requests",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
     buckets=[0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0],
 )
 
 CONCURRENT_REQUESTS = Gauge(
     "llm_gateway_concurrent_requests",
     "Current in-flight requests",
-    labelnames=["provider", "model"],
+    labelnames=["provider", "model", "product"],
 )
 
 DB_POOL_EXHAUSTED = Counter(
