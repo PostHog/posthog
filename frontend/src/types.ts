@@ -3434,6 +3434,8 @@ export interface ProductTourAppearance {
 
 export type ProductTourType = 'tour' | 'announcement'
 
+export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
+
 export interface ProductTourContent {
     type?: ProductTourType
     steps: ProductTourStep[]
@@ -3441,6 +3443,7 @@ export interface ProductTourContent {
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
+    displayFrequency?: ProductTourDisplayFrequency
 }
 
 export interface ProductTour {
