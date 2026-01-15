@@ -7,8 +7,9 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
@@ -30,7 +31,7 @@ export type EditingKeyFormValues = Pick<
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
@@ -144,13 +145,20 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     selectors(() => ({
         filteredScopes: [
-            (s) => [s.searchTerm],
-            (searchTerm: string): APIScope[] => {
+            (s) => [s.searchTerm, s.featureFlags],
+            (searchTerm: string, featureFlags: Record<string, boolean | string>): APIScope[] => {
+                let scopes = API_SCOPES
+
+                // Filter out llm_gateway scope if feature flag is disabled
+                if (!featureFlags[FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
+                }
+
                 if (!searchTerm.trim()) {
-                    return API_SCOPES
+                    return scopes
                 }
                 const lowerSearch = searchTerm.toLowerCase().trim()
-                return API_SCOPES.filter((scope) => {
+                return scopes.filter((scope) => {
                     // Search in key (e.g., "feature_flag")
                     if (scope.key.toLowerCase().includes(lowerSearch)) {
                         return true
