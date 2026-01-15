@@ -237,7 +237,12 @@ const Component = ({
 
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
-            <div ref={outputRef} className="p-3 overflow-y-auto h-full space-y-3">
+            <div
+                ref={outputRef}
+                className="p-3 overflow-y-auto h-full space-y-3"
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
                 {hasExecution ? (
                     <>
                         {pythonExecution?.stdout ? (

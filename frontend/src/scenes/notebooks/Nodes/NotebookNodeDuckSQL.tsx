@@ -68,7 +68,7 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
             <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
             <img
                 src={source}
-                alt="Duck SQL output"
+                alt="SQL (duckdb) output"
                 className="mt-2 max-w-full border border-border rounded bg-bg-light"
             />
         </div>
@@ -132,7 +132,7 @@ const Component = ({
         if (trimmedTitle) {
             return trimmedTitle
         }
-        return nodeType === NotebookNodeType.Python ? `Python cell ${nodeIndex}` : `Duck SQL cell ${nodeIndex}`
+        return nodeType === NotebookNodeType.Python ? `Python ${nodeIndex}` : `SQL (duckdb) ${nodeIndex}`
     }
 
     if (!expanded && !showReturnVariableRow) {
@@ -142,7 +142,12 @@ const Component = ({
     return (
         <div data-attr="notebook-node-duck-sql" className="flex h-full flex-col gap-2">
             {expanded ? (
-                <div ref={outputRef} className="p-3 overflow-y-auto h-full space-y-3">
+                <div
+                    ref={outputRef}
+                    className="p-3 overflow-y-auto h-full space-y-3"
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onDragStart={(event) => event.stopPropagation()}
+                >
                     {hasExecution ? (
                         <>
                             {duckExecution?.stdout ? (
@@ -228,7 +233,7 @@ const Settings = ({
 
 export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAttributes>({
     nodeType: NotebookNodeType.DuckSQL,
-    titlePlaceholder: 'Duck SQL',
+    titlePlaceholder: 'SQL (duckdb)',
     Component,
     heightEstimate: 120,
     minHeight: 80,

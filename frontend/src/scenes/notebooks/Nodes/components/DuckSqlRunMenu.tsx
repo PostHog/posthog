@@ -21,7 +21,7 @@ export const DuckSqlRunMenu = ({
     onRun,
 }: DuckSqlRunMenuProps): JSX.Element => {
     const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
-    const duckSqlRunTooltip = `Run Duck SQL query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
+    const duckSqlRunTooltip = `Run SQL (duckdb) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
     const duckSqlRunMenuItems: LemonMenuItems = [
         {

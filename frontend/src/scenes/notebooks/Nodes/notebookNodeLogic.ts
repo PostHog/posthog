@@ -137,7 +137,7 @@ const runDuckSqlCell = async ({
         })
         return true
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to run Duck SQL query.'
+        const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
         updateAttributes({
             duckExecution: buildPythonExecutionError(message, [{ name: resolvedReturnVariable, type: 'DataFrame' }]),
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),

@@ -275,7 +275,7 @@ order by count() desc
             ),
     },
     {
-        title: 'Duck SQL',
+        title: 'SQL (duckdb)',
         search: 'duck sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
