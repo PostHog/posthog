@@ -120,7 +120,15 @@ async def enforce_throttles(
     result = await runner.check(context)
 
     if not result.allowed:
-        raise HTTPException(status_code=result.status_code, detail=result.detail)
+        headers = {"Retry-After": str(result.retry_after)} if result.retry_after is not None else None
+        detail = {
+            "error": {
+                "message": "Rate limit exceeded",
+                "type": "rate_limit_error",
+                "reason": result.detail,
+            }
+        }
+        raise HTTPException(status_code=result.status_code, detail=detail, headers=headers)
     return user
 
 
