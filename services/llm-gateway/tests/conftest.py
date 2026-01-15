@@ -25,7 +25,7 @@ def create_test_app(
     from llm_gateway.api.health import health_router
     from llm_gateway.api.routes import router
 
-    default_throttles = [
+    default_throttles: list[Throttle] = [
         ProductModelInputTokenThrottle(redis=None),
         UserModelInputTokenThrottle(redis=None),
         ProductModelOutputTokenThrottle(redis=None),
