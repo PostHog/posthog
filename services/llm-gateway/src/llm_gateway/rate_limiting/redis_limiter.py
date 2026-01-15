@@ -151,7 +151,10 @@ class TokenRateLimiter:
         try:
             redis_key = f"ratelimit:{key}"
             # Use Lua script to atomically decrement without going below 0
+            # Only update if key exists and has a TTL (avoid creating stale keys)
             script = """
+            local ttl = redis.call('TTL', KEYS[1])
+            if ttl <= 0 then return 0 end
             local current = redis.call('GET', KEYS[1])
             if not current then return 0 end
             local new_val = math.max(0, tonumber(current) - tonumber(ARGV[1]))

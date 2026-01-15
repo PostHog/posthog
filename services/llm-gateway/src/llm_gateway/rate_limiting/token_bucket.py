@@ -48,10 +48,13 @@ class TokenBucketLimiter:
 
     def release(self, key: str, tokens: float) -> None:
         """Release tokens back to bucket."""
+        now = time.monotonic()
         with self._lock:
             if key in self._buckets:
                 bucket = self._buckets[key]
-                bucket.tokens = min(self.capacity, bucket.tokens + tokens)
+                elapsed = now - bucket.last_update
+                bucket.tokens = min(self.capacity, bucket.tokens + elapsed * self.rate + tokens)
+                bucket.last_update = now
 
     def clear(self) -> None:
         with self._lock:

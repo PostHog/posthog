@@ -107,9 +107,10 @@ class OutputTokenThrottle(TokenThrottle):
         )
 
     async def adjust_after_response(self, request_id: str, actual_output_tokens: int) -> None:
-        if request_id not in self._reservations:
+        try:
+            model, reserved, cache_key = self._reservations.pop(request_id)
+        except KeyError:  # if the reservation is missing, just return, and leave the max tokens consumed
             return
-        model, reserved, cache_key = self._reservations.pop(request_id)
         unused = reserved - actual_output_tokens
         if unused > 0:
             limiter = self._get_limiter(model)
