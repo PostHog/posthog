@@ -528,6 +528,32 @@ class TestSurvey(APIBaseTest):
         assert "Array lengths must match" in response.json()["detail"]
         assert "Use empty objects" in response.json()["detail"]
 
+    def test_non_dict_questions_in_translations_rejected(self):
+        # Prevent silent data loss that would break array length guarantee
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with invalid question type",
+                "type": "popover",
+                "questions": [
+                    {"type": "open", "question": "Q1?"},
+                    {"type": "open", "question": "Q2?"},
+                ],
+                "translations": {
+                    "es": {
+                        "questions": [
+                            {"question": "Pregunta 1"},
+                            "not a dict",  # Invalid
+                        ],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "must be objects" in response.json()["detail"]
+
     def test_partial_question_translation_with_empty_objects(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

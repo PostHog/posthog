@@ -390,7 +390,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 cleaned_questions = []
                 for question in translation_data["questions"]:
                     if not isinstance(question, dict):
-                        continue
+                        raise serializers.ValidationError(f"All questions in translation '{lang_code}' must be objects")
 
                     cleaned_question = {**question}
 
