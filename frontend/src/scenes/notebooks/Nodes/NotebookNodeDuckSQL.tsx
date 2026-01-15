@@ -78,7 +78,6 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
 }
 
 const DEFAULT_DUCK_SQL_NODE_HEIGHT = 100
-const MAX_DUCK_SQL_NODE_HEIGHT = 500
 
 const Component = ({
     attributes,
@@ -131,7 +130,7 @@ const Component = ({
             return
         }
         const footerHeight = footerRef.current?.offsetHeight ?? 0
-        const desiredHeight = Math.min(MAX_DUCK_SQL_NODE_HEIGHT, output.scrollHeight + footerHeight)
+        const desiredHeight = output.scrollHeight + footerHeight
         const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_DUCK_SQL_NODE_HEIGHT
         const lastExecutionCodeHash = lastExecutionCodeHashRef.current
         const executionChanged = executionCodeHash !== lastExecutionCodeHash
@@ -152,11 +151,14 @@ const Component = ({
             return
         }
 
-        if (desiredHeight > currentHeight) {
+        if (desiredHeight !== currentHeight) {
             debouncedUpdateHeight(desiredHeight)
         }
     }, [
         attributes.height,
+        dataframeLoading,
+        dataframePageSize,
+        dataframeResult,
         duckExecution?.media?.length,
         duckExecution?.result,
         duckExecution?.stderr,

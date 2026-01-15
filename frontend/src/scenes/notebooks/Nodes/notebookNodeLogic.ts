@@ -267,7 +267,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         }),
         setDataframePage: (page: number) => ({ page }),
         setDataframePageSize: (pageSize: number) => ({ pageSize }),
-        loadDataframePage: (payload: { variableName: string }) => payload,
+        loadDataframePage: (payload: { variableName: string; pageSize?: number }) => payload,
         setDataframeResult: (result: NotebookDataframeResult | null) => ({ result }),
         setDataframeLoading: (loading: boolean) => ({ loading }),
         setDataframeError: (error: string | null) => ({ error }),
@@ -935,25 +935,26 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
             actions.loadDataframePage({ variableName: values.dataframeVariableName })
         },
-        setDataframePageSize: () => {
+        setDataframePageSize: ({ pageSize }) => {
             if (!values.dataframeVariableName) {
                 return
             }
-            actions.loadDataframePage({ variableName: values.dataframeVariableName })
+            actions.loadDataframePage({ variableName: values.dataframeVariableName, pageSize })
         },
-        loadDataframePage: async ({ variableName }) => {
+        loadDataframePage: async ({ variableName, pageSize }) => {
             const notebook = values.notebook
             if (!notebook) {
                 return
             }
             actions.setDataframeLoading(true)
             actions.setDataframeError(null)
-            const offset = (values.dataframePage - 1) * values.dataframePageSize
+            const resolvedPageSize = pageSize ?? values.dataframePageSize
+            const offset = (values.dataframePage - 1) * resolvedPageSize
             try {
                 const response = await api.notebooks.kernelDataframe(notebook.short_id, {
                     variable_name: variableName,
                     offset,
-                    limit: values.dataframePageSize,
+                    limit: resolvedPageSize,
                 })
                 actions.setDataframeResult(response)
             } catch (error) {
