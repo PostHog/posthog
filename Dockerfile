@@ -22,7 +22,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:22.17.1-bookworm-slim AS frontend-build
+FROM node:22.22.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -50,7 +50,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:22.17.1-bookworm-slim AS sourcemap-upload
+FROM node:22.22.0-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -80,7 +80,7 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS nodejs-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.22.0 AS nodejs-build
 
 # Compile and install system dependencies
 # Add Confluent's client repository for librdkafka 2.10.1
@@ -93,7 +93,7 @@ RUN apt-get update && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends --allow-downgrades \
     "make" \
     "g++" \
     "gcc" \
@@ -188,6 +188,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
+COPY common/migration_utils common/migration_utils/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -242,7 +243,7 @@ RUN apt-get update && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
@@ -250,7 +251,7 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.7-0+deb12u1" \
+    "ffmpeg=7:5.1.8-0+deb12u1" \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
@@ -266,8 +267,8 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/truste
     ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22.17.1 with architecture detection and verification
-ENV NODE_VERSION 22.17.1
+# Install Node.js 22.22.0 with architecture detection and verification
+ENV NODE_VERSION 22.22.0
 
 RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && case "${dpkgArch##*-}" in \
@@ -376,6 +377,7 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
+COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
 # Setup ENV.

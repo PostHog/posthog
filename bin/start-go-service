@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+# Starts up "live" local builds of the posthog Go
+# services for a faster local dev inner loop
+#
+
+# set exit strategy
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+# ensure we have a service name
+if [ -z "${1:-}" ]; then
+  echo "ERROR missing required argument: Go service name" >&2
+  echo "Usage: bin/start-go-service <SERVICE_NAME>" >&2
+  exit 1
+fi
+GO_SVC="$1"
+
+# set up env appropriate for each *known* service - add new ones here!
+case "$GO_SVC" in
+  livestream)
+    # Download MaxMind DB if it doesn't exist
+    ./bin/download-mmdb
+
+    # Core settings
+    export LIVESTREAM_DEBUG=true
+    export PORT="8666"
+
+    # Kafka settings
+    export LIVESTREAM_KAFKA_BROKERS=localhost:9092
+    export LIVESTREAM_KAFKA_TOPIC=events_plugin_ingestion
+    export LIVESTREAM_KAFKA_GROUP_ID=livestream-dev
+    export LIVESTREAM_KAFKA_SECURITY_PROTOCOL=PLAINTEXT
+    export LIVESTREAM_KAFKA_SESSION_RECORDING_ENABLED=true
+    export LIVESTREAM_KAFKA_SESSION_RECORDING_SECURITY_PROTOCOL=PLAINTEXT
+    export LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS=6000
+    export LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS=1000
+    export LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS=6000
+
+    # MMDB path, relative to livestream directory where air runs
+    export LIVESTREAM_MMDB_PATH=../share/GeoLite2-City.mmdb
+
+    # Postgres settings
+    export LIVESTREAM_POSTGRES_URL=postgres://posthog:posthog@localhost:5432/posthog
+
+    # JWT secret
+    export LIVESTREAM_JWT_SECRET="<randomly generated secret key>"
+
+    # ensure we're in the livestream directory for air
+    cd livestream
+    ;;
+
+  *)
+    echo "ERROR unknown Go service '$GO_SVC' - please register in: $0" >&2
+    exit 1
+    ;;
+esac
+
+# ensure the service restarts if it crashes in dev
+sleep 1
+while true; do
+  if ! ps -p ${GO_PID:-} &>/dev/null; then
+    air &
+    export GO_PID=$!
+    echo -e "\n\033[47m>>\033[0m Restarted '$GO_SVC' with PID $GO_PID\n"
+  fi
+
+  # restart subprocess if it fails without bin/start shutdown
+  set +e
+  wait $GO_PID
+  set -e
+
+  sleep 3
+done
+
+echo -e "\n\033[47m>>\033[0m Shut down '$GO_SVC'\n"
+exit 0

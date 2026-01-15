@@ -338,6 +338,8 @@
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
+    --color-product-support-light: rgb(243 84 84);
+    --color-product-support-dark: rgb(247 165 1);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -668,7 +670,7 @@
     --z-raised: 5;
 
     // Elements
-    --side-panel-bar-width: 3rem;
+    --side-panel-bar-width: 40px;
     --project-navbar-width: 215px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 245px;
@@ -1537,7 +1539,11 @@
 
     .storybook-test-runner {
         &.storybook-test-runner--fullscreen {
-            height: fit-content;
+            height: auto;
+
+            // Ensure minimum viewport height while allowing content to expand beyond
+            // Using min-height instead of height: fit-content to prevent shorter-than-viewport screenshots
+            min-height: 100vh;
         }
 
         &.storybook-test-runner--padded {
@@ -1867,6 +1873,22 @@
     /* stylelint-disable-next-line order/order */
     .animate-fade-in {
         animation: fade-in 0.4s ease-out forwards;
+    }
+
+    /* Overlay fade in/out transitions */
+    .overlay-fade {
+        opacity: 1;
+        transition: opacity 0.2s ease-out;
+
+        /* Exit animation - opacity controlled by utility class */
+        &.opacity-0 {
+            opacity: 0;
+        }
+
+        /* Entry animation - fade in from 0 */
+        @starting-style {
+            opacity: 0;
+        }
     }
 
     /* stylelint-disable-next-line keyframes-name-pattern */

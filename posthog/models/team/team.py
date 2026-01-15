@@ -388,6 +388,7 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
+    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
 
     # Conversations
     conversations_enabled = models.BooleanField(null=True, blank=True)
@@ -409,6 +410,11 @@ class Team(UUIDTClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Capture logs
+    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
+    # This captures console logs to the Logs product, not as part of a recording
+    logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
@@ -681,7 +687,7 @@ class Team(UUIDTClassicModel):
             {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
-    @lru_cache(maxsize=5)
+    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
