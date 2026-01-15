@@ -28,6 +28,9 @@ export function HogFlowDuration({
                 min={0}
                 max={MAX_VALUE_FOR_DURATION_UNIT[unit]}
                 onChange={(v) => onChange(`${v}${unit}`)}
+                onBlur={() =>
+                    onChange(`${Math.min(Math.max(0, numberValue), MAX_VALUE_FOR_DURATION_UNIT[unit])}${unit}`)
+                }
             />
 
             <LemonSelect
