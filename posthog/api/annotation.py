@@ -31,6 +31,7 @@ class AnnotationContext(ActivityContextBase):
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    dashboard_id = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = Annotation
@@ -68,9 +69,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
-        request = self.context["request"]
 
-        dashboard_id = request.data.get("dashboard_id")
+        dashboard_id = attrs.get("dashboard_id")
         if dashboard_id is not None:
             if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
                 raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
@@ -88,13 +88,11 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
-        dashboard_id = request.data.get("dashboard_id", None)
 
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
             team_id=team.id,
             created_by=request.user,
-            dashboard_id=dashboard_id,
             **validated_data,
         )
         return annotation
