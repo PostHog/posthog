@@ -28,6 +28,7 @@ class Producer:
     def __init__(self):
         self.logger = LOGGER.bind()
         self._task: asyncio.Task | None = None
+        self.total_size = 0
 
     @property
     def task(self) -> asyncio.Task:
@@ -108,6 +109,8 @@ class Producer:
             self.logger.info("Starting stream", key=key)
 
             s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+
+            self.total_size += s3_ob["ContentLength"]
             assert "Body" in s3_ob, "Body not found in S3 object"
             stream: StreamingBody = s3_ob["Body"]
             # read in 128KB chunks of data from S3

@@ -1,5 +1,8 @@
 import abc
+import time
+import typing
 import asyncio
+import operator
 import collections.abc
 
 import temporalio.common
@@ -7,10 +10,13 @@ import temporalio.common
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
-from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
+
+if typing.TYPE_CHECKING:
+    from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -32,6 +38,7 @@ class Consumer:
         self.total_records_count = 0
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
+        self.record_batches_per_second = 0
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -48,6 +55,7 @@ class Consumer:
         self.total_records_count = 0
         self.total_record_batch_bytes_count = 0
         self.total_file_bytes_count = 0
+        self.record_batches_per_second = 0
 
     async def start(
         self,
@@ -203,3 +211,159 @@ async def run_consumer_from_stage(
 
     await raise_on_task_failure(producer_task)
     return result
+
+
+_GET_TOTAL_RECORD_BATCH_BYTES_COUNT = operator.attrgetter("total_record_batch_bytes_count")
+
+
+class ConsumerPool:
+    def __init__(
+        self,
+        target_duration: int | float,
+        queue: RecordBatchQueue,
+        producer: Producer,
+        transformer: ChunkTransformerProtocol,
+        max_consumers: int,
+        consumer_cls: type[Consumer],
+        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
+        **consumer_kwargs,
+    ):
+        self.queue = queue
+        self.producer = producer
+        self.transformer = transformer
+        self.max_consumers = max_consumers
+        self.consumer_cls = consumer_cls
+        self.consumer_kwargs = consumer_kwargs
+        self.json_columns = json_columns
+        self.target_duration = target_duration
+        self.logger = LOGGER.bind(max_consumers=max_consumers, target_duration=target_duration)
+
+        self.__task_group = None
+        self._consumers = set()
+        self.__scaler = None
+        self.__start_time = None
+        self._last_poll_time = None
+        self._total_bytes_consumed = 0
+        self._poll_delay = 10
+
+    @property
+    def _task_group(self) -> asyncio.TaskGroup:
+        if self.__task_group is None:
+            raise ValueError("consumer pool not started")
+        return self.__task_group
+
+    @property
+    def _scaler(self) -> asyncio.Task[None]:
+        if self.__scaler is None:
+            raise ValueError("consumer pool not started")
+        return self.__scaler
+
+    @property
+    def _start_time(self) -> float:
+        if self.__start_time is None:
+            raise ValueError("consumer pool not started")
+        return self.__start_time
+
+    @property
+    def number_of_consumers(self) -> int:
+        return len(self._consumers)
+
+    def is_at_max_consumers(self):
+        return self.number_of_consumers >= self.max_consumers
+
+    async def __aenter__(self):
+        self.__task_group = await asyncio.TaskGroup().__aenter__()
+        self.__start_time = time.monotonic()
+        self.__scaler = self._start_scaler()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        _ = self._scaler.cancel()
+        await self._task_group.__aexit__(exc_type, exc, tb)
+
+    def _start_consumer(self):
+        consumer = self.consumer_cls(**self.consumer_kwargs)
+        self._consumers.add(consumer)
+        self.task_group.create_task(
+            self.consumer_cls(**self.consumer_kwargs).start(
+                queue=self.queue,
+                producer_task=self.producer.task,
+                transformer=self.transformer,
+                json_columns=self.json_columns,
+            )
+        )
+
+        self.logger.info("Consumer started")
+
+    def _start_scaler(self) -> asyncio.Task[None]:
+        return asyncio.create_task(self._scale_loop())
+
+    async def _scale_loop(self) -> None:
+        await asyncio.sleep(self._poll_delay)
+
+        while True:
+            if len(self._consumers) >= self.max_consumers:
+                # Exit as we have scaled as much as we are allowed to
+                break
+
+            now = time.monotonic()
+            if self._last_poll_time is not None:
+                period_seconds = now - self._last_poll_time
+            else:
+                period_seconds = now - self._start_time
+
+            current_total_bytes_consumed = sum(map(_GET_TOTAL_RECORD_BATCH_BYTES_COUNT, self.consumers))
+            bytes_consumed_in_period = current_total_bytes_consumed - self._total_bytes_consumed
+
+            if period_seconds <= 0 or bytes_consumed_in_period <= 0:
+                self._last_poll_time = now
+                await asyncio.sleep(self._poll_delay)
+                continue
+
+            bytes_consumption_rate_in_period = bytes_consumed_in_period / period_seconds
+            estimated_seconds_left = (
+                self.producer.total_size - current_total_bytes_consumed
+            ) / bytes_consumption_rate_in_period
+
+            total_time_elapsed = now - self._start_time
+
+            # Add consumers if we are over the target duration or if we estimate we will be over
+            if total_time_elapsed > self.target_duration:
+                # We have missed our target, scale as much as we can and exit
+                self._start_max_consumers()
+                break
+
+            elif estimated_seconds_left > (self.target_duration - total_time_elapsed):
+                consumers_to_add = _compute_consumers_to_add(
+                    bytes_left=self.producer.total_size - current_total_bytes_consumed,
+                    time_left=self.target_duration - total_time_elapsed,
+                    bytes_consumption_rate=bytes_consumption_rate_in_period,
+                    current_consumers=self.number_of_consumers,
+                    max_consumers=self.max_consumers,
+                )
+
+                for _ in range(consumers_to_add):
+                    self._start_consumer()
+
+            self._total_bytes_consumed = current_total_bytes_consumed
+            await asyncio.sleep(self._poll_delay)
+
+    def _start_max_consumers(self):
+        while not self.is_at_max_consumers():
+            self._start_consumer()
+
+
+def _compute_consumers_to_add(
+    bytes_left: int,
+    time_left: int | float,
+    bytes_consumption_rate: int | float,
+    current_consumers: int,
+    max_consumers: int,
+) -> int:
+    target_bytes_consumption_rate = bytes_left / time_left
+    bytes_consumption_rate_per_consumer = bytes_consumption_rate / current_consumers
+    number_of_consumers_needed = target_bytes_consumption_rate / bytes_consumption_rate_per_consumer
+    target_consumers_to_add = int(number_of_consumers_needed - current_consumers)
+    bounded_consumers_to_add = min(max(target_consumers_to_add, 0), max_consumers - current_consumers)
+
+    return bounded_consumers_to_add
