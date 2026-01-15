@@ -38,7 +38,7 @@ def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, An
             # Ensure we only return dicts (handles null, numbers, arrays, etc.)
             return parsed if isinstance(parsed, dict) else {}
         except json.JSONDecodeError:
-            LOGGER.warning(f"Failed to parse properties for person {person_id}")
+            LOGGER.warning("Failed to parse properties for person", person_id=person_id)
             return {}
     else:
         return properties_raw if isinstance(properties_raw, dict) else {}
