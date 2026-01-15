@@ -1,5 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
 
 export type DuckSqlRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 
@@ -20,6 +27,9 @@ export const DuckSqlRunMenu = ({
     disabledReason,
     onRun,
 }: DuckSqlRunMenuProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
     const duckSqlRunTooltip = `Run SQL (duckdb) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
@@ -41,6 +51,13 @@ export const DuckSqlRunMenu = ({
             onClick: () => onRun('cell_downstream'),
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+        duckSqlRunMenuItems.push({
+            label: 'Toggle kernel info',
+            onClick: () => setShowKernelInfo(!showKernelInfo),
+        })
+    }
 
     return (
         <LemonButton

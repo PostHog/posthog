@@ -1,5 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
 
@@ -20,6 +27,9 @@ export const PythonRunMenu = ({
     disabledReason,
     onRun,
 }: PythonRunMenuProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const pythonRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
     const pythonRunTooltip = `Run Python cell.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
@@ -41,6 +51,13 @@ export const PythonRunMenu = ({
             onClick: () => onRun('cell_downstream'),
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+        pythonRunMenuItems.push({
+            label: 'Toggle kernel info',
+            onClick: () => setShowKernelInfo(!showKernelInfo),
+        })
+    }
 
     return (
         <LemonButton
