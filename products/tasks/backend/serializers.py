@@ -38,7 +38,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             # Video segment clustering fields
-            "distinct_user_count",
+            "relevant_user_count",
             "occurrence_count",
             "last_occurrence_at",
             "reference_count",
@@ -51,7 +51,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "latest_run",
-            "distinct_user_count",
+            "relevant_user_count",
             "occurrence_count",
             "last_occurrence_at",
             "reference_count",

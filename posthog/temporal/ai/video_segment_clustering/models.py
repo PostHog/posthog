@@ -20,9 +20,12 @@ class VideoSegmentMetadata:
     session_id: str
     start_time: str
     end_time: str
+    session_start_time: str
+    session_end_time: str
+    session_duration: int
+    session_active_seconds: int
     distinct_id: str
     content: str
-    timestamp: str  # ISO format
 
 
 @dataclass
@@ -31,16 +34,18 @@ class VideoSegment:
     session_id: str
     start_time: str
     end_time: str
+    session_start_time: str
+    session_end_time: str
+    session_duration: int
+    session_active_seconds: int
     distinct_id: str
     content: str
     embedding: list[float]
-    timestamp: str  # ISO format
 
 
 @dataclass
 class FetchSegmentsResult:
     segments: list[VideoSegmentMetadata]
-    latest_timestamp: str | None  # ISO format, for updating watermark
 
 
 @dataclass
@@ -48,7 +53,7 @@ class ClusterContext:
     """Context data for a cluster passed to LLM for labeling/actionability."""
 
     segment_contents: list[str]
-    distinct_user_count: int
+    relevant_user_count: int
     occurrence_count: int
     last_occurrence_iso: str | None
 
@@ -115,7 +120,6 @@ class TaskCreationResult:
 @dataclass
 class LinkingResult:
     links_created: int
-    watermark_updated: bool
 
 
 @dataclass
@@ -136,7 +140,6 @@ class WorkflowResult:
 @dataclass
 class FetchSegmentsActivityInputs:
     team_id: int
-    since_timestamp: str | None  # ISO format, None = use clustering state
     lookback_hours: int
 
 
@@ -169,7 +172,7 @@ class ClusterForLabeling:
 
 
 @dataclass
-class GenerateLabelsActivityInputs:
+class LabelClustersActivityInputs:
     team_id: int
     clusters: list[ClusterForLabeling]
     segments: list[VideoSegmentMetadata]
@@ -240,7 +243,6 @@ class PersistTasksActivityInputs:
     labels: dict[int, ClusterLabel]
     segments: list[VideoSegmentMetadata]
     segment_to_cluster: dict[str, int]
-    latest_timestamp: str | None
 
 
 @dataclass
@@ -249,4 +251,3 @@ class PersistTasksResult:
     tasks_updated: int
     task_ids: list[str]
     links_created: int
-    watermark_updated: bool

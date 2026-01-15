@@ -1,22 +1,17 @@
 """
 Activity 3 of the video segment clustering workflow:
-Clustering video segments using HDBSCAN, with optional noise handling.
+Clustering video segments using HDBSCAN, with noise handling.
 """
 
 import json
 import asyncio
+from typing import Literal
 
 import numpy as np
 import fast_hdbscan as hdbscan
-from asgiref.sync import sync_to_async
 from sklearn.decomposition import PCA
 from temporalio import activity
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import (
@@ -25,51 +20,135 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterSegmentsActivityInputs,
     VideoSegment,
 )
+from posthog.temporal.common.logger import get_logger
+
+from ..data import fetch_video_segment_embedding_rows
+
+logger = get_logger(__name__)
 
 
-def reduce_dimensions(embeddings: np.ndarray, n_components: int = constants.PCA_COMPONENTS) -> np.ndarray:
-    """Reduce embedding dimensions using PCA for efficient clustering.
+@activity.defn
+async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
+    """Cluster video segments using HDBSCAN.
 
-    Args:
-        embeddings: Array of embedding vectors, shape (n_samples, n_features)
-        n_components: Target number of dimensions
+    Fetches embeddings from ClickHouse, then applies PCA dimensionality reduction
+    and HDBSCAN clustering. Returns clusters with centroids computed from original embeddings.
 
-    Returns:
-        Reduced embeddings array, shape (n_samples, n_components)
+    If create_single_segment_clusters_for_noise is True (default), noise segments are converted to
+    single-segment clusters so they can become individual Tasks (mostly for teams with lower usage).
+
+    Why HDBSCAN? I'm not an expert, so I'm using Claude as my PhD-level advisor on this (can recommend):
+    - Crucially, doesn't require specifying cluster count upfront, unlike K-means
+    - Naturally identifies noise: segments that don't belong to any cluster
+    - Discovers clusters of varying densities and shapes
+    The downsides of HDBSCAN:
+    - Slower than K-means, especially on large sets (but fast_hdbscan should be a, well, fast library)
+    - Sensitive to min_cluster_size/min_samples parameters
+    - Struggles with high-dimensional data (hence dimensionality reduction with PCA first)
+
+    Glossary:
+    - PCA: Principal Component Analysis
+    - HDBSCAN: Hierarchical Density-Based Spatial Clustering of Applications with Noise
     """
-    if embeddings.shape[0] == 0:
-        return embeddings
+    team = await Team.objects.aget(id=inputs.team_id)
+    # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
+    segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
 
-    # Don't reduce if already smaller than target
-    if embeddings.shape[1] <= n_components:
-        return embeddings
-
-    # Cap components at number of samples (PCA requirement)
-    effective_components = min(n_components, embeddings.shape[0])
-
-    pca = PCA(n_components=effective_components)
-    return pca.fit_transform(embeddings)
+    # Run in to_thread as clustering is CPU-bound
+    return await asyncio.to_thread(
+        _perform_clustering,
+        segments,
+        inputs.create_single_segment_clusters_for_noise,
+    )
 
 
-def compute_centroid(embeddings: np.ndarray) -> list[float]:
-    """Compute the centroid (mean) of a set of embeddings.
-
-    Args:
-        embeddings: Array of embedding vectors
-
-    Returns:
-        Centroid as a list of floats
-    """
-    if len(embeddings) == 0:
+async def _fetch_embeddings_by_document_ids(
+    team: Team,
+    document_ids: list[str],
+) -> list[VideoSegment]:
+    if not document_ids:
         return []
-    return np.mean(embeddings, axis=0).tolist()
+
+    rows = await fetch_video_segment_embedding_rows(team, document_ids)
+    segments: list[VideoSegment] = []
+
+    for row in rows:
+        document_id, content, embedding, metadata_str, _timestamp_of_embedding = row
+        try:
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+        except (json.JSONDecodeError, TypeError):
+            # Being defensive to avoid a poison pill kind of situation
+            logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
+            continue
+        session_id = metadata.get("session_id")
+        start_time = metadata.get("start_time")
+        end_time = metadata.get("end_time")
+        distinct_id = metadata.get("distinct_id")
+        session_start_time = metadata.get("session_start_time")
+        session_end_time = metadata.get("session_end_time")
+        session_duration = metadata.get("session_duration")
+        session_active_seconds = metadata.get("session_active_seconds")
+        if (
+            not session_id
+            or not start_time
+            or not end_time
+            or not distinct_id
+            or not session_start_time
+            or not session_end_time
+            or not session_duration
+            or not session_active_seconds
+        ):
+            logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
+            continue
+        segments.append(
+            VideoSegment(
+                document_id=document_id,
+                session_id=session_id,
+                start_time=start_time,
+                end_time=end_time,
+                session_start_time=session_start_time,
+                session_end_time=session_end_time,
+                session_duration=session_duration,
+                session_active_seconds=session_active_seconds,
+                distinct_id=distinct_id,
+                content=content,
+                embedding=embedding,
+            )
+        )
+
+    return segments
 
 
-def perform_hdbscan_clustering(
+def _perform_clustering(
+    segments: list[VideoSegment],
+    create_single_segment_clusters_for_noise: bool,
+) -> ClusteringResult:
+    """Run HDBSCAN clustering and handle noise. CPU-bound."""
+    result = _perform_hdbscan_clustering(segments)
+
+    if create_single_segment_clusters_for_noise and result.noise_segment_ids:
+        # Handle noise segments by creating single-segment clusters
+        max_cluster_id = max((c.cluster_id for c in result.clusters), default=-1)
+        noise_clusters = _create_single_segment_clusters(
+            noise_segment_ids=result.noise_segment_ids,
+            all_segments=segments,
+            cluster_id_offset=max_cluster_id + 1,
+        )
+        # Update result in place
+        result.clusters += noise_clusters
+        result.noise_segment_ids = []
+        for cluster in noise_clusters:
+            for doc_id in cluster.segment_ids:
+                result.segment_to_cluster[doc_id] = cluster.cluster_id
+
+    return result
+
+
+def _perform_hdbscan_clustering(
     segments: list[VideoSegment],
     min_cluster_size: int = constants.MIN_CLUSTER_SIZE,
     min_samples: int = constants.MIN_SAMPLES,
-    cluster_selection_method: str = constants.CLUSTER_SELECTION_METHOD,
+    cluster_selection_method: Literal["leaf", "eom"] = constants.CLUSTER_SELECTION_METHOD,
     cluster_selection_epsilon: float = constants.CLUSTER_SELECTION_EPSILON,
 ) -> ClusteringResult:
     """Cluster video segments using HDBSCAN algorithm.
@@ -105,7 +184,7 @@ def perform_hdbscan_clustering(
     document_ids = [s.document_id for s in segments]
 
     # Reduce dimensions for clustering efficiency
-    reduced_embeddings = reduce_dimensions(embeddings)
+    reduced_embeddings = _reduce_dimensions(embeddings)
 
     # Perform HDBSCAN clustering with relaxed parameters (note: fast_hdbscan is Euclidean-only, no cosine due to perf)
     clusterer = hdbscan.HDBSCAN(
@@ -123,7 +202,6 @@ def perform_hdbscan_clustering(
     segment_to_cluster: dict[str, int] = {}
 
     unique_labels = set(labels)
-
     for label in unique_labels:
         if label == -1:
             # Noise points
@@ -137,7 +215,7 @@ def perform_hdbscan_clustering(
 
         # Compute centroid from ORIGINAL embeddings (not reduced)
         cluster_embeddings = embeddings[cluster_indices]
-        centroid = compute_centroid(cluster_embeddings)
+        centroid = np.mean(cluster_embeddings, axis=0).tolist() if len(cluster_embeddings) else []
 
         cluster = Cluster(
             cluster_id=int(label),
@@ -159,192 +237,47 @@ def perform_hdbscan_clustering(
     )
 
 
-def create_single_segment_clusters(
-    noise_segment_ids: list[str],
-    segments: list[VideoSegment],
-    starting_cluster_id: int,
-) -> list[Cluster]:
-    """Create individual clusters for noise segments (one segment per cluster).
-
-    Used for high-impact noise segments that should become individual Tasks
-    even without clustering with other segments.
+def _reduce_dimensions(
+    embeddings: np.ndarray, n_components: int = constants.TARGET_DIMENSIONALITY_FOR_CLUSTERING
+) -> np.ndarray:
+    """Reduce embedding dimensions using PCA for efficient clustering.
 
     Args:
-        noise_segment_ids: List of document IDs for noise segments
-        segments: All segments (to look up embeddings)
-        starting_cluster_id: First cluster ID to use (to avoid conflicts)
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        n_components: Target number of dimensions
 
     Returns:
-        List of single-segment Clusters
+        Reduced embeddings array, shape (n_samples, n_components)
     """
-    segment_lookup = {s.document_id: s for s in segments}
-    clusters: list[Cluster] = []
+    if embeddings.shape[0] == 0:
+        return embeddings
+    # Don't reduce if already smaller than target
+    if embeddings.shape[1] <= n_components:
+        return embeddings
+    # Cap components at number of samples (PCA requirement)
+    effective_components = min(n_components, embeddings.shape[0])
+    pca = PCA(n_components=effective_components)
+    return pca.fit_transform(embeddings)
 
+
+def _create_single_segment_clusters(
+    *,
+    noise_segment_ids: list[str],
+    all_segments: list[VideoSegment],
+    cluster_id_offset: int,
+) -> list[Cluster]:
+    segment_lookup = {s.document_id: s for s in all_segments}
+    new_clusters: list[Cluster] = []
     for i, doc_id in enumerate(noise_segment_ids):
         segment = segment_lookup.get(doc_id)
         if not segment:
             continue
-
-        cluster = Cluster(
-            cluster_id=starting_cluster_id + i,
-            segment_ids=[doc_id],
-            centroid=segment.embedding,  # Single segment = its embedding is the centroid
-            size=1,
-        )
-        clusters.append(cluster)
-
-    return clusters
-
-
-def _perform_clustering(
-    segments: list[VideoSegment],
-    create_single_segment_clusters_for_noise: bool,
-) -> ClusteringResult:
-    """Run HDBSCAN clustering and optionally handle noise. CPU-bound."""
-    result = perform_hdbscan_clustering(segments)
-
-    if create_single_segment_clusters_for_noise and result.noise_segment_ids:
-        max_cluster_id = max((c.cluster_id for c in result.clusters), default=-1)
-
-        noise_clusters = create_single_segment_clusters(
-            noise_segment_ids=result.noise_segment_ids,
-            segments=segments,
-            starting_cluster_id=max_cluster_id + 1,
-        )
-
-        all_clusters = list(result.clusters) + noise_clusters
-        segment_to_cluster = dict(result.segment_to_cluster)
-        for cluster in noise_clusters:
-            for doc_id in cluster.segment_ids:
-                segment_to_cluster[doc_id] = cluster.cluster_id
-
-        return ClusteringResult(
-            clusters=all_clusters,
-            noise_segment_ids=[],
-            labels=result.labels,
-            segment_to_cluster=segment_to_cluster,
-        )
-
-    return result
-
-
-@activity.defn
-async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
-    """Cluster video segments using HDBSCAN.
-
-    Fetches embeddings from ClickHouse, then applies PCA dimensionality reduction
-    and HDBSCAN clustering. Returns clusters with centroids computed from original embeddings.
-
-    If create_single_segment_clusters_for_noise is True, noise segments are converted to
-    single-segment clusters so they can become individual Tasks.
-    """
-    team = await Team.objects.aget(id=inputs.team_id)
-    segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
-
-    return await asyncio.to_thread(
-        _perform_clustering,
-        segments,
-        inputs.create_single_segment_clusters_for_noise,
-    )
-
-
-async def _fetch_embeddings_by_document_ids(
-    team: Team,
-    document_ids: list[str],
-) -> list[VideoSegment]:
-    """Fetch video segments with embeddings for specific document IDs.
-
-    Used by clustering activity to fetch embeddings only when needed,
-    avoiding large payloads in Temporal activity inputs/outputs.
-
-    Args:
-        team: Team object to query for
-        document_ids: List of document IDs to fetch
-
-    Returns:
-        List of VideoSegment objects with embeddings
-    """
-    if not document_ids:
-        return []
-
-    query = parse_select(
-        """
-        SELECT
-            document_id,
-            content,
-            embedding,
-            metadata,
-            timestamp
-        FROM raw_document_embeddings
-        WHERE document_id IN {doc_ids}
-            AND product = {product}
-            AND document_type = {document_type}
-            AND rendering = {rendering}
-        """
-    )
-
-    placeholders = {
-        "doc_ids": ast.Constant(value=document_ids),
-        "product": ast.Constant(value=constants.PRODUCT),
-        "document_type": ast.Constant(value=constants.DOCUMENT_TYPE),
-        "rendering": ast.Constant(value=constants.RENDERING),
-    }
-
-    @sync_to_async
-    def _execute_query():
-        with tags_context(product=Product.REPLAY):
-            return execute_hogql_query(
-                query_type="VideoSegmentEmbeddingsForClustering",
-                query=query,
-                placeholders=placeholders,
-                team=team,
-            )
-
-    result = await _execute_query()
-
-    rows = result.results or []
-    segments: list[VideoSegment] = []
-
-    for row in rows:
-        document_id = row[0]
-        content = row[1]
-        embedding = row[2]
-        metadata_str = row[3]
-        timestamp = row[4]
-
-        # Parse metadata JSON
-        try:
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-        except (json.JSONDecodeError, TypeError):
-            metadata = {}
-
-        # Parse document_id format: "{session_id}:{start_time}:{end_time}"
-        parts = document_id.split(":")
-        if len(parts) >= 3:
-            session_id = parts[0]
-            start_time = parts[1]
-            end_time = parts[2]
-        else:
-            session_id = metadata.get("session_id", "")
-            start_time = metadata.get("start_time", "")
-            end_time = metadata.get("end_time", "")
-
-        distinct_id = metadata.get("distinct_id", "")
-        timestamp_str = (
-            timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp) if timestamp else ""
-        )
-
-        segments.append(
-            VideoSegment(
-                document_id=document_id,
-                session_id=session_id,
-                start_time=start_time,
-                end_time=end_time,
-                distinct_id=distinct_id,
-                content=content,
-                embedding=embedding,
-                timestamp=timestamp_str,
+        new_clusters.append(
+            Cluster(
+                cluster_id=cluster_id_offset + i,
+                segment_ids=[doc_id],
+                centroid=segment.embedding,  # Single segment = its embedding is the centroid
+                size=1,
             )
         )
-
-    return segments
+    return new_clusters

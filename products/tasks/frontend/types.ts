@@ -52,7 +52,7 @@ export interface Task {
         email: string
     } | null
     // Video segment clustering fields
-    distinct_user_count: number
+    relevant_user_count: number
     occurrence_count: number
     last_occurrence_at: string | null
     reference_count: number

@@ -7,7 +7,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         fetch_segments_activity,
-        generate_labels_activity,
+        label_clusters_activity,
         match_clusters_activity,
         persist_tasks_activity,
         prime_session_embeddings_activity,
@@ -17,7 +17,7 @@ with workflow.unsafe.imports_passed_through():
         ClusteringWorkflowInputs,
         ClusterSegmentsActivityInputs,
         FetchSegmentsActivityInputs,
-        GenerateLabelsActivityInputs,
+        LabelClustersActivityInputs,
         MatchClustersActivityInputs,
         PersistTasksActivityInputs,
         PrimeSessionEmbeddingsActivityInputs,
@@ -30,12 +30,12 @@ class VideoSegmentClusteringWorkflow:
     """Per-team workflow to cluster video segments and create Tasks.
 
     This workflow orchestrates 6 activities:
-    1. Prime: Run session summarization on recently-ended sessions to populate embeddings
-    2. Fetch: Query unprocessed video segments from ClickHouse
-    3. Cluster: HDBSCAN clustering with noise handling
-    4. Match: Match clusters to existing Tasks (deduplication)
-    5. Label: Generate LLM-based labels for new clusters
-    6. Persist: Create/update Tasks, links, and watermark
+    0. Prime: Run session summarization on recently-ended sessions to populate embeddings
+    1. Fetch: Query recent video segments from ClickHouse
+    2. Cluster: Clustering segments into groups, i.e. potential tasks
+    3. Match: Match clusters to existing Tasks (deduplication)
+    4. Label: Generate LLM-based labels for new clusters
+    5. Persist: Create/update Tasks and TaskReferences
     """
 
     @workflow.run
@@ -63,13 +63,12 @@ class VideoSegmentClusteringWorkflow:
                 f"{priming_result.sessions_skipped} skipped, {priming_result.sessions_failed} failed"
             )
 
-            # Activity 2: Fetch unprocessed segments
+            # Activity 2: Fetch segments within lookback window
             fetch_result = await workflow.execute_activity(
                 fetch_segments_activity,
                 args=[
                     FetchSegmentsActivityInputs(
                         team_id=inputs.team_id,
-                        since_timestamp=None,
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
@@ -103,7 +102,6 @@ class VideoSegmentClusteringWorkflow:
                     ClusterSegmentsActivityInputs(
                         team_id=inputs.team_id,
                         document_ids=document_ids,
-                        create_single_segment_clusters_for_noise=True,
                     )
                 ],
                 start_to_close_timeout=constants.CLUSTER_ACTIVITY_TIMEOUT,
@@ -147,9 +145,9 @@ class VideoSegmentClusteringWorkflow:
                 ]
 
                 labeling_result = await workflow.execute_activity(
-                    generate_labels_activity,
+                    label_clusters_activity,
                     args=[
-                        GenerateLabelsActivityInputs(
+                        LabelClustersActivityInputs(
                             team_id=inputs.team_id,
                             clusters=clusters_for_labeling,
                             segments=segments,
@@ -167,7 +165,7 @@ class VideoSegmentClusteringWorkflow:
                     if label and label.actionable:
                         actionable_new_clusters.append(cluster)
 
-            # Activity 6: Persist tasks, links, and watermark
+            # Activity 6: Persist tasks and references
             persist_result = await workflow.execute_activity(
                 persist_tasks_activity,
                 args=[
@@ -178,7 +176,6 @@ class VideoSegmentClusteringWorkflow:
                         labels=labeling_result.labels if labeling_result else {},
                         segments=segments,
                         segment_to_cluster=clustering_result.segment_to_cluster,
-                        latest_timestamp=fetch_result.latest_timestamp,
                     )
                 ],
                 start_to_close_timeout=constants.TASK_ACTIVITY_TIMEOUT,

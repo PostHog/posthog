@@ -4,144 +4,67 @@ Fetch unprocessed video segments from ClickHouse.
 """
 
 import json
-from datetime import datetime
 
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
-from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import (
     FetchSegmentsActivityInputs,
     FetchSegmentsResult,
     VideoSegmentMetadata,
 )
+from posthog.temporal.common.logger import get_logger
+
+from ..data import fetch_video_segment_metadata_rows
+
+logger = get_logger(__name__)
 
 
 @activity.defn
 async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchSegmentsResult:
     """Fetch video segments from ClickHouse.
 
-    Queries document_embeddings for video segments that haven't been processed yet,
-    based on the clustering state watermark (since_timestamp).
+    Queries document_embeddings for video segments within the lookback window.
+    Uses a configurable lookback period (default 7 days) to ensure idempotent
+    processing - segments are deduplicated at the Task and TaskReference level.
     """
     team = await Team.objects.aget(id=inputs.team_id)
-
-    since_timestamp = None
-    if inputs.since_timestamp:
-        since_timestamp = datetime.fromisoformat(inputs.since_timestamp.replace("Z", "+00:00"))
-
-    return await _fetch_video_segments(
+    video_segment_metadata_rows = await fetch_video_segment_metadata_rows(
         team=team,
-        since_timestamp=since_timestamp,
         lookback_hours=inputs.lookback_hours,
     )
-
-
-async def _fetch_video_segments(
-    team: Team,
-    since_timestamp: datetime | None,
-    lookback_hours: int,
-) -> FetchSegmentsResult:
-    """Fetch video segment metadata from document_embeddings table (no embeddings).
-
-    Args:
-        team: Team object to query for
-        since_timestamp: Only fetch segments after this timestamp (for incremental processing)
-        lookback_hours: How far back to look if since_timestamp is None
-
-    Returns:
-        FetchSegmentsResult with list of segment metadata and latest timestamp
-    """
-    # Build time filter
-    if since_timestamp:
-        time_filter = "timestamp > {since_ts}"
-        placeholders = {
-            "since_ts": ast.Constant(value=since_timestamp),
-        }
-    else:
-        time_filter = "timestamp >= now() - INTERVAL {hours} HOUR"
-        placeholders = {
-            "hours": ast.Constant(value=lookback_hours),
-        }
-
-    # Note: We don't select embedding here to avoid large payloads
-    query = parse_select(
-        f"""
-        SELECT
-            document_id,
-            content,
-            metadata,
-            timestamp
-        FROM raw_document_embeddings
-        WHERE {time_filter}
-            AND product = {{product}}
-            AND document_type = {{document_type}}
-            AND rendering = {{rendering}}
-            AND length(embedding) > 0
-        ORDER BY timestamp ASC
-        """
-    )
-
-    placeholders.update(
-        {
-            "product": ast.Constant(value=constants.PRODUCT),
-            "document_type": ast.Constant(value=constants.DOCUMENT_TYPE),
-            "rendering": ast.Constant(value=constants.RENDERING),
-        }
-    )
-
-    @sync_to_async
-    def _execute_query():
-        with tags_context(product=Product.REPLAY):
-            return execute_hogql_query(
-                query_type="VideoSegmentMetadataForClustering",
-                query=query,
-                placeholders=placeholders,
-                team=team,
-            )
-
-    result = await _execute_query()
-
-    rows = result.results or []
     segments: list[VideoSegmentMetadata] = []
-    latest_timestamp: str | None = None
 
-    for row in rows:
-        document_id = row[0]
-        content = row[1]
-        metadata_str = row[2]
-        timestamp = row[3]
-
+    for row in video_segment_metadata_rows:
+        document_id, content, metadata_str, _timestamp_of_embedding = row
         # Parse metadata JSON
         try:
             metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
         except (json.JSONDecodeError, TypeError):
-            metadata = {}
+            # Being defensive to avoid a poison pill kind of situation
+            logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
+            continue
 
-        # Parse document_id format: "{session_id}:{start_time}:{end_time}"
-        parts = document_id.split(":")
-        if len(parts) >= 3:
-            session_id = parts[0]
-            start_time = parts[1]
-            end_time = parts[2]
-        else:
-            # Fallback to metadata
-            session_id = metadata.get("session_id", "")
-            start_time = metadata.get("start_time", "")
-            end_time = metadata.get("end_time", "")
-
-        distinct_id = metadata.get("distinct_id", "")
-
-        # Track latest timestamp
-        if timestamp:
-            timestamp_str = timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
-            latest_timestamp = timestamp_str
+        session_id = metadata.get("session_id")
+        start_time = metadata.get("start_time")
+        end_time = metadata.get("end_time")
+        distinct_id = metadata.get("distinct_id")
+        session_start_time = metadata.get("session_start_time")
+        session_end_time = metadata.get("session_end_time")
+        session_duration = metadata.get("session_duration")
+        session_active_seconds = metadata.get("session_active_seconds")
+        if (
+            not session_id
+            or not start_time
+            or not end_time
+            or not distinct_id
+            or not session_start_time
+            or not session_end_time
+            or not session_duration
+            or not session_active_seconds
+        ):
+            logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
+            continue
 
         segments.append(
             VideoSegmentMetadata(
@@ -149,13 +72,13 @@ async def _fetch_video_segments(
                 session_id=session_id,
                 start_time=start_time,
                 end_time=end_time,
+                session_start_time=session_start_time,
+                session_end_time=session_end_time,
+                session_duration=session_duration,
+                session_active_seconds=session_active_seconds,
                 distinct_id=distinct_id,
                 content=content,
-                timestamp=timestamp_str if timestamp else "",
             )
         )
 
-    return FetchSegmentsResult(
-        segments=segments,
-        latest_timestamp=latest_timestamp,
-    )
+    return FetchSegmentsResult(segments=segments)

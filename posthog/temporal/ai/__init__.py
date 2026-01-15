@@ -56,7 +56,7 @@ from .sync_vectors import (
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
     fetch_segments_activity,
-    generate_labels_activity,
+    label_clusters_activity,
     match_clusters_activity,
     persist_tasks_activity,
     prime_session_embeddings_activity,
@@ -105,7 +105,7 @@ ACTIVITIES = [
     fetch_segments_activity,
     cluster_segments_activity,
     match_clusters_activity,
-    generate_labels_activity,
+    label_clusters_activity,
     persist_tasks_activity,
 ]
 

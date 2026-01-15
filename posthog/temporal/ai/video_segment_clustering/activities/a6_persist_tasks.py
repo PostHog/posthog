@@ -1,9 +1,9 @@
 """
 Activity 6 of the video segment clustering workflow:
-Persisting Tasks, TaskReferences, and updating the clustering state watermark.
+Persisting Tasks and TaskReferences.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.utils import timezone as django_timezone
 
@@ -11,27 +11,18 @@ import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
-from posthog.temporal.ai.video_segment_clustering.models import (
-    ClusterLabel,
-    PersistTasksActivityInputs,
-    PersistTasksResult,
-)
+from posthog.temporal.ai.session_summary.activities.a3_analyze_video_segment import _parse_timestamp_to_seconds
+from posthog.temporal.ai.video_segment_clustering.models import PersistTasksActivityInputs, PersistTasksResult
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
 
-from products.tasks.backend.models import Task, TaskReference, VideoSegmentClusteringState
+from products.tasks.backend.models import Task, TaskReference
 
 logger = structlog.get_logger(__name__)
 
 
 @activity.defn
 async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistTasksResult:
-    """Persist Tasks, create references, and update the clustering state watermark.
-
-    Creates Task records for new clusters with LLM-generated labels.
-    Updates existing Tasks with new segment data and recalculates priority.
-    Creates TaskReference records for all processed segments.
-    Updates VideoSegmentClusteringState with the latest processed timestamp.
-    """
+    """Persists new Tasks and updates existing relevant ones, creating TaskReferences in the process."""
     team = await Team.objects.aget(id=inputs.team_id)
 
     segment_lookup = {s.document_id: s for s in inputs.segments}
@@ -47,16 +38,14 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
     for cluster in inputs.new_clusters:
         label = inputs.labels.get(cluster.cluster_id)
         if not label:
-            label = ClusterLabel(
-                title=f"Issue Cluster {cluster.cluster_id}",
-                description="Automatically detected issue from video analysis.",
-            )
+            logger.warning("No label found for new cluster, skipping", cluster_id=cluster.cluster_id)
+            continue
 
         cluster_segments = [segment_lookup[sid] for sid in cluster.segment_ids if sid in segment_lookup]
         metrics = await calculate_task_metrics(team, cluster_segments)
 
         priority = calculate_priority_score(
-            distinct_user_count=metrics["distinct_user_count"],
+            relevant_user_count=metrics["relevant_user_count"],
         )
 
         task = await Task.objects.acreate(
@@ -67,7 +56,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             cluster_centroid=cluster.centroid,
             cluster_centroid_updated_at=django_timezone.now(),
             priority_score=priority,
-            distinct_user_count=metrics["distinct_user_count"],
+            relevant_user_count=metrics["relevant_user_count"],
             occurrence_count=metrics["occurrence_count"],
             last_occurrence_at=metrics["last_occurrence_at"],
         )
@@ -83,7 +72,7 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             cluster_size=cluster.size,
         )
 
-    # 2. Update existing Tasks for matched clusters
+    # 2. Update existing Tasks for matched clusters (idempotent - only count new segments)
     for match in inputs.matched_clusters:
         try:
             task = await Task.objects.aget(id=match.task_id)
@@ -98,32 +87,48 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         cluster_segments = [segment_lookup[sid] for sid in matched_segment_ids if sid in segment_lookup]
 
         if cluster_segments:
-            new_metrics = await calculate_task_metrics(team, cluster_segments)
+            # Check which segments already have TaskReferences for this task (idempotency)
+            existing_refs: set[str] = set()
+            async for ref in TaskReference.objects.filter(task_id=match.task_id).values_list(
+                "session_id", "start_time", "end_time"
+            ):
+                existing_refs.add(f"{ref[0]}:{ref[1]}:{ref[2]}")
 
-            task.distinct_user_count += new_metrics["distinct_user_count"]
-            task.occurrence_count += new_metrics["occurrence_count"]
+            # Filter to only NEW segments (not already linked to this task)
+            new_segments = [
+                seg
+                for seg in cluster_segments
+                if f"{seg.session_id}:{seg.start_time}:{seg.end_time}" not in existing_refs
+            ]
 
-            if new_metrics["last_occurrence_at"]:
-                if task.last_occurrence_at is None or new_metrics["last_occurrence_at"] > task.last_occurrence_at:
-                    task.last_occurrence_at = new_metrics["last_occurrence_at"]
+            if new_segments:
+                new_metrics = await calculate_task_metrics(team, new_segments)
 
-            task.priority_score = calculate_priority_score(
-                distinct_user_count=task.distinct_user_count,
-            )
+                task.relevant_user_count += new_metrics["relevant_user_count"]
+                task.occurrence_count += new_metrics["occurrence_count"]
 
-            await task.asave()
-            tasks_updated += 1
+                if new_metrics["last_occurrence_at"]:
+                    if task.last_occurrence_at is None or new_metrics["last_occurrence_at"] > task.last_occurrence_at:
+                        task.last_occurrence_at = new_metrics["last_occurrence_at"]
 
-            logger.info(
-                "Updated task from matched cluster",
-                task_id=str(task.id),
-                cluster_id=match.cluster_id,
-                new_segments=len(cluster_segments),
-            )
+                task.priority_score = calculate_priority_score(
+                    relevant_user_count=task.relevant_user_count,
+                )
+
+                await task.asave()
+                tasks_updated += 1
+
+                logger.info(
+                    "Updated task from matched cluster",
+                    task_id=str(task.id),
+                    cluster_id=match.cluster_id,
+                    new_segments=len(new_segments),
+                    skipped_existing=len(cluster_segments) - len(new_segments),
+                )
 
         task_ids.append(str(task.id))
 
-    # 3. Create TaskReference records
+    # 3. Create TaskReference records (idempotent - only count truly new links)
     links_created = 0
 
     for segment in inputs.segments:
@@ -140,48 +145,27 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
         except Task.DoesNotExist:
             continue
 
-        reference_timestamp = None
-        if segment.timestamp:
-            try:
-                reference_timestamp = datetime.fromisoformat(segment.timestamp.replace("Z", "+00:00"))
-            except ValueError:
-                pass
-
-        await TaskReference.objects.aupdate_or_create(
+        session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
+        segment_start_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.start_time))
+        segment_end_time = session_start_time + timedelta(seconds=_parse_timestamp_to_seconds(segment.end_time))
+        _, created = await TaskReference.objects.aupdate_or_create(
             task=task,
             session_id=segment.session_id,
-            start_time=segment.start_time,
-            end_time=segment.end_time,
+            start_time=segment_start_time,
+            end_time=segment_end_time,
             defaults={
                 "team": team,
                 "distinct_id": segment.distinct_id,
                 "content": segment.content[:1000],
                 "distance_to_centroid": None,
-                "timestamp": reference_timestamp,
             },
         )
-        links_created += 1
-
-    # 4. Update clustering state watermark
-    watermark_updated = False
-    if inputs.latest_timestamp:
-        try:
-            latest_ts = datetime.fromisoformat(inputs.latest_timestamp.replace("Z", "+00:00"))
-            await VideoSegmentClusteringState.objects.aupdate_or_create(
-                team=team,
-                defaults={
-                    "last_processed_at": latest_ts,
-                    "segments_processed": len(inputs.segments),
-                },
-            )
-            watermark_updated = True
-        except Exception as e:
-            logger.warning("Failed to update clustering state", error=str(e))
+        if created:
+            links_created += 1
 
     return PersistTasksResult(
         tasks_created=tasks_created,
         tasks_updated=tasks_updated,
         task_ids=task_ids,
         links_created=links_created,
-        watermark_updated=watermark_updated,
     )

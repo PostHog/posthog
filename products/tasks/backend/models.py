@@ -81,7 +81,7 @@ class Task(DeletedMetaFields, models.Model):
         db_index=True,
         help_text="Calculated priority score for ranking tasks",
     )
-    distinct_user_count = models.IntegerField(
+    relevant_user_count = models.IntegerField(
         default=0,
         help_text="Number of unique users affected by this issue",
     )
@@ -566,10 +566,10 @@ class TaskReference(models.Model):
 
     # Reference identification
     session_id = models.CharField(max_length=255)
-    start_time = models.CharField(max_length=20)
-    end_time = models.CharField(max_length=20)
+    start_time = models.DateTimeField(null=False, blank=False)
+    end_time = models.DateTimeField(null=True, blank=True)
 
-    # User tracking for distinct_user_count
+    # User tracking for relevant_user_count
     distinct_id = models.CharField(max_length=255)
 
     # Reference content
@@ -585,12 +585,6 @@ class TaskReference(models.Model):
         help_text="Cosine distance from this reference to the task's cluster centroid",
     )
 
-    # Timestamps
-    timestamp = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="Original timestamp of the reference from document_embeddings",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -609,42 +603,3 @@ class TaskReference(models.Model):
 
     def __str__(self):
         return f"Reference {self.session_id}:{self.start_time}-{self.end_time} -> Task {self.task_id}"
-
-
-class VideoSegmentClusteringState(models.Model):
-    """Tracks the last processed timestamp per team for incremental clustering.
-
-    This is a watermark table that ensures we only process new video segments
-    that haven't been clustered yet.
-    """
-
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
-    last_processed_at = models.DateTimeField(
-        help_text="Timestamp of the most recently processed segment",
-    )
-    last_run_at = models.DateTimeField(
-        auto_now=True,
-        help_text="When the clustering workflow last ran for this team",
-    )
-    segments_processed = models.IntegerField(
-        default=0,
-        help_text="Total number of segments processed in the last run",
-    )
-    clusters_created = models.IntegerField(
-        default=0,
-        help_text="Number of new clusters created in the last run",
-    )
-    tasks_created = models.IntegerField(
-        default=0,
-        help_text="Number of new tasks created in the last run",
-    )
-    tasks_updated = models.IntegerField(
-        default=0,
-        help_text="Number of existing tasks updated in the last run",
-    )
-
-    class Meta:
-        db_table = "posthog_video_segment_clustering_state"
-
-    def __str__(self):
-        return f"Clustering state for team {self.team_id} (last: {self.last_processed_at})"

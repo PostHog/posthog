@@ -1,13 +1,13 @@
 """Configuration constants for video segment clustering workflow."""
 
-import os
 from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
 # Scheduling
 CLUSTERING_INTERVAL = timedelta(minutes=30)
-DEFAULT_LOOKBACK_WINDOW = timedelta(hours=1)
+DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_LOOKBACK_WINDOW = timedelta(days=DEFAULT_LOOKBACK_DAYS)
 
 # Minimum segments required for clustering
 # Below this threshold, segments are accumulated for the next run
@@ -23,7 +23,7 @@ CLUSTER_SELECTION_EPSILON = 0.0  # No epsilon for leaf method
 TASK_MATCH_THRESHOLD = 0.3  # Cosine distance - lower = more strict matching
 
 # PCA dimensionality reduction
-PCA_COMPONENTS = 100  # Reduce from 3072 to 100 dimensions for clustering
+TARGET_DIMENSIONALITY_FOR_CLUSTERING = 100  # Reduce from 3072 to 100 dimensions for clustering
 
 # Embeddings configuration
 EMBEDDING_MODEL = "text-embedding-3-large-3072"
@@ -82,12 +82,5 @@ SESSION_PRIMING_RETRY_POLICY = RetryPolicy(
 )
 
 # Cluster labeling configuration
-DEFAULT_SEGMENTS_PER_CLUSTER_FOR_LABELING = 5
+DEFAULT_SEGMENT_SAMPLES_PER_CLUSTER_FOR_LABELING = 5
 LABELING_LLM_MODEL = "gemini-3-flash-preview"
-
-
-def get_proactive_tasks_team_ids() -> list[int]:
-    raw = os.environ.get("PROACTIVE_TASKS_TEAM_IDS", "")
-    if not raw.strip():
-        return []
-    return [int(tid.strip()) for tid in raw.split(",") if tid.strip()]

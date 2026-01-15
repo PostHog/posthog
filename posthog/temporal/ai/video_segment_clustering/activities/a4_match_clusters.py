@@ -24,14 +24,51 @@ async def match_clusters_activity(inputs: MatchClustersActivityInputs) -> Matchi
     """Match new clusters to existing Tasks.
 
     Compares cluster centroids to existing Task centroids using cosine distance.
-    Clusters within threshold are matched; others become new Tasks.
+    Clusters within threshold are matched, others become new Tasks.
     """
     team = await Team.objects.aget(id=inputs.team_id)
-    existing_centroids = await _fetch_existing_task_centroids(team)
+    existing_task_centroids = await _fetch_existing_task_centroids(team)
 
-    return _match_clusters_to_existing_tasks(
-        clusters=inputs.clusters,
-        existing_task_centroids=existing_centroids,
+    if not existing_task_centroids:
+        # No existing tasks, all clusters are new
+        return MatchingResult(
+            new_clusters=inputs.clusters,
+            matched_clusters=[],
+        )
+
+    new_clusters: list[Cluster] = []
+    matched_clusters: list[TaskMatch] = []
+
+    # Convert task centroids to arrays for efficient comparison
+    task_ids = list(existing_task_centroids.keys())
+    task_centroids = np.array(list(existing_task_centroids.values()))
+
+    for cluster in inputs.clusters:
+        cluster_centroid = np.array(cluster.centroid).reshape(1, -1)
+        # Calculate cosine distances to all task centroids
+        distances = cosine_distances(cluster_centroid, task_centroids)[0]
+        # Find best match
+        min_idx = np.argmin(distances)
+        min_distance = distances[min_idx]
+        if min_distance < constants.TASK_MATCH_THRESHOLD:
+            # Found a match based on centroid similarity
+            # Note: This is pretty crude, as we're relying purely on the stability of clustering, and aren't
+            # comparing the descriptions in a semantic way per se. For a semantic comparison, an LLM could be
+            # a robust verifier, but the cost would increase significantly.
+            matched_clusters.append(
+                TaskMatch(
+                    cluster_id=cluster.cluster_id,
+                    task_id=task_ids[min_idx],
+                    distance=float(min_distance),
+                )
+            )
+        else:
+            # No match, this is a new cluster
+            new_clusters.append(cluster)
+
+    return MatchingResult(
+        new_clusters=new_clusters,
+        matched_clusters=matched_clusters,
     )
 
 
@@ -53,61 +90,3 @@ async def _fetch_existing_task_centroids(team: Team) -> dict[str, list[float]]:
     ).values("id", "cluster_centroid"):
         result[str(task["id"])] = task["cluster_centroid"]
     return result
-
-
-def _match_clusters_to_existing_tasks(
-    clusters: list[Cluster],
-    existing_task_centroids: dict[str, list[float]],
-    match_threshold: float = constants.TASK_MATCH_THRESHOLD,
-) -> MatchingResult:
-    """Match new clusters to existing Tasks based on centroid similarity.
-
-    Args:
-        clusters: List of new clusters from HDBSCAN
-        existing_task_centroids: Dict mapping task_id -> centroid embedding
-        match_threshold: Maximum cosine distance to consider a match
-
-    Returns:
-        MatchingResult with new clusters and matched clusters
-    """
-    if not existing_task_centroids:
-        # No existing tasks, all clusters are new
-        return MatchingResult(
-            new_clusters=clusters,
-            matched_clusters=[],
-        )
-
-    new_clusters: list[Cluster] = []
-    matched_clusters: list[TaskMatch] = []
-
-    # Convert task centroids to arrays for efficient comparison
-    task_ids = list(existing_task_centroids.keys())
-    task_centroids = np.array(list(existing_task_centroids.values()))
-
-    for cluster in clusters:
-        cluster_centroid = np.array(cluster.centroid).reshape(1, -1)
-
-        # Calculate cosine distances to all task centroids
-        distances = cosine_distances(cluster_centroid, task_centroids)[0]
-
-        # Find best match
-        min_idx = np.argmin(distances)
-        min_distance = distances[min_idx]
-
-        if min_distance < match_threshold:
-            # Found a match
-            matched_clusters.append(
-                TaskMatch(
-                    cluster_id=cluster.cluster_id,
-                    task_id=task_ids[min_idx],
-                    distance=float(min_distance),
-                )
-            )
-        else:
-            # No match, this is a new cluster
-            new_clusters.append(cluster)
-
-    return MatchingResult(
-        new_clusters=new_clusters,
-        matched_clusters=matched_clusters,
-    )
