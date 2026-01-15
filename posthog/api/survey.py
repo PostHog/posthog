@@ -503,8 +503,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if choices:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
-                if any(not choice.strip() for choice in choices):
-                    raise serializers.ValidationError("Question choices cannot be empty")
+                for choice in choices:
+                    if not isinstance(choice, str):
+                        raise serializers.ValidationError("Question choices must be strings")
+                    if not choice.strip():
+                        raise serializers.ValidationError("Question choices cannot be empty")
 
             link = raw_question.get("link")
             if link:
