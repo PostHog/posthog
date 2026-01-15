@@ -72,6 +72,7 @@ CACHE_TIMEOUT_SECONDS = 300
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$")
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
@@ -346,12 +347,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Translations must be an object")
 
-        # Validate language codes format (ISO 639-1/2/3 or BCP 47)
-        language_code_pattern = re.compile(r"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$")
-
         cleaned_translations = {}
         for lang_code, translation_data in value.items():
-            if not language_code_pattern.match(lang_code):
+            if not LANGUAGE_CODE_PATTERN.match(lang_code):
                 raise serializers.ValidationError(
                     f"Invalid language code '{lang_code}'. Use ISO 639-1 format (e.g., 'es', 'fr') or BCP 47 format (e.g., 'es-MX', 'en-US')"
                 )
@@ -379,11 +377,10 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(translations_dict, dict):
             raise serializers.ValidationError(f"Question {question_index}: translations must be an object")
 
-        language_code_pattern = re.compile(r"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$")
         cleaned_translations = {}
 
         for lang_code, translation_data in translations_dict.items():
-            if not language_code_pattern.match(lang_code):
+            if not LANGUAGE_CODE_PATTERN.match(lang_code):
                 raise serializers.ValidationError(f"Question {question_index}: Invalid language code '{lang_code}'")
 
             if not isinstance(translation_data, dict):
@@ -428,13 +425,22 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 else:
                     cleaned_translation["link"] = link
 
-            # Sanitize choices array
-            if "choices" in translation_data and isinstance(translation_data["choices"], list):
+            # Validate and sanitize choices array
+            if "choices" in translation_data:
+                choices = translation_data["choices"]
+                if not isinstance(choices, list):
+                    raise serializers.ValidationError(
+                        f"Question {question_index}: Translation '{lang_code}' field 'choices' must be a list of strings"
+                    )
                 cleaned_choices = []
-                for choice in translation_data["choices"]:
+                for choice in choices:
                     if not isinstance(choice, str):
                         raise serializers.ValidationError(
                             f"Question {question_index}: Translation '{lang_code}' choices must be strings"
+                        )
+                    if not choice.strip():
+                        raise serializers.ValidationError(
+                            f"Question {question_index}: Translation '{lang_code}' choices cannot be empty"
                         )
                     if nh3.is_html(choice):
                         cleaned_choices.append(nh3_clean_with_allow_list(choice))
@@ -481,7 +487,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 for lang_code, translation_data in cleaned_translations.items():
                     if "choices" in translation_data:
                         # Reject choices in translation if original question doesn't have choices
-                        if not original_choices or not isinstance(original_choices, list):
+                        if "choices" not in raw_question or not isinstance(original_choices, list):
                             raise serializers.ValidationError(
                                 f"Question {index}: Translation '{lang_code}' has choices field but original question does not have choices"
                             )
