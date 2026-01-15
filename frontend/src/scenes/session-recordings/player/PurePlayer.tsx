@@ -85,7 +85,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    const { isCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
+    const { isRecordingsCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
     const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -133,7 +133,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                 action: () => setShowingClipParams(!showingClipParams),
             },
             t: {
-                action: () => setRecordingsCollapsed(!isCollapsed),
+                action: () => setRecordingsCollapsed(!isRecordingsCollapsed),
             },
             m: {
                 action: () => setMuted(!isMuted),

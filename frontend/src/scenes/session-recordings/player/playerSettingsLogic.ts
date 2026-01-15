@@ -139,7 +139,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
         ],
-        isCollapsed: [(s) => [s.isRecordingsCollapsed], (isRecordingsCollapsed: boolean) => isRecordingsCollapsed],
         hideRecordingsMenuLabelFor: [
             () => [],
             () => {

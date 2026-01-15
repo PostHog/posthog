@@ -315,7 +315,7 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
     },
 }
 
-const playlistCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
+const recordingsCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
     const Story: StoryFn = () => {
         const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
         useStorybookMocks({ get: mocks })
@@ -326,21 +326,21 @@ const playlistCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
     return Story
 }
 
-const playlistCollapsedWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
-const playlistCollapsedNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
+const recordingsCollapsedWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
+const recordingsCollapsedNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
 
-export const PlaylistCollapsedWithIntro: StoryFn = playlistCollapsedStory()
-PlaylistCollapsedWithIntro.parameters = playlistCollapsedWideParameters
+export const PlaylistCollapsedWithIntro: StoryFn = recordingsCollapsedStory()
+PlaylistCollapsedWithIntro.parameters = recordingsCollapsedWideParameters
 
-export const PlaylistCollapsedSeenIntro: StoryFn = playlistCollapsedStory({
+export const PlaylistCollapsedSeenIntro: StoryFn = recordingsCollapsedStory({
     '/api/users/@me/': userSeenReplayIntroMock,
 })
-PlaylistCollapsedSeenIntro.parameters = playlistCollapsedWideParameters
+PlaylistCollapsedSeenIntro.parameters = recordingsCollapsedWideParameters
 
-export const PlaylistCollapsedWithIntroNarrow: StoryFn = playlistCollapsedStory()
-PlaylistCollapsedWithIntroNarrow.parameters = playlistCollapsedNarrowParameters
+export const PlaylistCollapsedWithIntroNarrow: StoryFn = recordingsCollapsedStory()
+PlaylistCollapsedWithIntroNarrow.parameters = recordingsCollapsedNarrowParameters
 
-export const PlaylistCollapsedSeenIntroNarrow: StoryFn = playlistCollapsedStory({
+export const PlaylistCollapsedSeenIntroNarrow: StoryFn = recordingsCollapsedStory({
     '/api/users/@me/': userSeenReplayIntroMock,
 })
-PlaylistCollapsedSeenIntroNarrow.parameters = playlistCollapsedNarrowParameters
+PlaylistCollapsedSeenIntroNarrow.parameters = recordingsCollapsedNarrowParameters

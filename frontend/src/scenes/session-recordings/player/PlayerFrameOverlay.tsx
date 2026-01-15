@@ -40,14 +40,15 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { isCollapsed } = useValues(playerSettingsLogic)
+    const { isRecordingsCollapsed } = useValues(playerSettingsLogic)
 
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const showActionsOnOverlay = !isCollapsed && playerMode === SessionRecordingPlayerMode.Standard && pausedState
+    const showActionsOnOverlay =
+        !isRecordingsCollapsed && playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
