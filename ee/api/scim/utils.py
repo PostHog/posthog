@@ -54,7 +54,7 @@ def mask_scim_filter(filter_str: str) -> str:
 def mask_scim_payload(data: Any, depth: int = 0) -> Any:
     """Recursively mask PII fields in a SCIM payload."""
     if depth > 20:
-        return data
+        return "[DEPTH_LIMIT_EXCEEDED]"
 
     match data:
         case dict():
