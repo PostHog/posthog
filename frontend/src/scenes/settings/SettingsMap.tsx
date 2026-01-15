@@ -19,6 +19,7 @@ import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/Bounc
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
@@ -53,11 +54,14 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
+import { LinearIntegration } from './environment/Integrations'
+import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import {
     NetworkCaptureSettings,
     ReplayAuthorizedDomains,
@@ -82,6 +86,8 @@ import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersCo
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
+import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
+import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationAI } from './organization/OrgAI'
@@ -91,15 +97,18 @@ import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentS
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
+import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
-import { ChangePassword } from './user/ChangePassword'
+import { AllowImpersonation } from './user/AllowImpersonation'
+import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
+import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -441,6 +450,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <ReplayDataRetentionSettings />,
             },
+            {
+                id: 'replay-integrations',
+                title: (
+                    <>
+                        Integrations
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
+                component: <ReplayIntegrations />,
+                flag: 'REPLAY_LINEAR_INTEGRATION',
+            },
         ],
     },
     {
@@ -511,6 +533,20 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-logs',
+        title: 'Logs',
+        flag: 'LOGS_SETTINGS',
+        settings: [
+            {
+                id: 'logs',
+                title: 'Logs',
+                component: <LogsCaptureSettings />,
+                flag: 'LOGS_SETTINGS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
         flag: 'CSP_REPORTING',
@@ -542,6 +578,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
+            {
+                id: 'changelog',
+                title: 'Changelog',
+                description:
+                    'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
+                component: <MaxChangelogSettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
         ],
     },
     {
@@ -565,9 +609,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GithubIntegration />,
             },
             {
+                id: 'integration-linear',
+                title: 'Linear integration',
+                component: <LinearIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <IntegrationsList omitKinds={['slack', 'github']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
             },
             {
                 id: 'integration-ip-allowlist',
@@ -728,6 +777,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-integrations',
+        title: 'Integrations',
+        settings: [
+            {
+                id: 'organization-integrations-list',
+                title: 'Connected integrations',
+                component: <OrganizationIntegrations />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-members',
         title: 'Members',
         settings: [
@@ -798,6 +859,27 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-approvals',
+        title: 'Approvals',
+        flag: 'APPROVALS',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'approval-policies',
+                title: 'Policies',
+                description: 'Configure which actions require approval before being applied',
+                component: <ApprovalPolicies />,
+            },
+            {
+                id: 'change-requests',
+                title: 'Change requests',
+                description: 'Review and approve pending change requests',
+                component: <ChangeRequestsList />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -840,13 +922,18 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'change-password',
-                title: 'Change password',
+                title: <ChangePasswordTitle />,
                 component: <ChangePassword />,
             },
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
                 component: <TwoFactorSettings />,
+            },
+            {
+                id: 'passkeys',
+                title: 'Passkeys',
+                component: <PasskeySettings />,
             },
         ],
     },
@@ -901,6 +988,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
                 hideOn: [Realm.Cloud],
+            },
+            {
+                id: 'allow-impersonation',
+                title: 'Support access',
+                component: <AllowImpersonation />,
+                flag: 'CONTROL_SUPPORT_LOGIN',
             },
             {
                 id: 'hedgehog-mode',

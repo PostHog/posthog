@@ -4,22 +4,59 @@ import { Scene } from 'scenes/sceneTypes'
 
 import type { appShortcutLogicType } from './appShortcutLogicType'
 
-export interface AppShortcutType {
-    /* The ref to the element to focus on */
-    ref: React.RefObject<HTMLElement>
-    /* The name of the shortcut used for reference */
+interface AppShortcutBase {
     name: string
-    /* The keybind(s) to use for the shortcut - array of keybind arrays for multiple alternative keybinds */
     keybind: string[][]
-    /* Describe what the shortcut does */
     intent: string
-    /* The type of interaction to trigger */
-    interaction: 'click' | 'focus'
-    /* The scope of the shortcut - 'global' or a specific scene key 
-        @default 'global'
-        @see SceneKey for possible values
-    */
     scope?: 'global' | keyof typeof Scene
+    /** Higher priority items appear first in their group. Default: 0 */
+    priority?: number
+}
+
+interface AppShortcutWithRef extends AppShortcutBase {
+    ref: React.RefObject<HTMLElement>
+    interaction: 'click' | 'focus'
+    callback?: never
+}
+
+interface AppShortcutWithCallback extends AppShortcutBase {
+    callback: () => void
+    interaction: 'function'
+    ref?: never
+}
+
+export type AppShortcutType = AppShortcutWithRef | AppShortcutWithCallback
+
+function isSequenceKeybind(keybind: string[]): boolean {
+    return keybind.includes('then')
+}
+
+function getSequenceKeys(keybind: string[]): string[] {
+    return keybind.filter((key) => key !== 'then')
+}
+
+function triggerShortcut(shortcut: AppShortcutType): void {
+    if (shortcut.interaction === 'click') {
+        shortcut.ref.current?.click()
+    } else if (shortcut.interaction === 'focus') {
+        shortcut.ref.current?.focus()
+    } else if (shortcut.interaction === 'function') {
+        shortcut.callback()
+    }
+}
+
+function isEditableElement(target: EventTarget | null): boolean {
+    if (!target || !(target instanceof HTMLElement)) {
+        return false
+    }
+    const tagName = target.tagName.toLowerCase()
+    return (
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        tagName === 'select' ||
+        target.isContentEditable ||
+        target.closest('.monaco-editor') !== null
+    )
 }
 
 export const appShortcutLogic = kea<appShortcutLogicType>([
@@ -49,16 +86,21 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
         ],
     }),
     afterMount(({ values, cache }) => {
-        // register keyboard shortcuts
+        // Sequence shortcut state
+        cache.sequenceKeys = [] as string[]
+        cache.sequenceShortcut = null as AppShortcutType | null
+        cache.sequenceLastKeyTime = 0
+
         cache.onKeyDown = (event: KeyboardEvent) => {
             const commandKey = event.metaKey || event.ctrlKey
 
+            // Handle modifier-based shortcuts (Cmd+K, etc.)
             if (commandKey) {
-                // Build current key combination in the same order as shortcuts are defined
-                const pressedKeys: string[] = []
+                // Reset any in-progress sequence
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
 
-                pressedKeys.push('command')
-
+                const pressedKeys: string[] = ['command']
                 if (event.shiftKey) {
                     pressedKeys.push('shift')
                 }
@@ -66,43 +108,89 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                     pressedKeys.push('option')
                 }
 
-                // Handle special key mappings
+                // Handle Alt key combinations - event.key can change with Alt held
                 let keyToAdd = event.key.toLowerCase()
-
-                // Handle Alt key combinations - sometimes event.key changes with Alt
                 if (event.altKey) {
-                    // For Alt+letter combinations, the event.key might be different
-                    // Use event.code instead for more reliable detection
                     const codeMatch = event.code.match(/^Key([A-Z])$/)
                     if (codeMatch) {
                         keyToAdd = codeMatch[1].toLowerCase()
                     } else if (event.code === 'Tab') {
                         keyToAdd = 'tab'
                     }
-                    // For other keys, keep using event.key.toLowerCase()
                 }
 
                 pressedKeys.push(keyToAdd)
                 const pressedKeyString = pressedKeys.join('+')
 
-                // Find matching shortcut
-                const matchingShortcut = values.registeredAppShortcuts.find((shortcut) => {
-                    return shortcut.keybind.some((keybind) => {
-                        const shortcutKeyString = keybind.map((k: string) => k.toLowerCase()).join('+')
-                        return shortcutKeyString === pressedKeyString
-                    })
-                })
+                const matchingShortcut = values.registeredAppShortcuts.find((shortcut) =>
+                    shortcut.keybind.some(
+                        (keybind) =>
+                            !isSequenceKeybind(keybind) &&
+                            keybind.map((k) => k.toLowerCase()).join('+') === pressedKeyString
+                    )
+                )
 
                 if (matchingShortcut) {
                     event.preventDefault()
                     event.stopPropagation()
-
-                    if (matchingShortcut.interaction === 'click') {
-                        matchingShortcut.ref.current?.click()
-                    } else if (matchingShortcut.interaction === 'focus') {
-                        matchingShortcut.ref.current?.focus()
-                    }
+                    triggerShortcut(matchingShortcut)
                 }
+                return
+            }
+
+            // Handle sequence shortcuts (no modifier keys, not in editable elements)
+            if (isEditableElement(event.target) || event.altKey) {
+                return
+            }
+
+            const now = Date.now()
+            const key = event.key.toLowerCase()
+
+            // Reset if too much time has passed (1.5s)
+            if (now - cache.sequenceLastKeyTime > 1500) {
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+            }
+            cache.sequenceLastKeyTime = now
+
+            // Build up the sequence
+            cache.sequenceKeys.push(key)
+
+            // Look for a matching sequence shortcut
+            const matchingShortcut = values.registeredAppShortcuts.find((shortcut) =>
+                shortcut.keybind.some((keybind) => {
+                    if (!isSequenceKeybind(keybind)) {
+                        return false
+                    }
+                    const sequenceKeys = getSequenceKeys(keybind)
+                    // Check if our current keys match the end of a sequence
+                    if (cache.sequenceKeys.length > sequenceKeys.length) {
+                        return false
+                    }
+                    return sequenceKeys
+                        .slice(0, cache.sequenceKeys.length)
+                        .every((k: string, i: number) => k === cache.sequenceKeys[i])
+                })
+            )
+
+            if (matchingShortcut) {
+                const keybind = matchingShortcut.keybind.find((kb) => isSequenceKeybind(kb))!
+                const sequenceKeys = getSequenceKeys(keybind)
+
+                if (cache.sequenceKeys.length === sequenceKeys.length) {
+                    // Sequence complete
+                    event.preventDefault()
+                    cache.sequenceKeys = []
+                    cache.sequenceShortcut = null
+                    triggerShortcut(matchingShortcut)
+                } else {
+                    // Partial match - keep tracking
+                    cache.sequenceShortcut = matchingShortcut
+                }
+            } else {
+                // No match - reset
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
             }
         }
 

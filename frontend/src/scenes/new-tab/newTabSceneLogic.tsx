@@ -7,7 +7,7 @@ import {
     IconActivity,
     IconApps,
     IconArrowRight,
-    IconDatabase,
+    IconFolder,
     IconGear,
     IconHogQL,
     IconPeople,
@@ -17,6 +17,7 @@ import {
 } from '@posthog/icons'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -24,6 +25,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import {
@@ -34,7 +36,11 @@ import {
     getDefaultTreeProducts,
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import {
+    ProjectTreeLogicProps,
+    SearchResults,
+    projectTreeLogic,
+} from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
@@ -45,7 +51,15 @@ import {
     FileSystemViewLogEntry,
     GroupsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
+import {
+    ActivityTab,
+    Breadcrumb,
+    EventDefinition,
+    Group,
+    GroupTypeIndex,
+    PersonType,
+    PropertyDefinition,
+} from '~/types'
 
 import { SearchInputCommand, SearchInputHandle } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
@@ -61,6 +75,7 @@ export type NEW_TAB_CATEGORY_ITEMS =
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
+    | 'folders'
 
 export type NEW_TAB_COMMANDS =
     | 'all'
@@ -73,6 +88,7 @@ export type NEW_TAB_COMMANDS =
     | 'eventDefinitions'
     | 'propertyDefinitions'
     | 'askAI'
+    | 'folders'
 
 export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'all', displayName: 'All' },
@@ -80,12 +96,18 @@ export const NEW_TAB_COMMANDS_ITEMS: SearchInputCommand<NEW_TAB_COMMANDS>[] = [
     { value: 'apps', displayName: 'Apps' },
     { value: 'data-management', displayName: 'Data management' },
     { value: 'recents', displayName: 'Recents files' },
+    { value: 'folders', displayName: 'Folders' },
     { value: 'persons', displayName: 'Persons' },
     { value: 'groups', displayName: 'Groups' },
     { value: 'eventDefinitions', displayName: 'Events' },
     { value: 'propertyDefinitions', displayName: 'Properties' },
     { value: 'askAI', displayName: 'Posthog AI' },
 ]
+
+export const getNewTabProjectTreeLogicProps = (tabId?: string): ProjectTreeLogicProps => ({
+    key: `new-tab-project-tree-${tabId || 'default'}`,
+    root: 'project://',
+})
 
 export interface NewTabTreeDataItem extends TreeDataItem {
     category: NEW_TAB_CATEGORY_ITEMS
@@ -100,10 +122,17 @@ export interface CategoryWithItems {
     isLoading: boolean
 }
 
+export interface ExplorerSearchResults {
+    searchTerm: string
+    folderPath: string | null
+    results: FileSystemEntry[]
+    hasMore: boolean
+}
+
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
 const INITIAL_SECTION_LIMIT = 5
-const SINGLE_CATEGORY_SECTION_LIMIT = 15
+const SINGLE_CATEGORY_SECTION_LIMIT = 25
 const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
@@ -167,11 +196,33 @@ function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[
     }))
 }
 
+/**
+ * Determines if the search term matches the last segment of a folder path.
+ * The provided search term should already be normalized to lowercase.
+ */
+export function matchesFolderSearch(entry: FileSystemEntry, normalizedSearchTerm: string): boolean {
+    if (!normalizedSearchTerm) {
+        return true
+    }
+
+    const folderName = splitPath(entry.path).pop() || entry.path
+    const normalizedName = folderName.toLowerCase()
+
+    return normalizedName.includes(normalizedSearchTerm)
+}
+
 export const newTabSceneLogic = kea<newTabSceneLogicType>([
     path(['scenes', 'new-tab', 'newTabSceneLogic']),
     props({} as { tabId?: string }),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], groupsModel, ['groupTypes', 'aggregationLabel']],
+    connect((props: { tabId?: string }) => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            projectTreeLogic(getNewTabProjectTreeLogicProps(props.tabId)),
+            ['folders', 'loadingPaths'],
+        ],
     })),
     key((props) => props.tabId || 'default'),
     actions({
@@ -182,6 +233,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
         loadRecents: (options?: { offset?: number }) => ({ offset: options?.offset ?? 0 }),
         loadMoreRecents: true,
+        loadExplorerSearchResults: ({ searchTerm, folderPath }: { searchTerm: string; folderPath: string | null }) => ({
+            searchTerm,
+            folderPath,
+        }),
+        clearExplorerSearchResults: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
@@ -202,6 +258,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         }),
         setNewTabSearchInputRef: (ref: RefObject<SearchInputHandle> | null) => ({ ref }),
         focusNewTabSearchInput: true,
+        triggerSearchPulse: true,
+        setActiveExplorerFolderPath: (path: string | null) => ({ path }),
+        toggleExplorerFolderExpansion: (path: string) => ({ path }),
+        setHighlightedExplorerEntryPath: (path: string | null) => ({ path }),
+        setExplorerExpandedFoldersForFolder: (folderPath: string, expandedFolders: Record<string, boolean>) => ({
+            folderPath,
+            expandedFolders,
+        }),
     }),
     loaders(({ values, actions }) => ({
         sceneLogViews: [
@@ -312,6 +376,45 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }
                     return recents
                 },
+            },
+        ],
+        explorerSearchResults: [
+            { searchTerm: '', folderPath: null, results: [], hasMore: false } as ExplorerSearchResults,
+            {
+                loadExplorerSearchResults: async ({ searchTerm, folderPath }, breakpoint) => {
+                    const trimmed = searchTerm.trim()
+                    const normalizedFolder = folderPath ?? ''
+
+                    if (trimmed === '') {
+                        return { searchTerm: '', folderPath: normalizedFolder, results: [], hasMore: false }
+                    }
+
+                    await breakpoint(250)
+
+                    const response = await api.fileSystem.list({
+                        parent: normalizedFolder !== '' ? normalizedFolder : undefined,
+                        search: trimmed,
+                        limit: PAGINATION_LIMIT + 1,
+                        searchNameOnly: true,
+                    })
+
+                    breakpoint()
+
+                    const responseResults = response.results ?? []
+
+                    return {
+                        searchTerm: trimmed,
+                        folderPath: normalizedFolder,
+                        results: responseResults.slice(0, PAGINATION_LIMIT),
+                        hasMore: responseResults.length > PAGINATION_LIMIT,
+                    }
+                },
+                clearExplorerSearchResults: () => ({
+                    searchTerm: '',
+                    folderPath: null,
+                    results: [],
+                    hasMore: false,
+                }),
             },
         ],
         personSearchResults: [
@@ -486,6 +589,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             '',
             {
                 setSearch: (_, { search }) => search,
+                setActiveExplorerFolderPath: (state, { path }) => (path === null ? state : ''),
             },
         ],
         selectedCategory: [
@@ -613,8 +717,48 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 setNewTabSearchInputRef: (_, { ref }) => ref,
             },
         ],
+        activeExplorerFolderPath: [
+            null as string | null,
+            {
+                setActiveExplorerFolderPath: (_, { path }) => path,
+            },
+        ],
+        explorerExpandedFoldersByFolder: [
+            { '': {} } as Record<string, Record<string, boolean>>,
+            {
+                setExplorerExpandedFoldersForFolder: (state, { folderPath, expandedFolders }) => ({
+                    ...state,
+                    [folderPath]: expandedFolders,
+                }),
+                setActiveExplorerFolderPath: (state, { path }) => {
+                    const folderKey = path ?? ''
+                    if (state[folderKey]) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [folderKey]: {},
+                    }
+                },
+            },
+        ],
+        highlightedExplorerEntryPath: [
+            null as string | null,
+            {
+                setHighlightedExplorerEntryPath: (_, { path }) => path,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
+        explorerExpandedFolders: [
+            (s) => [s.activeExplorerFolderPath, s.explorerExpandedFoldersByFolder],
+            (activeExplorerFolderPath, explorerExpandedFoldersByFolder): Record<string, boolean> => {
+                const folderKey = activeExplorerFolderPath ?? ''
+
+                return explorerExpandedFoldersByFolder[folderKey] ?? {}
+            },
+        ],
         sceneLogViewsByRef: [
             (s) => [s.sceneLogViews],
             (sceneLogViews): Record<string, string> => {
@@ -709,12 +853,52 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 apps: false,
                 'data-management': false,
                 recents: recentsLoading,
+                folders: false,
                 persons: personSearchResultsLoading || personSearchPending,
                 groups: groupSearchResultsLoading || groupSearchPending,
                 eventDefinitions: eventDefinitionSearchResultsLoading || eventDefinitionSearchPending,
                 propertyDefinitions: propertyDefinitionSearchResultsLoading || propertyDefinitionSearchPending,
                 askAI: false,
             }),
+        ],
+        showFoldersCategory: [
+            (s) => [s.newTabSceneDataInclude, s.projectExplorerEnabled],
+            (newTabSceneDataInclude: NEW_TAB_COMMANDS[], projectExplorerEnabled: boolean): boolean =>
+                projectExplorerEnabled &&
+                (newTabSceneDataInclude.includes('all') || newTabSceneDataInclude.includes('folders')),
+        ],
+        projectExplorerEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.NEW_TAB_PROJECT_EXPLORER],
+        ],
+        breadcrumbs: [
+            (s) => [s.activeExplorerFolderPath],
+            (activeExplorerFolderPath): Breadcrumb[] => {
+                const crumbs: Breadcrumb[] = [
+                    {
+                        key: [Scene.NewTab, 'default'],
+                        name: 'Search',
+                        path: urls.newTab(),
+                        iconType: 'search',
+                    },
+                ]
+
+                if (activeExplorerFolderPath !== null) {
+                    const segments = splitPath(activeExplorerFolderPath)
+                    const folderNameRaw = segments.length > 0 ? segments[segments.length - 1] : ''
+                    const folderName = folderNameRaw ? unescapePath(folderNameRaw) : 'Project root'
+
+                    return [
+                        {
+                            key: [Scene.NewTab, 'folder'],
+                            name: folderName,
+                            iconType: 'search',
+                        } as Breadcrumb,
+                    ]
+                }
+
+                return crumbs
+            },
         ],
         projectTreeSearchItems: [
             (s) => [s.recents],
@@ -1111,7 +1295,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         id: 'new-sql-query',
                         name: 'New SQL query',
                         category: 'create-new',
-                        icon: <IconDatabase />,
+                        icon: iconForType('sql_editor'),
                         href: '/sql',
                         record: { type: 'query', path: 'New SQL query' },
                         lastViewedAt: getLastViewedAtForHref('/sql'),
@@ -1496,6 +1680,88 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return null
             },
         ],
+        folderCategoryItems: [
+            (s) => [s.showFoldersCategory, s.folders, s.search, s.getSectionItemLimit],
+            (
+                showFoldersCategory: boolean,
+                folders: Record<string, FileSystemEntry[]>,
+                search: string,
+                getSectionItemLimit: (section: string) => number
+            ): NewTabTreeDataItem[] => {
+                if (!showFoldersCategory) {
+                    return []
+                }
+
+                const trimmedSearch = search.trim()
+                const searchLower = trimmedSearch.toLowerCase()
+                const hasSearch = searchLower.length > 0
+
+                const allFolderEntries = Object.values(folders || {})
+                    .flatMap((entries) => entries ?? [])
+                    .filter((entry) => entry.type === 'folder')
+                    .reduce((acc, entry) => {
+                        if (!acc.has(entry.id)) {
+                            acc.set(entry.id, entry)
+                        }
+                        return acc
+                    }, new Map<string, FileSystemEntry>())
+                const uniqueFolderEntries = Array.from(allFolderEntries.values())
+
+                const matchesSearch = (entry: FileSystemEntry): boolean =>
+                    matchesFolderSearch(entry, hasSearch ? searchLower : '')
+
+                const projectRootMatchesSearch = !hasSearch || 'project root'.includes(searchLower)
+
+                const baseItems: NewTabTreeDataItem[] = projectRootMatchesSearch
+                    ? [
+                          {
+                              id: 'project-root',
+                              name: 'Project root',
+                              category: 'folders',
+                              icon: <IconFolder />,
+                              record: { id: 'project-root', path: '', type: 'folder' } as FileSystemEntry,
+                          },
+                      ]
+                    : []
+
+                if (!hasSearch) {
+                    return baseItems
+                }
+
+                const filteredFolders = uniqueFolderEntries
+                    .filter(matchesSearch)
+                    .sort((a, b) => a.path.localeCompare(b.path))
+                const foldersLimit = getSectionItemLimit('folders')
+                const availableSlots =
+                    foldersLimit === Infinity ? Infinity : Math.max(foldersLimit - baseItems.length, 0)
+                const additionalFolders =
+                    foldersLimit === Infinity ? filteredFolders : filteredFolders.slice(0, availableSlots)
+
+                if (additionalFolders.length === 0 && baseItems.length === 0) {
+                    return []
+                }
+
+                return [
+                    ...baseItems,
+                    ...additionalFolders.map<NewTabTreeDataItem>((entry) => ({
+                        id: `folder-${entry.id}`,
+                        name: splitPath(entry.path).pop() || entry.path,
+                        category: 'folders',
+                        icon: <IconFolder />,
+                        record: entry,
+                    })),
+                ]
+            },
+        ],
+        folderCategoryLoading: [
+            (s) => [s.loadingPaths],
+            (loadingPaths: Record<string, boolean | undefined>): boolean => !!(loadingPaths || {})[''],
+        ],
+        folderHasResults: [
+            (s) => [s.showFoldersCategory, s.folderCategoryItems],
+            (showFoldersCategory: boolean, folderCategoryItems: NewTabTreeDataItem[]): boolean =>
+                showFoldersCategory && folderCategoryItems.length > 0,
+        ],
         selectedIndex: [
             (s) => [s.rawSelectedIndex, s.filteredItemsGrid],
             (rawSelectedIndex, filteredItemsGrid): number | null => {
@@ -1517,6 +1783,41 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        toggleExplorerFolderExpansion: ({ path }) => {
+            if (!values.projectExplorerEnabled) {
+                return
+            }
+
+            const folderKey = values.activeExplorerFolderPath ?? ''
+            const expandedFolders = values.explorerExpandedFoldersByFolder[folderKey] ?? {}
+
+            actions.setExplorerExpandedFoldersForFolder(folderKey, {
+                ...expandedFolders,
+                [path]: !expandedFolders[path],
+            })
+        },
+        setActiveExplorerFolderPath: ({ path }) => {
+            if (!values.projectExplorerEnabled) {
+                return
+            }
+
+            if (path === values.activeExplorerFolderPath) {
+                return
+            }
+
+            const folderKey = path ?? ''
+
+            actions.clearExplorerSearchResults()
+
+            if (path === null && values.search.trim() !== '') {
+                actions.loadRecents()
+                actions.triggerSearchForIncludedItems()
+            }
+
+            if (!values.explorerExpandedFoldersByFolder[folderKey]) {
+                actions.setExplorerExpandedFoldersForFolder(folderKey, {})
+            }
+        },
         loadMoreRecents: () => {
             if (values.recentsLoading) {
                 return
@@ -1580,6 +1881,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         onSubmit: () => {
             const selected = values.selectedItem
             if (selected) {
+                if (selected.category === 'folders') {
+                    const folderPath = (selected.record as FileSystemEntry | undefined)?.path ?? ''
+                    actions.setActiveExplorerFolderPath(folderPath)
+                    return
+                }
                 if (selected.category === 'askAI' && selected.record?.searchTerm) {
                     actions.askAI(selected.record.searchTerm)
                 } else if (selected.href) {
@@ -1590,7 +1896,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 }
             }
         },
-        setSearch: () => {
+        setSearch: ({ search }) => {
+            const trimmed = search.trim()
+
+            if (values.activeExplorerFolderPath !== null) {
+                if (trimmed === '') {
+                    actions.clearExplorerSearchResults()
+                } else {
+                    actions.loadExplorerSearchResults({
+                        searchTerm: trimmed,
+                        folderPath: values.activeExplorerFolderPath,
+                    })
+                }
+                return
+            }
+
             actions.loadRecents()
             actions.triggerSearchForIncludedItems()
         },
@@ -1747,14 +2067,21 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         },
     })),
     tabAwareActionToUrl(({ values }) => {
-        const buildParams = (): Record<string, any> => {
+        const buildParams = (overrides: { folderPath?: string | null } = {}): Record<string, any> => {
             const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
             const includeParam = includeItems.length > 0 ? includeItems.join(',') : undefined
+            const folderPath = values.projectExplorerEnabled
+                ? 'folderPath' in overrides
+                    ? overrides.folderPath
+                    : values.activeExplorerFolderPath
+                : null
+            const folderParam = folderPath === null || folderPath === undefined ? undefined : folderPath
 
             return {
                 search: values.search || undefined,
                 category: undefined,
                 include: includeParam,
+                folder: folderParam,
             }
         }
 
@@ -1763,6 +2090,10 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             setSelectedCategory: () => [router.values.location.pathname, buildParams()],
             setNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
             toggleNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+            setActiveExplorerFolderPath: ({ path }) => [
+                router.values.location.pathname,
+                buildParams({ folderPath: path ?? null }),
+            ],
         }
     }),
     tabAwareUrlToAction(({ actions, values }) => ({
@@ -1857,6 +2188,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     })
                 }
+            }
+
+            const folderParamExists = Object.prototype.hasOwnProperty.call(searchParams, 'folder')
+            if (values.projectExplorerEnabled && folderParamExists) {
+                const folderFromUrlRaw = searchParams.folder
+                const folderPathFromUrl =
+                    folderFromUrlRaw === undefined || folderFromUrlRaw === null ? '' : String(folderFromUrlRaw)
+
+                if (folderPathFromUrl !== values.activeExplorerFolderPath) {
+                    actions.setActiveExplorerFolderPath(folderPathFromUrl)
+                }
+            } else if (values.projectExplorerEnabled && values.activeExplorerFolderPath !== null) {
+                actions.setActiveExplorerFolderPath(null)
             }
 
             // Reset search, category, and include array to defaults if no URL params

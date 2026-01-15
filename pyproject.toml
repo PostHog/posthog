@@ -4,24 +4,29 @@
 name = "posthog"
 version = "0.0.0"
 requires-python = "==3.12.12" # Pin full version to control Python upgrades explicitly
+# Prefer ~= (compat) over >= (floor). Only pin exact versions (==) when necessary.
+#
+# ~= signals to others (security, devex, dependabot) that deps can be updated within
+# that range without pulling the team in. Unbounded >= gives no such signal.
+#
 dependencies = [
     "aioboto3==15.4.0",
-    "aiohttp==3.13.2",
-    "aiokafka>=0.8",
+    "aiohttp==3.13.3",
+    "aiokafka~=0.12.0",
     "anthropic==0.69.0",
     "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",
-    "brotli==1.1.0",
+    "brotli==1.2.0",
     "celery==5.3.6",
     "celery-redbeat==2.1.1",
-    "certifi==2025.8.3",
+    "certifi==2026.1.4",
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
     "conditional-cache==1.2",
-    "cryptography==39.0.2",
+    "cryptography==46.0.3",
     "dagster==1.10.18",
     "dagster-cloud==1.10.18",
     "dagster-aws==0.26.18",
@@ -34,13 +39,13 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake==0.25.2",
     "dj-database-url==0.5.0",
-    "django~=4.2.26",
+    "django~=4.2.27",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
     "django-extensions~=4.1.0",
     "django-filter~=25.1",
-    "django-loginas==0.3.11",
+    "django-loginas==0.3.14",
     "django-picklefield==3.0.1",
     "django-prometheus==2.2.0",
     "django-redis==6.0.0",
@@ -50,8 +55,8 @@ dependencies = [
     "djangorestframework~=3.16.1",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
-    "dlt==1.3.0",
-    "dnspython==2.2.1",
+    "dlt==1.18.2",
+    "dnspython==2.6.1",
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.28.0",
@@ -61,18 +66,20 @@ dependencies = [
     "google-cloud-bigquery==3.26",
     "google-genai==1.46.0",
     "granian[uvloop,reload,pname]==2.5.5",
+    "grimp==3.13",
     "gspread==6.2.1",
     "hogql-parser==1.2.12",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
     "kombu==5.3.7",
-    "langchain==0.3.26",
-    "langchain-community==0.3.27",
-    "langchain-openai==0.3.33",
-    "langchain-anthropic==0.3.22",
+    "langchain~=0.3.27",
+    "langchain-community~=0.3.31",
+    "langchain-core~=0.3.81",
+    "langchain-openai~=0.3.35",
+    "langchain-anthropic~=0.3.22",
     "langgraph==0.4.10",
-    "lxml==5.2.1",
+    "lxml==6.0.2",
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
     "mimesis==5.2.1",
@@ -88,7 +95,7 @@ dependencies = [
     "pandas~=2.2.2",
     "paramiko==3.4.0",
     "phonenumberslite==8.13.6",
-    "pillow==10.2.0",
+    "pillow==12.1.0",
     "posthoganalytics==6.9.3",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.10",
@@ -101,7 +108,8 @@ dependencies = [
     "pymysql==1.1.1",
     "pymongo==4.13.2",
     "pyodbc==5.1.0",
-    "python-dateutil>=2.8.2",
+    "pyroscope-io~=0.8.8",
+    "python-dateutil~=2.9.0",
     "python-snappy~=0.7.3",
     "python3-saml==1.16.0",
     "pytz==2023.3",
@@ -112,12 +120,12 @@ dependencies = [
     "scikit-learn~=1.5.0",
     "selenium==4.28.1",
     "semantic-version==2.8.5",
-    "simple-salesforce>=1.12.6",
+    "simple-salesforce~=1.12.6",
     "slack-sdk==3.17.1",
-    "snowflake-connector-python==3.15.0",
-    "snowflake-sqlalchemy==1.7.3",
-    "social-auth-app-django~=5.4.0",
-    "social-auth-core~=4.7.0",
+    "snowflake-connector-python==4.1.1",
+    "snowflake-sqlalchemy==1.8.2",
+    "social-auth-app-django~=5.4.3",
+    "social-auth-core~=4.8.3",
     "django-scim2==0.19.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
@@ -141,18 +149,20 @@ dependencies = [
     "tree-sitter-typescript==0.23.2",
     "types-cachetools==5.5.0.20240820",
     "tzlocal~=5.1",
+    "umap-learn~=0.5.0",
     "webdriver-manager==4.0.2",
     "whitenoise~=6.10.0",
-    "xmlsec==1.3.14",
+    "xmlsec==1.3.17",
     "zstd==1.5.7.2",
-    "zxcvbn==4.4.28",
+    "zxcvbn==4.5.0",
     "pyyaml==6.0.1",
     "chdb==3.3.0",
-    "elevenlabs>=1.58.1",
-    "django-oauth-toolkit>=3.0.1",
-    "langchain-perplexity>=0.1.1",
-    "azure-ai-projects>=1.0.0b11",
-    "azure-ai-inference>=1.0.0b9",
+    "elevenlabs~=2.1.0",
+    "django-oauth-toolkit==3.1.0",
+    "langchain-perplexity~=0.1.1",
+    "azure-ai-projects~=1.0.0b11",
+    "azure-ai-inference~=1.0.0b9",
+    "azure-storage-blob~=12.27.0",
     "opentelemetry-sdk==1.33.1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
@@ -162,27 +172,29 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "asgiref==3.8.1",
-    "claude-code-sdk>=0.0.14",
-    "user-agents>=2.2.0",
+    "claude-code-sdk~=0.0.14",
+    "user-agents~=2.2.0",
     "django-admin-inline-paginator===0.4.0",
-    "fastavro>=1.12.0",
-    "pydantic-avro>=0.9.0",
-    "playwright>=1.54.0",
-    "linkedin-api-client>=0.3.0",
-    "glom>=24.11.0",
-    "aiobotocore>=2.7.0",
-    "modal>=1.2.1",
+    "fastavro~=1.12.0",
+    "pydantic-avro~=0.9.0",
+    "playwright~=1.54.0",
+    "linkedin-api-client~=0.3.0",
+    "glom~=24.11.0",
+    "modal~=1.2.1",
     "databricks-sql-connector~=4.1.3",
     "databricks-sdk~=0.67.0",
-    "litellm>=1.77.7",
-    "free-email-domains>=1.0.1",
-    "disposable-email-domains>=0.0.140",
-    "pymediainfo>=7.0.1",
-    "cachetools>=5.5.2",
-    "textcase>=0.4.5",
-    "gitpython>=3.1.44",
-    "duckdb>=1.3.0",
-    "bingads>=13.0.25.3",
+    "free-email-domains~=1.0.1",
+    "disposable-email-domains~=0.0.140",
+    "pymediainfo~=7.0.1",
+    "cachetools~=5.5.2",
+    "textcase~=0.4.5",
+    "gitpython~=3.1.44",
+    "duckdb~=1.4.2",
+    "bingads~=13.0.26",
+    "markdown-to-mrkdwn~=0.2.0",
+    "webauthn>=2.1.0,<2.3.0",
+    "botocore[crt]~=1.40.49",
+    "defusedxml>=0.7.1",
 ]
 
 [dependency-groups]
@@ -190,26 +202,25 @@ dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",
     "black~=23.9.1",
-    "boto3-stubs[s3]>=1.34.84",
+    "boto3-stubs[s3]~=1.38.30",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
-    "dagster-dg-cli>=1.10.18",
+    "dagster-dg-cli~=1.10.18",
     "datamodel-code-generator~=0.36.0",
-    "debugpy>=1.8.0",
-    "deepdiff>=8.6.1",
+    "debugpy~=1.8.0",
+    "deepdiff~=8.6.1",
     "django-linear-migrations~=2.17.0",
     "django-stubs~=5.2.0",
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
-    "flaky==3.7.0",
+    "pytest-rerunfailures~=16.1",
     "freezegun==1.2.2",
-    "inline-snapshot==0.19.*",
-    "ipython>=9.3.0",
-    "mypy~=1.18.2",
+    "ipython~=9.3.0",
+    "mypy~=1.19.1",
     "mypy-baseline~=0.7.3",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.1a22",
+    "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.10.15",
@@ -218,32 +229,32 @@ dev = [
     "prance==23.6.21.0",
     "pyarrow==18.1.0",
     "pyarrow-stubs==17.16",
-    "pytest==8.0.2",
-    "pytest-asyncio==0.21.1",
-    "pytest-cov==4.1.0",
+    "pytest~=8.4.2",
+    "pytest-asyncio~=1.3.0",
+    "pytest-cov~=7.0.0",
     "pytest-django~=4.11.1",
-    "pytest-env==0.8.2",
-    "pytest-icdiff==0.6",
-    "pytest-mock==3.15.0",
-    "pytest-split==0.9.0",
+    "pytest-env~=1.2.0",
+    "pytest-icdiff~=0.9",
+    "pytest-mock~=3.15.1",
+    "pytest-split~=0.10.0",
     "pytest-watch==4.2.0",
-    "pytest-xdist==3.6.1",
-    "python-dateutil>=2.8.2",
-    "requests-mock>=1.12.1",
+    "pytest-xdist~=3.8.0",
+    "python-dateutil~=2.9.0",
+    "requests-mock~=1.12.1",
     "responses==0.23.1",
-    "ruff~=0.8.1",
+    "ruff~=0.14.11",
     "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
     "syrupy~=4.9.1",
     "tach~=0.20.0",
-    "types-aioboto3[s3]>=14.3.0",
-    "types-aiobotocore>=2.22.0",
+    "types-aioboto3[s3]~=14.3.0",
+    "types-aiobotocore~=2.22.0",
     "types-boto3[essential]==1.37.6",
     "types-freezegun==1.1.10",
     "types-markdown==3.3.9",
     "types-paramiko==3.4.0.20240423",
     "types-pymysql==1.1.0.20240524",
-    "types-python-dateutil>=2.8.3",
+    "types-python-dateutil~=2.9.0",
     "types-pytz==2023.3",
     "types-pyyaml==6.0.1",
     "types-redis==4.6.0.20241004",
@@ -272,7 +283,7 @@ profile = "black"
 line-length = 120
 exclude = [
     ".git",
-    "./plugin-server/node_modules/",
+    "./nodejs/node_modules/",
     "./plugins/node_modules/",
     "./env",
     "./posthog/hogql/grammar",
@@ -280,19 +291,20 @@ exclude = [
 
 [tool.ruff.lint]
 ignore = [
-    "B017",
-    "B019",
-    "B904",
-    "B905",
-    "C901",
-    "E501",
-    "E722",
-    "E731",
-    "F403",
-    "F541",
-    "F601",
-    "UP007",
-    "UP032",
+    "B017",  # ~38: assertRaises(Exception) too broad
+    "B904",  # ~488: raise without from in except
+    "B905",  # ~153: zip() without strict=
+    "C901",  # ~527: function too complex
+    "E501",  # ~4697: line too long
+    "E722",  # ~62: bare except
+    "E731",  # ~185: lambda assignment
+    "F403",  # ~67: import * undefined
+    "F541",  # ~1139: f-string missing placeholders
+    "UP007",  # ~377: Union[X,Y] → X | Y (auto-fixable)
+    "UP032",  # ~175: use f-string (auto-fixable)
+    "UP045",  # ~3064: Optional[X] → X | None (auto-fixable)
+    "UP046",  # ~39: generic class → PEP 695 (unsafe)
+    "UP047",  # ~37: generic func → PEP 695 (unsafe)
 ]
 select = [
     "B",
@@ -352,6 +364,39 @@ section-order = [
 
 [tool.dagster]
 python_version = "3.12"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+    "pydantic.mypy",
+]
+strict_optional = true
+no_implicit_optional = true
+warn_unused_ignores = true
+check_untyped_defs = true
+warn_unreachable = true
+strict_equality = true
+ignore_missing_imports = true
+exclude_gitignore = true
+exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+
+[[tool.mypy.overrides]]
+module = "bin.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.hogql.grammar.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "posthog.tasks.*"
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.django-stubs]
+django_settings_module = "posthog.settings"
 
 [tool.mypy-baseline]
 sort_baseline = true

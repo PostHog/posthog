@@ -10,51 +10,18 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
-    FunnelsFilter,
-    FunnelVizType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.models import Team
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
 class SourceTableKind(Enum):
     EVENTS = auto()
     DATA_WAREHOUSE = auto()
-
-
-def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    if funnelsFilter.useUdf:
-        return True
-
-    funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS:
-        return True
-    if funnelVizType == FunnelVizType.STEPS:
-        return True
-    if funnelVizType == FunnelVizType.TIME_TO_CONVERT:
-        return True
-
-    return False
-
-
-def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import FunnelUDF
-
-    return FunnelUDF
-
-
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
-
-    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-        return FunnelTrendsUDF
-
-    return FunnelUDF
 
 
 def funnel_window_interval_unit_to_sql(
@@ -79,13 +46,20 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
 ) -> ast.Expr:
+    def make_field(breakdown: str | int) -> ast.Expr:
+        if properties_column is None:
+            # breakdown already refers to a top-level field
+            return ast.Field(chain=[breakdown])
+        else:
+            return ast.Field(chain=[*properties_column.split("."), breakdown])
+
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Call(name="toString", args=[make_field(breakdowns)]),
                 ast.Constant(value=""),
             ],
         )
@@ -95,7 +69,7 @@ def get_breakdown_expr(
             expr: ast.Expr = ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Call(name="toString", args=[make_field(breakdown)]),
                     ast.Constant(value=""),
                 ],
             )

@@ -67,7 +67,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -131,7 +130,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -200,7 +198,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -281,8 +278,8 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
-                numberOfVariants
+                numberOfVariants,
+                baseline
             )
 
             expect(recommendedSampleSize).not.toBeNull()
@@ -423,6 +420,187 @@ describe('calculations', () => {
             const variance = calculateVarianceFromResults(0.5, metric, baseline)
             expect(variance).not.toBeNull()
             // Should still calculate, covariance will be negative
+        })
+    })
+
+    // Retention metric tests
+    describe('calculations for RETENTION', () => {
+        const metric: ExperimentMetric = {
+            uuid: uuid(),
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RETENTION,
+            start_event: {
+                kind: NodeKind.EventsNode,
+                event: 'uploaded_file',
+            },
+            completion_event: {
+                kind: NodeKind.EventsNode,
+                event: 'downloaded_file',
+            },
+            retention_window_start: 0,
+            retention_window_end: 360,
+            retention_window_unit: 'day',
+            start_handling: 'first_seen',
+        } as ExperimentMetric
+
+        it('calculates baseline value, variance, and recommended sample size correctly', () => {
+            /**
+             * Realistic scenario: File download retention
+             *
+             * Setup:
+             * - 10,000 users uploaded files (number_of_samples)
+             * - 7,000 users downloaded files (sum - completions)
+             * - Retention rate: 7,000 / 10,000 = 70%
+             *
+             * For retention metrics:
+             * - Numerator: binary (0 or 1 per user) - did they complete?
+             * - Denominator: always 1 per user (they all started)
+             * - denominator_sum = number_of_samples = 10,000
+             * - denominator_sum_squares = number_of_samples = 10,000 (since 1² = 1)
+             * - numerator_denominator_sum_product = sum = 7,000 (since value × 1 = value)
+             *
+             * Variance components:
+             * - meanM = 0.7 (70% retention)
+             * - meanD = 1 (everyone who started)
+             * - varM = (sum_squares / n) - meanM² = (7000 / 10000) - 0.49 = 0.7 - 0.49 = 0.21
+             * - varD = 0 (denominator is constant 1)
+             * - cov = (product / n) - meanM × meanD = (7000 / 10000) - 0.7 × 1 = 0
+             *
+             * Delta method variance:
+             * Var(R) = varM / meanD² + meanM² × varD / meanD⁴ - 2 × meanM × cov / meanD³
+             *        = 0.21 / 1 + 0.49 × 0 / 1 - 0
+             *        = 0.21
+             *
+             * Sample size for 10% MDE:
+             * d = 0.10 × 0.7 = 0.07
+             * N = (16 × 0.21) / 0.07² = 3.36 / 0.0049 ≈ 686 per variant
+             * Total = 686 × 2 = 1372
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 10000,
+                sum: 7000, // 7,000 users completed (70% retention)
+                sum_squares: 7000, // Σ(value²) where value is 0 or 1: 7000×1² + 3000×0² = 7000
+                denominator_sum: 10000, // All 10,000 users started
+                denominator_sum_squares: 10000, // Σ(1²) = 10,000
+                numerator_denominator_sum_product: 7000, // Σ(value × 1) = sum
+                step_counts: [],
+            }
+
+            // Test baseline value calculation
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeCloseTo(0.7, 4) // 70% retention
+
+            // Test variance calculation using delta method
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+            expect(variance).not.toBeNull()
+            expect(variance).toBeCloseTo(0.21, 4)
+
+            // Test sample size calculation
+            const numberOfVariants = 2
+            const minimumDetectableEffect = 10 // 10% increase
+
+            const recommendedSampleSize = calculateRecommendedSampleSize(
+                metric,
+                minimumDetectableEffect,
+                baselineValue!,
+                numberOfVariants,
+                baseline
+            )
+
+            expect(recommendedSampleSize).not.toBeNull()
+            expect(recommendedSampleSize).toBeCloseTo(1372, 0)
+        })
+
+        it('handles zero retention correctly', () => {
+            /**
+             * Edge case: No users completed (0% retention)
+             * - 1,000 users started
+             * - 0 users completed
+             * - Retention rate: 0 / 1,000 = 0%
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 0, // Zero completions
+                sum_squares: 0,
+                denominator_sum: 1000,
+                denominator_sum_squares: 1000,
+                numerator_denominator_sum_product: 0,
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBe(0) // 0% retention
+
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+            expect(variance).not.toBeNull()
+            // Variance should be 0 since all values are 0
+            expect(variance).toBeCloseTo(0, 4)
+        })
+
+        it('handles perfect retention correctly', () => {
+            /**
+             * Edge case: All users completed (100% retention)
+             * - 1,000 users started
+             * - 1,000 users completed
+             * - Retention rate: 1,000 / 1,000 = 100%
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 1000, // All completed
+                sum_squares: 1000, // 1000 × 1² = 1000
+                denominator_sum: 1000,
+                denominator_sum_squares: 1000,
+                numerator_denominator_sum_product: 1000,
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBe(1) // 100% retention
+
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+            expect(variance).not.toBeNull()
+            // Variance should be 0 since all values are 1 (no variation)
+            expect(variance).toBeCloseTo(0, 4)
+        })
+
+        it('returns null when denominator_sum is zero', () => {
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 100,
+                sum_squares: 100,
+                denominator_sum: 0, // Invalid: no users started
+                denominator_sum_squares: 0,
+                numerator_denominator_sum_product: 0,
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeNull()
+        })
+
+        it('handles missing denominator fields gracefully', () => {
+            /**
+             * Test backward compatibility if ratio fields are missing
+             * Should return null for variance
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 700,
+                sum_squares: 700,
+                // denominator fields missing
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeNull() // Can't calculate without denominator_sum
+
+            const variance = calculateVarianceFromResults(0.7, metric, baseline)
+            expect(variance).toBeNull() // Can't calculate variance without baseline
         })
     })
 })

@@ -175,10 +175,20 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         question.type === SurveyQuestionType.MultipleChoice) &&
                         (demoData.type === SurveyQuestionType.SingleChoice ||
                             demoData.type === SurveyQuestionType.MultipleChoice) && (
-                            <MultipleChoiceQuestionViz responseData={demoData.data} />
+                            <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
+                                responseData={demoData.data}
+                                totalResponses={demoData.totalResponses}
+                            />
                         )}
                     {question.type === SurveyQuestionType.Open && demoData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={demoData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={demoData.data}
+                            totalResponses={demoData.totalResponses}
+                        />
                     )}
                 </div>
             </div>
@@ -233,10 +243,20 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
                         question.type === SurveyQuestionType.MultipleChoice) &&
                         (processedData.type === SurveyQuestionType.SingleChoice ||
                             processedData.type === SurveyQuestionType.MultipleChoice) && (
-                            <MultipleChoiceQuestionViz responseData={processedData.data} />
+                            <MultipleChoiceQuestionViz
+                                question={question}
+                                questionIndex={questionIndex}
+                                responseData={processedData.data}
+                                totalResponses={processedData.totalResponses}
+                            />
                         )}
                     {question.type === SurveyQuestionType.Open && processedData.type === SurveyQuestionType.Open && (
-                        <OpenQuestionViz question={question} responseData={processedData.data} />
+                        <OpenQuestionViz
+                            question={question}
+                            questionIndex={questionIndex}
+                            responseData={processedData.data}
+                            totalResponses={processedData.totalResponses}
+                        />
                     )}
                 </ErrorBoundary>
             </div>

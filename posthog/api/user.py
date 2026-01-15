@@ -25,6 +25,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -80,6 +81,8 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
+NUM_2FA_BACKUP_CODES = 10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -121,6 +124,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",
@@ -351,6 +355,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance = cast(User, super().update(instance, validated_data))
 
         if password:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
             instance.set_password(password)
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
@@ -411,6 +416,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+@extend_schema(tags=["core"])
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -433,6 +439,7 @@ class UserViewSet(
         "set_current_organization",
         "allow_sidebar_suggestions",
         "shortcut_position",
+        "has_seen_product_intro_for",
     ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
@@ -679,7 +686,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(NUM_2FA_BACKUP_CODES):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)
@@ -787,6 +794,7 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
+        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],

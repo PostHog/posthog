@@ -150,7 +150,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any)
             },
-            submit: async ({ payload = {} }) => {
+            submit: async ({ payload = {}, description }) => {
                 const newJobInputs = {
                     ...values.source?.job_inputs,
                     ...payload,
@@ -182,6 +182,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     await externalDataSourcesLogic.asyncActions.updateSource({
                         ...values.source!,
                         job_inputs: newJobInputs,
+                        description: description !== '' ? description : (values.source?.description ?? null),
                     })
                     actions.loadSource()
                     lemonToast.success('Source updated')

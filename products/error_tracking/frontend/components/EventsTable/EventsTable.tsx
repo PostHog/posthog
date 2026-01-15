@@ -6,9 +6,9 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -119,25 +119,23 @@ const Person = ({ person }: { person: ErrorEventType['person'] }): JSX.Element =
 }
 
 const Actions = (record: ErrorEventType): JSX.Element => {
-    const { onClick: onClickRecordingButton, disabledReason } = useRecordingButton({
-        sessionId: getSessionId(record.properties),
-        recordingStatus: getRecordingStatus(record.properties),
-        timestamp: record.timestamp,
-        inModal: true,
-    })
+    const sessionId = getSessionId(record.properties)
+    const recordingStatus = getRecordingStatus(record.properties)
+    const hasRecording = record.properties.$has_recording as boolean | undefined
 
     return (
         <div className="flex justify-end gap-1">
-            <LemonButton
-                size="small"
-                icon={<IconPlayCircle />}
-                onClick={(event) => {
-                    cancelEvent(event)
-                    onClickRecordingButton()
-                }}
-                disabledReason={disabledReason || undefined}
-                tooltip={!disabledReason ? 'View recording' : undefined}
-            />
+            <div className="flex justify-end align-middle items-center" onClick={(event) => cancelEvent(event)}>
+                <ViewRecordingButton
+                    type="secondary"
+                    sessionId={sessionId ?? ''}
+                    recordingStatus={recordingStatus}
+                    hasRecording={hasRecording}
+                    timestamp={record.timestamp}
+                    size="xsmall"
+                    data-attr="error-tracking-view-recording"
+                />
+            </div>
             {record.properties.$ai_trace_id && (
                 <LemonButton
                     size="small"

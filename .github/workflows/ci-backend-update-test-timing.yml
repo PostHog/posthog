@@ -1,49 +1,151 @@
 name: Backend CI - Update test timing
 
 on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-backend-update-test-timing.yml'
+            - '.github/scripts/optimize_test_durations.py'
     workflow_dispatch:
+        inputs:
+            run_id:
+                description: 'CI run ID to collect timing data from (leave empty to use latest successful run)'
+                required: false
+                type: string
+    schedule:
+        # Run weekly on Sunday at 3am UTC
+        - cron: '0 3 * * 0'
 
-env:
-    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
-    DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-    REDIS_URL: 'redis://localhost'
-    CLICKHOUSE_HOST: 'localhost'
-    CLICKHOUSE_SECURE: 'False'
-    CLICKHOUSE_VERIFY: 'False'
-    TEST: 1
-    OBJECT_STORAGE_ENABLED: 'True'
-    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
-    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+permissions:
+    contents: write
+    actions: read
+    pull-requests: write
 
 jobs:
-    django:
-        name: Run Django tests and save test durations
-        runs-on: ubuntu-24.04
+    collect-and-merge:
+        name: Collect timing data from CI artifacts
+        runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
-
-            - uses: ./.github/actions/run-backend-tests
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
               with:
-                  concurrency: 1
-                  group: 1
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  python-version: '3.12.12'
-                  clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
-                  segment: 'FOSS'
-                  person-on-events: false
+                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - name: Upload updated timing data as artifacts
-              uses: actions/upload-artifact@v4
-              if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
+            - uses: actions/checkout@v6
               with:
-                  name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
-                  path: .test_durations
-                  retention-days: 2
-            # - name: Save test durations
-            #   uses: stefanzweifel/git-auto-commit-action@v5
-            #   with:
-            #       commit_message: 'Save backend test durations'
-            #       commit_user_name: PostHog Bot
-            #       commit_user_email: hey@posthog.com
-            #       commit_author: PostHog Bot <hey@posthog.com>
+                  # For PRs: checkout PR head; for schedule/dispatch: checkout branch by name (not SHA)
+                  ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+
+            - name: Find CI run to use
+              id: find-run
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  INPUT_RUN_ID: ${{ inputs.run_id }}
+              run: |
+                  if [ -n "$INPUT_RUN_ID" ]; then
+                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "Using provided CI run: $INPUT_RUN_ID"
+                      exit 0
+                  fi
+
+                  # Find a recent successful ci-backend.yml run with timing artifacts
+                  # Most runs skip tests due to path filtering (~20 sec), so filter by duration first
+                  # Runs that actually execute tests take 15+ minutes
+                  echo "Searching for CI run with timing artifacts..."
+
+                  # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&per_page=100" \
+                      --jq '.workflow_runs[] | select(
+                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                      ) | .id' | head -5 | \
+                      while read id; do
+                          count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
+                              --jq '[.artifacts[] | select(.name | startswith("timing_data-"))] | length' 2>/dev/null)
+                          echo "Run $id has $count timing artifacts" >&2
+                          if [ "$count" -gt "40" ]; then
+                              echo "$id"
+                              break
+                          fi
+                      done)
+
+                  if [ -z "$run_id" ]; then
+                      echo "::error::No suitable CI run found with timing artifacts"
+                      exit 1
+                  fi
+
+                  echo "run_id=$run_id" >> $GITHUB_OUTPUT
+                  echo "Found CI run: $run_id"
+
+            - name: Download timing artifacts
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
+
+            - name: Process timing data
+              run: |
+                  # Process each segment separately, then merge
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                      --segment Core
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                      --segment Temporal
+
+                  # Merge into single file (Core first, then Temporal overwrites any overlaps)
+                  python3 -c "
+                  import json
+                  with open('/tmp/core_durations') as f: durations = json.load(f)
+                  with open('/tmp/temporal_durations') as f: durations.update(json.load(f))
+                  with open('.test_durations', 'w') as f:
+                      json.dump(durations, f, indent=4, sort_keys=True)
+                      f.write('\n')
+                  print(f'Merged {len(durations)} tests')
+                  "
+                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet .test_durations; then
+                      echo "No changes to test durations"
+                      echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "Test durations updated"
+                      echo "changed=true" >> $GITHUB_OUTPUT
+                      git diff --stat .test_durations
+                  fi
+
+            # On PR: commit directly to the PR branch
+            - name: Commit to PR branch
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  BRANCH_NAME: ${{ github.event.pull_request.head.ref }}
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add .test_durations
+                  git commit -m "chore(ci): update backend test timings"
+                  git push origin HEAD:"$BRANCH_NAME"
+                  echo "::notice::Committed updated test timings to $BRANCH_NAME"
+
+            # On schedule/dispatch: create a new PR
+            - name: Create Pull Request
+              if: steps.check-changes.outputs.changed == 'true' && github.event_name != 'pull_request'
+              uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  commit-message: 'chore(ci): update backend test timings'
+                  title: 'chore(ci): update backend test timings'
+                  body: |
+                      Automated update of backend test timing data from CI run [${{ steps.find-run.outputs.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ steps.find-run.outputs.run_id }}).
+
+                      This keeps pytest-split sharding balanced.
+                  branch: chore/update-test-timings
+                  base: master
+                  delete-branch: true

@@ -71,14 +71,14 @@ class TestVercelIntegration(TestCase):
         assert "createdAt" in result
         assert "updatedAt" in result
         # Verify createdAt is in milliseconds (should be > 1 billion ms since epoch)
-        assert (
-            result["createdAt"] > 1_000_000_000_000
-        ), f"createdAt should be in milliseconds, got {result['createdAt']}"
+        assert result["createdAt"] > 1_000_000_000_000, (
+            f"createdAt should be in milliseconds, got {result['createdAt']}"
+        )
         assert isinstance(result["createdAt"], int), f"createdAt should be int, got {type(result['createdAt'])}"
         # Verify updatedAt is in milliseconds
-        assert (
-            result["updatedAt"] > 1_000_000_000_000
-        ), f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        assert result["updatedAt"] > 1_000_000_000_000, (
+            f"updatedAt should be in milliseconds, got {result['updatedAt']}"
+        )
         assert isinstance(result["updatedAt"], int), f"updatedAt should be int, got {type(result['updatedAt'])}"
 
     def make_vercel_item(self, **overrides):
@@ -104,7 +104,7 @@ class TestVercelIntegration(TestCase):
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             integration_id=self.installation_id,
-            config={"billing_plan_id": "free", "scopes": ["read"]},
+            config={"billing_plan_id": "posthog-usage-based", "scopes": ["read"]},
             created_by=self.user,
         )
 
@@ -149,28 +149,14 @@ class TestVercelIntegration(TestCase):
 
     def test_get_vercel_plans_structure(self):
         plans = VercelIntegration.get_vercel_plans()
-        assert len(plans) == 2
+        assert len(plans) > 0
+        assert plans[0]["id"]
+        assert plans[0]["paymentMethodRequired"] is True
 
-        free_plan = next(p for p in plans if p["id"] == "free")
-        assert free_plan["type"] == "subscription"
-        assert free_plan["name"] == "Free"
-        assert not free_plan["paymentMethodRequired"]
-
-        paid_plan = next(p for p in plans if p["id"] == "pay_as_you_go")
-        assert paid_plan["type"] == "subscription"
-        assert paid_plan["name"] == "Pay-as-you-go"
-        assert paid_plan["paymentMethodRequired"]
-
-    def test_get_installation_returns_free_plan(self):
+    def test_get_installation_billing_plan(self):
         result = VercelIntegration.get_installation_billing_plan(self.installation_id)
-        assert "billingplan" in result
-        assert result["billingplan"]["id"] == "free"
-
-    def test_update_installation_success(self):
-        VercelIntegration.update_installation(self.installation_id, "pro200")
-
-        updated_installation = OrganizationIntegration.objects.get(integration_id=self.installation_id)
-        assert updated_installation.config["billing_plan_id"] == "free"
+        # Returns empty dict - billing handled through PostHog, not Vercel
+        assert result == {}
 
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
@@ -196,7 +182,8 @@ class TestVercelIntegration(TestCase):
     def test_get_product_plans_posthog(self):
         result = VercelIntegration.get_product_plans("posthog")
         assert "plans" in result
-        assert len(result["plans"]) == 2
+        assert len(result["plans"]) == 1
+        assert result["plans"][0]["id"] == "posthog-usage-based"
 
     def test_get_product_plans_invalid_product(self):
         with self.assertRaises(NotFound) as context:
@@ -326,6 +313,29 @@ class TestVercelIntegration(TestCase):
         new_user = User.objects.get(email=payload_without_name["account"]["contact"]["email"])
         assert new_user.first_name == payload_without_name["account"]["contact"]["email"].split("@")[0]
 
+    def test_upsert_installation_reactivates_inactive_user(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        inactive_email = "inactive@example.com"
+
+        inactive_user = User.objects.create_user(
+            email=inactive_email, password="testpass", first_name="Inactive", is_active=False
+        )
+
+        payload = self.payload.copy()
+        payload["account"]["contact"]["email"] = inactive_email
+
+        user_claims = self._create_user_claims("inactive_user_123")
+        user_claims.installation_id = new_installation_id
+        user_claims.user_email = inactive_email
+
+        VercelIntegration.upsert_installation(new_installation_id, payload, user_claims)
+
+        inactive_user.refresh_from_db()
+        assert inactive_user.is_active is True
+
+        org_integration = OrganizationIntegration.objects.get(integration_id=new_installation_id)
+        assert org_integration.created_by == inactive_user
+
     def test_get_resource_not_found(self):
         with self.assertRaises(NotFound):
             VercelIntegration.get_resource("999999")
@@ -335,7 +345,7 @@ class TestVercelIntegration(TestCase):
             "productId": "posthog",
             "name": "New Resource",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         result = VercelIntegration.create_resource(self.installation_id, resource_data)
@@ -374,7 +384,7 @@ class TestVercelIntegration(TestCase):
             {
                 "name": "Original Name",
                 "metadata": {"old": "value"},
-                "billingPlanId": "free",
+                "billingPlanId": "posthog-usage-based",
             }
         )
         resource.save()
@@ -403,7 +413,7 @@ class TestVercelIntegration(TestCase):
         resource_data = {
             "productId": "posthog",
             "metadata": {"key": "value"},
-            "billingPlanId": "free",
+            "billingPlanId": "posthog-usage-based",
         }
 
         with self.assertRaises(exceptions.ValidationError) as context:

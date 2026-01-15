@@ -32,7 +32,7 @@ KLUDGES_COUNTER = Counter(
 
 TOMBSTONE_COUNTER = Counter(
     "posthog_tombstone_total",
-    "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions.",
+    "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions. Details (team_id, flag_id, etc.) are logged separately to avoid high-cardinality labels.",
     labelnames=["namespace", "operation", "component"],
 )
 

@@ -89,7 +89,6 @@ If a user says, *"show me recordings where people use mobile phone"*, use the ex
 
 json
 {
-    "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
     "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
@@ -109,7 +108,6 @@ json
             ]
         }
         ]
-    }
     }
 }
 

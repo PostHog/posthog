@@ -32,7 +32,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.constants import AUTOCAPTURE_EVENT
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -131,9 +131,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         self.context.actorsQuery = self.actors_query
 
         # Used for generating the funnel persons cte
-        funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
-        assert isinstance(funnel_order_actor_class, FunnelUDF)  # for typings
-        self._funnel_actors_generator = funnel_order_actor_class
+        self._funnel_actors_generator = FunnelUDF(context=self.context)
 
     def _calculate(self) -> FunnelCorrelationResponse:
         """
@@ -381,7 +379,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             prop_query = property_to_expr(properties, self.team)
 
         conversion_filter = (
-            f'AND funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            f"AND funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
             if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
             else ""
         )
@@ -438,7 +436,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         funnel_persons_query = self.get_funnel_actors_cte()
 
         conversion_filter = (
-            f'funnel_actors.steps {"=" if self.correlation_actors_query.funnelCorrelationPersonConverted else "<>"} target_step'
+            f"funnel_actors.steps {'=' if self.correlation_actors_query.funnelCorrelationPersonConverted else '<>'} target_step"
             if self.correlation_actors_query.funnelCorrelationPersonConverted is not None
             else ""
         )

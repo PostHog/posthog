@@ -14,6 +14,8 @@ import {
     IconExternal,
     IconFeatures,
     IconFlask,
+    IconFolder,
+    IconFolderOpen,
     IconFunnels,
     IconGraph,
     IconHogQL,
@@ -23,7 +25,6 @@ import {
     IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
-    IconNewspaper,
     IconNotebook,
     IconNotification,
     IconPeople,
@@ -35,7 +36,9 @@ import {
     IconRocket,
     IconSearch,
     IconServer,
+    IconSpotlight,
     IconStickiness,
+    IconSupport,
     IconToggle,
     IconToggleOff,
     IconTrends,
@@ -82,6 +85,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    marketing_analytics: {
+        icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)'],
+    },
     managed_viewsets: {
         icon: <IconDatabase />,
     },
@@ -111,6 +118,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     survey: {
         icon: <IconMessage />,
+        iconColor: ['var(--color-product-surveys-light)'],
+    },
+    product_tour: {
+        icon: <IconSpotlight />,
         iconColor: ['var(--color-product-surveys-light)'],
     },
     user_interview: {
@@ -236,9 +247,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
     },
-    feed: {
-        icon: <IconNewspaper />,
-    },
     apps: {
         icon: <IconApps />,
     },
@@ -250,6 +258,16 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     search: {
         icon: <IconSearch />,
+    },
+    folder: {
+        icon: <IconFolder />,
+    },
+    folder_open: {
+        icon: <IconFolderOpen />,
+    },
+    conversations: {
+        icon: <IconSupport />,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'],
     },
 }
 

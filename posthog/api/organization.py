@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from functools import cached_property
-from typing import Any, Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
@@ -17,7 +17,7 @@ from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.event_usage import groups, report_organization_action, report_organization_deleted
 from posthog.exceptions_capture import capture_exception
@@ -131,6 +131,8 @@ class OrganizationSerializer(
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         read_only_fields = [
             "id",
@@ -146,6 +148,8 @@ class OrganizationSerializer(
             "customer_id",
             "member_count",
             "default_role_id",
+            "is_active",
+            "is_not_active_reason",
         ]
         extra_kwargs = {
             "slug": {
@@ -159,7 +163,7 @@ class OrganizationSerializer(
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         return organization
 
-    def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
+    def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
@@ -307,12 +311,26 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):
+        from ee.billing.billing_manager import BillingManager
+
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
         if settings.DISABLE_BULK_DELETES:
             raise exceptions.ValidationError(
                 "Organization deletion is temporarily disabled during database migration. Please try again later."
             )
+
+        # Check if organization has an active billing subscription
+        if is_cloud():
+            license = get_cached_instance_license()
+            if license:
+                billing_manager = BillingManager(license)
+                billing = billing_manager.get_billing(organization)
+                if billing.get("has_active_subscription"):
+                    raise exceptions.ValidationError(
+                        "Cannot delete organization with an active subscription. "
+                        "Please cancel your subscription first in the billing page."
+                    )
 
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
@@ -340,47 +358,43 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if "enforce_2fa" in request.data:
-            enforce_2fa_value = request.data["enforce_2fa"]
-            organization = self.get_object()
-            user = cast(User, request.user)
+    def _capture_organization_setting_events(self, request: Request) -> None:
+        setting_events = [
+            ("enforce_2fa", "organization 2fa enforcement toggled"),
+            ("is_ai_data_processing_approved", "organization ai data processing consent toggled"),
+        ]
 
-            # Add capture event for 2FA enforcement change
-            posthoganalytics.capture(
-                "organization 2fa enforcement toggled",
-                distinct_id=str(user.distinct_id),
-                properties={
-                    "enabled": enforce_2fa_value,
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": user.organization_memberships.get(organization=organization).level,
-                },
-                groups=groups(organization),
-            )
+        fields_to_capture = [field for field, _ in setting_events if field in request.data]
+        if not fields_to_capture:
+            return
+
+        organization = self.get_object()
+        user = cast(User, request.user)
+        user_role = user.organization_memberships.get(organization=organization).level
+
+        for field, event_name in setting_events:
+            if field in request.data:
+                posthoganalytics.capture(
+                    event_name,
+                    distinct_id=str(user.distinct_id),
+                    properties={
+                        "enabled": request.data[field],
+                        "organization_id": str(organization.id),
+                        "organization_name": organization.name,
+                        "user_role": user_role,
+                    },
+                    groups=groups(organization),
+                )
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
             return super().update(request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if "enforce_2fa" in request.data:
-            enforce_2fa_value = request.data["enforce_2fa"]
-            organization = self.get_object()
-            user = cast(User, request.user)
-
-            # Add capture event for 2FA enforcement change
-            posthoganalytics.capture(
-                "organization 2fa enforcement toggled",
-                distinct_id=str(user.distinct_id),
-                properties={
-                    "enabled": enforce_2fa_value,
-                    "organization_id": str(organization.id),
-                    "organization_name": organization.name,
-                    "user_role": user.organization_memberships.get(organization=organization).level,
-                },
-                groups=groups(organization),
-            )
+        self._capture_organization_setting_events(request)
 
         # Set user context for activity logging
         with ImpersonatedContext(request):
@@ -517,9 +531,9 @@ class OrganizationInviteContext(ActivityContextBase):
     organization_id: str
     organization_name: str
     target_email: str
-    inviter_user_id: Optional[str]
-    inviter_user_email: Optional[str]
-    inviter_user_name: Optional[str]
+    inviter_user_id: str | None
+    inviter_user_email: str | None
+    inviter_user_name: str | None
     level: str
 
 

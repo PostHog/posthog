@@ -93,7 +93,6 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-    from posthog.session_recordings.sql.session_recording_event_sql import TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL
 
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
@@ -113,7 +112,6 @@ def reset_clickhouse_tables():
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
         TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -148,12 +146,15 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
 
 
-def run_persons_sqlx_migrations():
+def run_persons_sqlx_migrations(keepdb: bool = False):
     """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
     This creates posthog_person_new and related tables needed for dual-table
     person model migration. Mirrors production migrations in rust/persons_migrations/.
     Uses a separate database to mirror production setup where persons live in their own DB.
+
+    Args:
+        keepdb: If True, reuse existing database (only create if missing). If False, drop and recreate.
     """
     # Build database URL for test_posthog_persons (separate from main test_posthog)
     db_config = settings.DATABASES["default"]
@@ -175,19 +176,20 @@ def run_persons_sqlx_migrations():
 
     env = {**os.environ, "DATABASE_URL": database_url}
 
-    # Drop and recreate database to ensure clean state
-    try:
-        subprocess.run(
-            ["sqlx", "database", "drop", "-y"],
-            env=env,
-            check=True,
-            capture_output=True,
-        )
-    except subprocess.CalledProcessError:
-        # Database might not exist, which is fine
-        pass
+    if not keepdb:
+        # Drop and recreate database to ensure clean state
+        try:
+            subprocess.run(
+                ["sqlx", "database", "drop", "-y"],
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError:
+            # Database might not exist, which is fine
+            pass
 
-    # Create fresh database
+    # Create database (idempotent - will succeed if already exists)
     try:
         subprocess.run(
             ["sqlx", "database", "create"],
@@ -196,12 +198,14 @@ def run_persons_sqlx_migrations():
             capture_output=True,
         )
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(
-            f"Failed to create test database with sqlx. "
-            f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
-        ) from e
+        # If keepdb=True and database exists, this is expected to fail - that's fine
+        if not keepdb:
+            raise RuntimeError(
+                f"Failed to create test database with sqlx. "
+                f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+            ) from e
 
-    # Run migrations
+    # Run migrations (idempotent - sqlx tracks which migrations have run)
     try:
         subprocess.run(
             ["sqlx", "migrate", "run", "--source", migrations_path],
@@ -211,8 +215,7 @@ def run_persons_sqlx_migrations():
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. "
-            f"Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
         ) from e
 
 
@@ -276,7 +279,7 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
-    run_persons_sqlx_migrations()
+    run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -399,11 +402,14 @@ def mock_email_mfa_verifier(request, mocker):
     Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
     """
+    from posthog.helpers.two_factor_session import EmailMFACheckResult
+
     if "disable_mock_email_mfa_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification", return_value=False
+        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
+        return_value=EmailMFACheckResult(should_send=False),
     )
 
 
@@ -419,3 +425,20 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+
+def _runs_on_internal_pr() -> bool:
+    """
+    Returns True when tests are running for an internal PR or on master,
+    and False for fork PRs.
+    Defaults to True, so local runs are unaffected.
+    """
+    value = os.getenv("RUNS_ON_INTERNAL_PR")
+    if value is None:
+        return True
+    return value.lower() in {"1", "true"}
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
+        pytest.skip("Skipping test that requires internal secrets on external PRs")

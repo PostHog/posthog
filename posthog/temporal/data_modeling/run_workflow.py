@@ -45,9 +45,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
+from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.models import (
     DataWarehouseModelPath,
     DataWarehouseSavedQuery,
@@ -56,6 +58,7 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
 
 LOGGER = get_logger(__name__)
 
@@ -77,6 +80,16 @@ class DataModelingCancelledException(Exception):
     """Exception raised when a data modeling job is cancelled."""
 
     pass
+
+
+class NonRetryableException(Exception):
+    @property
+    def cause(self) -> BaseException | None:
+        """Cause of the exception.
+
+        This is the same as ``Exception.__cause__``.
+        """
+        return self.__cause__
 
 
 @dataclasses.dataclass(frozen=True)
@@ -469,6 +482,12 @@ async def materialize_model(
             job.rows_expected = rows_expected
             await database_sync_to_async(job.save)()
         except Exception as e:
+            exception_str = str(e)
+
+            # If the count doesn't succeed due to the query timeout being exceeded, then re-raise
+            if "Timeout exceeded" in exception_str:
+                raise
+
             await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
             job.rows_expected = None
             await database_sync_to_async(job.save)()
@@ -525,12 +544,11 @@ async def materialize_model(
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
         if delta_table is None:
-            delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
+            error_message = "Query returned no results. Check that the query returns data before materializing."
+            raise NonRetryableException(f"Query for model {model_label} failed: {error_message}")
     except Exception as e:
         error_message = str(e)
-
         await logger.aerror(f"Error materializing model {model_label}: {error_message}")
-
         if "Query exceeds memory limits" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -569,6 +587,7 @@ async def materialize_model(
             )
             saved_query.latest_error = error_message
             await logger.ainfo("Table reference no longer exists for model %s, reverting materialization", model_label)
+            # saving query handled in revert_materialization()
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
@@ -576,20 +595,29 @@ async def materialize_model(
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded memory limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         elif "Timeout exceeded" in error_message:
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
+            saved_query.sync_frequency_interval = None
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
+            await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
+            await logger.ainfo("Paused temporal schedule for query: saved_query_id=%s", saved_query.id)
+            raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
+            saved_query.sync_frequency_interval = None
             await logger.aerror("Failed to materialize model with unexpected error: %s", str(e))
             await database_sync_to_async(saved_query.save)()
+            await a_pause_saved_query_schedule(saved_query)
             await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
+            if isinstance(e, NonRetryableException):
+                raise
+            raise Exception(error_message) from e
 
     data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
     if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
@@ -799,8 +827,13 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
                 column_name = split_arr[0]
                 ch_type = split_arr[1]
 
+                # Skip array types from conversion - they are already properly typed by ClickHouse
+                # and attempting to convert them causes errors like:
+                # "Illegal type Array(DateTime) of argument of function toTimezone"
+                is_array_type = ch_type.lower().startswith("array(")
+
                 # Does the clickhouse type exist in our mapping of types to convert?
-                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()):
+                if any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion.keys()) and not is_array_type:
                     # Find which type we need to convert
                     call_tuples = [
                         call_tuple
@@ -821,16 +854,33 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
             if call_tuple:
-                await logger.adebug(
-                    f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
-                )
+                is_array = ch_type.lower().startswith("array(")
 
-                select_fields.append(
-                    ast.Alias(
-                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
-                        alias=column_name,
+                if is_array:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} using arrayMap with {call_tuple[0]}(..)"
                     )
-                )
+                    # Use arrayMap to apply the conversion function to each array element
+                    lambda_expr = ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=["x"]), *call_tuple[1]]),
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name="arrayMap", args=[lambda_expr, ast.Field(chain=[column_name])]),
+                            alias=column_name,
+                        )
+                    )
+                else:
+                    await logger.adebug(
+                        f"Converting {column_name} of type {ch_type} to be wrapped with {call_tuple[0]}(..)"
+                    )
+                    select_fields.append(
+                        ast.Alias(
+                            expr=ast.Call(name=call_tuple[0], args=[ast.Field(chain=[column_name]), *call_tuple[1]]),
+                            alias=column_name,
+                        )
+                    )
             else:
                 select_fields.append(ast.Field(chain=[column_name]))
 
@@ -928,23 +978,57 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             new_fields.append(field)
             continue
 
+        # Handle array/list types (e.g., Array(DateTime))
+        if pa.types.is_list(field.type):
+            if "datetime64" in type.lower():
+                # Array(DateTime64) -> list<timestamp(us, UTC)>
+                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                # Cast list<uint64> -> list<int64> -> list<timestamp>
+                list_int64 = pc.cast(column, pa.list_(pa.int64()))
+                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
+                list_column = pc.cast(list_timestamp_s, list_type)
+            elif "datetime" in type.lower():
+                # Array(DateTime) -> list<timestamp(us, UTC)>
+                list_element_type = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                # Cast list<uint32> -> list<int64> -> list<timestamp(s)> -> list<timestamp(us, UTC)>
+                list_int64 = pc.cast(column, pa.list_(pa.int64()))
+                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
+                list_column = pc.cast(list_timestamp_s, list_type)
+            else:
+                # Array(Date) -> list<date32>
+                list_element_type = pa.date32()
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                # Cast list<uint16> -> list<int32> -> list<date32>
+                list_int32 = pc.cast(column, pa.list_(pa.int32()))
+                list_column = pc.cast(list_int32, list_type)
+
+            new_fields.append(list_field)
+            new_columns.append(list_column)
+            continue
+
+        # Handle scalar types
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
-            new_column = pc.cast(column, new_field.type)
+            scalar_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            scalar_column = pc.cast(column, scalar_field.type)
         elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+            scalar_field = field.with_type(pa.timestamp("us", tz="UTC"))
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
-            new_column = pc.cast(seconds_col, new_field.type)
+            scalar_column = pc.cast(seconds_col, scalar_field.type)
         else:
-            new_field = field.with_type(pa.date32())
+            scalar_field = field.with_type(pa.date32())
             # Gotta upcast from uint16 to int32 first
             int32_col = pc.cast(column, pa.int32())
-            new_column = pc.cast(int32_col, new_field.type)
+            scalar_column = pc.cast(int32_col, scalar_field.type)
 
-        new_fields.append(new_field)
-        new_columns.append(new_column)
+        new_fields.append(scalar_field)
+        new_columns.append(scalar_column)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
@@ -1008,37 +1092,33 @@ def _get_credentials():
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
-            settings.AIRBYTE_BUCKET_KEY,
-            settings.AIRBYTE_BUCKET_SECRET,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             settings.OBJECT_STORAGE_ENDPOINT,
         )
 
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     if TEST:
         return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "aws_access_key_id": settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+            "aws_secret_access_key": settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "region_name": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION,
             "AWS_ALLOW_HTTP": "true",
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
     return {
-        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        "region_name": settings.AIRBYTE_BUCKET_REGION,
-        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -1351,6 +1431,10 @@ async def update_saved_query_status(
 
     await database_sync_to_async(saved_query.save)()
 
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
+        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
+
 
 @dataclasses.dataclass
 class CancelJobsActivityInputs:
@@ -1480,7 +1564,7 @@ class RunWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
+                    maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
@@ -1571,9 +1655,10 @@ class RunWorkflow(PostHogWorkflow):
                 job_id=job_id,
                 models=len(self.ducklake_copy_inputs.models),
             )
+            # Start DuckLake copy workflow as a child (fire-and-forget)
             await temporalio.workflow.start_child_workflow(
-                workflow="ducklake-copy.data-modeling",
-                arg=dataclasses.asdict(self.ducklake_copy_inputs),
+                DuckLakeCopyDataModelingWorkflow.run,
+                self.ducklake_copy_inputs,
                 id=f"ducklake-copy-data-modeling-{job_id}",
                 task_queue=settings.DUCKLAKE_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,

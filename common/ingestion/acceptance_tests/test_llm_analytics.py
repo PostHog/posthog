@@ -1,5 +1,7 @@
 """LLM Analytics capture tests - tests multipart blob upload and S3 storage."""
 
+import os
+import re
 import gzip
 import json
 import uuid
@@ -7,22 +9,224 @@ import logging
 
 import pytest
 
+import boto3
 import requests
+from botocore.config import Config as BotoConfig
+from multipart import multipart
 from requests_toolbelt import MultipartEncoder
 
 logger = logging.getLogger(__name__)
+
+
+def parse_s3_url(s3_url: str) -> tuple[str, str, int, int]:
+    """Parse an S3 URL with range parameter.
+
+    Args:
+        s3_url: URL in format s3://bucket/key?range=start-end
+
+    Returns:
+        Tuple of (bucket, key, range_start, range_end)
+    """
+    # Parse s3://bucket/key?range=start-end
+    match = re.match(r"s3://([^/]+)/(.+)\?range=(\d+)-(\d+)", s3_url)
+    if not match:
+        raise ValueError(f"Invalid S3 URL format: {s3_url}")
+
+    bucket = match.group(1)
+    key = match.group(2)
+    range_start = int(match.group(3))
+    range_end = int(match.group(4))
+
+    return bucket, key, range_start, range_end
+
+
+def get_s3_client():
+    """Create an S3 client using environment variables.
+
+    Required environment variables:
+        AI_S3_ENDPOINT: S3 endpoint URL (e.g., http://localhost:19000)
+        AI_S3_ACCESS_KEY_ID: S3 access key
+        AI_S3_SECRET_ACCESS_KEY: S3 secret key
+        AI_S3_REGION: S3 region (optional, defaults to us-east-1)
+
+    Raises:
+        ValueError: If required environment variables are not set.
+    """
+    endpoint_url = os.environ.get("AI_S3_ENDPOINT")
+    access_key = os.environ.get("AI_S3_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AI_S3_SECRET_ACCESS_KEY")
+    region = os.environ.get("AI_S3_REGION", "us-east-1")
+
+    missing = []
+    if not endpoint_url:
+        missing.append("AI_S3_ENDPOINT")
+    if not access_key:
+        missing.append("AI_S3_ACCESS_KEY_ID")
+    if not secret_key:
+        missing.append("AI_S3_SECRET_ACCESS_KEY")
+
+    if missing:
+        raise ValueError(f"Missing required S3 environment variables: {', '.join(missing)}")
+
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+def fetch_blob_from_s3(s3_url: str) -> bytes:
+    """Fetch blob data from S3 using the URL with range parameter.
+
+    Args:
+        s3_url: URL in format s3://bucket/key?range=start-end
+
+    Returns:
+        The blob data as bytes
+
+    Raises:
+        ValueError: If S3 credentials are not configured.
+    """
+    bucket, key, range_start, range_end = parse_s3_url(s3_url)
+
+    s3_client = get_s3_client()
+
+    # Fetch the object with byte range
+    response = s3_client.get_object(Bucket=bucket, Key=key, Range=f"bytes={range_start}-{range_end}")
+
+    return response["Body"].read()
+
+
+def fetch_full_s3_object(s3_url: str) -> tuple[bytes, str]:
+    """Fetch the full S3 object (not just a range).
+
+    Args:
+        s3_url: URL in format s3://bucket/key?range=start-end
+
+    Returns:
+        Tuple of (object bytes, content-type header)
+    """
+    bucket, key, _, _ = parse_s3_url(s3_url)
+    s3_client = get_s3_client()
+    response = s3_client.get_object(Bucket=bucket, Key=key)
+    return response["Body"].read(), response.get("ContentType", "")
+
+
+def parse_multipart_data(data: bytes, boundary: str) -> list[dict]:
+    """Parse multipart data and return list of parts with headers and body.
+
+    Args:
+        data: Raw multipart bytes
+        boundary: The boundary string (without -- prefix)
+
+    Returns:
+        List of dicts with keys: name, content_type, content_encoding, body
+    """
+    parts: list[dict] = []
+
+    # python-multipart uses callbacks
+    current_part: dict = {}
+
+    def on_part_begin() -> None:
+        nonlocal current_part
+        current_part = {"headers": {}, "body": b""}
+
+    def on_part_data(data: bytes, start: int, end: int) -> None:
+        current_part["body"] += data[start:end]
+
+    def on_part_end() -> None:
+        # Extract name from Content-Disposition
+        content_disposition = current_part["headers"].get("Content-Disposition", "")
+        name_match = re.search(r'name="([^"]+)"', content_disposition)
+        name = name_match.group(1) if name_match else ""
+
+        parts.append(
+            {
+                "name": name,
+                "content_type": current_part["headers"].get("Content-Type", "application/octet-stream"),
+                "content_encoding": current_part["headers"].get("Content-Encoding"),
+                "body": current_part["body"],
+            }
+        )
+
+    def on_header_field(data: bytes, start: int, end: int) -> None:
+        current_part["_header_field"] = data[start:end].decode("utf-8")
+
+    def on_header_value(data: bytes, start: int, end: int) -> None:
+        field = current_part.get("_header_field", "")
+        current_part["headers"][field] = data[start:end].decode("utf-8")
+
+    callbacks = {
+        "on_part_begin": on_part_begin,
+        "on_part_data": on_part_data,
+        "on_part_end": on_part_end,
+        "on_header_field": on_header_field,
+        "on_header_value": on_header_value,
+    }
+
+    parser = multipart.MultipartParser(boundary.encode("utf-8"), callbacks)
+    parser.write(data)
+    parser.finalize()
+
+    return parts
+
+
+def parse_mime_part(data: bytes) -> tuple[dict[str, str], bytes]:
+    """Parse a MIME part (headers + body) using the standard email parser.
+
+    The byte range format is a standard MIME part:
+        Content-Disposition: form-data; name="property_name"\r\n
+        Content-Type: application/json\r\n
+        [Content-Encoding: gzip\r\n]
+        \r\n
+        <body bytes>
+
+    Args:
+        data: Raw bytes containing headers and body separated by \r\n\r\n
+
+    Returns:
+        Tuple of (headers dict with lowercase keys, body bytes)
+    """
+    from email import policy
+    from email.parser import BytesParser
+
+    # Parse as a MIME message
+    parser = BytesParser(policy=policy.HTTP)
+    msg = parser.parsebytes(data)
+
+    # Extract headers (lowercase keys for consistency)
+    headers: dict[str, str] = {k.lower(): str(v) for k, v in msg.items()}
+
+    # Get raw body bytes
+    payload = msg.get_payload(decode=True)
+    body: bytes
+    if payload is None:
+        raw_payload = msg.get_payload()
+        if isinstance(raw_payload, str):
+            body = raw_payload.encode("utf-8")
+        else:
+            body = b""
+    elif isinstance(payload, bytes):
+        body = payload
+    else:
+        body = b""
+
+    return headers, body
 
 
 def assert_part_details(part, expected_name, expected_length, expected_content_type, expected_content_encoding=None):
     """Assert comprehensive details about a multipart part."""
     assert part["name"] == expected_name, f"Expected part name '{expected_name}', got '{part['name']}'"
     assert part["length"] == expected_length, f"Expected part length {expected_length}, got {part['length']}"
-    assert (
-        part["content-type"] == expected_content_type
-    ), f"Expected content-type '{expected_content_type}', got '{part['content-type']}'"
-    assert (
-        part["content-encoding"] == expected_content_encoding
-    ), f"Expected content-encoding '{expected_content_encoding}', got '{part['content-encoding']}'"
+    assert part["content-type"] == expected_content_type, (
+        f"Expected content-type '{expected_content_type}', got '{part['content-type']}'"
+    )
+    assert part["content-encoding"] == expected_content_encoding, (
+        f"Expected content-encoding '{expected_content_encoding}', got '{part['content-encoding']}'"
+    )
 
 
 def assert_parts_order_and_details(response_data, expected_parts):
@@ -466,9 +670,9 @@ class TestLLMAnalytics:
                 headers={"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {api_key}"},
             )
 
-            assert (
-                response.status_code == 200
-            ), f"Expected 200 for {event_type}, got {response.status_code}: {response.text}"
+            assert response.status_code == 200, (
+                f"Expected 200 for {event_type}, got {response.status_code}: {response.text}"
+            )
             response_data = response.json()
             assert len(response_data["accepted_parts"]) == 2
             logger.info(f"{event_type} event sent successfully")
@@ -600,9 +804,9 @@ class TestLLMAnalytics:
             data=multipart_data_binary,
             headers={"Content-Type": multipart_data_binary.content_type, "Authorization": f"Bearer {api_key}"},
         )
-        assert (
-            response_binary.status_code == 200
-        ), f"Expected 200, got {response_binary.status_code}: {response_binary.text}"
+        assert response_binary.status_code == 200, (
+            f"Expected 200, got {response_binary.status_code}: {response_binary.text}"
+        )
         response_data_binary = response_binary.json()
         assert len(response_data_binary["accepted_parts"]) == 3
         parts_by_name_binary = {part["name"]: part for part in response_data_binary["accepted_parts"]}
@@ -632,7 +836,202 @@ class TestLLMAnalytics:
 
         logger.info("All three content type events verified successfully")
 
-        # TODO: Verify blob properties have S3 URLs once S3 upload is implemented
+        # Verify blob properties have S3 URLs
+        # Event 1: $ai_input should be an S3 URL
+        ai_input_url = event_json["properties"].get("$ai_input")
+        assert ai_input_url is not None, "Event 1 should have $ai_input property"
+        assert ai_input_url.startswith("s3://"), f"$ai_input should be an S3 URL, got: {ai_input_url}"
+        assert "?range=" in ai_input_url, f"$ai_input URL should have range parameter, got: {ai_input_url}"
+        logger.info(f"Event 1 $ai_input S3 URL verified: {ai_input_url}")
+
+        # Event 2: $ai_output should be an S3 URL
+        ai_output_url = event_text["properties"].get("$ai_output")
+        assert ai_output_url is not None, "Event 2 should have $ai_output property"
+        assert ai_output_url.startswith("s3://"), f"$ai_output should be an S3 URL, got: {ai_output_url}"
+        assert "?range=" in ai_output_url, f"$ai_output URL should have range parameter, got: {ai_output_url}"
+        logger.info(f"Event 2 $ai_output S3 URL verified: {ai_output_url}")
+
+        # Event 3: $ai_embedding_vector should be an S3 URL
+        ai_embedding_url = event_binary["properties"].get("$ai_embedding_vector")
+        assert ai_embedding_url is not None, "Event 3 should have $ai_embedding_vector property"
+        assert ai_embedding_url.startswith("s3://"), (
+            f"$ai_embedding_vector should be an S3 URL, got: {ai_embedding_url}"
+        )
+        assert "?range=" in ai_embedding_url, (
+            f"$ai_embedding_vector URL should have range parameter, got: {ai_embedding_url}"
+        )
+        logger.info(f"Event 3 $ai_embedding_vector S3 URL verified: {ai_embedding_url}")
+
+    def test_ai_blob_data_stored_correctly_in_s3(self, shared_org_project):
+        """Test that blob data is correctly stored in S3 as multipart/mixed format.
+
+        Verifies:
+        1. Each property's byte range can be fetched and parsed as a standalone multipart document
+        2. The full S3 object can be parsed as a multipart document containing all parts
+        3. Headers (Content-Type, Content-Disposition) are preserved correctly
+        4. Body content matches the original data
+        """
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        api_key = shared_org_project["api_key"]
+
+        logger.info("Sending event with multiple blobs to verify S3 multipart storage")
+
+        distinct_id = f"s3_storage_test_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
+
+        # Create distinct blob data that we can verify
+        json_blob_data = {"test_key": "test_value", "number": 42, "nested": {"a": 1}}
+        text_blob_data = "This is test text blob data for S3 verification.\nLine 2."
+        binary_blob_data = bytes([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03])
+
+        event_data = {
+            "uuid": event_uuid,
+            "event": "$ai_generation",
+            "distinct_id": distinct_id,
+        }
+
+        properties_data = {
+            "$ai_model": "test-s3-storage",
+        }
+
+        fields = {
+            "event": ("event", json.dumps(event_data), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data), "application/json"),
+            "event.properties.$ai_input": ("json_blob", json.dumps(json_blob_data), "application/json"),
+            "event.properties.$ai_output": ("text_blob", text_blob_data, "text/plain"),
+            "event.properties.$ai_embedding_vector": ("binary_blob", binary_blob_data, "application/octet-stream"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        response = requests.post(
+            f"{client.base_url}/i/v0/ai",
+            data=multipart_data,
+            headers={"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {api_key}"},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Wait for event to be stored
+        event = client.wait_for_event(project_id, "$ai_generation", distinct_id)
+        assert event is not None, "Event not found"
+
+        # Get and verify the S3 URLs from properties
+        ai_input_url = event["properties"].get("$ai_input")
+        ai_output_url = event["properties"].get("$ai_output")
+        ai_embedding_url = event["properties"].get("$ai_embedding_vector")
+
+        # Verify URLs exist and have correct format
+        assert ai_input_url is not None, "$ai_input property not found"
+        assert ai_output_url is not None, "$ai_output property not found"
+        assert ai_embedding_url is not None, "$ai_embedding_vector property not found"
+
+        assert ai_input_url.startswith("s3://"), f"$ai_input should be S3 URL, got: {ai_input_url}"
+        assert ai_output_url.startswith("s3://"), f"$ai_output should be S3 URL, got: {ai_output_url}"
+        assert ai_embedding_url.startswith("s3://"), f"$ai_embedding_vector should be S3 URL, got: {ai_embedding_url}"
+
+        assert "?range=" in ai_input_url, f"$ai_input should have range param, got: {ai_input_url}"
+        assert "?range=" in ai_output_url, f"$ai_output should have range param, got: {ai_output_url}"
+        assert "?range=" in ai_embedding_url, f"$ai_embedding_vector should have range param, got: {ai_embedding_url}"
+
+        logger.info("S3 URLs verified:")
+        logger.info(f"  $ai_input: {ai_input_url}")
+        logger.info(f"  $ai_output: {ai_output_url}")
+        logger.info(f"  $ai_embedding_vector: {ai_embedding_url}")
+
+        # Verify all blobs are stored in the same S3 object (same base URL, different ranges)
+        base_url_input = ai_input_url.split("?")[0]
+        base_url_output = ai_output_url.split("?")[0]
+        base_url_embedding = ai_embedding_url.split("?")[0]
+
+        assert base_url_input == base_url_output == base_url_embedding, (
+            f"All blobs should be in same S3 object. Got:\n"
+            f"  input: {base_url_input}\n"
+            f"  output: {base_url_output}\n"
+            f"  embedding: {base_url_embedding}"
+        )
+        logger.info(f"All blobs stored in same S3 object: {base_url_input}")
+
+        # Verify ranges are sequential and non-overlapping
+        # Note: ranges exclude boundaries, so first part doesn't start at 0
+        _, _, input_start, input_end = parse_s3_url(ai_input_url)
+        _, _, output_start, output_end = parse_s3_url(ai_output_url)
+        _, _, embedding_start, embedding_end = parse_s3_url(ai_embedding_url)
+
+        assert output_start > input_end, f"Second blob should start after first ends"
+        assert embedding_start > output_end, f"Third blob should start after second ends"
+
+        logger.info(
+            f"Byte ranges verified: {input_start}-{input_end}, {output_start}-{output_end}, {embedding_start}-{embedding_end}"
+        )
+
+        # =========================================================================
+        # TEST 1: Verify S3 object metadata and full document parses as multipart
+        # =========================================================================
+        logger.info("TEST 1: Verifying S3 object metadata and full document...")
+
+        full_data, content_type = fetch_full_s3_object(ai_input_url)
+        logger.info(f"Full S3 object size: {len(full_data)} bytes")
+        logger.info(f"Content-Type header: {content_type}")
+
+        # Extract boundary from Content-Type header (format: multipart/mixed; boundary=...)
+        assert "multipart/mixed" in content_type, f"Expected multipart/mixed content type, got: {content_type}"
+        boundary_match = re.search(r"boundary=([^\s;]+)", content_type)
+        assert boundary_match, f"Could not extract boundary from Content-Type: {content_type}"
+        boundary = boundary_match.group(1)
+        logger.info(f"Boundary: {boundary}")
+
+        # Parse the full document as multipart to verify it's valid
+        all_parts = parse_multipart_data(full_data, boundary)
+        assert len(all_parts) == 3, f"Expected 3 parts in full document, got {len(all_parts)}"
+
+        # Verify all parts are present with correct content
+        assert all_parts[0]["name"] == "$ai_input"
+        assert all_parts[0]["content_type"] == "application/json"
+        assert json.loads(all_parts[0]["body"].decode("utf-8")) == json_blob_data
+
+        assert all_parts[1]["name"] == "$ai_output"
+        assert all_parts[1]["content_type"] == "text/plain"
+        assert all_parts[1]["body"].decode("utf-8") == text_blob_data
+
+        assert all_parts[2]["name"] == "$ai_embedding_vector"
+        assert all_parts[2]["content_type"] == "application/octet-stream"
+        assert all_parts[2]["body"] == binary_blob_data
+
+        logger.info("TEST 1 PASSED: Full document parses as valid multipart with all 3 parts")
+
+        # =========================================================================
+        # TEST 2: Fetch each range separately and parse as MIME part
+        # Each range contains headers + body (no boundaries), which can be parsed
+        # using the standard email/MIME parser.
+        # =========================================================================
+        logger.info("TEST 2: Fetching each range separately and parsing as MIME part...")
+
+        # Test range fetch for $ai_input
+        input_range_data = fetch_blob_from_s3(ai_input_url)
+        input_headers, input_body = parse_mime_part(input_range_data)
+        assert "$ai_input" in input_headers.get("content-disposition", "")
+        assert input_headers.get("content-type") == "application/json"
+        assert json.loads(input_body.decode("utf-8")) == json_blob_data
+        logger.info("$ai_input range fetch and parse: PASSED")
+
+        # Test range fetch for $ai_output
+        output_range_data = fetch_blob_from_s3(ai_output_url)
+        output_headers, output_body = parse_mime_part(output_range_data)
+        assert "$ai_output" in output_headers.get("content-disposition", "")
+        assert output_headers.get("content-type") == "text/plain"
+        assert output_body.decode("utf-8") == text_blob_data
+        logger.info("$ai_output range fetch and parse: PASSED")
+
+        # Test range fetch for $ai_embedding_vector
+        embedding_range_data = fetch_blob_from_s3(ai_embedding_url)
+        embedding_headers, embedding_body = parse_mime_part(embedding_range_data)
+        assert "$ai_embedding_vector" in embedding_headers.get("content-disposition", "")
+        assert embedding_headers.get("content-type") == "application/octet-stream"
+        assert embedding_body == binary_blob_data
+        logger.info("$ai_embedding_vector range fetch and parse: PASSED")
+
+        logger.info("TEST 2 PASSED: Each range can be fetched and parsed as MIME part")
+        logger.info("S3 multipart blob storage verification complete")
 
     # ============================================================================
     # PHASE 5: AUTHORIZATION

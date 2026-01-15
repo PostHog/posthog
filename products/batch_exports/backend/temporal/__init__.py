@@ -9,6 +9,10 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
     update_batch_export_backfill_model_status,
 )
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
+    AzureBlobBatchExportWorkflow,
+    insert_into_azure_blob_activity_from_stage,
+)
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     insert_into_bigquery_activity_from_stage,
@@ -39,6 +43,10 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeBatchExportWorkflow,
     insert_into_snowflake_activity_from_stage,
 )
+from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
+    WorkflowsBatchExportWorkflow,
+    insert_into_kafka_activity_from_stage,
+)
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringWorkflow,
     fetch_exported_event_counts,
@@ -59,8 +67,10 @@ WORKFLOWS = [
     S3BatchExportWorkflow,
     SnowflakeBatchExportWorkflow,
     DatabricksBatchExportWorkflow,
+    AzureBlobBatchExportWorkflow,
     HttpBatchExportWorkflow,
     BatchExportMonitoringWorkflow,
+    WorkflowsBatchExportWorkflow,
 ]
 
 ACTIVITIES = [
@@ -71,6 +81,7 @@ ACTIVITIES = [
     get_schedule_frequency,
     insert_into_bigquery_activity_from_stage,
     insert_into_http_activity,
+    insert_into_kafka_activity_from_stage,
     insert_into_postgres_activity_from_stage,
     insert_into_redshift_activity,
     insert_into_redshift_activity_from_stage,
@@ -86,4 +97,5 @@ ACTIVITIES = [
     reconcile_event_counts,
     insert_into_s3_activity_from_stage,
     insert_into_databricks_activity_from_stage,
+    insert_into_azure_blob_activity_from_stage,
 ]

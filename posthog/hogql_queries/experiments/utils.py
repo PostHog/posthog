@@ -139,6 +139,7 @@ def get_variant_result(
         - FunnelMetric: step_counts, [optional: step_sessions]
         - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
         - MeanMetric: (no additional fields)
+        - RetentionMetric: (no additional fields)
     """
     # Determine number of breakdowns from metric definition
     num_breakdowns = 0

@@ -6,6 +6,7 @@ import pytest
 
 from django.test import override_settings
 
+import pytest_asyncio
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
@@ -68,7 +69,7 @@ async def _run_activity(
 
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
     assert insert_inputs.batch_export_id is not None
-    await activity_environment.run(
+    stage_folder = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -84,7 +85,7 @@ async def _run_activity(
             destination_default_fields=postgres_default_fields(),
         ),
     )
-
+    insert_inputs.stage_folder = stage_folder
     result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_postgres(
@@ -390,7 +391,7 @@ async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_r
     assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
     """Managed a table for a persons batch export without a primary key."""
     self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"
@@ -467,7 +468,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         # First run the internal stage activity
         assert insert_inputs.batch_export_id is not None
-        await activity_environment.run(
+        stage_folder = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -483,6 +484,7 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
                 destination_default_fields=postgres_default_fields(),
             ),
         )
+        insert_inputs.stage_folder = stage_folder
         result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
 
         assert result.error is not None

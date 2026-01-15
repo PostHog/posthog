@@ -11,6 +11,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor } from '~/types'
@@ -21,39 +22,25 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
-function SceneTitlePanelButton(): JSX.Element | null {
-    const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
-        useValues(sceneLayoutLogic)
-    const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
+export function SceneTitlePanelButton({ inPanel = false }: { inPanel?: boolean }): JSX.Element | null {
+    const { scenePanelOpenManual, scenePanelIsPresent } = useValues(sceneLayoutLogic)
+    const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    if (!scenePanelIsPresent) {
+    // Show "Open" button when panel is closed, show "Close" button when panel is open
+    // Both should never render simultaneously to avoid Playwright strict mode violations
+    if (!scenePanelIsPresent || inPanel !== scenePanelOpenManual) {
         return null
     }
 
     return (
         <LemonButton
-            onClick={() =>
-                scenePanelIsRelative
-                    ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
-                    : setScenePanelOpen(!scenePanelOpen)
-            }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-            tooltip={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
+            className={cn(!inPanel && '-mr-2')}
+            onClick={() => setScenePanelOpen(!scenePanelOpenManual)}
+            icon={inPanel ? <IconX className="text-primary p-0.5" /> : <IconEllipsis className="text-primary" />}
+            tooltip={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
             data-attr="info-actions-panel"
-            aria-label={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            active={scenePanelOpen}
+            aria-label={inPanel ? 'Close Info & actions panel' : 'Open Info & actions panel'}
+            active={inPanel ? true : scenePanelOpenManual}
             size="small"
         />
     )
@@ -109,6 +96,10 @@ type SceneMainTitleProps = {
      */
     saveOnBlur?: boolean
     /**
+     * If true, removes the border from the title section
+     * */
+    noBorder?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -118,6 +109,11 @@ type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+
+    /**
+     * Additional class name for the title section
+     */
+    className?: string
 }
 
 export function SceneTitleSection({
@@ -132,10 +128,13 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
+    noBorder = false,
     actions,
     forceBackTo,
+    className,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { zenMode } = useValues(navigation3000Logic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
 
@@ -165,18 +164,25 @@ export function SceneTitleSection({
     ) : (
         iconForType(resourceType.type ? (resourceType.type as FileSystemIconType) : undefined)
     )
+
+    if (zenMode) {
+        return null
+    }
+
     return (
         <>
             {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
             {effectiveDescription != null && (
                 // When this element touches top of the scene, we set the sticky bar to be sticky
-                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute top-[-55px]" aria-hidden />
+                <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
+                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 -mx-4 px-4 -mt-4 duration-300',
+                    noBorder ? '' : 'border-b border-transparent transition-border',
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    className
                 )}
             >
                 <div
@@ -222,7 +228,7 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {effectiveDescription == null && <SceneDivider />}
+                {effectiveDescription == null && !noBorder && <SceneDivider />}
             </div>
             {effectiveDescription != null && (effectiveDescription || canEdit) && (
                 <div className="[&_svg]:size-6">
@@ -236,7 +242,7 @@ export function SceneTitleSection({
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                     />
-                    <SceneDivider />
+                    {!noBorder && <SceneDivider />}
                 </div>
             )}
         </>

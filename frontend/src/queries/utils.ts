@@ -14,6 +14,9 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -23,6 +26,7 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupNode,
     GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
@@ -39,6 +43,7 @@ import {
     MathType,
     Node,
     NodeKind,
+    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
@@ -96,6 +101,10 @@ export function isNodeWithSource(node?: Record<string, any> | null): node is Dat
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
+}
+
+export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
+    return node?.kind === NodeKind.GroupNode
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
@@ -194,6 +203,24 @@ export function isRevenueAnalyticsTopCustomersQuery(
     return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
+export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {
+    return node?.kind === NodeKind.EndpointsUsageOverviewQuery
+}
+
+export function isEndpointsUsageTableQuery(node?: Record<string, any> | null): node is EndpointsUsageTableQuery {
+    return node?.kind === NodeKind.EndpointsUsageTableQuery
+}
+
+export function isEndpointsUsageTrendsQuery(node?: Record<string, any> | null): node is EndpointsUsageTrendsQuery {
+    return node?.kind === NodeKind.EndpointsUsageTrendsQuery
+}
+
+export function isEndpointsUsageQuery(
+    node?: Record<string, any> | null
+): node is EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery {
+    return isEndpointsUsageOverviewQuery(node) || isEndpointsUsageTableQuery(node) || isEndpointsUsageTrendsQuery(node)
+}
+
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
     return node?.kind === NodeKind.WebOverviewQuery
 }
@@ -230,6 +257,12 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
+}
+
+export function isNonIntegratedConversionsTableQuery(
+    node?: Record<string, any> | null
+): node is NonIntegratedConversionsTableQuery {
+    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -440,7 +473,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }
@@ -549,6 +584,8 @@ export const getGoalLines = (query: InsightQueryNode): GoalLine[] | undefined =>
         return query.trendsFilter?.goalLines
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.goalLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.goalLines
     }
 
     return undefined
@@ -698,6 +735,27 @@ function isHogQLRaw(value: any): value is HogQLRaw {
     return !!value?.__hogql_raw
 }
 
+const ESCAPE_CHARS_MAP: Record<string, string> = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\r': '\\r',
+    '\n': '\\n',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\x07': '\\a',
+    '\v': '\\v',
+    '\\': '\\\\',
+    "'": "\\'",
+}
+
+export function escapeHogQLString(value: string): string {
+    let escaped = ''
+    for (const char of value) {
+        escaped += ESCAPE_CHARS_MAP[char] ?? char
+    }
+    return `'${escaped}'`
+}
+
 function formatHogQLValue(value: any): string {
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQLValue).join(', ')}]`
@@ -709,7 +767,7 @@ function formatHogQLValue(value: any): string {
     } else if (isHogQLRaw(value)) {
         return value.raw
     } else if (typeof value === 'string') {
-        return `'${value}'`
+        return escapeHogQLString(value)
     } else if (typeof value === 'number') {
         return String(value)
     } else if (value === null) {

@@ -32,6 +32,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -74,6 +75,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
+                productTourId: values.productTourId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
             }
@@ -143,4 +145,59 @@ export async function toolbarFetch(
         toolbarConfigLogic.actions.tokenExpired()
     }
     return response
+}
+
+export interface ToolbarMediaUploadResponse {
+    id: string
+    image_location: string
+    name: string
+}
+
+/**
+ * Upload media (images) from the toolbar using temporary token authentication.
+ * This is a separate function from toolbarFetch because it needs to handle FormData
+ * instead of JSON payloads.
+ */
+export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
+    const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
+    const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
+
+    if (!temporaryToken || !apiURL) {
+        throw new Error('Toolbar not authenticated')
+    }
+
+    const formData = new FormData()
+    formData.append('image', file)
+
+    const url = `${apiURL}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
+
+    const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+    })
+
+    if (response.status === 401) {
+        toolbarConfigLogic.actions.tokenExpired()
+        throw new Error('Authentication expired')
+    }
+
+    if (response.status === 403) {
+        const responseData = await response.json()
+        if (responseData.detail === "You don't have access to the project.") {
+            toolbarConfigLogic.actions.authenticate()
+        }
+        throw new Error(responseData.detail || 'Access denied')
+    }
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Upload failed: ${response.status}`)
+    }
+
+    const data: ToolbarMediaUploadResponse = await response.json()
+    return {
+        id: data.id,
+        url: data.image_location,
+        fileName: data.name,
+    }
 }

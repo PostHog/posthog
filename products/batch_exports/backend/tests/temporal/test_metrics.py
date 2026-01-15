@@ -8,6 +8,7 @@ from unittest import mock
 from django.conf import settings
 
 import psycopg
+import pytest_asyncio
 import temporalio.client
 from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
@@ -38,7 +39,7 @@ def postgres_config():
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -54,7 +55,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "Postgres",
@@ -138,9 +139,9 @@ async def test_interceptor_calls_histogram_metrics(
         )
 
         number_of_record_calls = mocked_meter.return_value.create_histogram_timedelta.return_value.record.call_count
-        assert (
-            number_of_record_calls == 3
-        ), f"expected to have recorded three metrics: one for workflow and two for activity execution latency (insert_into_internal_stage_activity and insert_into_postgres_activity_from_stage), but found {number_of_record_calls}"
+        assert number_of_record_calls == 3, (
+            f"expected to have recorded three metrics: one for workflow and two for activity execution latency (insert_into_internal_stage_activity and insert_into_postgres_activity_from_stage), but found {number_of_record_calls}"
+        )
 
         number_of_add_calls = mocked_meter.return_value.create_counter.return_value.add.call_count
         expected_calls = [mock.call(1)] * number_of_add_calls

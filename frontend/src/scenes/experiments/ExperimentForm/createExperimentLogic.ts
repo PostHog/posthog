@@ -1,8 +1,7 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -91,6 +90,54 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
     return filtered as Partial<Experiment>
 }
 
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+const draftStorageKey = (tabId: string): string => `experiment-draft-${tabId}`
+
+type ExperimentDraft = {
+    experiment: Experiment
+    timestamp: number
+}
+
+const readDraftFromStorage = (tabId?: string): Experiment | null => {
+    if (!tabId || typeof sessionStorage === 'undefined') {
+        return null
+    }
+    const raw = sessionStorage.getItem(draftStorageKey(tabId))
+    if (!raw) {
+        return null
+    }
+    try {
+        const parsed = JSON.parse(raw) as ExperimentDraft | Experiment
+        if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
+            const { experiment, timestamp } = parsed as ExperimentDraft
+            if (Date.now() - timestamp > DRAFT_TTL_MS) {
+                sessionStorage.removeItem(draftStorageKey(tabId))
+                return null
+            }
+            return experiment
+        }
+        return parsed as Experiment
+    } catch {
+        return null
+    }
+}
+
+const writeDraftToStorage = (tabId: string | undefined, experiment: Experiment): void => {
+    if (!tabId || typeof sessionStorage === 'undefined') {
+        return
+    }
+    const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
+    sessionStorage.setItem(draftStorageKey(tabId), JSON.stringify(draft))
+}
+
+const clearDraftStorage = (tabId?: string): void => {
+    if (!tabId || typeof sessionStorage === 'undefined') {
+        return
+    }
+    sessionStorage.removeItem(draftStorageKey(tabId))
+}
+
 export interface CreateExperimentLogicProps {
     experiment?: Experiment
     tabId?: string
@@ -131,6 +178,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
         resetExperiment: true,
+        clearDraft: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
@@ -253,11 +301,34 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
+    events(({ actions, values, props }) => ({
+        afterMount: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            const draft = readDraftFromStorage(props.tabId)
+            if (draft) {
+                actions.setExperiment(draft)
+            }
+        },
+        beforeUnmount: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            writeDraftToStorage(props.tabId, values.experiment)
+        },
+    })),
     listeners(({ values, actions, props }) => ({
+        clearDraft: () => {
+            if (props.experiment || values.experiment.id !== 'new') {
+                return
+            }
+            clearDraftStorage(props.tabId)
+        },
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
-            // Only auto-generate flag key in create mode, not when editing
-            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode) {
+            // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
+            if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
                 const key = generateFeatureFlagKey(value)
                 actions.setFeatureFlagConfig({
                     feature_flag_key: key,
@@ -321,12 +392,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 const isEditMode = values.isEditMode
 
                 // Make experiment eligible for timeseries
-                const statsConfig = {
-                    ...values.experiment?.stats_config,
+                const schedulingConfig = {
+                    ...values.experiment?.scheduling_config,
                     timeseries: true,
-                    ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
-                        use_new_query_builder: true,
-                    }),
                 }
 
                 const savedMetrics = [
@@ -346,7 +414,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const experimentPayload: Experiment = {
                     ...values.experiment,
-                    stats_config: statsConfig,
+                    scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
                 }
 
@@ -357,7 +425,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     const filteredPayload = {
                         ...filterExperimentForUpdate(experimentPayload),
                         // Ensure these are always included for update
-                        stats_config: statsConfig,
+                        scheduling_config: schedulingConfig,
                         saved_metrics_ids: savedMetrics,
                     }
                     response = (await api.update(
@@ -397,6 +465,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     actions.saveExperimentSuccess()
+                    clearDraftStorage(props.tabId)
 
                     if (props.tabId) {
                         const sceneLogicInstance = experimentSceneLogic({ tabId: props.tabId })

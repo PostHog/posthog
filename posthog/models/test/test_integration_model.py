@@ -108,6 +108,8 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
+        "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
     }
 
     def create_integration(
@@ -249,6 +251,54 @@ class TestOauthIntegrationModel(BaseTest):
                 "access_token": "FAKES_ACCESS_TOKEN",
                 "refresh_token": "FAKE_REFRESH_TOKEN",
                 "id_token": None,
+            }
+
+    @patch("posthog.models.integration.requests.post")
+    def test_linkedin_integration_extracts_user_info_from_id_token(self, mock_post):
+        """
+        LinkedIn's /v2/userinfo endpoint has intermittent REVOKED_ACCESS_TOKEN errors,
+        so we extract user info from the id_token JWT instead.
+        """
+        import json
+        import base64
+
+        # Create a mock JWT id_token with sub and email in the payload
+        jwt_payload = {"sub": "linkedin_user_123", "email": "user@example.com", "iat": 1704110400}
+        encoded_payload = base64.urlsafe_b64encode(json.dumps(jwt_payload).encode()).decode().rstrip("=")
+        mock_id_token = f"eyJhbGciOiJSUzI1NiJ9.{encoded_payload}.fake_signature"
+
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
+                "expires_in": 3600,
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "linkedin-ads",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            assert integration.team == self.team
+            assert integration.created_by == self.user
+            # Verify sub and email were extracted from JWT
+            assert integration.config["sub"] == "linkedin_user_123"
+            assert integration.config["email"] == "user@example.com"
+            assert integration.config["refreshed_at"] == 1704110400
+            assert integration.config["expires_in"] == 3600
+
+            assert integration.sensitive_config == {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "id_token": mock_id_token,
             }
 
     def test_integration_access_token_expired(self):
@@ -762,3 +812,63 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
+
+
+class TestGitLabIntegrationSSRFProtection:
+    """Test SSRF protections in GitLabIntegration."""
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_get_uses_allow_redirects_false(self, mock_is_url_allowed, mock_get):
+        """GET requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
+        from posthog.models.integration import GitLabIntegration
+
+        mock_is_url_allowed.return_value = (True, None)
+        mock_get.return_value.json.return_value = {"data": "test"}
+
+        GitLabIntegration.get("https://gitlab.com", "projects/1", "token123")
+
+        mock_get.assert_called_once()
+        call_kwargs = mock_get.call_args.kwargs
+        assert call_kwargs.get("allow_redirects") is False, "GET must use allow_redirects=False for SSRF protection"
+
+    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_post_uses_allow_redirects_false(self, mock_is_url_allowed, mock_post):
+        """POST requests must use allow_redirects=False to prevent redirect-based SSRF bypass."""
+        from posthog.models.integration import GitLabIntegration
+
+        mock_is_url_allowed.return_value = (True, None)
+        mock_post.return_value.json.return_value = {"data": "test"}
+
+        GitLabIntegration.post("https://gitlab.com", "projects/1/issues", "token123", {"title": "test"})
+
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs.get("allow_redirects") is False, "POST must use allow_redirects=False for SSRF protection"
+
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_get_validates_url_before_request(self, mock_is_url_allowed, mock_get):
+        """URL validation must happen before the request is made."""
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+
+        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
+            GitLabIntegration.get("http://192.168.1.1", "projects/1", "token123")
+
+        mock_get.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.is_url_allowed")
+    def test_post_validates_url_before_request(self, mock_is_url_allowed, mock_post):
+        """URL validation must happen before the request is made."""
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+
+        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
+            GitLabIntegration.post("http://192.168.1.1", "projects/1/issues", "token123", {"title": "test"})
+
+        mock_post.assert_not_called()

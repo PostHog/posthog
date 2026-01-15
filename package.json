@@ -19,6 +19,7 @@
     "scripts": {
         "prepare": "husky install",
         "schema:build": "bin/hogli build:schema",
+        "openapi:build": "bin/hogli build:openapi",
         "schema:build:python": "bash bin/build-schema-python.sh",
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
@@ -46,19 +47,13 @@
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "oxlint --quiet",
-        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\"",
-        "nuke": "say -v 'Samantha' 'Nuclear launch detected' && pnpm nuke:docker && pnpm nuke:js && pnpm nuke:python && pnpm nuke:rust",
-        "nuke:docker": "docker-compose -f docker-compose.dev.yml down -v",
-        "nuke:js": "rm -rf **/node_modules",
-        "nuke:python": "uv pip freeze -q | cut -d'=' -f1 | cut -d'@' -f1 | xargs uv pip uninstall",
-        "nuke:rust": "cd rust && cargo clean && find . -name 'index.node' -type f -delete"
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\""
     },
     "dependencies": {
         "concurrently": "^5.3.0",
         "fuse.js": "^6.6.2",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2",
         "uuid": "^10.0.0"
     },
     "devDependencies": {
@@ -67,13 +62,15 @@
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/uuid": "^10.0.0",
         "markdownlint-cli2": "^0.18.1",
+        "orval": "8.0.0-rc.5",
         "oxlint": "^1.8.0",
         "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
         "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
         "stylelint-order": "^6.0.4",
-        "syncpack": "^13.0.4"
+        "syncpack": "^13.0.4",
+        "turbo": "^2.4.2"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.3"
@@ -83,7 +80,11 @@
             "playwright": "1.45.0",
             "typescript": "5.2.2",
             "@posthog/icons": "0.35.2",
-            "node-forge": "1.3.2"
+            "node-forge": "1.3.2",
+            "pbkdf2": ">=3.1.3",
+            "cipher-base": ">=1.0.5",
+            "sha.js": ">=2.4.12",
+            "form-data": ">=4.0.4"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
@@ -116,7 +117,7 @@
         "*.{json,yaml,yml}": "bin/hogli format:yaml",
         "*.{css,scss}": "bin/hogli format:css",
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "nodejs/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "bin/hogli lint:python:fix",

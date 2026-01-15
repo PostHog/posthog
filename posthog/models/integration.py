@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models
+from django.http import HttpRequest
 
 import jwt
 import requests
@@ -37,11 +38,32 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+
+
+def _decode_jwt_payload(token: str) -> dict | None:
+    """
+    Decode JWT payload without signature verification.
+
+    Used to extract claims from OAuth tokens (id_token, access_token) where
+    we trust the token source (received directly from provider over HTTPS).
+
+    Returns None if JWT doesn't have enough parts. Raises on decode errors
+    so callers can log exceptions with full traceback.
+    """
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    # Handle missing base64 padding
+    decoded = base64.urlsafe_b64decode(payload + "===")
+    return json.loads(decoded)
+
 
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
@@ -87,6 +109,8 @@ class Integration(models.Model):
         CLICKUP = "clickup"
         VERCEL = "vercel"
         DATABRICKS = "databricks"
+        AZURE_BLOB = "azure-blob"
+        FIREBASE = "firebase"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -308,10 +332,11 @@ class OauthIntegration:
             if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
                 raise NotImplementedError("LinkedIn Ads app not configured")
 
+            # Note: We extract user info from id_token JWT instead of calling token_info_url
+            # because LinkedIn's /v2/userinfo endpoint has intermittent issues returning
+            # REVOKED_ACCESS_TOKEN errors for valid tokens. See JWT extraction below.
             return OauthConfig(
                 authorize_url="https://www.linkedin.com/oauth/v2/authorization",
-                token_info_url="https://api.linkedin.com/v2/userinfo",
-                token_info_config_fields=["sub", "email"],
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
@@ -557,12 +582,8 @@ class OauthIntegration:
             try:
                 id_token = config.get("id_token")
                 if id_token:
-                    parts = id_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
                         bing_user_id = jwt_data.get("oid")
                         bing_username = jwt_data.get("preferred_username")
                         if bing_user_id:
@@ -579,14 +600,8 @@ class OauthIntegration:
             try:
                 access_token = config.get("access_token")
                 if access_token:
-                    # Split JWT and get payload (middle part)
-                    parts = access_token.split(".")
-                    if len(parts) >= 2:
-                        payload = parts[1]
-                        # Decode JWT payload (handle missing padding)
-                        decoded = base64.urlsafe_b64decode(payload + "===")
-                        jwt_data = json.loads(decoded)
-
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
                         # Extract user ID from JWT (lid = login ID)
                         reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
                         if reddit_user_id:
@@ -594,6 +609,25 @@ class OauthIntegration:
                             integration_id = reddit_user_id
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
+
+        # LinkedIn id_token is a JWT, extract user ID and email from it
+        # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
+        if kind == "linkedin-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    jwt_data = _decode_jwt_payload(id_token)
+                    if jwt_data:
+                        linkedin_user_id = jwt_data.get("sub")
+                        linkedin_email = jwt_data.get("email")
+                        if linkedin_user_id:
+                            config["sub"] = linkedin_user_id
+                            config["email"] = linkedin_email
+                            integration_id = linkedin_user_id
+                else:
+                    logger.error("LinkedIn Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode LinkedIn JWT")
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
@@ -830,7 +864,7 @@ class SlackIntegration:
         return channels
 
     @classmethod
-    def validate_request(cls, request: Request):
+    def validate_request(cls, request: HttpRequest | Request):
         """
         Based on https://api.slack.com/authentication/verifying-requests-from-slack
         """
@@ -1073,6 +1107,91 @@ class GoogleCloudIntegration:
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+
+class FirebaseIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "firebase":
+            raise Exception("FirebaseIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+
+        try:
+            credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        project_id = key_info.get("project_id")
+        if not project_id:
+            raise ValidationError("Service account key must contain a project_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="firebase",
+            integration_id=project_id,
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
+                    "access_token": credentials.token,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config.get("project_id", "")
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+        key_info = self.integration.sensitive_config.get("key_info", {})
+
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+
+        try:
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
+        self.integration.config["refreshed_at"] = int(time.time())
+        self.integration.sensitive_config["access_token"] = credentials.token
+        self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+
+        logger.info(f"Refreshed access token for FirebaseIntegration {self.integration.id}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        return self.integration.sensitive_config.get("access_token", "")
 
 
 class LinkedInAdsIntegration:
@@ -1774,24 +1893,42 @@ class GitHubIntegration:
             }
 
 
+class GitLabIntegrationError(Exception):
+    pass
+
+
 class GitLabIntegration:
     integration: Integration
 
     @staticmethod
     def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.get(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
 
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.post(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             json=json,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
@@ -2045,3 +2182,75 @@ class DatabricksIntegration:
             raise DatabricksIntegrationError(
                 f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
+
+
+class AzureBlobIntegrationError(Exception):
+    pass
+
+
+class AzureBlobIntegration:
+    """Wraps Integration model to provide encrypted credential storage for Azure Blob Storage.
+
+    Attributes:
+        integration: The underlying Integration model instance.
+        connection_string: The decrypted Azure Storage connection string.
+    """
+
+    integration: Integration
+    connection_string: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AZURE_BLOB.value:
+            raise AzureBlobIntegrationError(
+                f"Integration provided is not an Azure Blob integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+
+        try:
+            self.connection_string = self.integration.sensitive_config["connection_string"]
+        except KeyError:
+            raise AzureBlobIntegrationError("Azure Blob integration is missing required field: 'connection_string'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        connection_string: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        account_name = cls._extract_account_name(connection_string)
+        if not account_name:
+            raise AzureBlobIntegrationError(
+                "Could not extract AccountName from connection string. "
+                "Ensure it contains 'AccountName=<your-account-name>;'"
+            )
+
+        config: dict[str, str] = {}
+        sensitive_config = {
+            "connection_string": connection_string,
+        }
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AZURE_BLOB.value,
+            integration_id=account_name,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @staticmethod
+    def _extract_account_name(connection_string: str) -> str | None:
+        for part in connection_string.split(";"):
+            part = part.strip()
+            if part.startswith("AccountName="):
+                return part.split("=", 1)[1]
+        return None

@@ -1,7 +1,7 @@
 import re
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, cast
+from typing import cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -14,6 +14,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -115,15 +116,25 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.extend(
                             property_to_expr(property, self.team) for property in self.query.fixedProperties
                         )
-                if self.query.event:
+                all_events: list[str] = [e for e in [self.query.event, *(self.query.events or [])] if e is not None]
+                if all_events:
                     with self.timings.measure("event"):
-                        where_exprs.append(
-                            parse_expr(
-                                "event = {event}",
-                                {"event": ast.Constant(value=self.query.event)},
-                                timings=self.timings,
+                        if len(all_events) == 1:
+                            where_exprs.append(
+                                parse_expr(
+                                    "event = {event}",
+                                    {"event": ast.Constant(value=all_events[0])},
+                                    timings=self.timings,
+                                )
                             )
-                        )
+                        else:
+                            where_exprs.append(
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.In,
+                                    left=ast.Field(chain=["event"]),
+                                    right=ast.Tuple(exprs=[ast.Constant(value=e) for e in all_events]),
+                                )
+                            )
                 if self.query.actionId:
                     with self.timings.measure("action_id"):
                         try:
@@ -135,7 +146,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(
+                        person: Person | None = get_pk_or_uuid(
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(
@@ -304,6 +315,19 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         ).data
                     self.paginator.results[index][star_idx] = new_result
 
+        # Batch check which session IDs have recordings
+        if "*" in self.select_input_raw() and len(self.paginator.results) > 0:
+            with self.timings.measure("session_recordings_check"):
+                session_recordings_map = self.batch_check_session_recordings()
+                star_idx = self.select_input_raw().index("*")
+                for result in self.paginator.results:
+                    if isinstance(result[star_idx], dict):
+                        properties = result[star_idx].get("properties", {})
+                        if isinstance(properties, dict):
+                            session_id = properties.get("$session_id")
+                            if session_id:
+                                properties["$has_recording"] = session_id in session_recordings_map
+
         person_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):
             if col.split("--")[0].strip() == "person":
@@ -390,3 +414,84 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def select_input_raw(self) -> list[str]:
         return ["*"] if len(self.query.select) == 0 else self.query.select
+
+    def batch_check_session_recordings(self) -> set[str]:
+        """
+        Batch check which session IDs have recordings.
+        Returns a set of session IDs that have recordings.
+        """
+        # Extract all unique session IDs from events
+        session_ids = set()
+        star_idx = self.select_input_raw().index("*") if "*" in self.select_input_raw() else None
+
+        for result in self.paginator.results:
+            if star_idx is not None and isinstance(result[star_idx], dict):
+                properties = result[star_idx].get("properties", {})
+                if isinstance(properties, dict):
+                    session_id = properties.get("$session_id")
+                    if session_id and session_id != "":
+                        session_ids.add(session_id)
+
+        # If no session IDs, return empty set
+        if not session_ids:
+            return set()
+
+        # Query to check which session IDs exist in raw_session_replay_events
+        # Use the date range from the query to optimize the search
+        after = self.query.after or "-24h"
+        before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
+        date_from = relative_date_parse(after, self.team.timezone_info) if after != "all" else None
+        date_to = relative_date_parse(before, self.team.timezone_info)
+
+        where_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["team_id"]),
+                right=ast.Constant(value=self.team.pk),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["session_id"]),
+                right=ast.Constant(value=list(session_ids)),
+            ),
+        ]
+
+        # Sessions can start before events occur, so look back 1 day from date_from
+        if date_from is not None:
+            where_conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["min_first_timestamp"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Constant(value=date_from),
+                        right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+                    ),
+                )
+            )
+
+        where_conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["min_first_timestamp"]),
+                right=ast.Constant(value=date_to),
+            )
+        )
+
+        session_check_query = ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=ast.Field(chain=["session_id"]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_session_replay_events"])),
+            where=ast.And(exprs=where_conditions),
+            group_by=[ast.Field(chain=["session_id"])],
+        )
+
+        response = execute_hogql_query(
+            query=session_check_query,
+            team=self.team,
+            query_type="EventsQuerySessionRecordingsCheck",
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+
+        # Return set of session IDs that exist
+        return {row[0] for row in response.results if row}

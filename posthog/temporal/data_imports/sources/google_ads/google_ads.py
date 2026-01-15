@@ -70,7 +70,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
 
         login_customer_id: str | None = None
         if config.is_mcc_account and config.is_mcc_account.enabled:
-            login_customer_id = config.is_mcc_account.mcc_client_id
+            login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
         client = GoogleAdsClient.load_from_dict(
             {
@@ -166,20 +166,35 @@ class GoogleAdsColumn(Column):
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
     """Traverse a protobuf message type URL to find it's Python type."""
     match type_url.split("."):
-        case (
-            ["google", "ads", "googleads", "v19", "common", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "common", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "common", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "common",
+            *rest,
+        ]:
             return _traverse_attributes(ga_common, *rest)
-        case (
-            ["google", "ads", "googleads", "v19", "enums", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "enums", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "enums", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "enums",
+            *rest,
+        ]:
             return _traverse_attributes(ga_enums, *rest)
-        case (
-            ["google", "ads", "googleads", "v19", "resources", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "resources", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "resources", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "resources",
+            *rest,
+        ]:
             return _traverse_attributes(ga_resources, *rest)
         case _:
             raise ValueError(f"Type url could not be found: '{type_url}'")

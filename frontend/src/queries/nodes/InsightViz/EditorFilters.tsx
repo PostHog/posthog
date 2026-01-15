@@ -32,7 +32,6 @@ import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { userLogic } from 'scenes/userLogic'
 
-import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
 import {
     AssistantFunnelsQuery,
@@ -45,10 +44,11 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    QuerySchema,
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -75,7 +75,6 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -137,7 +136,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
                 display || ChartDisplayType.ActionsLineGraph
             )) ||
-        (isFunnels && isTrendsFunnel)
+        (isFunnels && isTrendsFunnel) ||
+        (isRetention &&
+            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
+                display || ChartDisplayType.ActionsLineGraph
+            ))
 
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
@@ -316,7 +319,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           key: 'attribution',
                           label: () => (
                               <div className="flex">
-                                  <span>Attribution type</span>
+                                  <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
@@ -433,7 +436,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
                 <div>
                     <MaxTool
-                        identifier={hasAgentModesFeatureFlag ? 'create_insight' : 'create_and_query_insight'}
+                        identifier="create_insight"
                         context={{
                             current_query: querySource,
                         }}
@@ -449,15 +452,22 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)
-                            let node: DataVisualizationNode | InsightVizNode
+                            if (!source) {
+                                return
+                            }
+
+                            let node: QuerySchema
                             if (isHogQLQuery(source)) {
                                 node = {
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
-                            } else {
+                            } else if (isInsightQueryNode(source)) {
                                 node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            } else {
+                                node = source
                             }
+
                             handleInsightSuggested(node)
                             setQuery(node)
                         }}

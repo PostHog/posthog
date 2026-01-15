@@ -678,7 +678,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : null}
+                    <QueryExecutionDetails />
                 </div>
             </div>
             <RowDetailsModal
@@ -866,7 +866,7 @@ const Content = ({
         }
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t max-w-1/2">
+                <div className="px-6 py-4 border-t">
                     <QueryVariables />
                 </div>
             </TabScroller>

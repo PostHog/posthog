@@ -4,7 +4,6 @@ import {
     Background,
     BackgroundVariant,
     Controls,
-    Edge,
     EdgeTypes,
     NodeTypes,
     ReactFlow,
@@ -19,9 +18,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
+import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
-import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
-import { HogFlowActionNode } from './types'
+import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -34,10 +33,11 @@ function HogFlowEditorContent(): JSX.Element {
         setSelectedNodeId,
         setReactFlowInstance,
         onNodesDelete,
-        onDragStart,
+        showDropzones,
         onDragOver,
         onDrop,
         setReactFlowWrapper,
+        handlePaneClick,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
@@ -52,15 +52,16 @@ function HogFlowEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full">
-            <ReactFlow<HogFlowActionNode, Edge>
+        <div ref={reactFlowWrapper} className="flex flex-col grow w-full">
+            <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
+                className="grow"
                 fitView
                 nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodesDelete={onNodesDelete}
-                onDragStart={onDragStart}
+                onDragStart={showDropzones}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
@@ -68,7 +69,7 @@ function HogFlowEditorContent(): JSX.Element {
                 edgeTypes={REACT_FLOW_EDGE_TYPES as EdgeTypes}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
-                onPaneClick={() => setSelectedNodeId(null)}
+                onPaneClick={handlePaneClick}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
 

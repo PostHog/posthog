@@ -2,7 +2,7 @@ import React from 'react'
 
 import { IconAI, IconWarning } from '@posthog/icons'
 
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -43,10 +43,11 @@ export function eventRowActionsContent(event: EventType): JSX.Element {
             {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
             <ViewRecordingButton
                 fullWidth
-                inModal
+                openPlayerIn={RecordingPlayerType.NewTab}
                 sessionId={event.properties.$session_id}
                 recordingStatus={event.properties.$recording_status}
                 timestamp={event.timestamp}
+                hasRecording={event.properties.$has_recording as boolean | undefined}
                 data-attr="events-table-view-recordings"
             />
             {event.event === '$exception' && '$exception_issue_id' in event.properties ? (

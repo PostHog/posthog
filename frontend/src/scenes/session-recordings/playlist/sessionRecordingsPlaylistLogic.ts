@@ -53,7 +53,7 @@ import {
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
@@ -319,6 +319,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
         limit: universalFilters.limit,
+        session_ids: universalFilters.session_ids,
     }
 }
 
@@ -444,7 +445,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
             ['setHideViewedRecordings'],
-            playlistLogic,
+            playlistFiltersLogic,
             ['setIsFiltersExpanded'],
         ],
         values: [
@@ -1031,7 +1032,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
                 },
-                {},
                 {
                     button: {
                         label: 'View collection',
@@ -1078,7 +1078,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     try {
                         actions.setDeleteConfirmationText('')
                         actions.setIsDeleteSelectedRecordingsDialogOpen(false)
-                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        await api.recordings.bulkDeleteRecordings(
+                            values.selectedRecordingsIds,
+                            values.filters.date_from
+                        )
                         actions.setSelectedRecordingsIds([])
 
                         // If it was a collection then we need to reload it, otherwise we need to reload the recordings

@@ -2113,3 +2113,182 @@ def test_combine_patterns_assignments_deduplicates_events_per_session_per_patter
     # Pattern 2: should have event-4 (first from session-B), event-8 (first from session-C)
     # event-7 is skipped because session-B already contributed event-4
     assert set(result[2]) == {"event-4", "event-8"}
+
+
+class TestSessionBatchFetchExpectedSkips:
+    """Tests for expected skip handling in fetch_session_batch_events_activity."""
+
+    @pytest.mark.asyncio
+    async def test_short_sessions_are_expected_skips(self, ateam: Team, auser: User):
+        """Sessions shorter than MIN_SESSION_DURATION_FOR_SUMMARY_MS should be expected skips."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        # Only short sessions - we're testing that duration check works
+        session_ids = ["short-session-1", "short-session-2"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        # Short sessions: 3s and 5s (both < 10s minimum)
+        mock_metadata = {
+            "short-session-1": {"start_time": now, "end_time": now + timedelta(seconds=3)},
+            "short-session-2": {"start_time": now, "end_time": now + timedelta(seconds=5)},
+        }
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # Short sessions should be in expected_skip_session_ids
+            assert "short-session-1" in result.expected_skip_session_ids
+            assert "short-session-2" in result.expected_skip_session_ids
+            # No sessions should be fetched
+            assert len(result.fetched_session_ids) == 0
+
+    @pytest.mark.asyncio
+    async def test_sessions_without_metadata_are_expected_skips(self, ateam: Team, auser: User):
+        """Sessions without metadata should be expected skips."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        session_ids = ["no-metadata-session", "has-metadata-session"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        # Only one session has metadata
+        mock_metadata = {
+            "has-metadata-session": {"start_time": now, "end_time": now + timedelta(seconds=30)},
+            # no-metadata-session is missing
+        }
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # Session without metadata should be in expected_skip_session_ids
+            assert "no-metadata-session" in result.expected_skip_session_ids
+
+    @pytest.mark.asyncio
+    async def test_only_short_sessions_are_skipped_early(self, ateam: Team, auser: User):
+        """Only short sessions should be skipped during early filtering; longer ones proceed."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        short_sessions = [f"short-{i}" for i in range(5)]
+        normal_sessions = [f"normal-{i}" for i in range(4)]
+        session_ids = short_sessions + normal_sessions
+
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        mock_metadata = {}
+        # Short sessions: all < 10s
+        for s in short_sessions:
+            mock_metadata[s] = {"start_time": now, "end_time": now + timedelta(seconds=3)}
+        # Normal sessions: all > 10s
+        for s in normal_sessions:
+            mock_metadata[s] = {"start_time": now, "end_time": now + timedelta(seconds=30)}
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            # All 5 short sessions should be expected skips
+            for s in short_sessions:
+                assert s in result.expected_skip_session_ids
+            # Normal sessions will also be skipped (no events) but that's expected in this test
+            # The key point is short sessions are identified early
+            assert len([s for s in result.expected_skip_session_ids if s.startswith("short-")]) == 5
+
+    @pytest.mark.asyncio
+    async def test_all_sessions_can_be_expected_skips_without_error(self, ateam: Team, auser: User):
+        """If all sessions are expected skips, the activity should complete without error."""
+        from posthog.temporal.ai.session_summary.types.group import SessionBatchFetchOutput
+
+        # All sessions are too short
+        session_ids = ["short-1", "short-2", "short-3"]
+        inputs = SessionGroupSummaryInputs(
+            session_ids=session_ids,
+            user_id=auser.id,
+            team_id=ateam.id,
+            redis_key_base="test_key_base",
+            min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
+            max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
+            model_to_use="gpt-4.1",
+            summary_title="Test summary",
+        )
+
+        now = datetime.now()
+        mock_metadata = {s: {"start_time": now, "end_time": now + timedelta(seconds=3)} for s in session_ids}
+
+        with (
+            patch.object(
+                SingleSessionSummary.objects, "summaries_exist", return_value=dict.fromkeys(session_ids, False)
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=ateam),
+            patch(
+                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+                return_value=mock_metadata,
+            ),
+            patch("posthog.temporal.ai.session_summary.summarize_session_group.get_async_client"),
+        ):
+            # Should NOT raise an error
+            result = await fetch_session_batch_events_activity(inputs)
+
+            assert isinstance(result, SessionBatchFetchOutput)
+            assert len(result.fetched_session_ids) == 0
+            assert len(result.expected_skip_session_ids) == 3

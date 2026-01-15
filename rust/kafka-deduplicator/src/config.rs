@@ -2,10 +2,14 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
@@ -73,6 +77,10 @@ pub struct Config {
     // 2 minutes default - interval for checking and cleaning up old data when capacity is exceeded
     pub cleanup_interval_secs: u64,
 
+    #[envconfig(default = "900")]
+    // 15 minutes default - minimum staleness (no recent WAL activity) before orphan directories can be deleted
+    pub orphan_cleanup_min_staleness_secs: u64,
+
     // Consumer processing configuration
     #[envconfig(default = "100")]
     pub max_in_flight_messages: usize,
@@ -95,11 +103,31 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
-    #[envconfig(default = "1000")] // 1000 messages
+    #[envconfig(default = "5000")] // 5000 messages (increased from 1000 for higher throughput)
     pub kafka_consumer_batch_size: usize,
 
-    #[envconfig(default = "500")] // 1/2 second
+    #[envconfig(default = "200")] // 200ms (reduced from 500ms for lower latency)
     pub kafka_consumer_batch_timeout_ms: u64,
+
+    // Kafka consumer fetch settings for throughput optimization
+    #[envconfig(default = "1048576")] // 1MB minimum fetch size
+    pub kafka_consumer_fetch_min_bytes: u32,
+
+    #[envconfig(default = "52428800")] // 50MB maximum fetch size
+    pub kafka_consumer_fetch_max_bytes: u32,
+
+    #[envconfig(default = "100")] // 100ms wait when min bytes not reached
+    pub kafka_consumer_fetch_wait_max_ms: u32,
+
+    #[envconfig(default = "100000")] // 100K messages to queue for prefetching
+    pub kafka_consumer_queued_min_messages: u32,
+
+    #[envconfig(default = "102400")] // 100MB max bytes to prefetch (value is in KB)
+    pub kafka_consumer_queued_max_messages_kbytes: u32,
+
+    // Partition worker channel buffer size for pipeline parallelism
+    #[envconfig(default = "10")]
+    pub partition_worker_channel_buffer_size: usize,
 
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,
@@ -111,17 +139,44 @@ pub struct Config {
     #[envconfig(from = "BIND_PORT", default = "8000")]
     pub port: u16,
 
+    //// Checkpoint configuration ////
+
+    // Checkpoint S3 remote storage bucket. If set, this also
+    // enables local successful checkpoints to be exported to S3
+    pub s3_bucket: Option<String>,
+
+    // Checkpoint S3 remote storage key prefix
+    #[envconfig(default = "deduplication-checkpoints")]
+    pub s3_key_prefix: String,
+
+    pub aws_region: Option<String>,
+
+    #[envconfig(default = "120")] // 2 minutes
+    pub s3_operation_timeout_secs: u64,
+
+    #[envconfig(default = "20")] // 20 seconds
+    pub s3_attempt_timeout_secs: u64,
+
+    /// S3 endpoint URL (for non-AWS S3-compatible stores like MinIO)
+    pub s3_endpoint: Option<String>,
+
+    /// S3 access key (for local dev without IAM role)
+    pub s3_access_key_id: Option<String>,
+
+    /// S3 secret key (for local dev without IAM role)
+    pub s3_secret_access_key: Option<String>,
+
+    /// Force path-style S3 URLs (required for MinIO)
+    #[envconfig(default = "false")]
+    pub s3_force_path_style: bool,
+
     // Checkpoint configuration - integrated from checkpoint::config
     #[envconfig(default = "1800")] // 30 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "900")] // 15 minutes in seconds
-    pub checkpoint_cleanup_interval_secs: u64,
-
-    #[envconfig(default = "1")] // delete local checkpoints older than this
-    pub max_checkpoint_retention_hours: u32,
-
-    #[envconfig(default = "8")] // max concurrent checkpoints to perform on single node
+    // max checkpoint attempts to perform on a single pod at once. each
+    // concurrent attempt is against a different locally assigned partition
+    #[envconfig(default = "8")]
     pub max_concurrent_checkpoints: usize,
 
     #[envconfig(default = "200")]
@@ -133,33 +188,36 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub checkpoints_per_partition: usize,
 
-    #[envconfig(default = "/tmp/checkpoints")]
+    // Base directory where local checkpoints are created.
+    // cleaned up on success or failure
+    #[envconfig(default = "/tmp/local_checkpoints")]
     pub local_checkpoint_dir: String,
-
-    pub s3_bucket: Option<String>,
-
-    #[envconfig(default = "deduplication-checkpoints")]
-    pub s3_key_prefix: String,
 
     // how often to perform a full checkpoint vs. incremental
     // if 0, then we will always do full uploads
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
+    // Whether to enable checkpoint import from remote storage
+    #[envconfig(default = "false")]
+    pub checkpoint_import_enabled: bool,
+
+    // Whether to enable export to remote storage
+    // on successful local checkpoint attempts
+    #[envconfig(default = "false")]
+    pub checkpoint_export_enabled: bool,
+
+    // Number of historical recent checkpoints to attempt to import
+    // as fallbacks when most recent download fails or files are corrupted
+    #[envconfig(default = "10")]
+    pub checkpoint_import_attempt_depth: usize,
+
     // number of hours prior to "now" that the checkpoint import mechanism
     // will search for valid checkpoint attempts in a DR recovery scenario
     #[envconfig(default = "24")]
     pub checkpoint_import_window_hours: u32,
 
-    #[envconfig(default = "us-east-1")]
-    pub aws_region: String,
-
-    #[envconfig(default = "120")] // 2 minutes
-    pub s3_operation_timeout_secs: u64,
-
-    #[envconfig(default = "20")] // 20 seconds
-    pub s3_attempt_timeout_secs: u64,
-
+    //// End checkpoint config ////
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
@@ -175,9 +233,6 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: tracing::Level,
-
-    #[envconfig(default = "false")]
-    pub enable_pprof: bool,
 }
 
 impl Config {
@@ -265,6 +320,11 @@ impl Config {
         Duration::from_secs(self.cleanup_interval_secs)
     }
 
+    /// Get orphan cleanup minimum staleness as Duration
+    pub fn orphan_cleanup_min_staleness(&self) -> Duration {
+        Duration::from_secs(self.orphan_cleanup_min_staleness_secs)
+    }
+
     /// Get producer send timeout as Duration
     pub fn producer_send_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_producer_send_timeout_ms as u64)
@@ -304,14 +364,25 @@ impl Config {
             .with_context(|| format!("Failed to parse storage capacity: '{s}'. Expected format: raw bytes, scientific notation, or units (1Gi, 1GB)"))
     }
 
+    // Check multiple conditions for safe checkpoint export enablement
+    pub fn checkpoint_export_enabled(&self) -> bool {
+        self.checkpoint_export_enabled
+            && self.s3_endpoint.is_some()
+            && self.aws_region.is_some()
+            && self.s3_bucket.is_some()
+    }
+
+    // Check mulitple conditions for safe checkpoint import enablement
+    pub fn checkpoint_import_enabled(&self) -> bool {
+        self.checkpoint_import_enabled
+            && self.s3_endpoint.is_some()
+            && self.aws_region.is_some()
+            && self.s3_bucket.is_some()
+    }
+
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
-    }
-
-    /// Get local stale checkpoint cleanup scan interval as Duration
-    pub fn checkpoint_cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.checkpoint_cleanup_interval_secs)
     }
 
     pub fn checkpoint_gate_interval(&self) -> Duration {

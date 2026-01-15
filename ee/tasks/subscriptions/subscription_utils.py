@@ -1,6 +1,7 @@
 import time
 import asyncio
 import datetime
+import threading
 from typing import Union
 
 from django.conf import settings
@@ -27,6 +28,13 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Prometheus metrics for Temporal workers (web/worker pods)
+SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
+    "subscription_asset_generation_duration_seconds",
+    "Time spent generating assets for a subscription",
+    labelnames=["execution_path"],
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
@@ -50,15 +58,6 @@ def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscrip
         "failed_insight_urls": failed_insight_urls,
         "dashboard_url": dashboard_url,
     }
-
-
-# Prometheus metrics for Celery workers (web/worker pods)
-SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
-    "subscription_asset_generation_duration_seconds",
-    "Time spent generating assets for a subscription",
-    labelnames=["execution_path"],
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
-)
 
 
 # Temporal metrics for temporal workers
@@ -112,12 +111,14 @@ def generate_assets(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -171,12 +172,14 @@ async def generate_assets_async(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -185,39 +188,51 @@ async def generate_assets_async(
         if not assets:
             return insights, assets
 
+        # Track cancellation events for each asset so we can signal them on timeout
+        cancellation_events: dict[int, threading.Event] = {}
+
         # Create async tasks for each asset export
+        # Retries and failure recording are handled inside export_asset_direct
         async def export_single_asset(asset: ExportedAsset) -> None:
+            subscription_id = getattr(resource, "id", None)
+            logger.info(
+                "generate_assets_async.exporting_asset",
+                asset_id=asset.id,
+                insight_id=asset.insight_id,
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
+            )
+
+            cancellation_event = threading.Event()
+            cancellation_events[asset.id] = cancellation_event
+
             try:
-                logger.info(
-                    "generate_assets_async.exporting_asset",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
-                    team_id=resource.team_id,
-                )
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
+                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS, cancellation_event=cancellation_event
                 )
+
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
+                # Export completed successfully, remove from cancellation tracking
+                cancellation_events.pop(asset.id, None)
             except Exception as e:
-                logger.error(
-                    "generate_assets_async.export_failed",
+                # The failure is already recorded on the asset by export_asset_direct so we just log it here.
+                logger.warning(
+                    "generate_assets_async.asset_export_failed",
                     asset_id=asset.id,
                     insight_id=asset.insight_id,
-                    subscription_id=getattr(resource, "id", None),
-                    error=str(e),
-                    exc_info=True,
+                    subscription_id=subscription_id,
                     team_id=resource.team_id,
+                    failure_type=asset.failure_type,
+                    error=str(e),
                 )
-                # Save the exception but continue with other assets
-                asset.exception = str(e)
-                await database_sync_to_async(asset.save, thread_sensitive=False)()
+                # Export failed, remove from cancellation tracking
+                cancellation_events.pop(asset.id, None)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
@@ -244,6 +259,10 @@ async def generate_assets_async(
             )
         except TimeoutError:
             get_asset_generation_timeout_metric("temporal").add(1)
+
+            # Signal all running exports to cancel so orphaned threads don't update assets
+            for event in cancellation_events.values():
+                event.set()
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)

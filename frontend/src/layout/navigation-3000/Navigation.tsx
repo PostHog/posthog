@@ -4,17 +4,22 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
+import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
-import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 import { SceneLayout } from '../scenes/SceneLayout'
+import { SceneTabs } from '../scenes/SceneTabs'
+import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
+import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
@@ -27,14 +32,19 @@ export function Navigation({
     children: ReactNode
     sceneConfig: SceneConfig | null
 }): JSX.Element {
+    const { isDev } = useValues(preflightLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect } = useValues(panelLayoutLogic)
+    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { setTabScrollDepth } = useActions(sceneLogic)
     const { activeTabId } = useValues(sceneLogic)
+    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { sidePanelWidth } = useValues(panelLayoutLogic)
+    const { firstTabIsActive } = useValues(sceneLogic)
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -45,32 +55,18 @@ export function Navigation({
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
 
-    useEffect(() => {
-        if (mainRef.current) {
-            setMainContentRef(mainRef)
-        }
-    }, [mainRef, setMainContentRef])
-
     if (mode !== 'full') {
         return (
             // eslint-disable-next-line react/forbid-dom-props
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
-                {mode === 'minimal' ? <MinimalNavigation /> : null}
-                <main>{children}</main>
+                {(mode === 'minimal' || mode === 'zen') && <MinimalNavigation />}
+                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
             </div>
         )
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div
-            className={cn(
-                'Navigation3000',
-                mobileLayout && 'Navigation3000--mobile',
-                'Navigation3000--minimal-scene-layout'
-            )}
-            style={theme?.mainStyle}
-        >
+        <>
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href="#main-content"
@@ -79,52 +75,110 @@ export function Navigation({
             >
                 Skip to content
             </a>
+            <div
+                className={cn('app-layout bg-surface-tertiary', mobileLayout && 'app-layout--mobile')}
+                style={
+                    {
+                        ...theme?.mainStyle,
+                        '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                        '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                        '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                        '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
+                            ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                            : '0px',
+                        '--scene-layout-background': sceneConfig?.canvasBackground
+                            ? 'var(--color-bg-surface-primary)'
+                            : 'var(--color-bg-primary)',
+                        '--side-panel-width': sidePanelWidth + 'px',
+                        '--left-nav-width': isLayoutNavCollapsed
+                            ? 'var(--project-navbar-width-collapsed)'
+                            : 'var(--project-navbar-width)',
+                    } as React.CSSProperties
+                }
+            >
+                <ProjectDragAndDropProvider>
+                    <PanelLayout className="left-nav" />
 
-            <PanelLayout />
+                    <div className="top-nav h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start mt-px">
+                        <SceneTabs />
+                    </div>
 
-            <FloatingContainerContext.Provider value={mainRef}>
-                <main
-                    ref={mainRef}
-                    role="main"
-                    tabIndex={0}
-                    id="main-content"
-                    className="@container/main-content bg-surface-tertiary"
-                    style={
-                        {
-                            '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                            '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                            '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                            '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                                ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                                : '0px',
-                            '--scene-layout-background': sceneConfig?.canvasBackground
-                                ? 'var(--color-bg-surface-primary)'
-                                : 'var(--color-bg-primary)',
-                        } as React.CSSProperties
-                    }
-                    onScroll={(e) => {
-                        if (activeTabId) {
-                            setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
-                        }
-                    }}
-                >
-                    <SceneLayout sceneConfig={sceneConfig}>
-                        {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
-                            <div
-                                className={cn({
-                                    'px-4': sceneConfig?.layout === 'app-raw-no-header',
-                                    'pt-4': sceneConfig?.layout === 'app-raw',
-                                })}
-                            >
-                                {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
-                                {!sceneConfig?.hideProjectNotice && <ProjectNotice className="my-0 mb-4" />}
-                            </div>
+                    <div
+                        className={cn(
+                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
+                            {
+                                'lg:rounded-tl-none': firstTabIsActive,
+                            }
                         )}
-                        {children}
-                    </SceneLayout>
-                </main>
-                <SidePanel />
-            </FloatingContainerContext.Provider>
-        </div>
+                    >
+                        <main
+                            ref={mainRef}
+                            role="main"
+                            tabIndex={0}
+                            id="main-content"
+                            className={cn(
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 h-full flex-1 transition-[width] duration-300 rounded-t',
+                                {
+                                    'p-0':
+                                        sceneConfig?.layout === 'app-raw-no-header' ||
+                                        sceneConfig?.layout === 'app-raw',
+                                    'rounded-tl-none': firstTabIsActive,
+                                }
+                            )}
+                            onScroll={(e) => {
+                                if (activeTabId) {
+                                    setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
+                                }
+                            }}
+                        >
+                            <SceneLayout sceneConfig={sceneConfig}>
+                                {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (
+                                    <div
+                                        className={cn({
+                                            'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                        })}
+                                    >
+                                        {!sceneConfig?.hideBillingNotice && <BillingAlertsV2 className="my-0 mb-4" />}
+                                        {!sceneConfig?.hideProjectNotice && !isDev && (
+                                            <ProjectNotice className="my-0 mb-4" />
+                                        )}
+                                    </div>
+                                )}
+                                {children}
+                            </SceneLayout>
+                        </main>
+
+                        {scenePanelIsPresent && (
+                            <>
+                                <div
+                                    className={cn(
+                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                                        'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
+                                        {
+                                            hidden: !scenePanelOpenManual,
+                                            'z-1': isLayoutPanelVisible,
+                                        }
+                                    )}
+                                >
+                                    <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
+                                        <SceneTitlePanelButton inPanel />
+                                    </div>
+                                    <ScrollableShadows
+                                        direction="vertical"
+                                        className="grow flex-1"
+                                        innerClassName="px-2 py-2 bg-primary"
+                                        styledScrollbars
+                                    >
+                                        <div ref={registerScenePanelElement} />
+                                    </ScrollableShadows>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <SidePanel className="right-nav" />
+                </ProjectDragAndDropProvider>
+            </div>
+        </>
     )
 }

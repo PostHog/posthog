@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -13,6 +16,7 @@ import {
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
+    isOperatorSemver,
 } from 'lib/utils'
 
 import {
@@ -107,6 +111,8 @@ export function OperatorValueSelect({
     operatorAllowlist,
     forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const semverTargetingEnabled = !!featureFlags[FEATURE_FLAGS.SEMVER_TARGETING]
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
@@ -123,6 +129,8 @@ export function OperatorValueSelect({
             startingOperator = PropertyOperator.IsDateExact
         } else if (isCohortProperty) {
             startingOperator = PropertyOperator.In
+        } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            startingOperator = PropertyOperator.IContains
         }
     }
 
@@ -154,9 +162,27 @@ export function OperatorValueSelect({
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+        let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            // Filter out semver operators if feature flag is not enabled
+            if (!semverTargetingEnabled && isOperatorSemver(op)) {
+                return false
+            }
             return !operatorAllowlist || operatorAllowlist.includes(op)
         })
+
+        // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
+        if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+            operators = operators.filter((op) =>
+                [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IsNot,
+                    PropertyOperator.IContains,
+                    PropertyOperator.NotIContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.NotRegex,
+                ].includes(op)
+            )
+        }
 
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
@@ -169,10 +195,12 @@ export function OperatorValueSelect({
                 defaultProperty = PropertyOperator.IsDateExact
             } else if (propertyType === PropertyType.Cohort) {
                 defaultProperty = PropertyOperator.In
+            } else if (propertyKey === 'message' && type === PropertyFilterType.Log) {
+                defaultProperty = PropertyOperator.IContains
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
     return (
         <>
             <div data-attr="taxonomic-operator">

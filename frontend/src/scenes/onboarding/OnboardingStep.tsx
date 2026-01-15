@@ -10,7 +10,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
-import { breadcrumbExcludeSteps, onboardingLogic, stepKeyToTitle } from './onboardingLogic'
+import { onboardingLogic, stepKeyToTitle } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -45,16 +45,11 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+    const { hasNextStep, onboardingStepKeys } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
-
-    if (!stepKey) {
-        throw new Error('stepKey is required in any OnboardingStep')
-    }
-    const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
 
     const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
 
@@ -70,6 +65,8 @@ export const OnboardingStep = ({
         advance()
     }
 
+    const onboardingLength = onboardingStepKeys.length
+
     return (
         <>
             <div className="pb-2">
@@ -78,11 +75,8 @@ export const OnboardingStep = ({
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
                     >
-                        {breadcrumbStepKeys.map((stepName, idx) => {
-                            const highlightStep = [
-                                currentOnboardingStep?.props.stepKey,
-                                breadcrumbHighlightName,
-                            ].includes(stepName)
+                        {onboardingStepKeys.map((stepName, idx) => {
+                            const highlightStep = [stepKey, breadcrumbHighlightName].includes(stepName)
                             return (
                                 <React.Fragment key={`stepKey-${idx}`}>
                                     <Link
@@ -95,7 +89,7 @@ export const OnboardingStep = ({
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>
-                                    {breadcrumbStepKeys.length > 1 && idx !== breadcrumbStepKeys.length - 1 && (
+                                    {onboardingLength > 1 && idx !== onboardingLength - 1 && (
                                         <IconChevronRight className="text-xl" />
                                     )}
                                 </React.Fragment>
@@ -104,7 +98,7 @@ export const OnboardingStep = ({
                     </div>
                     <div className="flex flex-row justify-between items-center gap-2 mt-3">
                         <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
-                            {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
+                            {title || stepKeyToTitle(stepKey)}
                         </h1>
                         {actions && <div className="flex flex-row gap-2">{actions}</div>}
                     </div>

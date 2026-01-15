@@ -23,7 +23,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
-from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -75,6 +74,8 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 
 DEFAULT_CURRENCY = CurrencyCode.USD.value
 
+ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
+
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
@@ -121,10 +122,19 @@ class TeamManager(models.Manager):
         # Get organization to apply defaults
         organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
-        # Apply organization-level IP anonymization default
-        team.anonymize_ips = organization.default_anonymize_ips
+        team.anonymize_ips = kwargs.get("anonymize_ips", organization.default_anonymize_ips)
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
+
+        # Self-hosted deployments get 5-year session recording retention by default
+        if not is_cloud():
+            team.session_recording_retention_period = kwargs.get(
+                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+            )
+
+        if team.extra_settings is None:
+            team.extra_settings = {}
+        team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -143,14 +153,16 @@ class TeamManager(models.Manager):
         team.save()
 
         # Add UserProductList for all users who have access to this new team
-        self._sync_user_product_lists_for_new_team(team)
+        # For large orgs, dispatch async to avoid request timeouts
+        from posthog.tasks.tasks import sync_user_product_lists_for_new_team
+
+        user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
+        if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
+            sync_user_product_lists_for_new_team.delay(team.id)
+        else:
+            sync_user_product_lists_for_new_team(team.id)
 
         return team
-
-    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
-        """Sync UserProductList for all users who have access to this new team."""
-        for user in team.all_users_with_access():
-            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project
@@ -376,10 +388,18 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
+    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
+
+    # Conversations
+    conversations_enabled = models.BooleanField(null=True, blank=True)
+    conversations_settings = models.JSONField(null=True, blank=True)
 
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
     surveys_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "survey", "editor")
+
+    # Product tours
+    product_tours_opt_in = models.BooleanField(null=True, blank=True)
 
     # Capture / Autocapture
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -390,6 +410,11 @@ class Team(UUIDTClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Capture logs
+    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
+    # This captures console logs to the Logs product, not as part of a recording
+    logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
@@ -662,7 +687,7 @@ class Team(UUIDTClassicModel):
             {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
-    @lru_cache(maxsize=5)
+    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
@@ -771,6 +796,39 @@ class Team(UUIDTClassicModel):
                         field="secret_api_token",
                         before=before,
                         after=after,
+                    )
+                ],
+            ),
+        )
+
+    def generate_conversations_public_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        """Generate or regenerate the conversations public token for widget authentication."""
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        settings = self.conversations_settings or {}
+        old_token = settings.get("widget_public_token")
+        new_token = generate_random_token_project()
+        settings["widget_public_token"] = new_token
+        self.conversations_settings = settings
+        self.save()
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_token is None else "changed",
+                        field="conversations_settings.widget_public_token",
+                        before=mask_key_value(old_token) if old_token else None,
+                        after=mask_key_value(new_token),
                     )
                 ],
             ),

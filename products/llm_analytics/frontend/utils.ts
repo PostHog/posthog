@@ -91,6 +91,14 @@ export function isLLMEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEven
     return 'properties' in item
 }
 
+/**
+ * Checks if the item is a trace-level object (LLMTrace) rather than an individual event.
+ * This is the inverse of isLLMEvent and provides semantic clarity when checking for traces.
+ */
+export function isTraceLevel(item: LLMTrace | LLMTraceEvent): item is LLMTrace {
+    return !isLLMEvent(item)
+}
+
 function normalizeSessionId(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -635,9 +643,29 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 
     // Input message
     if (isAnthropicRoleBasedMessage(rawMessage)) {
-        // Content is a nested array (tool responses, etc.)
+        // Check for top-level tool_calls (already normalized by SDK)
+        const topLevelToolCalls =
+            'tool_calls' in rawMessage && isOpenAICompatToolCallsArray(rawMessage.tool_calls)
+                ? parseOpenAIToolCalls(rawMessage.tool_calls)
+                : undefined
+
         if (Array.isArray(rawMessage.content)) {
-            return rawMessage.content.map((content) => normalizeMessage(content, roleToUse)).flat()
+            // If we have top-level tool_calls, skip tool_use blocks in content (they're duplicates with incomplete data)
+            const contentToProcess = topLevelToolCalls
+                ? rawMessage.content.filter((item) => !isAnthropicToolCallMessage(item))
+                : rawMessage.content
+
+            const contentMessages = contentToProcess.map((content) => normalizeMessage(content, roleToUse)).flat()
+
+            if (topLevelToolCalls && topLevelToolCalls.length > 0) {
+                contentMessages.push({
+                    role: roleToUse,
+                    content: '',
+                    tool_calls: topLevelToolCalls,
+                })
+            }
+
+            return contentMessages
         }
 
         return [
@@ -702,6 +730,10 @@ export function removeMilliseconds(timestamp: string): string {
 
 export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
@@ -842,9 +874,11 @@ export async function queryEvaluationRuns(params: {
         LIMIT 100
     `
 
-    const response = await api.queryHogQL(query, {
-        ...(forceRefresh && { refresh: 'force_blocking' }),
-    })
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'LLMAnalytics', productKey: 'llm_analytics' },
+        { ...(forceRefresh && { refresh: 'force_blocking' }) }
+    )
 
     return (response.results || []).map(mapEvaluationRunRow)
 }

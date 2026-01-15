@@ -481,12 +481,15 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     // Capture error tracking specific alert event
                     if (
                         res.template?.id === 'error-tracking-issue-created' ||
-                        res.template?.id === 'error-tracking-issue-reopened'
+                        res.template?.id === 'error-tracking-issue-reopened' ||
+                        res.template?.id === 'error-tracking-issue-spiking'
                     ) {
-                        const triggerEvent =
-                            res.template.id === 'error-tracking-issue-created'
-                                ? '$error_tracking_issue_created'
-                                : '$error_tracking_issue_reopened'
+                        const triggerEventMap: Record<string, string> = {
+                            'error-tracking-issue-created': '$error_tracking_issue_created',
+                            'error-tracking-issue-reopened': '$error_tracking_issue_reopened',
+                            'error-tracking-issue-spiking': '$error_tracking_issue_spiking',
+                        }
+                        const triggerEvent = triggerEventMap[res.template.id]
 
                         posthog.capture('error_tracking_alert_created', {
                             trigger_event: triggerEvent,
@@ -722,10 +725,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         useMapping: [
-            (s) => [s.hogFunction, s.mappingTemplates],
-            (hogFunction: HogFunctionType | null, mappingTemplates: HogFunctionMappingType[]) => {
-                return Array.isArray(hogFunction?.mappings) || mappingTemplates.length > 0
-            },
+            (s) => [s.hogFunction, s.template],
+            // If the function has mappings, or the template has mapping templates, we use mappings
+            (hogFunction, template) => Array.isArray(hogFunction?.mappings) || template?.mapping_templates?.length,
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],
@@ -1430,6 +1432,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         sparklineQuery: async (sparklineQuery) => {
             if (sparklineQuery) {
                 actions.sparklineQueryChanged(sparklineQuery)
+            }
+        },
+        configuration: (configuration, oldConfiguration) => {
+            if (
+                typeof configuration?.filters?.source === 'string' &&
+                typeof oldConfiguration?.filters?.source === 'string' &&
+                configuration?.filters?.source !== oldConfiguration?.filters?.source
+            ) {
+                actions.setConfigurationValue('filters', {
+                    ...configuration.filters,
+                    events: [],
+                    actions: [],
+                    data_warehouse: [],
+                })
             }
         },
     })),

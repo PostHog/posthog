@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, cast
 
 import posthoganalytics
 
@@ -10,6 +10,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
+    PropertyOperator,
     RecordingsQuery,
 )
 
@@ -17,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
@@ -32,31 +34,17 @@ from posthog.session_recordings.queries.utils import (
 from posthog.types import AnyPropertyFilter
 
 
-def negative_event_predicates(
+def get_negative_entity_properties(
     entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
-    team: Team,
-) -> list[ast.Expr]:
-    event_exprs: list[ast.Expr] = []
-
+) -> list[AnyPropertyFilter]:
+    negative_props: list[AnyPropertyFilter] = []
     for entity in entities:
-        if isinstance(entity, DataWarehouseNode):
-            raise NotImplementedError("DataWarehouseNode is not supported in negative event predicates")
-
-        if isinstance(entity, str):
+        if isinstance(entity, DataWarehouseNode | str) or not entity.properties:
             continue
-
-        if not entity.properties:
-            continue
-
-        # the entity itself is always a positive expression,
-        # so we don't need to check it here where we're looking only
-        # for negative items to check across the session in its properties
-        has_negative_operator = any(is_negative_prop(prop) for prop in entity.properties)
-
-        if has_negative_operator:
-            event_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
-
-    return event_exprs
+        for prop in entity.properties:
+            if is_negative_prop(prop):
+                negative_props.append(prop)
+    return negative_props
 
 
 def is_negative_prop(prop: AnyPropertyFilter) -> bool:
@@ -82,7 +70,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         event_exprs: list[ast.Expr] = []
 
         for entity in entities:
-            if isinstance(entity, DataWarehouseNode) or isinstance(entity, str):
+            if isinstance(entity, DataWarehouseNode | str):
                 continue
 
             # this is always _positive_ operations
@@ -225,6 +213,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
         query = self.get_query_for_event_id_matching()
 
+        tag_queries(product=Product.REPLAY, team_id=self._team.id)
         hogql_query_response = execute_hogql_query(
             query=query,
             team=self._team,
@@ -293,31 +282,25 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        exprs: list[ast.Expr] = []
+        if self._query.operand == "OR":
+            return ast.Constant(value=True)
 
-        if self.event_properties:
-            # when we're saying property is not set then we have to check it is not set on every event
-            # e.g. countIf(JSONHas(events.properties, '$feature/target-flag')) = 0
-            for prop in self.event_properties:
-                if is_negative_prop(prop):
-                    exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Call(
-                                name="countIf",
-                                args=[
-                                    # we count the positive equivalent so we can easily assert there are no matches
-                                    property_to_expr(
-                                        prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[prop.operator]}),
-                                        team=self._team,
-                                        scope="event",
-                                    ),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
-                        )
-                    )
+        def countif_zero(prop: AnyPropertyFilter) -> ast.Expr:
+            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
+            inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="countIf", args=[property_to_expr(inverted, team=self._team, scope="event")]),
+                right=ast.Constant(value=0),
+            )
 
+        negative_props = [p for p in self.event_properties if is_negative_prop(p)]
+        negative_props += get_negative_entity_properties(self.entities)
+        negative_props += [p for p in self.group_properties if is_negative_prop(p)]
+        if self._team.person_on_events_mode and self.person_properties:
+            negative_props += [p for p in self.person_properties if is_negative_prop(p)]
+
+        exprs = [countif_zero(p) for p in negative_props]
         return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
 
     @property
@@ -347,44 +330,31 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def person_properties(self) -> list[AnyPropertyFilter] | None:
         return [g for g in (self._query.properties or []) if is_person_property(g)]
 
+    def _has_negative_properties(self) -> bool:
+        if any(is_negative_prop(p) for p in self.event_properties):
+            return True
+        if get_negative_entity_properties(self.entities):
+            return True
+        if any(is_negative_prop(p) for p in self.group_properties):
+            return True
+        if self._team.person_on_events_mode and self.person_properties:
+            if any(is_negative_prop(p) for p in self.person_properties):
+                return True
+        return False
+
     def _negative_guard_query(self) -> ast.SelectQuery | None:
         if self._query.operand == "OR":
             return None
 
-        gathered_exprs: list[ast.Expr] = []
-
-        event_where_exprs = negative_event_predicates(self.entities, self._team)
-        for expr in event_where_exprs:
-            gathered_exprs.append(expr)
-
-        for p in self.event_properties:
-            if is_negative_prop(p):
-                gathered_exprs.append(
-                    property_to_expr(
-                        p,
-                        team=self._team,
-                        scope="replay",
-                    )
-                )
-
-        for p in self.group_properties:
-            if is_negative_prop(p):
-                gathered_exprs.append(property_to_expr(p, team=self._team))
-
-        if self._team.person_on_events_mode and self.person_properties:
-            for p in self.person_properties:
-                if is_negative_prop(p):
-                    gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
-
-        if gathered_exprs:
-            return self._select_from_events(
-                select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
-                where_expr=gathered_exprs,
-                group_by=[ast.Field(chain=["$session_id"])],
-                limit_expr=ast.Constant(value=1000000),
-            )
-        else:
+        if not self._has_negative_properties():
             return None
+
+        return self._select_from_events(
+            select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
+            where_expr=[],
+            group_by=[ast.Field(chain=["$session_id"])],
+            limit_expr=ast.Constant(value=1000000),
+        )
 
     @staticmethod
     @tracer.start_as_current_span("ReplayFiltersEventsSubQuery.with_team_events_added")

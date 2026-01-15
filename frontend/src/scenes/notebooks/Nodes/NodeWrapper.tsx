@@ -23,13 +23,12 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -54,10 +53,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
-        settingsIcon,
     } = props
-
-    useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
@@ -71,7 +67,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { resizeable, expanded, actions, nodeId, sourceComment } = useValues(nodeLogic)
+    const {
+        resizeable,
+        expanded,
+        actions,
+        nodeId,
+        settingsPlacement: resolvedSettingsPlacement,
+        sourceComment,
+    } = useValues(nodeLogic)
     const {
         setRef,
         setExpanded,
@@ -97,16 +100,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
     useOnMountEffect(() => {
         return () => unregisterNodeLogic(nodeId)
-    })
-
-    useWhyDidIRender('NodeWrapper.logicProps', {
-        resizeable,
-        expanded,
-        actions,
-        setExpanded,
-        deleteNode,
-        toggleEditing,
-        mountedNotebookLogic,
     })
 
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -222,6 +215,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
 
+                                                {isEditable && Settings ? (
+                                                    <LemonButton
+                                                        onClick={() => toggleEditing()}
+                                                        size="small"
+                                                        icon={<IconPencil />}
+                                                        active={editingNodeId === nodeId}
+                                                    />
+                                                ) : null}
+
                                                 {expandable && (
                                                     <LemonButton
                                                         onClick={() => setExpanded(!expanded)}
@@ -229,29 +231,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         icon={expanded ? <IconCollapse /> : <IconExpand />}
                                                     />
                                                 )}
-
-                                                {isEditable ? (
-                                                    <>
-                                                        {Settings ? (
-                                                            <LemonButton
-                                                                onClick={() => toggleEditing()}
-                                                                size="small"
-                                                                icon={
-                                                                    typeof settingsIcon === 'string' ? (
-                                                                        settingsIcon === 'gear' ? (
-                                                                            <IconGear />
-                                                                        ) : (
-                                                                            <IconFilter />
-                                                                        )
-                                                                    ) : (
-                                                                        (settingsIcon ?? <IconFilter />)
-                                                                    )
-                                                                }
-                                                                active={editingNodeId === nodeId}
-                                                            />
-                                                        ) : null}
-                                                    </>
-                                                ) : null}
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
@@ -261,7 +240,9 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
                                         </div>
 
-                                        {Settings && editingNodeId === nodeId && containerSize === 'small' ? (
+                                        {Settings &&
+                                        editingNodeId === nodeId &&
+                                        (containerSize === 'small' || resolvedSettingsPlacement === 'inline') ? (
                                             <div className="NotebookNode__settings">
                                                 <ErrorBoundary>
                                                     <Settings
@@ -353,7 +334,6 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
-        useWhyDidIRender('NodeWrapper(WrappedComponent)', props)
         const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {

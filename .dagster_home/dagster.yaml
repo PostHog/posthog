@@ -1,4 +1,4 @@
-# Local dev only, see dags/README.md for more info
+# Local dev only, see posthog/dags/README.md for more info
 concurrency:
     runs:
         tag_concurrency_limits:
@@ -12,3 +12,6 @@ concurrency:
               limit: 1
               value:
                   applyLimitPerUniqueValue: true
+            - key: 'dagster/web_analytics_cache_warming'
+              value: 'web_analytics_cache_warming'
+              limit: 1

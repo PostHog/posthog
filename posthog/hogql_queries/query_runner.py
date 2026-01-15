@@ -17,6 +17,9 @@ from posthog.schema import (
     ChartDisplayType,
     DashboardFilter,
     DateRange,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -80,6 +83,7 @@ from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
     get_app_org_rate_limiter,
+    get_materialized_endpoints_rate_limiter,
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -180,6 +184,9 @@ RunnableQueryNode = Union[
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
+    EndpointsUsageOverviewQuery,
+    EndpointsUsageTableQuery,
+    EndpointsUsageTrendsQuery,
 ]
 
 
@@ -762,10 +769,56 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
+            NonIntegratedConversionsTableQueryRunner,
+        )
+
+        return NonIntegratedConversionsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "UsageMetricsQuery":
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageOverviewQuery":
+        from .endpoints.endpoints_usage_overview import EndpointsUsageOverviewQueryRunner
+
+        return EndpointsUsageOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTableQuery":
+        from .endpoints.endpoints_usage_table import EndpointsUsageTableQueryRunner
+
+        return EndpointsUsageTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "EndpointsUsageTrendsQuery":
+        from .endpoints.endpoints_usage_trends import EndpointsUsageTrendsQueryRunner
+
+        return EndpointsUsageTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -965,6 +1018,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            # Apply current query's custom_name values to cached response
+            # (custom_name is excluded from cache key, so cached values may be stale)
+            cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
+
+            if custom_names_modified:
+                # Update cache with patched response so subsequent requests get the updated names
+                cache_manager.set_cache_data(
+                    response=cached_response.model_dump(),
+                    target_age=cached_response.cache_target_age,
+                )
+
             if not self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response)):
                 count_query_cache_hit(self.team.pk, hit="hit", trigger=cached_response.calculation_trigger or "")
                 # We have a valid result that's fresh enough, let's return it
@@ -1013,6 +1077,51 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
+        """Execute calculate() with all rate limiters applied.
+
+        Returns:
+            Tuple of (query_result, query_duration_ms)
+        """
+        concurrency_limit = self.get_api_queries_concurrency_limit()
+        is_materialized_endpoint = get_query_tag_value("workload") == Workload.ENDPOINTS
+        is_api_key_access = get_query_tag_value("access_method") == "personal_api_key"
+
+        if self.is_query_service:
+            tag_queries(chargeable=1)
+
+        with (
+            get_materialized_endpoints_rate_limiter().run(
+                team_id=self.team.pk,
+                task_id=self.query_id,
+                is_materialized_endpoint=is_materialized_endpoint,
+            ),
+            get_api_team_rate_limiter().run(
+                is_api=self.is_query_service and not is_materialized_endpoint,
+                team_id=self.team.pk,
+                task_id=self.query_id,
+                limit=concurrency_limit,
+            ),
+            get_app_org_rate_limiter().run(
+                org_id=self.team.organization_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=is_api_key_access,
+                limit=get_org_app_concurrency_limit(self.team.organization_id),
+            ),
+            get_app_dashboard_queries_rate_limiter().run(
+                org_id=self.team.organization_id,
+                dashboard_id=dashboard_id,
+                task_id=self.query_id,
+                team_id=self.team.id,
+                is_api=is_api_key_access,
+            ),
+        ):
+            query_start_time = perf_counter()
+            query_result = self.calculate()
+            query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+            return query_result, query_duration_ms
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -1036,8 +1145,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if tags := getattr(self.query, "tags", None):
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
+                    tag_queries(product=tags.productKey)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
+                    tag_queries(scene=tags.scene)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
@@ -1136,43 +1247,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
                 self.modifiers.useMaterializedViews = True
 
-            concurrency_limit = self.get_api_queries_concurrency_limit()
-            with get_api_team_rate_limiter().run(
-                is_api=self.is_query_service,
-                team_id=self.team.pk,
-                task_id=self.query_id,
-                limit=concurrency_limit,
-            ):
-                if self.is_query_service:
-                    tag_queries(chargeable=1)
+            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
 
-                with get_app_org_rate_limiter().run(
-                    org_id=self.team.organization_id,
-                    task_id=self.query_id,
-                    team_id=self.team.id,
-                    is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    limit=get_org_app_concurrency_limit(self.team.organization_id),
-                ):
-                    with get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=get_query_tag_value("access_method") == "personal_api_key",
-                    ):
-                        query_start_time = perf_counter()
-                        query_result = self.calculate()
-                        query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
-
-                        fresh_response_dict = {
-                            **query_result.model_dump(),
-                            "is_cached": False,
-                            "last_refresh": last_refresh,
-                            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                            "cache_key": cache_key,
-                            "timezone": self.team.timezone,
-                            "cache_target_age": target_age,
-                        }
+            fresh_response_dict = {
+                **query_result.model_dump(),
+                "is_cached": False,
+                "last_refresh": last_refresh,
+                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                "cache_key": cache_key,
+                "timezone": self.team.timezone,
+                "cache_target_age": target_age,
+            }
 
             try:
                 query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
@@ -1231,6 +1316,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
         """
 
+        # TODO - remove once no longer needed, as per https://posthog.slack.com/archives/C075D3C5HST/p1766275591753869
+        if self.team.pk and self.team.pk == 117239:
+            return 20  # Matches org-level limit
+
         if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
             return None
 
@@ -1270,6 +1359,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_payload(self) -> dict:
         # remove the tags key, these are used in the query log comment but shouldn't break caching
+        # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
 
@@ -1291,6 +1381,104 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def get_cache_key(self) -> str:
         return generate_cache_key(self.team.pk, f"query_{bytes.decode(to_json(self.get_cache_payload()))}")
+
+    def apply_series_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """
+        Apply custom_name values from the current query's series to a cached response.
+
+        Since custom_name is excluded from cache keys (it's presentation metadata),
+        cached responses may have stale custom_name values. This method patches
+        the response with the current query's custom_name values.
+
+        Returns:
+            Tuple of (patched_response, was_modified) - was_modified is True if any
+            custom_name values were actually changed.
+        """
+        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
+            return self._apply_trends_custom_names(cached_response)
+        elif isinstance(self.query, FunnelsQuery):
+            return self._apply_funnels_custom_names(cached_response)
+        return cached_response, False
+
+    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """Apply custom_name values to TrendsQuery results (nested under action)."""
+        series = getattr(self.query, "series", None)
+        if not series:
+            return cached_response, False
+
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response, False
+
+        custom_names_by_order: dict[int, str | None] = {}
+        for i, s in enumerate(series):
+            custom_name = getattr(s, "custom_name", None)
+            custom_names_by_order[i] = custom_name
+
+        was_modified = False
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            action = result.get("action")
+            if not isinstance(action, dict):
+                continue
+            order = action.get("order")
+            if order is not None and order in custom_names_by_order:
+                new_name = custom_names_by_order[order]
+                if action.get("custom_name") != new_name:
+                    action["custom_name"] = new_name
+                    was_modified = True
+
+        return cached_response, was_modified
+
+    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
+        """
+        Apply custom_name values to FunnelsQuery results (top-level of step dict).
+
+        Funnel results have two structures:
+        - Without breakdown: flat list of steps [step1, step2, ...]
+        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        """
+        series = getattr(self.query, "series", None)
+        if not series:
+            return cached_response, False
+
+        results = getattr(cached_response, "results", None)
+        if not results or not isinstance(results, list):
+            return cached_response, False
+
+        custom_names_by_order: dict[int, str | None] = {}
+        for i, s in enumerate(series):
+            custom_name = getattr(s, "custom_name", None)
+            custom_names_by_order[i] = custom_name
+
+        was_modified = False
+
+        if results and len(results) > 0 and isinstance(results[0], list):
+            # Breakdown case: iterate through each breakdown group
+            for breakdown_group in results:
+                for step in breakdown_group:
+                    if not isinstance(step, dict):
+                        continue
+                    order = step.get("order")
+                    if order is not None and order in custom_names_by_order:
+                        new_name = custom_names_by_order[order]
+                        if step.get("custom_name") != new_name:
+                            step["custom_name"] = new_name
+                            was_modified = True
+        else:
+            # Non-breakdown case: flat list of steps
+            for step in results:
+                if not isinstance(step, dict):
+                    continue
+                order = step.get("order")
+                if order is not None and order in custom_names_by_order:
+                    new_name = custom_names_by_order[order]
+                    if step.get("custom_name") != new_name:
+                        step["custom_name"] = new_name
+                        was_modified = True
+
+        return cached_response, was_modified
 
     def _get_cache_age_override(self, last_refresh: Optional[datetime]) -> Optional[datetime]:
         """

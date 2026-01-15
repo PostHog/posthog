@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -31,6 +32,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     get_table_name,
     is_data_warehouse_source,
 )
+from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
@@ -38,7 +40,7 @@ from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
-class FunnelEventQuery:
+class FunnelEventQuery(DataWarehouseSchemaMixin):
     context: FunnelQueryContext
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
 
@@ -127,8 +129,26 @@ class FunnelEventQuery:
 
             all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
 
+            field = self.get_warehouse_field(node.table_name, node.timestamp_field)
+
+            timestamp_expr: ast.Expr
+            # TODO: Move validations to funnel base / series entity
+            if isinstance(field, DateTimeDatabaseField):
+                timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
+            elif isinstance(field, StringDatabaseField):
+                timestamp_expr = ast.Call(
+                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
+                )
+            else:
+                raise ValidationError(
+                    detail=f"Unsupported timestamp field type for {node.table_name}.{node.timestamp_field}"
+                )
+
             select: list[ast.Expr] = [
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])),
+                ast.Alias(
+                    alias="timestamp",
+                    expr=timestamp_expr,
+                ),
                 ast.Alias(
                     alias="aggregation_target",
                     expr=ast.Call(
@@ -144,12 +164,12 @@ class FunnelEventQuery:
             where_exprs: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
+                    left=ast.Field(chain=["timestamp"]),
                     right=ast.Constant(value=date_range.date_from()),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
+                    left=ast.Field(chain=["timestamp"]),
                     right=ast.Constant(value=date_range.date_to()),
                 ),
             ]
@@ -210,7 +230,7 @@ class FunnelEventQuery:
                 cols.append(exclusion_col_expr)
 
         # breakdown (attribution) col
-        cols.extend(self._get_breakdown_select_prop())
+        cols.extend(self._get_breakdown_select_prop(source_kind))
 
         return cols
 
@@ -335,8 +355,11 @@ class FunnelEventQuery:
                 alias="value",
                 expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
             )
-        elif breakdownType == "data_warehouse_person_property" and isinstance(breakdown, str):
+        elif breakdownType == "data_warehouse_person_property":
+            assert isinstance(breakdown, str)
             return ast.Field(chain=["person", *breakdown.split(".")])
+        elif breakdownType == "data_warehouse":
+            return get_breakdown_expr(breakdown, None)
         else:
             raise ValidationError(detail=f"Unsupported breakdown type: {breakdownType}")
 
@@ -344,9 +367,12 @@ class FunnelEventQuery:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
-    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
-        breakdown, breakdownAttributionType, funnelsFilter = (
+    def _get_breakdown_select_prop(self, source_kind: SourceTableKind) -> list[ast.Expr]:
+        default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
+
+        breakdown, breakdownType, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
+            self.context.breakdownType,
             self.context.breakdownAttributionType,
             self.context.funnelsFilter,
         )
@@ -355,37 +381,37 @@ class FunnelEventQuery:
             return []
 
         # breakdown prop
-        prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
+        prop_basic: ast.Expr
+        if (source_kind == SourceTableKind.EVENTS and breakdownType != "data_warehouse") or (
+            source_kind == SourceTableKind.DATA_WAREHOUSE and breakdownType == "data_warehouse"
+        ):
+            prop_basic = ast.Alias(alias="prop_basic", expr=self._get_breakdown_expr())
+        else:
+            prop_basic = parse_expr(f"{default_breakdown_selector} as prop_basic")
 
         # breakdown attribution
-        if breakdownAttributionType == BreakdownAttributionType.STEP:
-            select_columns = []
-            default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
-
+        if (
+            breakdownAttributionType == BreakdownAttributionType.STEP
+            and funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+        ):
+            prop = parse_expr(
+                f"if(step_{funnelsFilter.breakdownAttributionValue} = 1, prop_basic, {default_breakdown_selector}) as prop"
+            )
+            return [prop_basic, prop]
+        elif (
+            breakdownAttributionType
+            in [
+                BreakdownAttributionType.FIRST_TOUCH,
+                BreakdownAttributionType.LAST_TOUCH,
+                BreakdownAttributionType.ALL_EVENTS,
+            ]
             # Unordered funnels can have any step be the Nth step
-            if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-                final_select = parse_expr(f"prop_basic as prop")
-            else:
-                # get prop value from each step
-                for index, _ in enumerate(self.context.query.series):
-                    select_columns.append(
-                        parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
-                    )
-
-                final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
-
-            return [prop_basic, *select_columns, final_select]
-        elif breakdownAttributionType in [
-            BreakdownAttributionType.FIRST_TOUCH,
-            BreakdownAttributionType.LAST_TOUCH,
-        ]:
+            or breakdownAttributionType == BreakdownAttributionType.STEP
+            and funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED
+        ):
             return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
         else:
-            # all_events
-            return [
-                prop_basic,
-                ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"])),
-            ]
+            raise ValidationError(f"Unknown breakdown attribution type {breakdownAttributionType}")
 
     def _get_extra_fields(
         self, source_kind: SourceTableKind, node: Optional[DataWarehouseNode] = None

@@ -26,9 +26,9 @@ import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    DataWarehouseNode,
     DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
@@ -250,7 +250,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
-        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
+        goalLines: [
+            (s) => [s.querySource],
+            (q) => (isTrendsQuery(q) || isFunnelsQuery(q) || isRetentionQuery(q) ? getGoalLines(q) : null),
+        ],
         insightFilter: [
             (s) => [s.querySource],
             (q) => (q && !isWebAnalyticsInsightQuery(q) ? filterForQuery(q) : null),
@@ -332,9 +335,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDataWarehouseSeries: [
-            (s) => [s.isTrends, s.series],
-            (isTrends, series): boolean => {
-                return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
+            (s) => [s.isTrends, s.isFunnels, s.series],
+            (isTrends, isFunnels, series): boolean => {
+                return (
+                    (isTrends || isFunnels) &&
+                    (series || []).length > 0 &&
+                    !!series?.some((node) => isDataWarehouseNode(node))
+                )
             },
         ],
 
@@ -342,6 +349,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (s) => [
                 s.series,
                 s.isSingleSeries,
+                s.isTrends,
                 s.hasDataWarehouseSeries,
                 s.isBreakdownSeries,
                 s.dataWarehouseTablesMap,
@@ -349,20 +357,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (
                 series,
                 isSingleSeries,
+                isTrends,
                 hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
-                if (
-                    !series ||
-                    series.length === 0 ||
-                    (!isSingleSeries && !isBreakdownSeries) ||
-                    !hasDataWarehouseSeries
-                ) {
+                if (!hasDataWarehouseSeries || (isTrends && !isSingleSeries && !isBreakdownSeries)) {
                     return []
                 }
 
-                return Object.values(dataWarehouseTablesMap[(series[0] as DataWarehouseNode)?.table_name]?.fields ?? {})
+                const dataWarehouseSeries = series!.filter(isDataWarehouseNode)
+                const dataWarehouseTableNames = Array.from(new Set(dataWarehouseSeries.map((node) => node.table_name)))
+                return dataWarehouseTableNames.flatMap((tableName) =>
+                    Object.values(dataWarehouseTablesMap[tableName]?.fields ?? {})
+                )
             },
         ],
 
@@ -755,9 +763,13 @@ const handleQuerySourceUpdateSideEffects = (
         ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
             (insightFilter as FunnelsFilter)?.funnelToStep != null)
     ) {
+        // Filter out GroupNode types as funnels only use AnyEntityNode
+        const funnelSeries = maybeChangedSeries.filter(
+            (node): node is AnyEntityNode => node.kind !== NodeKind.GroupNode
+        )
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
         }
     }
 

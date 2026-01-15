@@ -80,8 +80,9 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
     const [selectedItem, setSelectedItem] = useState<TreeDataItem | null>(null)
     const { isOpen } = useValues(itemSelectModalLogic)
     const { closeItemSelectModal, submitForm, setFormValue } = useActions(itemSelectModalLogic)
-    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
-        useValues(projectTreeLogic(props))
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, editingItemId } = useValues(
+        projectTreeLogic(props)
+    )
     const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
         useActions(projectTreeLogic(props))
 
@@ -135,7 +136,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                       : undefined
                             }
                         >
-                            Add {selectedItem?.name || selectedItem?.displayName}
+                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName} shortcut
                         </LemonButton>
                     </>
                 }
@@ -212,7 +213,6 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                         className="px-0 py-1"
                                         data={fullFileSystemFiltered}
                                         mode="tree"
-                                        tableViewKeys={treeTableKeys}
                                         defaultSelectedFolderOrNodeId=""
                                         isItemActive={() => false}
                                         isItemEditing={(item) => {

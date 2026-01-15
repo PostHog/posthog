@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use num_cpus;
 use once_cell::sync::Lazy;
 use rocksdb::{
     checkpoint::Checkpoint, BlockBasedOptions, BoundColumnFamily, Cache, ColumnFamilyDescriptor,
@@ -12,6 +11,7 @@ use rocksdb::{
     WriteOptions,
 };
 use std::time::Instant;
+use tracing::error;
 
 use crate::metrics::MetricsHelper;
 use crate::rocksdb::metrics_consts::*;
@@ -64,7 +64,10 @@ pub fn block_based_table_factory() -> BlockBasedOptions {
 }
 
 fn rocksdb_options() -> Options {
-    let num_threads = std::cmp::max(2, num_cpus::get()); // Avoid setting to 0 or 1
+    // Use std::thread::available_parallelism() which is cgroup-aware (respects container CPU limits)
+    let num_threads = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(2);
 
     let mut opts = Options::default();
     opts.create_if_missing(true);
@@ -75,7 +78,18 @@ fn rocksdb_options() -> Options {
     // Universal compaction reduces write amplification for write-heavy workloads
     // Trade-off: higher space amplification, but better for batch writes on slow storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
-    opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
+
+    // NOTE: We don't call optimize_universal_style_compaction() because it sets Snappy compression.
+    // Instead, we manually configure universal compaction for reduced CPU usage:
+    // - Higher size_ratio (10% vs 1% default) means less aggressive compaction
+    // - This reduces compaction frequency at the cost of slightly higher space amplification
+    let mut universal_opts = rocksdb::UniversalCompactOptions::default();
+    universal_opts.set_size_ratio(10); // Allow 10% size difference before compacting (default: 1)
+    universal_opts.set_min_merge_width(2); // Minimum files to merge (default: 2)
+    universal_opts.set_max_merge_width(16); // Maximum files to merge at once (default: UINT_MAX)
+    universal_opts.set_max_size_amplification_percent(200); // Allow 2x space amp (default: 200)
+    universal_opts.set_compression_size_percent(-1); // Compress all levels (default: -1)
+    opts.set_universal_compaction_options(&universal_opts);
 
     let mut block_opts = block_based_table_factory();
     // Timestamp CF
@@ -100,7 +114,7 @@ fn rocksdb_options() -> Options {
     opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
     // SST file size should be proportional to write buffer for efficient compaction
-    opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB SST files
+    opts.set_target_file_size_base(256 * 1024 * 1024); // 256MB SST files
 
     // L0 tuning to reduce write stalls:
     // - Higher trigger = batch more L0 files before compaction
@@ -114,7 +128,7 @@ fn rocksdb_options() -> Options {
 
     // Parallelism - limit background jobs to reduce I/O contention
     // With many partitions, too many background jobs can overwhelm disk
-    let max_bg_jobs = std::cmp::min(num_threads as i32, 4);
+    let max_bg_jobs = std::cmp::min(num_threads as i32, 2);
     opts.increase_parallelism(max_bg_jobs);
     opts.set_max_background_jobs(max_bg_jobs);
 
@@ -280,15 +294,27 @@ impl RocksDbStore {
 
     fn put_batch_internal(&self, cf_name: &str, entries: Vec<(&[u8], &[u8])>) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
+        let entry_count = entries.len();
         let mut batch = WriteBatch::default();
         for (key, value) in entries {
             batch.put_cf(&cf, key, value);
         }
+        let batch_size_bytes = batch.size_in_bytes();
         let mut write_opts = WriteOptions::default();
         write_opts.set_sync(false);
-        self.db
-            .write_opt(batch, &write_opts)
-            .context("Failed to put batch")
+        self.db.write_opt(batch, &write_opts).map_err(|e| {
+            error!(
+                cf_name = cf_name,
+                entry_count = entry_count,
+                batch_size_bytes = batch_size_bytes,
+                db_path = %self.path_location.display(),
+                rocksdb_error = %e,
+                "RocksDB write_opt failed"
+            );
+            anyhow::anyhow!(
+                "Failed to put batch ({entry_count} entries, {batch_size_bytes} bytes): {e}"
+            )
+        })
     }
 
     pub fn delete_range(&self, cf_name: &str, start: &[u8], end: &[u8]) -> Result<()> {
@@ -301,6 +327,15 @@ impl RocksDbStore {
     pub fn delete(&self, cf_name: &str, key: &[u8]) -> Result<()> {
         let cf = self.get_cf_handle(cf_name)?;
         self.db.delete_cf(&cf, key).context("Failed to delete key")
+    }
+
+    /// Trigger compaction for a column family within a key range.
+    /// This is non-blocking - compaction runs asynchronously in the background.
+    /// After delete_range, this helps RocksDB prioritize reclaiming space from tombstones.
+    pub fn compact_range(&self, cf_name: &str, start: Option<&[u8]>, end: Option<&[u8]>) {
+        if let Ok(cf) = self.get_cf_handle(cf_name) {
+            self.db.compact_range_cf(&cf, start, end);
+        }
     }
 
     pub fn get_cf_handle(&self, cf_name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
@@ -323,6 +358,8 @@ impl RocksDbStore {
     /// Update database metrics (size, SST file count, etc.)
     /// This should be called periodically to emit current database state
     pub fn update_db_metrics(&self, cf_name: &str) -> Result<()> {
+        let cf = self.get_cf_handle(cf_name)?;
+
         // Update database size metric with column family label
         let db_size = self.get_db_size(cf_name)?;
         self.metrics
@@ -336,6 +373,17 @@ impl RocksDbStore {
             .gauge(ROCKSDB_SST_FILES_COUNT_GAUGE)
             .with_label("column_family", cf_name)
             .set(sst_files.len() as f64);
+
+        // Update estimated key count metric
+        if let Ok(Some(estimate_keys)) = self
+            .db
+            .property_int_value_cf(&cf, "rocksdb.estimate-num-keys")
+        {
+            self.metrics
+                .gauge(ROCKSDB_ESTIMATE_NUM_KEYS_GAUGE)
+                .with_label("column_family", cf_name)
+                .set(estimate_keys as f64);
+        }
 
         Ok(())
     }

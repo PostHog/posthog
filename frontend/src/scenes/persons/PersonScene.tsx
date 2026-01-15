@@ -19,7 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isMobile } from 'lib/utils'
+import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { openInAdminPanel } from 'lib/utils/person-actions'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -43,7 +43,7 @@ import { ActivityScope, PersonType, PersonsTabType, PropertyDefinitionType } fro
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import PersonFeedCanvas from './PersonFeedCanvas'
+import PersonProfileCanvas from './PersonProfileCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
@@ -133,9 +133,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
             })
 
             window.open(toolbarUrl, '_blank')
-            lemonToast.success(
-                `Launching toolbar with ${response.flag_count} feature flag override${response.flag_count === 1 ? '' : 's'}`
-            )
+            lemonToast.success(`Launching toolbar with ${pluralize(response.flag_count, 'feature flag override')}`)
         } catch (error) {
             lemonToast.error('Failed to launch toolbar. Please try again.')
             console.error('Error launching toolbar:', error)
@@ -246,7 +244,6 @@ export function PersonScene(): JSX.Element | null {
 
             <SceneDivider />
             <PersonDeleteModal />
-
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => {
@@ -256,9 +253,9 @@ export function PersonScene(): JSX.Element | null {
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
-                              content: <PersonFeedCanvas person={person} />,
+                              key: PersonsTabType.PROFILE,
+                              label: <span data-attr="persons-profile-tab">Profile</span>,
+                              content: <PersonProfileCanvas person={person} />,
                           }
                         : false,
                     {
@@ -280,7 +277,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query query={eventsQuery} />,
+                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -440,7 +437,7 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
             disabledReason={disabledReason}
             size={size}
         >
-            Open in Admin Panel
+            Open in admin panel
         </LemonButton>
     )
 }

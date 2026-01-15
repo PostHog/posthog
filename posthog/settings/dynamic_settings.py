@@ -8,11 +8,6 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
-    "RECORDINGS_TTL_WEEKS": (
-        3,
-        "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
-        int,
-    ),
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
@@ -175,10 +170,24 @@ CONSTANCE_CONFIG = {
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
         bool,
     ),
+    "WEB_ANALYTICS_WARMING_DAYS": (
+        get_from_env("WEB_ANALYTICS_WARMING_DAYS", default=7, type_cast=int),
+        "Number of days to look back for frequently-run web analytics queries",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT": (
+        get_from_env("WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT", default=10, type_cast=int),
+        "Minimum query count threshold for web analytics cache warming",
+        int,
+    ),
+    "WEB_ANALYTICS_WARMING_TEAMS_TO_WARM": (
+        get_from_env("WEB_ANALYTICS_WARMING_TEAMS_TO_WARM", default=[2], type_cast=list[int]),
+        "Teams that will have web analytics cache warming enabled",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
-    "RECORDINGS_TTL_WEEKS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
@@ -209,6 +218,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "REDIRECT_APP_TO_US",
+    "WEB_ANALYTICS_WARMING_DAYS",
+    "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

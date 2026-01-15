@@ -1,12 +1,26 @@
-import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
+import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
+import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
+import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
+import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
+import {
+    CHECKBOX_WIDTH,
+    EXPAND_WIDTH,
+    RESIZER_HANDLE_WIDTH,
+    ROW_GAP,
+    SEVERITY_WIDTH,
+    TIMESTAMP_WIDTH,
+    getAttributeColumnWidth,
+    getFixedColumnsWidth,
+    getMessageStyle,
+} from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -18,173 +32,174 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     fatal: 'bg-danger-dark',
 }
 
-export interface LogColumnConfig {
-    key: string
-    label?: string
-    width?: number
-    minWidth?: number
-    flex?: number
-}
-
-export const LOG_COLUMNS: LogColumnConfig[] = [
-    { key: 'severity', width: 8 },
-    { key: 'timestamp', label: 'Timestamp', width: 180 },
-    { key: 'message', label: 'Message', minWidth: 300, flex: 1 },
-    { key: 'actions', width: 80 },
-]
-
-// Calculate total width of fixed-width columns (excludes flex columns)
-export const getFixedColumnsWidth = (): number => {
-    return LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
-}
-
-// Calculate total minimum width for horizontal scrolling
-export const getMinRowWidth = (): number => {
-    return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
-}
-
-export const LOG_ROW_HEADER_HEIGHT = 32
-
-// Get cell style based on column config and available flex width
-const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSProperties => {
-    return column.flex
-        ? {
-              flexGrow: column.flex,
-              flexShrink: 1,
-              flexBasis: flexWidth ? Math.max(flexWidth, column.minWidth || 0) : column.minWidth,
-              minWidth: column.minWidth,
-          }
-        : { width: column.width, flexShrink: 0 }
-}
-
 export interface LogRowProps {
     log: ParsedLogMessage
+    logIndex: number
     isAtCursor: boolean
+    isExpanded: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
-    onSetCursor: () => void
+    onToggleExpand: () => void
+    onClick?: () => void
     rowWidth?: number
+    attributeColumns?: string[]
+    attributeColumnWidths?: Record<string, number>
+    // Selection
+    isSelected?: boolean
+    onToggleSelect?: () => void
+    onShiftClick?: (logIndex: number) => void
+    // Per-row prettify
+    isPrettified?: boolean
+    onTogglePrettify?: (log: ParsedLogMessage) => void
+    minHeight?: number
 }
 
 export function LogRow({
     log,
+    logIndex,
     isAtCursor,
+    isExpanded,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onSetCursor,
+    onToggleExpand,
+    onClick,
     rowWidth,
+    attributeColumns = [],
+    attributeColumnWidths = {},
+    isSelected = false,
+    onToggleSelect,
+    onShiftClick,
+    isPrettified = false,
+    onTogglePrettify,
+    minHeight = 32,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
-    const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
+    const flexWidth = rowWidth
+        ? rowWidth -
+          getFixedColumnsWidth(attributeColumns, attributeColumnWidths) -
+          attributeColumns.length * RESIZER_HANDLE_WIDTH
+        : undefined
 
-    const renderCell = (column: LogColumnConfig): JSX.Element => {
-        const cellStyle = getCellStyle(column, flexWidth)
+    const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
 
-        switch (column.key) {
-            case 'severity': {
-                const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
-                return (
-                    <Tooltip key={column.key} title={log.severity_text.toUpperCase()}>
-                        <div className="flex items-stretch self-stretch w-2" style={{ flexShrink: 0 }}>
-                            <div className={cn('w-1 rounded-full', severityColor)} />
-                        </div>
-                    </Tooltip>
-                )
-            }
-            case 'timestamp':
-                return (
-                    <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
-                        <span className="text-xs text-muted font-mono">
-                            <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
-                        </span>
-                    </div>
-                )
-            case 'message': {
-                const isPrettyJson = prettifyJson && log.parsedBody
-                const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Only handle shift+click here to prevent text selection during range select
+        if (e.shiftKey && onShiftClick) {
+            e.preventDefault()
+            onShiftClick(logIndex)
+        }
+    }
 
-                if (isPrettyJson) {
-                    return (
-                        <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
-                            <pre className={cn('font-mono text-xs m-0', wrapBody ? '' : 'whitespace-nowrap truncate')}>
-                                {content}
-                            </pre>
-                        </div>
-                    )
-                }
-
-                return (
-                    <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
-                        <span
-                            className={cn('font-mono text-xs', wrapBody ? 'whitespace-pre-wrap break-all' : 'truncate')}
-                        >
-                            {content}
-                        </span>
-                    </div>
-                )
-            }
-            case 'actions':
-                return (
-                    <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
-                        <LemonButton
-                            size="xsmall"
-                            noPadding
-                            icon={pinned ? <IconPinFilled /> : <IconPin />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                onTogglePin(log)
-                            }}
-                            tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                            className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
-                        />
-                        <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                            <LogsViewerRowActions log={log} />
-                        </div>
-                    </div>
-                )
-            default:
-                return <div key={column.key} style={cellStyle} />
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+        // Don't trigger if user selected text
+        const selection = window.getSelection()
+        if (selection && selection.toString().length > 0) {
+            return
+        }
+        if (!e.shiftKey) {
+            onClick?.()
         }
     }
 
     return (
         <div
-            className={cn(
-                'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isAtCursor && 'bg-primary-highlight',
-                pinned && 'bg-warning-highlight',
-                pinned && showPinnedWithOpacity && 'opacity-50',
-                isNew && 'VirtualizedLogsList__row--new'
-            )}
-            style={rowWidth ? { width: rowWidth } : undefined}
-            onClick={onSetCursor}
+            className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}
+            style={{ minWidth: rowWidth, minHeight }}
         >
-            {LOG_COLUMNS.map(renderCell)}
-        </div>
-    )
-}
-
-export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
-    const flexWidth = rowWidth - getFixedColumnsWidth()
-
-    return (
-        <div
-            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
-            style={{ width: rowWidth }}
-        >
-            {LOG_COLUMNS.map((column) => (
-                <div key={column.key} style={getCellStyle(column, flexWidth)} className="flex items-center px-1">
-                    {column.label || ''}
+            <div
+                style={{ gap: ROW_GAP, minHeight }}
+                className={cn(
+                    'relative flex items-center cursor-pointer hover:bg-fill-highlight-100 group h-full',
+                    isSelected && 'bg-fill-highlight-100',
+                    isAtCursor && 'bg-primary-highlight',
+                    pinned && showPinnedWithOpacity && 'bg-warning-highlight opacity-50'
+                )}
+                onMouseDown={handleMouseDown}
+                onClick={handleClick}
+            >
+                <div className="flex items-center self-stretch">
+                    <Tooltip title={log.severity_text.toUpperCase()}>
+                        <div
+                            className="flex items-stretch self-stretch"
+                            style={{ width: SEVERITY_WIDTH, flexShrink: 0 }}
+                        >
+                            <div className={cn('w-1 rounded-full', severityColor)} />
+                        </div>
+                    </Tooltip>
+                    <div className="flex items-center justify-center shrink-0" style={{ width: CHECKBOX_WIDTH }}>
+                        <LemonCheckbox
+                            checked={isSelected}
+                            onChange={() => onToggleSelect?.()}
+                            stopPropagation
+                            size="small"
+                        />
+                    </div>
+                    <div
+                        className="flex items-stretch self-stretch justify-center"
+                        style={{ width: EXPAND_WIDTH, flexShrink: 0 }}
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            icon={
+                                <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
+                            }
+                            onMouseDown={(e) => {
+                                e.stopPropagation()
+                                onToggleExpand()
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </div>
                 </div>
-            ))}
+
+                {/* Timestamp */}
+                <div className="flex items-center shrink-0" style={{ width: TIMESTAMP_WIDTH }}>
+                    <span className="text-xs text-muted font-mono">
+                        <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
+                    </span>
+                </div>
+
+                {/* Attribute columns */}
+                {attributeColumns.map((attributeKey) => {
+                    const attrValue = log.attributes[attributeKey] ?? log.resource_attributes[attributeKey]
+                    return (
+                        <AttributeCell
+                            key={attributeKey}
+                            attributeKey={attributeKey}
+                            value={attrValue != null ? String(attrValue) : '-'}
+                            width={getAttributeColumnWidth(attributeKey, attributeColumnWidths) + RESIZER_HANDLE_WIDTH}
+                        />
+                    )
+                })}
+
+                {/* Message */}
+                <MessageCell
+                    message={log.cleanBody}
+                    wrapBody={isPrettified || wrapBody}
+                    prettifyJson={isPrettified || prettifyJson}
+                    parsedBody={log.parsedBody}
+                    style={getMessageStyle(flexWidth)}
+                />
+
+                {/* Actions FAB */}
+                <LogRowFAB
+                    log={log}
+                    pinned={pinned}
+                    isPrettified={isPrettified}
+                    onTogglePin={onTogglePin}
+                    onTogglePrettify={onTogglePrettify}
+                    showScrollButtons={!wrapBody}
+                />
+            </div>
+            {isExpanded && <ExpandedLogContent log={log} />}
         </div>
     )
 }

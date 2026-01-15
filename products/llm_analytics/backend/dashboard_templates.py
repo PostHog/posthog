@@ -236,7 +236,7 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
                                 "type": "event",
                                 "key": "$ai_is_error",
                                 "operator": "exact",
-                                "value": True,
+                                "value": "true",
                             }
                         ],
                         "filterTestAccounts": False,

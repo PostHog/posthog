@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, EndpointType } from '~/types'
+import { Breadcrumb, DataWarehouseSyncInterval, EndpointType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -66,6 +66,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setLocalQuery: (query: Node | null) => ({ query }),
         setActiveTab: (tab: EndpointTab) => ({ tab }),
         setPayloadJson: (value: string) => ({ value }),
+        setPayloadJsonError: (error: string | null) => ({ error }),
+        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
+        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
     }),
     reducers({
         localQuery: [
@@ -85,6 +89,32 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             '' as string,
             {
                 setPayloadJson: (_, { value }) => value,
+            },
+        ],
+        payloadJsonError: [
+            null as string | null,
+            {
+                setPayloadJsonError: (_, { error }) => error,
+                setPayloadJson: () => null,
+            },
+        ],
+        cacheAge: [
+            null as number | null,
+            {
+                setCacheAge: (_, { cacheAge }) => cacheAge,
+            },
+        ],
+        syncFrequency: [
+            '24hour' as DataWarehouseSyncInterval | null,
+            {
+                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+            },
+        ],
+        isMaterialized: [
+            true as boolean | null,
+            {
+                setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.is_materialized ?? null,
             },
         ],
     }),
@@ -163,6 +193,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
+            actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
+            actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({

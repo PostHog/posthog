@@ -73,6 +73,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "LLMTrace",
+    "WebAnalyticsFilterPreset",
+    "CustomerProfileConfig",
+    "Log",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
@@ -225,6 +228,12 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "scim_bearer_token",
     ],
+    "User": [
+        "email",
+        "password",
+        "temporary_token",
+        "pending_email",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
@@ -265,17 +274,32 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
     ],
+    "User": [
+        "last_login",
+        "date_joined",
+        "current_organization",
+        "current_team",
+        "current_organization_id",
+        "current_team_id",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
-# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
-activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
-    "User": {
+# Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
+activity_visibility_restrictions: list[dict[str, Any]] = [
+    {
+        "scope": "User",
         "activities": ["logged_in", "logged_out"],
         "exclude_when": {"was_impersonated": True},
         "allow_staff": True,
     },
-}
+    {
+        "scope": "User",
+        "activities": ["created", "updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+]
 
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
@@ -436,16 +460,41 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "last_rolled_at",
     ],
     "User": [
-        "password",
+        # ForeignKey fields
+        "current_organization",
+        "current_team",
+        # With _id suffix for direct attribute access
         "current_organization_id",
         "current_team_id",
-        "temporary_token",
+        # System/internal fields
         "distinct_id",
         "partial_notification_settings",
-        "anonymize_data",
-        "is_email_verified",
         "_billing_plan_details",
         "strapi_id",
+        # Reverse relations and many-to-many fields
+        "organization",
+        "logentry_set",
+        "groups",
+        "user_permissions",
+        "social_auth",
+        "organization_memberships",
+        "totp_device_set",
+        "staticdevice_set",
+        "activitylog_set",
+        "personal_api_keys",
+        "organizations",
+        "plugin_set",
+        "insightviewed_set",
+        "text_set",
+        "insight_set",
+        "sharingconfiguration_set",
+        "exportedasset_set",
+        "uploaded_media",
+        "accesscontrol_set",
+        "rolemembership_set",
+        "totp_devices",
+        "static_devices",
+        "recovery_devices",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -695,7 +744,7 @@ def log_activity(
     scope: str,
     activity: str,
     detail: Detail,
-    was_impersonated: Optional[bool],
+    was_impersonated: bool,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
@@ -783,7 +832,7 @@ class LogActivityEntry(TypedDict, total=False):
     scope: Required[str]
     activity: Required[str]
     detail: Required[Detail]
-    was_impersonated: Optional[bool]
+    was_impersonated: Required[bool]
     force_save: bool
 
 

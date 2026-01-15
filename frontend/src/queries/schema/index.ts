@@ -6,10 +6,12 @@
 
 // sort-imports-ignore
 export * from './schema-assistant-artifacts'
-export * from './schema-assistant-messages'
+export * from './schema-assistant-error-tracking'
 export * from './schema-assistant-queries'
 export * from './schema-assistant-replay'
 export * from './schema-assistant-revenue-analytics'
 export * from './schema-assistant-web-analytics'
 export * from './schema-general'
 export * from './schema-surveys'
+// Must be kept after schema-general.
+export * from './schema-assistant-messages'

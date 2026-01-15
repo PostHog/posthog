@@ -18,6 +18,7 @@ from posthog.api import (
     authentication,
     decide,
     github,
+    hog_flow_template,
     hog_function_template,
     playwright_setup,
     remote_config,
@@ -46,6 +47,8 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
+from products.product_tours.backend.api import product_tours
+from products.slack_app.backend.api import slack_event_handler
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -173,6 +176,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path("api/sdk_doctor/", sdk_doctor),
+    path("api/conversations/", include("products.conversations.backend.api.urls")),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -186,6 +190,7 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
+    opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
@@ -197,6 +202,10 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
@@ -240,6 +249,7 @@ urlpatterns = [
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
+    opt_slash_path("slack/event-callback", slack_event_handler),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

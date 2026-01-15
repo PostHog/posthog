@@ -48,8 +48,6 @@ def create_oauth_access_token(task: Task) -> str:
 
     OAuth tokens auto-expire after 1 hour, so no cleanup is needed.
     """
-    scopes = get_default_scopes()
-
     if not task.created_by:
         raise TaskInvalidStateError(
             f"Task {task.id} has no created_by user",
@@ -57,16 +55,25 @@ def create_oauth_access_token(task: Task) -> str:
             cause=RuntimeError(f"Task {task.id} missing created_by field"),
         )
 
+    return create_oauth_access_token_for_user(task.created_by, task.team_id)
+
+
+def create_oauth_access_token_for_user(user, team_id: int) -> str:
+    """Create an OAuth access token for the Array app, scoped to a specific team.
+
+    OAuth tokens auto-expire after 1 hour, so no cleanup is needed.
+    """
+    scopes = get_default_scopes()
     app = get_array_app()
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(
-        user=task.created_by,
+        user=user,
         application=app,
         token=token_value,
         expires=timezone.now() + timedelta(hours=1),
         scope=" ".join(scopes),
-        scoped_teams=[task.team_id],
+        scoped_teams=[team_id],
     )
 
     return token_value

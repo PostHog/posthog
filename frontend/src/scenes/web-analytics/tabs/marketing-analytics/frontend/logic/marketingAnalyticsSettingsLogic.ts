@@ -15,13 +15,24 @@ import {
     MARKETING_INTEGRATION_FIELD_MAP,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConfig,
+    NativeMarketingSource,
     NodeKind,
+    ProductIntentContext,
+    ProductKey,
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
+import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
 import type { marketingAnalyticsSettingsLogicType } from './marketingAnalyticsSettingsLogicType'
 import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
+
+export interface IntegrationSettingsModalState {
+    isOpen: boolean
+    integration: NativeMarketingSource | null
+    initialTab: IntegrationSettingsTab
+    initialUtmValue: string
+}
 
 const createEmptyConfig = (): MarketingAnalyticsConfig => ({
     sources_map: {},
@@ -42,7 +53,7 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSources'],
         ],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        actions: [teamLogic, ['updateCurrentTeam', 'addProductIntent']],
     })),
     actions({
         updateSourceMapping: (
@@ -63,8 +74,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
         removeConversionGoal: (goalId: string) => ({
             goalId,
         }),
-        updateAttributionWindowWeeks: (weeks: number) => ({
-            weeks,
+        updateAttributionWindowDays: (days: number) => ({
+            days,
         }),
         updateAttributionMode: (mode: AttributionMode) => ({
             mode,
@@ -83,6 +94,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             integration,
             campaigns,
         }),
+        openIntegrationSettingsModal: (
+            integration: NativeMarketingSource,
+            initialTab: IntegrationSettingsTab,
+            initialUtmValue: string
+        ) => ({ integration, initialTab, initialUtmValue }),
+        closeIntegrationSettingsModal: true,
     }),
     reducers(({ values }) => ({
         marketingAnalyticsConfig: [
@@ -227,6 +244,28 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                 }),
             },
         ],
+        integrationSettingsModal: [
+            {
+                isOpen: false,
+                integration: null,
+                initialTab: 'mappings',
+                initialUtmValue: '',
+            } as IntegrationSettingsModalState,
+            {
+                openIntegrationSettingsModal: (_, { integration, initialTab, initialUtmValue }) => ({
+                    isOpen: true,
+                    integration,
+                    initialTab,
+                    initialUtmValue,
+                }),
+                closeIntegrationSettingsModal: () => ({
+                    isOpen: false,
+                    integration: null,
+                    initialTab: 'mappings',
+                    initialUtmValue: '',
+                }),
+            },
+        ],
     })),
     selectors({
         sources_map: [
@@ -299,16 +338,32 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
             }
         }
 
+        const trackSourceConfigured = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SOURCE_CONFIGURED,
+            })
+        }
+
+        const trackSettingsUpdated = (): void => {
+            updateCurrentTeam()
+            actions.addProductIntent({
+                product_type: ProductKey.MARKETING_ANALYTICS,
+                intent_context: ProductIntentContext.MARKETING_ANALYTICS_SETTINGS_UPDATED,
+            })
+        }
+
         return {
-            updateSourceMapping: updateCurrentTeam,
-            updateConversionGoals: updateCurrentTeam,
-            addOrUpdateConversionGoal: updateCurrentTeam,
-            removeConversionGoal: updateCurrentTeam,
-            updateAttributionWindowWeeks: updateCurrentTeam,
-            updateAttributionMode: updateCurrentTeam,
-            updateCampaignNameMappings: updateCurrentTeam,
-            updateCustomSourceMappings: updateCurrentTeam,
-            updateCampaignFieldPreferences: updateCurrentTeam,
+            updateSourceMapping: trackSourceConfigured,
+            updateConversionGoals: trackSettingsUpdated,
+            addOrUpdateConversionGoal: trackSettingsUpdated,
+            removeConversionGoal: trackSettingsUpdated,
+            updateAttributionWindowDays: trackSettingsUpdated,
+            updateAttributionMode: trackSettingsUpdated,
+            updateCampaignNameMappings: trackSettingsUpdated,
+            updateCustomSourceMappings: trackSettingsUpdated,
+            updateCampaignFieldPreferences: trackSettingsUpdated,
             loadIntegrationCampaigns: async ({ integration }) => {
                 const fieldInfo = MARKETING_INTEGRATION_FIELD_MAP[integration]
                 if (!fieldInfo) {

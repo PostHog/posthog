@@ -1,4 +1,4 @@
-import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import { FEATURE_FLAGS, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
 
 import {
     HogFunctionConfigurationContextId,
@@ -60,6 +60,13 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+    },
+    'error-tracking-issue-spiking': {
+        sub_template_id: 'error-tracking-issue-spiking',
+        type: 'internal_destination',
+        context_id: 'error-tracking',
+        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        flag: FEATURE_FLAGS.ERROR_TRACKING_SPIKE_ALERTING,
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
@@ -339,7 +346,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },
@@ -356,7 +363,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },
@@ -373,7 +380,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: '{event.properties.description}',
                 },
                 posthog_issue_id: {
-                    value: '{event.properties.distinct_id}',
+                    value: '{event.distinct_id}',
                 },
             },
         },
@@ -448,6 +455,73 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'error-tracking-issue-spiking': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-discord',
+            name: 'Post to Discord on issue spiking',
+            description: 'Posts a message to Discord when an issue is spiking',
+            inputs: {
+                content: {
+                    value: `**📈 Issue spiking**
+                    
+\`\`\`
+{event.properties.name}: {substring(event.properties.description, 1, 1000)}
+\`\`\`
+**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})
+**Project:** [{project.name}]({project.url})
+**Alert:** [{source.name}]({source.url})
+
+[View issue]({project.url}/error_tracking/{event.distinct_id})`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on issue spiking',
+            description: 'Posts a message to Slack when an issue is spiking',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: '📈 Issue spiking' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '```{event.properties.name}: {substring(event.properties.description, 1, 1000)}```',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                {
+                                    type: 'plain_text',
+                                    text: "Exceptions in last 5 minutes: {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})",
+                                },
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                                { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/error_tracking/{event.distinct_id}',
+                                    text: { text: 'View Issue', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: 'Issue spiking: {event.properties.name}',
+                },
+            },
+        },
+    ],
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: [
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
@@ -518,6 +592,7 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
     switch (event) {
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
+        case '$error_tracking_issue_spiking':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'

@@ -20,14 +20,14 @@ from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCal
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
-from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
-from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import ArtifactRefMessage
+from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery, ArtifactRefMessage
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -489,7 +489,9 @@ class InsightSearchNode(AssistantNode):
         return self._insight_id_cache.get(insight_id)
 
     @timing_logger("InsightSearchNode._process_insight_query")
-    async def _process_insight_query(self, insight: InsightDict) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _process_insight_query(
+        self, insight: InsightDict
+    ) -> tuple[AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None, str | None]:
         """
         Process an insight's query and cache object and formatted results for reference
         """
@@ -506,7 +508,9 @@ class InsightSearchNode(AssistantNode):
 
         return self._cache_and_return(insight_id, query_obj, formatted_results)
 
-    def _get_cached_query(self, insight_id: int) -> tuple[SupportedQueryTypes | None, str | None] | None:
+    def _get_cached_query(
+        self, insight_id: int
+    ) -> tuple[AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None, str | None] | None:
         """Get cached query result if available."""
         if insight_id in self._query_cache:
             return self._query_cache[insight_id]
@@ -515,16 +519,18 @@ class InsightSearchNode(AssistantNode):
     def _cache_and_return(
         self,
         insight_id: int,
-        query_obj: SupportedQueryTypes | None,
+        query_obj: AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None,
         formatted_results: str | None,
-    ) -> tuple[SupportedQueryTypes | None, str | None]:
+    ) -> tuple[AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None, str | None]:
         """Cache and return query result."""
         result = (query_obj, formatted_results)
         self._query_cache[insight_id] = result
         return result
 
     @timing_logger("InsightSearchNode._extract_and_execute_query")
-    async def _extract_and_execute_query(self, insight: InsightDict) -> tuple[SupportedQueryTypes | None, str | None]:
+    async def _extract_and_execute_query(
+        self, insight: InsightDict
+    ) -> tuple[AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None, str | None]:
         """Extract query object and execute it."""
         try:
             query_dict = insight["query"]
@@ -545,16 +551,16 @@ class InsightSearchNode(AssistantNode):
             return None, "Query processing failed"
 
     @timing_logger("InsightSearchNode._validate_and_create_query_object")
-    def _validate_and_create_query_object(self, insight_type: str, query_source: dict) -> SupportedQueryTypes | None:
+    def _validate_and_create_query_object(
+        self, insight_type: str, query_source: dict
+    ) -> AnyAssistantGeneratedQuery | AnyPydanticModelQuery | None:
         """Validate query type and create query object."""
-        if insight_type not in SUPPORTED_QUERY_MODEL_BY_KIND:
-            return None
-
-        AssistantQueryModel = SUPPORTED_QUERY_MODEL_BY_KIND[insight_type]
-        return AssistantQueryModel.model_validate(query_source, strict=False)
+        return validate_assistant_query(query_source)
 
     @timing_logger("InsightSearchNode._execute_and_format_query")
-    async def _execute_and_format_query(self, query_obj: SupportedQueryTypes, insight_id: int) -> str:
+    async def _execute_and_format_query(
+        self, query_obj: AnyAssistantGeneratedQuery | AnyPydanticModelQuery, insight_id: int
+    ) -> str:
         """Execute query and format results with timing instrumentation."""
         try:
             query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
@@ -591,7 +597,7 @@ class InsightSearchNode(AssistantNode):
     @timing_logger("InsightSearchNode._create_enhanced_insight_summary")
     async def _create_enhanced_insight_summary(self, insight: InsightDict) -> str:
         """Create enhanced summary with metadata and basic execution info."""
-        insight_id = insight["id"]
+        insight_id = insight["short_id"]
         name = insight["name"] or insight["derived_name"] or "Unnamed"
         description = insight["description"] or ""
 
@@ -822,7 +828,9 @@ class InsightSearchNode(AssistantNode):
             insight_name = insight["name"] or insight["derived_name"] or "Unnamed"
             insight_url = build_insight_url(self._team, insight["short_id"])
             insight_hyperlink = f"[{insight_name}]({insight_url})"
-            explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
+            explanations.append(
+                f"- {insight_hyperlink} (Artifact ID: {insight['short_id']}): {selection['explanation']}"
+            )
 
         num_insights = len(self._evaluation_selections)
 

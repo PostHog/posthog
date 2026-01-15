@@ -28,7 +28,7 @@ from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from ..exporter import EXPORT_ASSET_UNKNOWN_COUNTER, EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
+from ..exporter import EXPORT_TIMER
 from .ordered_csv_renderer import OrderedCsvRenderer
 
 logger = structlog.get_logger(__name__)
@@ -232,6 +232,9 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                     prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
                     if not prop_name:
                         continue
+                    # Convert list property names to string (e.g., HogQL expressions)
+                    if isinstance(prop_name, list):
+                        prop_name = ", ".join(str(p) for p in prop_name)
                     formatted_val = str(val) if val is not None else ""
                     if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
                         formatted_val = BREAKDOWN_OTHER_DISPLAY
@@ -441,15 +444,12 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
 
     try:
         if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-            with EXPORT_TIMER.labels(type="csv").time():
+            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
                 _export_to_csv(exported_asset, limit)
-            EXPORT_SUCCEEDED_COUNTER.labels(type="csv").inc()
         elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-            with EXPORT_TIMER.labels(type="xlsx").time():
+            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
                 _export_to_excel(exported_asset, limit)
-            EXPORT_SUCCEEDED_COUNTER.labels(type="xlsx").inc()
         else:
-            EXPORT_ASSET_UNKNOWN_COUNTER.labels(type="csv").inc()
             raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:
         if exported_asset:
@@ -457,8 +457,6 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         else:
             team_id = "unknown"
 
-        capture_exception(e, additional_properties={"celery_task": "csv_export", "team_id": team_id})
-
+        capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
-        EXPORT_FAILED_COUNTER.labels(type="csv").inc()
         raise

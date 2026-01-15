@@ -158,6 +158,7 @@ class MailjetSourceConfig(config.Config):
 class MetaAdsSourceConfig(config.Config):
     account_id: str
     meta_ads_integration_id: int = config.value(converter=config.str_to_int)
+    sync_lookback_days: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
 
 
 @config.config
@@ -218,7 +219,8 @@ class SalesforceSourceConfig(config.Config):
 @config.config
 class ShopifySourceConfig(config.Config):
     shopify_store_id: str
-    shopify_access_token: str
+    shopify_client_id: str
+    shopify_client_secret: str
 
 
 @config.config

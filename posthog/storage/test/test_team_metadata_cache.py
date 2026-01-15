@@ -2,18 +2,25 @@
 Tests for team metadata HyperCache functionality.
 """
 
+from decimal import Decimal
 from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+from parameterized import parameterized
+
 from posthog.models.team.team import Team
 from posthog.storage.team_metadata_cache import (
     TEAM_METADATA_FIELDS,
+    _serialize_team_field,
     clear_team_metadata_cache,
     get_team_metadata,
     get_teams_with_expiring_caches,
     update_team_metadata_cache,
+    verify_team_metadata,
 )
 from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
@@ -25,7 +32,7 @@ class TestTeamMetadataCache(BaseTest):
     def test_get_and_update_team_metadata(self, mock_hypercache):
         """Test basic cache read and write operations."""
         # Mock the cache to return metadata
-        mock_metadata: dict[str, Any] = {field: None for field in TEAM_METADATA_FIELDS}
+        mock_metadata: dict[str, Any] = dict.fromkeys(TEAM_METADATA_FIELDS)
         mock_metadata.update({"id": self.team.id, "name": self.team.name})
         mock_hypercache.get_from_cache.return_value = mock_metadata
         mock_hypercache.update_cache.return_value = True
@@ -290,3 +297,230 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_caches(ttl_threshold_hours=24)
 
         self.assertEqual(len(result), 0)
+
+
+class TestVerifyTeamMetadata(BaseTest):
+    """Test verify_team_metadata functionality."""
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_ignores_extra_cached_fields(self, mock_get_metadata):
+        """
+        Verify that extra fields in cache (not in TEAM_METADATA_FIELDS) are ignored.
+
+        This allows removing fields from TEAM_METADATA_FIELDS without triggering
+        unnecessary cache fixes for stale fields that remain in cached data.
+        """
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team (what DB would return)
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data that matches DB data but has extra fields
+        cached_data = db_data.copy()
+        cached_data.update(
+            {
+                # Extra fields that might exist in old cached data but are no longer in TEAM_METADATA_FIELDS
+                "removed_field_1": "stale_value",
+                "removed_field_2": {"old": "data"},
+                "updated_at": "2025-01-01T00:00:00Z",  # Common field that might be removed
+                "app_urls": [],  # Another removed field
+            }
+        )
+        mock_get_metadata.return_value = cached_data
+
+        # Verify should report a match since extra fields are ignored
+        result = verify_team_metadata(self.team, verbose=True)
+
+        self.assertEqual(result["status"], "match", f"Expected match but got {result}")
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_detects_mismatch_in_tracked_fields(self, mock_get_metadata):
+        """Verify that mismatches in TEAM_METADATA_FIELDS are still detected."""
+        from posthog.storage.team_metadata_cache import _serialize_team_to_metadata
+
+        # Get the actual serialized data for this team
+        db_data = _serialize_team_to_metadata(self.team)
+
+        # Create cached data with a mismatch in a tracked field
+        cached_data = db_data.copy()
+        cached_data["name"] = "Wrong Name"  # Mismatch in a tracked field
+        mock_get_metadata.return_value = cached_data
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "mismatch")
+        self.assertEqual(result["issue"], "DATA_MISMATCH")
+        self.assertIn("name", result["diff_fields"])
+
+    @patch("posthog.storage.team_metadata_cache.get_team_metadata")
+    def test_verify_returns_miss_when_no_cached_data(self, mock_get_metadata):
+        """Verify returns cache miss when no data is cached."""
+        mock_get_metadata.return_value = None
+
+        result = verify_team_metadata(self.team)
+
+        self.assertEqual(result["status"], "miss")
+        self.assertEqual(result["issue"], "CACHE_MISS")
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
+class TestWarmCachesExpiryTracking(BaseTest):
+    """
+    Test that warm_caches uses the correct identifier for expiry tracking.
+
+    This is a regression test for a bug where warm_caches used team IDs for
+    expiry tracking, but the team_metadata cache is token-based and expects
+    API tokens. This caused a mismatch between cache entries and expiry tracking.
+    """
+
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
+    def test_warm_caches_uses_api_token_for_token_based_cache(self, mock_time, mock_get_client):
+        """
+        Verify that warm_caches uses API token (not team ID) for token-based caches.
+
+        The team_metadata cache is token-based (token_based=True), so expiry
+        tracking should use the API token as the identifier, not the team ID.
+        """
+        from posthog.storage.hypercache_manager import warm_caches
+        from posthog.storage.team_metadata_cache import TEAM_CACHE_EXPIRY_SORTED_SET, TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        mock_time.time.return_value = 1000000
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        # Call warm_caches for this team
+        warm_caches(
+            TEAM_HYPERCACHE_MANAGEMENT_CONFIG,
+            stagger_ttl=False,
+            batch_size=1,
+            team_ids=[self.team.id],
+        )
+
+        # Verify zadd was called with the API TOKEN, not team ID
+        mock_redis.zadd.assert_called()
+        call_args = mock_redis.zadd.call_args
+
+        # First arg is the sorted set key
+        self.assertEqual(call_args[0][0], TEAM_CACHE_EXPIRY_SORTED_SET)
+
+        # Second arg is a dict with identifier -> timestamp
+        # The identifier should be the API token, NOT the team ID
+        identifier_dict = call_args[0][1]
+        self.assertIn(
+            self.team.api_token,
+            identifier_dict,
+            f"Expected API token '{self.team.api_token}' as identifier, "
+            f"but got: {list(identifier_dict.keys())}. "
+            "This indicates warm_caches is using the wrong identifier type for token-based caches.",
+        )
+        self.assertNotIn(
+            str(self.team.id),
+            identifier_dict,
+            f"Found team ID '{self.team.id}' as identifier, but token-based caches should use API tokens.",
+        )
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test", TEST=True)
+class TestTeamMetadataGracePeriod(BaseTest):
+    """Test grace period functionality for team metadata cache verification."""
+
+    def test_recently_updated_team_is_in_skip_set(self):
+        """Test that a recently updated team is included in the skip set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Team was just created, so updated_at is recent
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertIn(self.team.id, result)
+
+    def test_old_team_is_not_in_skip_set(self):
+        """Test that a team updated long ago is not in the skip set."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        # Update the team to have an old updated_at
+        old_time = timezone.now() - timedelta(hours=1)
+        Team.objects.filter(id=self.team.id).update(updated_at=old_time)
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertNotIn(self.team.id, result)
+
+    @override_settings(TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
+    def test_grace_period_disabled_returns_empty(self):
+        """Test that setting grace period to 0 disables the feature."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([self.team.id])
+        self.assertEqual(result, set())
+
+    def test_empty_team_ids_returns_empty(self):
+        """Test that empty input returns empty set."""
+        from posthog.storage.team_metadata_cache import _get_team_ids_with_recently_updated_teams
+
+        result = _get_team_ids_with_recently_updated_teams([])
+        self.assertEqual(result, set())
+
+    def test_config_has_skip_fix_function(self):
+        """Test that the config is wired up with the skip fix function."""
+        from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
+        self.assertIsNotNone(TEAM_HYPERCACHE_MANAGEMENT_CONFIG.get_team_ids_to_skip_fix_fn)
+
+
+class TestSampleRateSerializationForRustCompatibility(BaseTest):
+    """
+    Test that session_recording_sample_rate serialization is compatible with Rust.
+
+    The Rust flags service (session_recording.rs) compares sr.to_string() against "1.00"
+    to decide whether to return null for 100% sampling.
+
+    For the cache path, we store None directly for 100% sampling to avoid precision issues
+    when Rust deserializes floats. For other values, we store strings with fixed precision.
+
+    See: rust/feature-flags/src/handler/session_recording.rs:18 (SAMPLE_RATE_FULL = "1.00")
+    """
+
+    @parameterized.expand(
+        [
+            # 100% sampling should be None (no sampling = record everything)
+            ("100% should serialize to None (no sampling needed)", Decimal("1.00"), None),
+            # Other values should be strings with 2 decimal places for Rust compatibility
+            ("80% should be string with precision", Decimal("0.80"), "0.80"),
+            ("50% should be string with precision", Decimal("0.50"), "0.50"),
+            ("0% should be string '0.00'", Decimal("0.00"), "0.00"),
+            ("None should remain None", None, None),
+        ]
+    )
+    def test_sample_rate_serialization_matches_rust_expectations(
+        self, _name: str, db_value: Decimal | None, expected: str | None
+    ) -> None:
+        """
+        Verify sample rate serialization produces values compatible with Rust.
+
+        - 100% (1.00) should become None so Rust returns null to SDKs
+        - Other values should be strings like "0.80" so Rust can pass them through
+        - None should remain None
+        """
+        result = _serialize_team_field("session_recording_sample_rate", db_value)
+
+        assert result == expected
+
+    def test_sample_rate_schema_prevents_more_than_two_decimal_places(self) -> None:
+        """
+        Verify the DB schema prevents storing values with more than 2 decimal places.
+
+        This is a regression test - our serialization logic relies on the fact that
+        values like 0.996 (which would round to "1.00" as a string) cannot be stored.
+        If this test fails, the serialization logic needs to handle rounding.
+        """
+        from django.core.exceptions import ValidationError
+
+        self.team.session_recording_sample_rate = Decimal("0.996")
+
+        with self.assertRaises(ValidationError) as context:
+            self.team.full_clean()
+
+        self.assertIn("session_recording_sample_rate", str(context.exception))

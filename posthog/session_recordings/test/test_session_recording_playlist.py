@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 
 from django.db import transaction
-from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
@@ -15,9 +14,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog import redis
-from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
@@ -35,9 +36,6 @@ from posthog.settings import (
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
 
-@override_settings(
-    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
-)
 class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -1019,3 +1017,117 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert result["success"] is True
         assert result["added_count"] == 2  # Only new ones counted
         assert result["total_requested"] == 3
+
+
+class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
+    def _create_personal_api_key(self, scopes: list[str], scoped_teams: list[int] | None = None) -> str:
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=scopes,
+            scoped_teams=scoped_teams or [self.team.pk],
+        )
+        return personal_api_key
+
+    @parameterized.expand(
+        [
+            ("list", "", status.HTTP_200_OK),
+            ("retrieve", "/{short_id}", status.HTTP_200_OK),
+            ("recordings", "/{short_id}/recordings", status.HTTP_200_OK),
+        ]
+    )
+    def test_personal_api_key_can_access_read_endpoints(
+        self, _name: str, path_suffix: str, expected_status: int
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        personal_api_key = self._create_personal_api_key(["session_recording_playlist:read"])
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("wrong_scope", ["some_other_scope:read"], None),
+            ("wrong_team", ["session_recording_playlist:read"], "other_team"),
+        ]
+    )
+    def test_personal_api_key_denied_without_correct_scope_or_team(
+        self, _name: str, scopes: list[str], scoped_team: str | None
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        scoped_teams = [other_team.pk] if scoped_team == "other_team" else None
+        personal_api_key = self._create_personal_api_key(scopes, scoped_teams)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recording_playlists",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestSessionRecordingPlaylistTeamIsolation(APIBaseTest):
+    def test_list_only_returns_own_team_playlists(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        SessionRecordingPlaylist.objects.create(
+            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+        )
+        SessionRecordingPlaylist.objects.create(
+            team=self.team, name="my team playlist", created_by=self.user, type="collection"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+        results = [r for r in response.json()["results"] if not r.get("is_synthetic")]
+        assert len(results) == 1
+        assert results[0]["name"] == "my team playlist"
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", "/{short_id}", None),
+            ("update", "patch", "/{short_id}", {"name": "hacked"}),
+            ("recordings", "get", "/{short_id}/recordings", None),
+            ("add_recording", "post", "/{short_id}/recordings/test_session", None),
+        ]
+    )
+    def test_cannot_access_playlist_from_another_team(
+        self, _name: str, method: str, path_suffix: str, data: dict | None
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=other_team, name="other team playlist", created_by=self.user, type="collection"
+        )
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = getattr(self.client, method)(url, data) if data else getattr(self.client, method)(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_cannot_access_playlists_from_different_organization(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="other org team")
+
+        response = self.client.get(f"/api/projects/{other_team.pk}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN

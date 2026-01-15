@@ -1,4 +1,5 @@
 export * from './LogsViewer'
+export * from './LogsViewerCellPopover'
 export * from './LogsViewerRowActions'
 export * from './LogsViewerToolbar'
 export * from './logsViewerLogic'

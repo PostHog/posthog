@@ -22,8 +22,8 @@ import {
     AssistantMessageType,
     AssistantToolCallMessage,
     MultiVisualizationMessage,
-    NotebookUpdateMessage,
 } from '~/queries/schema/schema-assistant-messages'
+import { ArtifactContentType, NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
 import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
@@ -31,6 +31,7 @@ import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOper
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
 import { ToolRegistration } from './max-constants'
+import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
@@ -797,66 +798,6 @@ MaxInstanceWithContextualTools.parameters = {
     },
 }
 
-export const NotebookUpdateComponent: StoryFn = () => {
-    const notebookMessage: NotebookUpdateMessage = {
-        type: AssistantMessageType.Notebook,
-        notebook_id: 'nb_123456',
-        content: {
-            type: 'doc',
-            content: [
-                {
-                    type: 'paragraph',
-                    content: [
-                        {
-                            type: 'text',
-                            text: 'Analysis notebook has been updated with new insights',
-                        },
-                    ],
-                },
-            ],
-        },
-        id: 'notebook-update-message',
-    }
-
-    useStorybookMocks({
-        post: {
-            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                res(
-                    ctx.text(
-                        generateChunk([
-                            'event: conversation',
-                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                            'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Update my analysis notebook' })}`,
-                            'event: message',
-                            `data: ${JSON.stringify(notebookMessage)}`,
-                        ])
-                    )
-                ),
-        },
-    })
-
-    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
-    const { askMax } = useActions(threadLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-    useEffect(() => {
-        if (dataProcessingAccepted) {
-            setTimeout(() => {
-                setConversationId(CONVERSATION_ID)
-                askMax('Update my analysis notebook')
-            }, 0)
-        }
-    }, [dataProcessingAccepted, setConversationId, askMax])
-
-    if (!dataProcessingAccepted) {
-        return <></>
-    }
-
-    return <Template />
-}
-
 export const PlanningComponent: StoryFn = () => {
     // Planning is now derived from AssistantMessage with todo_write tool call
     const planningMessage: AssistantMessage = {
@@ -1007,13 +948,13 @@ export const TaskExecutionComponent: StoryFn = () => {
         tool_calls: [
             {
                 id: 'task_1',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_2',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {
                     commentary: 'Identifying peak usage times and user segments',
@@ -1037,7 +978,7 @@ export const TaskExecutionComponent: StoryFn = () => {
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
@@ -1177,19 +1118,19 @@ export const TaskExecutionWithFailure: StoryFn = () => {
             },
             {
                 id: 'task_3',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_4',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
             {
                 id: 'task_5',
-                name: 'create_and_query_insight',
+                name: 'create_insight',
                 type: 'tool_call',
                 args: {},
             },
@@ -2051,4 +1992,495 @@ ThreadWithMultiQuestionFormNoCustomAnswer.parameters = {
 
 function generateChunk(events: string[]): string {
     return events.map((event) => (event.startsWith('event:') ? `${event}\n` : `${event}\n\n`)).join('')
+}
+
+// Notebook Artifact Stories
+
+export const NotebookArtifactMarkdownOnly: StoryFn = () => {
+    const notebookContent: NotebookArtifactContent = {
+        content_type: ArtifactContentType.Notebook,
+        title: 'User Retention Analysis',
+        blocks: [
+            {
+                type: 'markdown',
+                content:
+                    '## User Retention Analysis\n\nThis notebook contains an analysis of user retention patterns over the last 90 days.',
+            },
+            {
+                type: 'markdown',
+                content:
+                    '### Key Findings\n\n- Day 1 retention: **45%** of users return the next day\n- Week 1 retention: **28%** of users are still active after 7 days\n- Month 1 retention: **15%** of users remain engaged after 30 days',
+            },
+            {
+                type: 'markdown',
+                content:
+                    '### Recommendations\n\n1. Improve onboarding completion rate\n2. Implement mobile-first features\n3. Add engagement features for the 6-9 PM window\n4. Create re-engagement campaigns for users who drop off after day 1',
+            },
+        ],
+    }
+
+    const notebookArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'notebook-markdown-1',
+        source: 'artifact',
+        content: notebookContent,
+        id: 'notebook-artifact-msg-1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a retention analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Create a retention analysis notebook')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const NotebookArtifactWithVisualizations: StoryFn = () => {
+    const notebookContent: NotebookArtifactContent = {
+        content_type: ArtifactContentType.Notebook,
+        title: 'Dashboard Analysis',
+        blocks: [
+            {
+                type: 'markdown',
+                content: '## Dashboard Analysis\n\nAnalyzing key product metrics.',
+            },
+            {
+                type: 'visualization',
+                query: {
+                    kind: 'TrendsQuery',
+                    series: [{ event: '$pageview', name: 'Pageviews' }],
+                    dateRange: { date_from: '-30d' },
+                } as TrendsQuery,
+                title: 'Daily Active Users',
+            },
+            {
+                type: 'markdown',
+                content: 'The chart above shows our daily active users trend. Note the consistent growth pattern.',
+            },
+            {
+                type: 'visualization',
+                query: {
+                    kind: 'FunnelsQuery',
+                    series: [{ event: 'user signed up' }, { event: 'viewed product' }, { event: 'completed purchase' }],
+                } as FunnelsQuery,
+                title: 'Conversion Funnel',
+            },
+        ],
+    }
+
+    const notebookArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'notebook-viz-1',
+        source: 'artifact',
+        content: notebookContent,
+        id: 'notebook-artifact-msg-2',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a dashboard analysis notebook with charts',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Create a dashboard analysis notebook with charts')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const NotebookArtifactMixedContent: StoryFn = () => {
+    const notebookContent: NotebookArtifactContent = {
+        content_type: ArtifactContentType.Notebook,
+        title: 'Complete Product Analysis',
+        blocks: [
+            {
+                type: 'markdown',
+                content:
+                    '# Complete Product Analysis\n\nThis comprehensive notebook covers user behavior, funnel analysis, and session replays.',
+            },
+            {
+                type: 'markdown',
+                content: '## 1. User Engagement Trends',
+            },
+            {
+                type: 'visualization',
+                query: {
+                    kind: 'TrendsQuery',
+                    series: [{ event: '$pageview', name: 'Page Views' }],
+                    dateRange: { date_from: '-30d' },
+                } as TrendsQuery,
+                title: 'User Engagement',
+            },
+            {
+                type: 'markdown',
+                content: '## 2. Conversion Funnel\n\nOur main conversion funnel from signup to purchase:',
+            },
+            {
+                type: 'visualization',
+                query: {
+                    kind: 'FunnelsQuery',
+                    series: [{ event: 'user signed up' }, { event: 'added to cart' }, { event: 'completed purchase' }],
+                } as FunnelsQuery,
+                title: 'Purchase Funnel',
+            },
+            {
+                type: 'markdown',
+                content:
+                    '## 3. User Session Analysis\n\nHere is an example session showing a user completing the checkout flow:',
+            },
+            {
+                type: 'session_replay',
+                session_id: 'session-abc123',
+                timestamp_ms: 1704067200000,
+                title: 'Checkout Flow Example',
+            },
+            {
+                type: 'markdown',
+                content:
+                    '## Conclusions\n\n- User engagement is growing steadily\n- The checkout funnel has a 15% drop-off at the payment step\n- Session replays reveal UX friction in the cart page',
+            },
+        ],
+    }
+
+    const notebookArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'notebook-mixed-1',
+        source: 'artifact',
+        content: notebookContent,
+        id: 'notebook-artifact-msg-3',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive product analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Create a comprehensive product analysis notebook')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
+    const notebookContent: NotebookArtifactContent = {
+        content_type: ArtifactContentType.Notebook,
+        title: 'Analysis with Loading States',
+        blocks: [
+            {
+                type: 'markdown',
+                content: '# Analysis with Loading States\n\nThis notebook demonstrates loading and error states.',
+            },
+            {
+                type: 'visualization',
+                query: {
+                    kind: 'TrendsQuery',
+                    series: [{ event: '$pageview', name: 'Page Views' }],
+                    dateRange: { date_from: '-7d' },
+                } as TrendsQuery,
+                title: 'Successfully Loaded Chart',
+            },
+            {
+                type: 'markdown',
+                content: '## Pending Visualization\n\nThe following chart is still loading:',
+            },
+            {
+                type: 'loading',
+                artifact_id: 'pending-viz-123',
+            },
+            {
+                type: 'markdown',
+                content: '## Missing Visualization\n\nThe following chart could not be found:',
+            },
+            {
+                type: 'error',
+                message: 'Visualization not found: missing-artifact-456',
+                artifact_id: 'missing-artifact-456',
+            },
+            {
+                type: 'markdown',
+                content: '## Conclusions\n\nThis demonstrates how the notebook handles different block states.',
+            },
+        ],
+    }
+
+    const notebookArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'notebook-loading-errors-1',
+        source: 'artifact',
+        content: notebookContent,
+        id: 'notebook-artifact-msg-loading-errors',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me an analysis with loading and error states',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me an analysis with loading and error states')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+// Changelog Stories
+
+const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        title: 'SQL generation',
+        description: 'Max can now write and run SQL queries for you',
+        tag: 'new',
+    },
+    {
+        title: 'Faster responses',
+        description: 'Improved response times by up to 40%',
+        tag: 'improved',
+    },
+    {
+        title: 'Chart editing',
+        description: 'Edit visualization settings directly in conversation',
+        tag: 'beta',
+    },
+]
+
+const SAMPLE_WARNING_ALERT: AlertEntry = {
+    title: 'Service degraded',
+    description: 'Some AI features may be slower than usual',
+    severity: 'warning',
+}
+
+const SAMPLE_OUTAGE_ALERT: AlertEntry = {
+    title: 'Service outage',
+    description: 'AI features are temporarily unavailable. We are working on a fix.',
+    severity: 'error',
+}
+
+export const ChangelogOnly: StoryFn = () => {
+    const { setEntries, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, openChangelog])
+
+    return <Template />
+}
+ChangelogOnly.parameters = {
+    featureFlags: ['posthog-ai-changelog'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsOnly: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsOnly.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageAlert: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageAlert.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MultipleAlerts: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+MultipleAlerts.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }

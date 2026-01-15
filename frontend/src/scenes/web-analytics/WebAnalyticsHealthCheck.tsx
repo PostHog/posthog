@@ -7,9 +7,9 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { ConversionGoalWarning, ProductTab } from './common'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
-    const { statusCheck, conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
+    const { conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
 
-    if (productTab === ProductTab.MARKETING) {
+    if (productTab === ProductTab.MARKETING || productTab === ProductTab.HEALTH) {
         return null
     }
 
@@ -33,10 +33,6 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                     </LemonBanner>
                 )
         }
-    }
-
-    if (!statusCheck) {
-        return null
     }
 
     return null

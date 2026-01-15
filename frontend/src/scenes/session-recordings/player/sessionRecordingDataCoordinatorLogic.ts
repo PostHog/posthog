@@ -5,9 +5,7 @@ import posthog from 'posthog-js'
 
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
 
 import {
     RecordingSegment,
@@ -116,8 +114,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookComments',
                     'sessionNotebookCommentsLoading',
                 ],
-                featureFlagLogic,
-                ['featureFlags'],
             ],
         }
     }),
@@ -148,7 +144,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            actions.loadSnapshotSources()
+            if (props.sessionRecordingId) {
+                actions.loadSnapshotSources()
+            }
             actions.reportUsageIfFullyLoaded()
         },
 
@@ -180,18 +178,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         processSnapshotsAsync: async (_, breakpoint) => {
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
-            const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
-            const enableYielding = processingMode === 'yielding' || processingMode === 'worker_and_yielding'
-            const discardRawSnapshots = !!values.featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
-
             const result = await processAllSnapshots(
                 values.snapshotSources,
                 values.snapshotsBySources,
                 cache.processingCache,
                 values.viewportForTimestamp,
-                props.sessionRecordingId,
-                enableYielding,
-                discardRawSnapshots
+                props.sessionRecordingId
             )
 
             breakpoint()
@@ -360,18 +352,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
                 const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
+                const recordingAgeMs = now().diff(start, 'millisecond')
+
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 }
 

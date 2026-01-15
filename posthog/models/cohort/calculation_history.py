@@ -32,6 +32,12 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
 
     # Error handling
     error = models.TextField(null=True, blank=True, help_text="Error message if calculation failed")
+    error_code = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Error code for categorizing failures (e.g., 'timeout', 'memory_limit'), used for displaying errors to end-users",
+    )
 
     class Meta:
         db_table = "posthog_cohortcalculationhistory"

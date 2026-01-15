@@ -128,6 +128,8 @@ function getConcurrencyController(
             Scene.WebAnalyticsWebVitals,
             Scene.WebAnalyticsPageReports,
             Scene.WebAnalyticsMarketing,
+            Scene.WebAnalyticsHealth,
+            Scene.WebAnalyticsLive,
         ].includes(activeScene as Scene) &&
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIGHER_CONCURRENCY] &&
         !currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
@@ -491,10 +493,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!queryId) {
                         throw new Error('No query ID provided')
                     }
-                    if (!values.featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS]) {
-                        return null
-                    }
-
                     try {
                         const result = await api.queryLog.get(queryId)
                         if (result?.results && result.results.length > 0) {

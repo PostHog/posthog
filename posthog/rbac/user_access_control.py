@@ -3,7 +3,6 @@ from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.contrib.auth.models import AnonymousUser
 from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
@@ -59,8 +58,10 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "survey",
     "experiment",
+    "experiment_saved_metric",
     "web_analytics",
     "activity_log",
+    "logs",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -165,6 +166,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
+    if name == "experimentsavedmetric":
+        return "experiment_saved_metric"
 
     if name not in API_SCOPE_OBJECTS:
         return None
@@ -882,6 +885,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
+        request = self.context.get("request")
+
+        # The user could be anonymous - if so there is no access control to be used
+        if request and request.user.is_anonymous:
+            return None
+
         # NOTE: The user_access_control is typically on the view but in specific cases,
         # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
@@ -890,15 +899,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         elif hasattr(self.context.get("view", None), "user_access_control"):
             # Otherwise from the view (the default case)
             return self.context["view"].user_access_control
-        elif "request" in self.context:
-            user = cast(User | AnonymousUser, self.context["request"].user)
-            # The user could be anonymous - if so there is no access control to be used
-
-            if user.is_anonymous:
-                return None
-
-            user = cast(User, user)
-
+        elif request:
+            user = cast(User, request.user)
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
 
         return None

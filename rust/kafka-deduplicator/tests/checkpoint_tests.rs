@@ -212,7 +212,7 @@ async fn test_unavailable_uploader() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -231,6 +231,7 @@ async fn test_unavailable_uploader() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // The wrapper thread closure that is spawned to run this in
@@ -270,7 +271,7 @@ async fn test_unpopulated_exporter() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -287,6 +288,7 @@ async fn test_unpopulated_exporter() {
         remote_namespace,
         partition.clone(),
         attempt_timestamp,
+        None,
         None,
     );
 
@@ -320,7 +322,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -339,6 +341,7 @@ async fn test_checkpoint_from_plan_with_no_previous_metadata() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // Perform checkpoint without previous metadata
@@ -405,7 +408,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
         s3_bucket: "test-bucket".to_string(),
         s3_key_prefix: "test-prefix".to_string(),
-        aws_region: "us-east-1".to_string(),
+        aws_region: Some("us-east-1".to_string()),
         ..Default::default()
     };
 
@@ -424,6 +427,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.clone(),
         attempt_timestamp,
         exporter.clone(),
+        None,
     );
 
     // Perform checkpoint without previous metadata
@@ -493,6 +497,7 @@ async fn test_checkpoint_from_plan_with_previous_metadata() {
         partition.clone(),
         next_attempt_timestamp,
         exporter.clone(),
+        None,
     );
     let result = worker_next
         .checkpoint_partition(&store, Some(&orig_info.metadata))

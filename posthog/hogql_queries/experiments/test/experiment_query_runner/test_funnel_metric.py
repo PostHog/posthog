@@ -33,7 +33,6 @@ from posthog.schema import (
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import add_query_builder_flag
 from posthog.models.action.action import Action
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -41,13 +40,12 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_funnel_metric(self, name, use_new_query_builder):
+    def test_query_runner_funnel_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -158,10 +156,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
         self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_group_aggregation_funnel_metric(self, name, use_new_query_builder):
+    def test_query_runner_group_aggregation_funnel_metric(self):
         feature_flag = self.create_feature_flag()
         feature_flag.filters["aggregation_group_type_index"] = 0
         feature_flag.save()
@@ -180,7 +177,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         # Create test groups with enough variance for Bayesian testing
@@ -293,161 +290,157 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         )  # failure_count (6 groups don't purchase)
 
     @parameterized.expand(
-        add_query_builder_flag(
+        [
+            ###
+            # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            ###
             [
-                ###
-                # PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-                ###
-                [
-                    "person_id_override_properties_on_events_no_filter",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    None,
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_override_properties_on_events_filter_earlierevent",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    {
-                        "key": "email",
-                        "value": "@earlierevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_override_properties_on_events_filter_laterevent",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    {
-                        "key": "email",
-                        "value": "@laterevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 1,
-                        "test_failure": 12,
-                    },
-                ],
-                ###
-                # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
-                ###
-                [
-                    "person_id_override_properties_joined_no_filter",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                    None,
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_override_properties_joined_filter_earlierevent",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                    {
-                        "key": "email",
-                        "value": "@earlierevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_override_properties_joined_filter_laterevent",
-                    PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                    {
-                        "key": "email",
-                        "value": "@laterevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                ###
-                # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-                ###
-                [
-                    "person_id_no_override_properties_on_events_no_filter",
-                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    None,
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_no_override_properties_on_events_filter_earlierevent",
-                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    {
-                        "key": "email",
-                        "value": "@earlierevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 8,
-                        "test_failure": 5,
-                    },
-                ],
-                [
-                    "person_id_no_override_properties_on_events_filter_laterevent",
-                    PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    {
-                        "key": "email",
-                        "value": "@laterevent.com",
-                        "operator": "not_icontains",
-                        "type": "person",
-                    },
-                    {
-                        "control_success": 8,
-                        "control_failure": 5,
-                        "test_success": 6,
-                        "test_failure": 7,
-                    },
-                ],
-            ]
-        )
+                "person_id_override_properties_on_events_no_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                None,
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_override_properties_on_events_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 1,
+                    "test_failure": 12,
+                },
+            ],
+            ###
+            # PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+            ###
+            [
+                "person_id_override_properties_joined_no_filter",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                None,
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_override_properties_joined_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_override_properties_joined_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            ###
+            # PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ###
+            [
+                "person_id_no_override_properties_on_events_no_filter",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                None,
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_no_override_properties_on_events_filter_earlierevent",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@earlierevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 8,
+                    "test_failure": 5,
+                },
+            ],
+            [
+                "person_id_no_override_properties_on_events_filter_laterevent",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                {
+                    "key": "email",
+                    "value": "@laterevent.com",
+                    "operator": "not_icontains",
+                    "type": "person",
+                },
+                {
+                    "control_success": 8,
+                    "control_failure": 5,
+                    "test_success": 6,
+                    "test_failure": 7,
+                },
+            ],
+        ]
     )
     @snapshot_clickhouse_queries
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_query_runner_with_persons_on_events_mode(
-        self, name, persons_on_events_mode, filters, expected_results, use_new_query_builder
-    ):
+    def test_query_runner_with_persons_on_events_mode(self, name, persons_on_events_mode, filters, expected_results):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2020, 1, 1),
             end_date=datetime(2020, 1, 31),
         )
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
@@ -709,14 +702,13 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_result.number_of_samples - control_result.sum, 6)  # failure_count
         self.assertEqual(test_result.number_of_samples - test_result.sum, 6)  # failure_count
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_conversion_window(self, name, use_new_query_builder):
+    def test_funnel_metric_with_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -821,14 +813,13 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # success_count
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # failure_count
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_custom_conversion_window(self, name, use_new_query_builder):
+    def test_funnel_metric_with_custom_conversion_window(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -946,14 +937,13 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successes within 24h window
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures outside window
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_action(self, name, use_new_query_builder):
+    def test_funnel_metric_with_action(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
 
         ff_property = f"$feature/{feature_flag.key}"
 
@@ -1054,13 +1044,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_duplicate_events(self, name, use_new_query_builder):
+    def test_funnel_metric_duplicate_events(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1166,13 +1155,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_events_out_of_order(self, name, use_new_query_builder):
+    def test_funnel_metric_events_out_of_order(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1277,13 +1265,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_many_steps(self, name, use_new_query_builder):
+    def test_funnel_metric_with_many_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1382,13 +1369,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_step_property_filter(self, name, use_new_query_builder):
+    def test_funnel_metric_with_step_property_filter(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1508,13 +1494,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_multiple_similar_steps(self, name, use_new_query_builder):
+    def test_funnel_metric_with_multiple_similar_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1655,13 +1640,12 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_unordered_steps(self, name, use_new_query_builder):
+    def test_funnel_metric_with_unordered_steps(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1764,14 +1748,13 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
         self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_ordered_vs_unordered_comparison(self, name, use_new_query_builder):
+    def test_funnel_metric_ordered_vs_unordered_comparison(self):
         """Test that ordered and unordered funnels behave differently when events are out of order"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -1956,17 +1939,16 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(unordered_test.sum, 9)  # 5 correct + 4 reverse order (9 with both events)
         self.assertEqual(unordered_test.number_of_samples - unordered_test.sum, 4)  # 4 incomplete (only pageview)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_excludes_different_feature_flags(self, name, use_new_query_builder):
+    def test_funnel_metric_excludes_different_feature_flags(self):
         """Test that users with $feature_flag_called events for different flags are excluded"""
         # Create two different feature flags
         experiment_flag = self.create_feature_flag(key="experiment-flag")
         other_flag = self.create_feature_flag(key="other-flag")
 
         experiment = self.create_experiment(feature_flag=experiment_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         experiment_ff_property = f"$feature/{experiment_flag.key}"
@@ -2146,10 +2128,9 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         # Verify that the 10 users exposed only to other_flag are NOT included
         # Total exposures should be 31 (13 control + 13 test + 5 both), NOT 41 (if other_flag users were included)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_excludes_events_after_experiment_end_date(self, name, use_new_query_builder):
+    def test_funnel_metric_excludes_events_after_experiment_end_date(self):
         """Test that funnel metric events after experiment end_date are excluded from results"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -2157,7 +2138,7 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 2),
             end_date=datetime(2024, 1, 10),
         )
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -2262,19 +2243,17 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("disable_new_query_builder_ordered", False, StepOrderValue.ORDERED),
-            ("enable_new_query_builder_ordered", True, StepOrderValue.ORDERED),
-            ("disable_new_query_builder_unordered", False, StepOrderValue.UNORDERED),
-            ("enable_new_query_builder_unordered", True, StepOrderValue.UNORDERED),
+            ("ordered", StepOrderValue.ORDERED),
+            ("unordered", StepOrderValue.UNORDERED),
         ]
     )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_events_after_exposure(self, name, use_new_query_builder, funnel_order_type):
+    def test_funnel_metric_events_after_exposure(self, name, funnel_order_type):
         """Test that funnel metric events are only counted if they occur AFTER experiment exposure"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"

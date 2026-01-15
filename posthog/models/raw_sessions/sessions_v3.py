@@ -265,7 +265,7 @@ PROPERTIES = f"""
             `gclid` Nullable(String),
             `gad_source` Nullable(String),
             `fbclid` Nullable(String),
-{f',{new_line}'.join([f'            `{ad_id}` Nullable(String)' for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )') as p,
         tupleElement(p, '$current_url') as _current_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
@@ -290,12 +290,12 @@ PROPERTIES = f"""
         tupleElement(p, 'gclid') as _gclid,
         tupleElement(p, 'gad_source') as _gad_source,
         tupleElement(p, 'fbclid') as _fbclid,
-{f',{new_line}'.join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
+{f",{new_line}".join([f"        tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
         CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-{f',{new_line}'.join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            '{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )) AS Map(String, String)) as ad_ids_map,
         CAST(arrayFilter(x -> x IS NOT NULL, [
-{f',{new_line}'.join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+{f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set"""
 
 
@@ -529,34 +529,48 @@ AS
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from events.
+
+    Each shard should call this with its own shard_index to only SELECT events
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(`$session_id_uuid`), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.events",
         ),
     )
 
 
-def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where="TRUE", use_sharded_source=True):
+def RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(where: str, shard_index: int, num_shards: int):
+    """
+    Generates SQL to backfill sessions from session replay events.
+
+    Each shard should call this with its own shard_index to only SELECT recordings
+    that will end up on that shard, then INSERT directly to the local sharded table.
+    """
+    shard_filter = f"modulo(cityHash64(toUInt128(accurateCast(session_id, 'UUID'))), {num_shards}) = {shard_index}"
+    combined_where = f"({where}) AND {shard_filter}"
+
     return """
-INSERT INTO {database}.{writable_table}
+INSERT INTO {database}.{target_table}
 {select_sql}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
-        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        target_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
         select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
-            where=where,
-            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events"
-            if use_sharded_source
-            else f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
+            where=combined_where,
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.session_replay_events",
         ),
     )
 

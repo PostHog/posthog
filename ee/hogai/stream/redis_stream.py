@@ -17,12 +17,13 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantUpdateEvent,
+    SubagentUpdateEvent,
 )
 
 from posthog.redis import get_async_client
 
 from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import AssistantStreamedMessageUnion
+from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -70,7 +71,7 @@ class MessageEvent(BaseModel):
 
 class UpdateEvent(BaseModel):
     type: Literal[AssistantEventType.UPDATE]
-    payload: AssistantUpdateEvent
+    payload: AssistantUpdateEvent | SubagentUpdateEvent
 
 
 class GenerationStatusEvent(BaseModel):
@@ -88,7 +89,14 @@ class StreamStatusEvent(BaseModel):
     payload: StatusPayload
 
 
-StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent
+class ApprovalEvent(BaseModel):
+    type: Literal[AssistantEventType.APPROVAL]
+    payload: ApprovalPayload
+
+
+StreamEventUnion = (
+    ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent | ApprovalEvent
+)
 
 
 class StreamEvent(BaseModel):
@@ -99,6 +107,11 @@ class StreamEvent(BaseModel):
 def get_conversation_stream_key(conversation_id: UUID) -> str:
     """Get the Redis stream key for a conversation."""
     return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}"
+
+
+def get_subagent_stream_key(conversation_id: UUID, tool_call_id: str) -> str:
+    """Get the Redis stream key for a subagent tool execution."""
+    return f"{CONVERSATION_STREAM_PREFIX}{conversation_id}:{tool_call_id}"
 
 
 class ConversationStreamSerializer:
@@ -128,7 +141,11 @@ class ConversationStreamSerializer:
             elif event_type == AssistantEventType.STATUS:
                 return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
             elif event_type == AssistantEventType.UPDATE:
-                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
+                return self._serialize(
+                    self._to_update_event(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+                )
+            elif event_type == AssistantEventType.APPROVAL:
+                return self._serialize(self._to_approval_event(cast(ApprovalPayload, event_data)))
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
 
@@ -137,6 +154,7 @@ class ConversationStreamSerializer:
             return None
 
         return {
+            # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
             self.serialization_key: pickle.dumps(
                 StreamEvent(
                     event=event,
@@ -167,13 +185,20 @@ class ConversationStreamSerializer:
             payload=event,
         )
 
-    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
+    def _to_update_event(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> UpdateEvent:
         return UpdateEvent(
             type=AssistantEventType.UPDATE,
             payload=update,
         )
 
+    def _to_approval_event(self, approval: ApprovalPayload) -> ApprovalEvent:
+        return ApprovalEvent(
+            type=AssistantEventType.APPROVAL,
+            payload=approval,
+        )
+
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
         return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
 
 

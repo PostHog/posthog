@@ -1,16 +1,12 @@
 import re
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from posthog.schema import (
-    ErrorTrackingExplainIssueToolContext,
-    ErrorTrackingIssueFilteringToolOutput,
-    ErrorTrackingIssueImpactToolOutput,
-)
+from posthog.schema import ErrorTrackingIssueFilteringToolOutput, ErrorTrackingIssueImpactToolOutput
 
 from posthog.models import Team, User
 
@@ -25,7 +21,6 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
 from .prompts import (
-    ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT,
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
     ERROR_TRACKING_FILTER_PROPERTIES_PROMPT,
     ERROR_TRACKING_ISSUE_IMPACT_DESCRIPTION_PROMPT,
@@ -46,6 +41,9 @@ class ErrorTrackingIssueFilteringTool(MaxTool):
     description: str = "Update the error tracking issue list, editing search query, property filters, date ranges, assignee and status filters."
     context_prompt_template: str = "Current issue filters are: {current_query}"
     args_schema: type[BaseModel] = UpdateIssueQueryArgs
+
+    def get_required_resource_access(self):
+        return [("error_tracking", "viewer")]
 
     def _run_impl(self, change: str) -> tuple[str, ErrorTrackingIssueFilteringToolOutput]:
         if "current_query" not in self.context:
@@ -188,6 +186,9 @@ class ErrorTrackingIssueImpactTool(MaxTool):
     context_prompt_template: str = "The user wants to find a list of events whose occurrence may be impacted by issues."
     args_schema: type[BaseModel] = IssueImpactQueryArgs
 
+    def get_required_resource_access(self):
+        return [("error_tracking", "viewer")]
+
     async def _arun_impl(self, instructions: str) -> tuple[str, ErrorTrackingIssueImpactToolOutput]:
         graph = ErrorTrackingIssueImpactGraph(team=self._team, user=self._user)
 
@@ -210,67 +211,3 @@ class ErrorTrackingIssueImpactTool(MaxTool):
             except Exception as e:
                 raise ValueError(f"Failed to generate ErrorTrackingIssueImpactToolOutput: {e}")
         return content, events
-
-
-class ErrorTrackingExplainIssueOutput(BaseModel):
-    """Structured output for issue explanation"""
-
-    generic_description: str = Field(description="A comprehensive technical explanation of the root cause")
-    specific_problem: str = Field(description="A detailed summary of exactly how the issue occurs")
-    possible_resolutions: list[str] = Field(
-        description="A list of potential solutions or mitigations to the issue", max_length=3
-    )
-
-
-class ErrorTrackingExplainIssueTool(MaxTool):
-    name: str = "error_tracking_explain_issue"
-    description: str = "Given the stack trace and context of an error tracking issue, provide a summary of the problem and potential resolutions."
-
-    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
-        validated_context = ErrorTrackingExplainIssueToolContext(**self.context)
-
-        analyzed_issue = await self._analyze_issue(validated_context)
-        formatted_explanation = self._format_explanation_for_user(analyzed_issue, validated_context.issue_name)
-
-        user_message = f"Return this content to the user as is, following this format.\n\n{formatted_explanation}"
-
-        return user_message, {}
-
-    async def _analyze_issue(self, context: ErrorTrackingExplainIssueToolContext) -> ErrorTrackingExplainIssueOutput:
-        """Analyze an error tracking issue and generate a summary."""
-        stacktrace = self.context.get("stacktrace")
-
-        if not stacktrace:
-            raise ValueError(f"No stacktrace provided")
-
-        formatted_prompt = ERROR_TRACKING_EXPLAIN_ISSUE_PROMPT.replace("{{{stacktrace}}}", stacktrace)
-
-        llm = MaxChatOpenAI(
-            user=self._user,
-            team=self._team,
-            model="gpt-4.1",
-            temperature=0.1,
-            inject_context=False,
-        ).with_structured_output(ErrorTrackingExplainIssueOutput)
-
-        analysis_result = await llm.ainvoke([{"role": "system", "content": formatted_prompt}])
-
-        # Ensure we return the proper type
-        if isinstance(analysis_result, dict):
-            return ErrorTrackingExplainIssueOutput(**analysis_result)
-        return analysis_result
-
-    def _format_explanation_for_user(self, summary: ErrorTrackingExplainIssueOutput, issue_name: str) -> str:
-        lines = []
-        lines.append(f"### Issue: {issue_name}")
-
-        lines.append(summary.generic_description)
-
-        lines.append("\n#### What's happening?")
-        lines.append(summary.specific_problem)
-
-        lines.append("\n#### How to fix it:")
-        for i, option in enumerate(summary.possible_resolutions, 1):
-            lines.append(f"{i}. {option}")
-
-        return "\n".join(lines)

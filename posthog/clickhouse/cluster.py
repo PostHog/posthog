@@ -150,7 +150,7 @@ class ClickhouseCluster:
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         get_cluster_hosts_fn = lambda client: client.execute(
             """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            SELECT host_address as host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
             FROM clusterAllReplicas(%(name)s, system.clusters)
             WHERE name = %(name)s and is_local
             ORDER BY shard_num, replica_num
@@ -206,6 +206,10 @@ class ClickhouseCluster:
     @property
     def shards(self) -> list[int]:
         return list(self.__shards.keys())
+
+    @property
+    def num_shards(self) -> int:
+        return len(self.__shards)
 
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
@@ -662,7 +666,7 @@ class MutationRunner(abc.ABC):
         hosts within the affected shards.
         """
         if shards is not None:
-            shard_host_mutation_waiters = cluster.map_any_host_in_shards({shard: self for shard in shards})
+            shard_host_mutation_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, self))
         else:
             shard_host_mutation_waiters = cluster.map_one_host_per_shard(self)
 

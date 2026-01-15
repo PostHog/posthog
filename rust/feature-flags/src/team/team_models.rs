@@ -3,8 +3,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
 
-pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: TeamId,
@@ -17,11 +15,14 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
+    pub logs_settings: Option<Json<serde_json::Value>>,
     #[serde(default)]
     pub session_recording_opt_in: bool, // Not nullable in schema, so needs to be handled in deserialization
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
+    pub conversations_enabled: Option<bool>,
+    pub conversations_settings: Option<Json<serde_json::Value>>,
     pub capture_dead_clicks: Option<bool>,
     pub flags_persistence_default: Option<bool>,
     pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres, see https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html#rust_decimal
@@ -39,7 +40,7 @@ pub struct Team {
     pub session_recording_event_trigger_config: Option<Vec<Option<String>>>, // text[] in postgres. NB: this also contains NULL entries along with strings.
     pub session_recording_trigger_match_type_config: Option<String>, // character varying(24) in postgres
     pub recording_domains: Option<Vec<String>>, // character varying(200)[] in postgres
-    #[serde(with = "option_i16_as_i16")]
+    #[serde(default, with = "option_i16_as_i16")]
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,

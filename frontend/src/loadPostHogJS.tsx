@@ -19,6 +19,9 @@ export function loadPostHogJS(): void {
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
             persistence: 'localStorage+cookie',
+            cookie_persisted_properties: [
+                'prod_interest', // posthog.com sets these based on what docs were browsed
+            ],
             bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,

@@ -7,6 +7,7 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
+from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
@@ -16,6 +17,10 @@ from posthog.tasks.alerts.checks import (
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
+from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flags_cache_task,
+    verify_and_fix_team_metadata_cache_task,
+)
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -27,6 +32,7 @@ from posthog.tasks.tasks import (
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
+    clear_expired_sessions,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
     clickhouse_materialize_columns,
@@ -46,7 +52,6 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     refresh_activity_log_fields_cache,
     replay_count_metrics,
-    schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -60,6 +65,8 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
+
+from products.endpoints.backend.tasks import deactivate_stale_materializations
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -191,6 +198,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flags cache expiry tracking cleanup",
     )
 
+    # HyperCache verification - split into separate tasks for independent time budgets
+    # Tasks have 1-hour time limits, so expiry must match
+    # Team metadata cache verification - hourly at minute 20
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="20"),
+        verify_and_fix_team_metadata_cache_task.s(),
+        name="verify and fix team metadata cache",
+        expires_seconds=60 * 60,
+    )
+
+    # Flags cache verification - every 30 minutes
+    # Task takes ~8-10 minutes with 250-team batch size
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/30"),
+        verify_and_fix_flags_cache_task.s(),
+        name="verify and fix flags cache",
+        expires_seconds=30 * 60,
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -252,6 +280,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
+
+    # Clear expired Django sessions daily at 4 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="0"),
+        clear_expired_sessions.s(),
+        name="clear expired sessions",
+    )
 
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
@@ -349,7 +384,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(hour="*/12"),
+        crontab(hour="*", minute="0"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )
@@ -415,8 +450,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-        sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
-
         if playlist_counter_crontab := get_crontab(settings.PLAYLIST_COUNTER_SCHEDULE_CRON):
             sender.add_periodic_task(
                 playlist_counter_crontab,
@@ -462,4 +495,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_surveys_cache.s(),
         name="sync all surveys cache",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="0"),
+        validate_pending_change_requests.s(),
+        name="validate pending change requests",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        expire_old_change_requests.s(),
+        name="expire old change requests",
+    )
+
+    # Deactivate endpoint materializations that haven't been used in 30+ days
+    sender.add_periodic_task(
+        crontab(hour="5", minute="0"),
+        deactivate_stale_materializations.s(),
+        name="deactivate stale endpoint materializations",
     )

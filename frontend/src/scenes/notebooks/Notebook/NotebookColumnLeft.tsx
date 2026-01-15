@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -43,8 +44,13 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
     const { ref } = useValues(logic)
     const offsetRef = useRef<HTMLDivElement>(null)
     const [height, setHeight] = useState(0)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         // Interval to check the relative positions of the node and the offset div
         // updating the height so that it always is inline
         const updateHeight = (): void => {
@@ -61,7 +67,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
         updateHeight()
 
         return () => clearInterval(interval)
-    }, [ref, offsetRef.current, height])
+    }, [ref, offsetRef.current, height, isPageVisible])
 
     return (
         <div

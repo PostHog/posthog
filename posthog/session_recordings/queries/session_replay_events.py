@@ -8,6 +8,7 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
 
@@ -49,6 +50,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = sync_execute(
             """
             SELECT
@@ -140,6 +142,7 @@ class SessionReplayEvents:
                 "now": now,
             },
         )
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
@@ -170,6 +173,7 @@ class SessionReplayEvents:
                 "max_timestamp": max_timestamp,
             },
         )
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return set()
@@ -178,6 +182,7 @@ class SessionReplayEvents:
     @staticmethod
     def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
+        format: Optional[str] = None,
     ) -> LiteralString:
         """
         Helper function to build a query for session metadata, to be able to use
@@ -185,14 +190,15 @@ class SessionReplayEvents:
         """
         query = """
             SELECT
-                any(distinct_id),
+                session_id,
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
                 argMinMerge(first_url) as first_url,
-                sum(click_count),
-                sum(keypress_count),
-                sum(mouse_activity_count),
+                sum(click_count) as click_count,
+                sum(keypress_count) as keypress_count,
+                sum(mouse_activity_count) as mouse_activity_count,
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
@@ -215,11 +221,13 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+            {optional_format_clause}
         """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            )
+            ),
+            optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
 
@@ -269,25 +277,25 @@ class SessionReplayEvents:
             raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
         replay = replay_response[0]
         return RecordingMetadata(
-            distinct_id=replay[0],
-            start_time=replay[1],
-            end_time=replay[2],
-            duration=replay[3],
-            first_url=replay[4],
-            click_count=replay[5],
-            keypress_count=replay[6],
-            mouse_activity_count=replay[7],
-            active_seconds=replay[8],
-            console_log_count=replay[9],
-            console_warn_count=replay[10],
-            console_error_count=replay[11],
-            snapshot_source=replay[12] or "web",
-            block_first_timestamps=replay[13],
-            block_last_timestamps=replay[14],
-            block_urls=replay[15],
-            retention_period_days=replay[16],
-            expiry_time=replay[17],
-            recording_ttl=replay[18],
+            distinct_id=replay[1],
+            start_time=replay[2],
+            end_time=replay[3],
+            duration=replay[4],
+            first_url=replay[5],
+            click_count=replay[6],
+            keypress_count=replay[7],
+            mouse_activity_count=replay[8],
+            active_seconds=replay[9],
+            console_log_count=replay[10],
+            console_warn_count=replay[11],
+            console_error_count=replay[12],
+            snapshot_source=replay[13] or "web",
+            block_first_timestamps=replay[14],
+            block_last_timestamps=replay[15],
+            block_urls=replay[16],
+            retention_period_days=replay[17],
+            expiry_time=replay[18],
+            recording_ttl=replay[19],
         )
 
     def get_metadata(
@@ -297,6 +305,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -334,14 +343,14 @@ class SessionReplayEvents:
         query = f"""
             SELECT
                 session_id,
-                any(distinct_id),
+                any(distinct_id) as distinct_id,
                 min(min_first_timestamp) as start_time,
                 max(max_last_timestamp) as end_time,
                 dateDiff('SECOND', start_time, end_time) as duration,
                 argMinMerge(first_url) as first_url,
-                sum(click_count),
-                sum(keypress_count),
-                sum(mouse_activity_count),
+                sum(click_count) as click_count,
+                sum(keypress_count) as keypress_count,
+                sum(mouse_activity_count) as mouse_activity_count,
                 sum(active_milliseconds)/1000 as active_seconds,
                 sum(console_log_count) as console_log_count,
                 sum(console_warn_count) as console_warn_count,
@@ -365,6 +374,7 @@ class SessionReplayEvents:
             HAVING
                 expiry_time >= %(python_now)s
         """
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -376,12 +386,10 @@ class SessionReplayEvents:
             },
         )
         # Build metadata for each session
-        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        result: dict[str, Optional[RecordingMetadata]] = dict.fromkeys(session_ids)
         for row in replay_response:
-            # Match build_recording_metadata's expected format
             session_id = row[0]
-            session_data = [row[1:]]
-            metadata = self.build_recording_metadata(session_id, session_data)
+            metadata = self.build_recording_metadata(session_id, [row])
             if metadata:
                 result[session_id] = metadata
         return result
@@ -409,6 +417,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -485,6 +494,7 @@ class SessionReplayEvents:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
@@ -627,8 +637,9 @@ def get_person_emails_for_session_ids(
             "max_timestamp": max_timestamp,
         },
     )
+    tag_queries(product=Product.REPLAY, team_id=team_id)
     result = HogQLQueryRunner(team=team, query=query).calculate()
-    email_mapping: dict[str, str | None] = {session_id: None for session_id in session_ids}
+    email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
     if result.results:
         for row in result.results:
             session_id = row[0]
