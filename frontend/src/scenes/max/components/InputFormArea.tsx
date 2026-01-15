@@ -121,7 +121,7 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
                 <div ref={contentRef}>
                     <div
                         key={currentQuestion.id}
-                        className="flex flex-col gap-2 starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none"
+                        className="flex flex-col gap-3 starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none"
                     >
                         <div className="font-medium text-sm">{currentQuestion.question}</div>
                         <OptionSelector
