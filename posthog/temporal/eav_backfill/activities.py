@@ -3,10 +3,11 @@
 import dataclasses
 from typing import Optional
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity
 
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
