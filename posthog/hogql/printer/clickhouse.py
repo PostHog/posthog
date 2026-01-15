@@ -34,6 +34,10 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+# In non-nullable materialized columns, these values are treated as NULL
+MAT_COL_NULL_SENTINELS = ["", "null"]
+
+# We skip nullIf/ifNull wrapping for these columns, to improve performance and help skip index usage
 COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     "mat_$ai_trace_id",
     "mat_$ai_session_id",
@@ -295,7 +299,7 @@ class ClickHousePrinter(HogQLPrinter):
         # Only optimize for non-empty, non-null string constants
         if not isinstance(constant_expr.value, str):
             return None
-        if constant_expr.value == "" or constant_expr.value == "null":
+        if constant_expr.value in MAT_COL_NULL_SENTINELS:
             return None
 
         # Check if this property uses an individually materialized column (not a property group)
@@ -389,7 +393,7 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
             # regular code path handle it, which handles this case
-            if any(ilike_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+            if any(ilike_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
                 return None
 
             if node.op == ast.CompareOperationOp.ILike:
@@ -438,9 +442,9 @@ class ClickHousePrinter(HogQLPrinter):
             return None
 
         materialized_column_sql = str(property_source)
-        pattern_sql = self.visit(pattern_expr)
 
         if property_source.is_nullable:
+            pattern_sql = self.visit(pattern_expr)
             if node.op == ast.CompareOperationOp.Like:
                 # We include IS NOT NULL because we want to return FALSE rather than NULL if the column is NULL,
                 # and prefer this to wrapping in ifNull because it allows skip index usage.
@@ -451,14 +455,78 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
             # regular code path handle it, which handles this case
-            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+            if any(like_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
                 return None
+            pattern_sql = self.visit(pattern_expr)
 
             # For non-nullable columns with non-sentinel patterns, use raw column for performance
             if node.op == ast.CompareOperationOp.Like:
                 return f"like({materialized_column_sql}, {pattern_sql})"
             else:  # NotLike
                 return f"notLike({materialized_column_sql}, {pattern_sql})"
+
+    def _get_optimized_materialized_column_in_operation(self, node: ast.CompareOperation) -> str | None:
+        """
+        Returns an optimized printed expression for IN comparisons involving materialized columns.
+
+        For non-nullable columns with values that could match sentinel values ('', 'null'),
+        we bail out and let the normal code path handle it with proper nullif wrapping.
+
+        For values that cannot match sentinels, we use the raw materialized column directly,
+        enabling skip index optimization (bloom filter).
+        """
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+
+        left_type = resolve_field_type(node.left)
+        if not isinstance(left_type, ast.PropertyType):
+            return None
+
+        if len(left_type.chain) != 1:
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(left_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
+            return None
+
+        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
+            values: list[ast.Constant] = [node.right]
+        elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+            values = []
+            for value in node.right.exprs:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    values.append(value)
+                else:
+                    return None
+        else:
+            return None
+
+        if len(values) == 0:
+            return None
+
+        materialized_column_sql = str(property_source)
+
+        if property_source.is_nullable:
+            values_sql = ", ".join(self.visit(v) for v in values)
+            if node.op == ast.CompareOperationOp.In:
+                # We use transform_null_in=1 which makes it hard to use a skip index with the in() function in ClickHouse.
+                # As a workaround, flip the args and use has() - this is safe because we already excluded NULL
+                return f"and(has([{values_sql}], {materialized_column_sql}), {materialized_column_sql} IS NOT NULL)"
+            else:
+                return f"ifNull(notIn({materialized_column_sql}, tuple({values_sql})), 1)"
+        else:
+            # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
+            for value in values:
+                if value.value in MAT_COL_NULL_SENTINELS:
+                    return None
+            values_sql = ", ".join(self.visit(v) for v in values)
+            if node.op == ast.CompareOperationOp.In:
+                return f"has([{values_sql}], {materialized_column_sql})"
+            else:
+                return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
     def _optimize_in_with_string_values(
         self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
@@ -620,6 +688,8 @@ class ClickHousePrinter(HogQLPrinter):
             return optimized_materialized_ilike
         if optimized_materialized_like := self._get_optimized_materialized_column_like_operation(node):
             return optimized_materialized_like
+        if optimized_materialized_in := self._get_optimized_materialized_column_in_operation(node):
+            return optimized_materialized_in
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         left = self.visit(node.left)

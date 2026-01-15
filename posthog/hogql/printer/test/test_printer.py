@@ -52,7 +52,12 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, get_ngram_lower_index_name, materialize
+from ee.clickhouse.materialized_columns.columns import (
+    get_bloom_filter_index_name,
+    get_minmax_index_name,
+    get_ngram_lower_index_name,
+    materialize,
+)
 
 
 class TestPrinter(BaseTest):
@@ -846,19 +851,19 @@ class TestPrinter(BaseTest):
         )  # if changing this assumption, you'll need to change the printer too
         self._test_property_group_comparison(
             "properties.key in NULL",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, NULL)",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL, NULL, NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, tuple(NULL, NULL, NULL))",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, tuple(NULL, NULL, NULL))",
         )
         self._test_property_group_comparison(
             "properties.key in [NULL, NULL, NULL]",
-            "in(has(events.properties_group_custom, %(hogql_val_1)s) ? events.properties_group_custom[%(hogql_val_1)s] : null, [NULL, NULL, NULL])",
+            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -3527,8 +3532,55 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop like '%null%'",
-                f"ifNull(like(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_1)s), 0)",
-                {"hogql_val_1": "%null%"},
+                f"ifNull(like(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 0)",
+                {"hogql_val_0": "%null%"},
+            )
+
+    def test_materialized_column_in_uses_raw_column_for_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name})",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_not_in_uses_raw_column_for_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not in ('value1', 'value2')",
+                f"notIn(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_in_bails_out_for_sentinel_value_on_non_nullable(self) -> None:
+        # When sentinel values are present, we bail out and let default handling apply nullIf wrapping
+        # Note: default IN handling does not add ifNull wrapper (unlike Eq/Like)
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('null', 'value2')",
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "null", "hogql_val_1": "value2"},
+            )
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('', 'value2')",
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_in_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop in ('value1', 'value2')",
+                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), events.mat_test_prop IS NOT NULL)",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_not_in_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "properties.test_prop not in ('value1', 'value2')",
+                f"ifNull(notIn(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), 1)",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
     @parameterized.expand(
@@ -3643,6 +3695,92 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             not_ilike_matches = {d for (d,) in not_ilike_result.results}
             assert not_ilike_matches == not_ilike_expected, "not_ilike " + str(pattern)
+
+    @parameterized.expand(
+        [
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_bloom_filter", True, True),
+            ("non_nullable_mat_col_with_bloom_filter", False, True),
+        ]
+    )
+    def test_in_and_not_in_optimization_gives_correct_results(self, _, is_nullable, create_bloom_filter_index) -> None:
+        if is_nullable is not None:
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_bloom_filter_index=create_bloom_filter_index
+            )
+            self.addCleanup(cleanup_materialized_columns)
+        else:
+            mat_col = None
+
+        cases: set[str] = {
+            "hello@posthog.com",
+            "Hello@PostHog.com",
+            "other_value",
+            "null",
+            "NULL",
+            "'null'",
+            "contains null in the middle",
+            "null@posthog.com",
+            "",
+            "None",
+        }
+
+        # Map of IN values to (in_expected, in_expected_if_non_nullable). If in_expected_if_non_nullable is None, use in_expected.
+        # Non-nullable mat columns treat '' and 'null' values as NULL.
+        in_values_and_expected: dict[tuple[str, ...], tuple[set[str], set[str] | None]] = {
+            ("hello@posthog.com",): ({"hello@posthog.com"}, None),
+            ("hello@posthog.com", "other_value"): ({"hello@posthog.com", "other_value"}, None),
+            ("null",): ({"null"}, set()),
+            ("NULL",): ({"NULL"}, None),
+            ("null", "NULL"): ({"null", "NULL"}, {"NULL"}),
+            ("",): ({""}, set()),
+            ("hello@posthog.com", "null"): ({"hello@posthog.com", "null"}, {"hello@posthog.com"}),
+            ("hello@posthog.com", ""): ({"hello@posthog.com", ""}, {"hello@posthog.com"}),
+        }
+
+        for case in cases:
+            _create_event(
+                team=self.team,
+                distinct_id=case,
+                event="test_event",
+                properties={"test_prop": case if case != "None" else None},
+            )
+
+        for in_values, (in_expected, in_expected_if_non_nullable) in in_values_and_expected.items():
+            if in_expected_if_non_nullable is not None and (is_nullable is False):
+                in_expected = in_expected_if_non_nullable
+
+            in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
+            in_tuple = ast.Tuple(exprs=in_values_exprs)
+
+            in_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple},
+            )
+            in_matches = {d for (d,) in in_result.results}
+            assert in_matches == in_expected, f"IN {in_values}"
+
+            if mat_col:
+                assert in_result.clickhouse
+                # We can use the bloom filter index if it exists and we didn't need to bail out of the optimisation
+                contains_sentinel = any(v in ("", "null") for v in in_values)
+                should_use_index = create_bloom_filter_index and (is_nullable or not contains_sentinel)
+                index_name = get_bloom_filter_index_name(mat_col.name)
+                index_info = get_index_from_explain(in_result.clickhouse, index_name)
+                did_use_index = bool(index_info)
+                assert should_use_index == did_use_index, f"IN {in_values}: expected index use={should_use_index}"
+
+            not_in_expected = cases.difference(in_expected)
+            not_in_result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop NOT IN {in_values} ORDER BY distinct_id",
+                placeholders={"in_values": in_tuple},
+            )
+            not_in_matches = {d for (d,) in not_in_result.results}
+            assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
 
 
 class TestPrinted(APIBaseTest):
