@@ -174,9 +174,9 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
 
     @property
     def rendering_filter_expr(self) -> ast.Expr:
-        # For INNER JOIN, WHERE is equivalent to JOIN ON but compatible with enable_analyzer=0
         # Logic: if same product and document_type, only match same rendering;
         # if different product or document_type, match all renderings
+        # (we take the best result later, in the final selects group by)
         return ast.Or(
             exprs=[
                 ast.And(
