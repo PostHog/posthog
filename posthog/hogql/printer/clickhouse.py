@@ -34,7 +34,7 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-# In non-nullable materialized columns, these values are treat at NULL
+# In non-nullable materialized columns, these values are treated as NULL
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
 # We skip nullIf/ifNull wrapping for these columns, to improve performance and help skip index usage
