@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -26,6 +27,9 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
     const currentQuestion = questions[currentQuestionIndex]
     const allowCustomAnswer = currentQuestion?.allow_custom_answer !== false
     const isLastQuestion = currentQuestionIndex >= questions.length - 1
+
+    const contentRef = useRef<HTMLDivElement>(null)
+    const { height: contentHeight } = useResizeObserver({ ref: contentRef })
 
     const options: Option[] = useMemo(() => {
         if (!currentQuestion) {
@@ -95,7 +99,6 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
             {questions.length > 1 && (
                 <div className="w-full">
                     <LemonTabs
-                        key={currentQuestion.id}
                         size="xsmall"
                         activeKey={currentQuestionIndex}
                         onChange={handleTabClick}
@@ -110,17 +113,29 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
                     />
                 </div>
             )}
-            <div className="font-medium text-sm">{currentQuestion.question}</div>
-            <OptionSelector
-                key={currentQuestion.id}
-                options={options}
-                onSelect={handleSelect}
-                allowCustom={allowCustomAnswer}
-                customPlaceholder="Type your answer..."
-                onCustomSubmit={handleCustomSubmit}
-                initialCustomValue={customInputs[currentQuestion.id]}
-                selectedValue={answers[currentQuestion.id]}
-            />
+            <div
+                className="overflow-hidden transition-[height] duration-150 motion-reduce:transition-none"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ height: contentHeight }}
+            >
+                <div ref={contentRef}>
+                    <div
+                        key={currentQuestion.id}
+                        className="flex flex-col gap-2 starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none"
+                    >
+                        <div className="font-medium text-sm">{currentQuestion.question}</div>
+                        <OptionSelector
+                            options={options}
+                            onSelect={handleSelect}
+                            allowCustom={allowCustomAnswer}
+                            customPlaceholder="Type your answer..."
+                            onCustomSubmit={handleCustomSubmit}
+                            initialCustomValue={customInputs[currentQuestion.id]}
+                            selectedValue={answers[currentQuestion.id]}
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }
