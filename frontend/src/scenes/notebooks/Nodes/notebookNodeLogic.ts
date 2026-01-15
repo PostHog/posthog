@@ -611,7 +611,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             },
         ],
         dataframePageSize: [
-            DEFAULT_DATAFRAME_PAGE_SIZE,
+            DEFAULT_DATAFRAME_PAGE_SIZE as number,
             {
                 setDataframePageSize: (_, { pageSize }) => pageSize,
             },
