@@ -471,6 +471,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
+    [Scene.SurveyWizard]: {
+        projectBased: true,
+        name: 'Create survey',
+        defaultDocsPath: '/docs/surveys/creating-surveys',
+    },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
@@ -730,8 +735,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
-    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
+    [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
