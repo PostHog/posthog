@@ -27,6 +27,7 @@ from llm_gateway.metrics.prometheus import (
     TOKENS_OUTPUT,
 )
 from llm_gateway.observability import capture_exception
+from llm_gateway.request_context import record_output_tokens
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
@@ -79,8 +80,8 @@ def _record_token_metrics(
 
 def _extract_streaming_usage(
     collected_chunks: list[Any], messages: list[Any], provider: str, model: str, product: str
-) -> None:
-    """Extract and log usage from streaming response chunks."""
+) -> int | None:
+    """Extract and log usage from streaming response chunks. Returns output_tokens if found."""
     if not collected_chunks:
         logger.warning(
             "streaming_usage_missing",
@@ -90,7 +91,7 @@ def _extract_streaming_usage(
             chunk_count=0,
         )
         STREAMING_USAGE_EXTRACTION.labels(provider=provider, status="no_chunks").inc()
-        return
+        return None
 
     is_passthrough = isinstance(collected_chunks[0], bytes)
 
@@ -141,6 +142,8 @@ def _extract_streaming_usage(
             chunk_count=len(collected_chunks),
         )
         STREAMING_USAGE_EXTRACTION.labels(provider=provider, status="missing").inc()
+
+    return output_tokens
 
 
 @dataclass
@@ -319,8 +322,9 @@ async def _handle_streaming_request(
                 product=product,
             ).observe(time.monotonic() - start_time)
 
+            output_tokens: int | None = None
             try:
-                _extract_streaming_usage(
+                output_tokens = _extract_streaming_usage(
                     collected_chunks=collected_chunks,
                     messages=request_data.get("messages", []),
                     provider=provider_config.name,
@@ -337,6 +341,12 @@ async def _handle_streaming_request(
                     chunk_count=len(collected_chunks) if collected_chunks else 0,
                 )
                 STREAMING_USAGE_EXTRACTION.labels(provider=provider_config.name, status="error").inc()
+
+            if output_tokens is not None:
+                try:
+                    await record_output_tokens(output_tokens)
+                except Exception as throttle_error:
+                    logger.error("output_token_recording_failed", error=str(throttle_error))
 
             try:
                 analytics = get_analytics_service()

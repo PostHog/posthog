@@ -3,11 +3,14 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Literal
 
+import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.rate_limiting.model_cost_service import get_model_limits
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
+
+logger = structlog.get_logger(__name__)
 
 LimitKey = Literal["input_tph", "output_tph"]
 
@@ -53,7 +56,23 @@ class TokenThrottle(Throttle):
         limiter = self._get_limiter(context.model)
         key = self._get_cache_key(context)
 
-        if await limiter.consume(key, tokens):
+        remaining_before = await limiter.get_remaining(key)
+        allowed = await limiter.consume(key, tokens)
+        remaining_after = await limiter.get_remaining(key)
+
+        logger.info(
+            "token_throttle_check",
+            throttle=self.scope,
+            token_type=self.token_type,
+            model=context.model,
+            tokens_requested=tokens,
+            limit=limiter.limit,
+            remaining_before=remaining_before,
+            remaining_after=remaining_after,
+            allowed=allowed,
+        )
+
+        if allowed:
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(
@@ -73,13 +92,72 @@ class InputTokenThrottle(TokenThrottle):
 
 
 class OutputTokenThrottle(TokenThrottle):
-    """Base for output token throttles. Checks if current + max_output_tokens exceeds limit."""
+    """Base for output token throttles.
+
+    Pre-request: Checks if max_output_tokens would exceed limit (without consuming).
+    Post-response: Actual output tokens are consumed via record_output_tokens().
+    """
 
     limit_key = "output_tph"
     token_type = "Output"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.max_output_tokens
+
+    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        """Check if max_output_tokens would be allowed (without consuming)."""
+        tokens = self._get_tokens(context)
+        if context.model is None or tokens is None:
+            return ThrottleResult.allow()
+
+        limiter = self._get_limiter(context.model)
+        key = self._get_cache_key(context)
+
+        remaining = await limiter.get_remaining(key)
+        allowed = await limiter.would_allow(key, tokens)
+
+        logger.info(
+            "token_throttle_check",
+            throttle=self.scope,
+            token_type=self.token_type,
+            model=context.model,
+            max_tokens_checked=tokens,
+            limit=limiter.limit,
+            remaining=remaining,
+            allowed=allowed,
+            check_only=True,
+        )
+
+        if allowed:
+            return ThrottleResult.allow()
+
+        return ThrottleResult.deny(
+            detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
+            scope=self.scope,
+        )
+
+    async def record_output_tokens(self, context: ThrottleContext, actual_tokens: int) -> None:
+        """Record actual output tokens after response completes."""
+        if context.model is None:
+            return
+
+        limiter = self._get_limiter(context.model)
+        key = self._get_cache_key(context)
+
+        remaining_before = await limiter.get_remaining(key)
+        await limiter.consume(key, actual_tokens)
+        remaining_after = await limiter.get_remaining(key)
+
+        logger.info(
+            "token_throttle_record",
+            throttle=self.scope,
+            token_type=self.token_type,
+            model=context.model,
+            actual_tokens=actual_tokens,
+            limit=limiter.limit,
+            remaining_before=remaining_before,
+            remaining_after=remaining_after,
+        )
 
 
 class ProductModelInputTokenThrottle(InputTokenThrottle):

@@ -127,6 +127,7 @@ class TestOutputTokenThrottle:
         assert user_throttle.limit_multiplier == 1
 
     async def test_denies_over_limit(self) -> None:
+        """Output throttle checks against max_tokens, records actual tokens post-response."""
         throttle = UserModelOutputTokenThrottle(redis=None)
         limits = get_model_limits("claude-3-5-haiku-20241022")
         fallback_limit = limits["output_tph"] // 10
@@ -135,31 +136,42 @@ class TestOutputTokenThrottle:
             model="claude-3-5-haiku-20241022",
             max_output_tokens=fallback_limit,
         )
+        # First check passes (check-only, doesn't consume)
         result = await throttle.allow_request(context)
         assert result.allowed is True
 
+        # Record actual usage (this consumes tokens)
+        await throttle.record_output_tokens(context, fallback_limit)
+
+        # Now check should fail because we used the full limit
         result = await throttle.allow_request(context)
         assert result.allowed is False
         assert result.scope == "user_model_output_tokens"
 
-    async def test_multiple_concurrent_requests_consume_tokens(self) -> None:
+    async def test_multiple_requests_record_actual_tokens(self) -> None:
+        """Multiple requests record their actual output tokens."""
         throttle = UserModelOutputTokenThrottle(redis=None)
         limits = get_model_limits("claude-3-5-haiku-20241022")
         fallback_limit = limits["output_tph"] // 10
         third = fallback_limit // 3
 
-        ctx1 = make_context(model="claude-3-5-haiku-20241022", max_output_tokens=third)
-        ctx2 = make_context(model="claude-3-5-haiku-20241022", max_output_tokens=third)
-        ctx3 = make_context(model="claude-3-5-haiku-20241022", max_output_tokens=third)
-        ctx4 = make_context(model="claude-3-5-haiku-20241022", max_output_tokens=third)
+        ctx = make_context(model="claude-3-5-haiku-20241022", max_output_tokens=third)
 
-        result = await throttle.allow_request(ctx1)
+        # Check allows (check-only)
+        result = await throttle.allow_request(ctx)
         assert result.allowed is True
-        result = await throttle.allow_request(ctx2)
+        await throttle.record_output_tokens(ctx, third)
+
+        result = await throttle.allow_request(ctx)
         assert result.allowed is True
-        result = await throttle.allow_request(ctx3)
+        await throttle.record_output_tokens(ctx, third)
+
+        result = await throttle.allow_request(ctx)
         assert result.allowed is True
-        result = await throttle.allow_request(ctx4)
+        await throttle.record_output_tokens(ctx, third)
+
+        # Fourth request should fail - we've used 3/3 of the limit
+        result = await throttle.allow_request(ctx)
         assert result.allowed is False
 
     async def test_different_models_have_separate_limits(self) -> None:
@@ -183,6 +195,7 @@ class TestOutputTokenThrottle:
         assert result.allowed is True
 
     async def test_product_and_user_throttles_track_separately(self) -> None:
+        """Product and user throttles have separate buckets."""
         product_throttle = ProductModelOutputTokenThrottle(redis=None)
         user_throttle = UserModelOutputTokenThrottle(redis=None)
 
@@ -197,18 +210,24 @@ class TestOutputTokenThrottle:
             max_output_tokens=user_fallback,
         )
 
+        # Both throttles allow initially (check-only)
         result = await product_throttle.allow_request(ctx)
         assert result.allowed is True
         result = await user_throttle.allow_request(ctx)
         assert result.allowed is True
+
+        # Record tokens to user throttle only (simulating user-scoped consumption)
+        await user_throttle.record_output_tokens(ctx, user_fallback)
 
         ctx2 = make_context(
             user=user,
             model="claude-3-5-haiku-20241022",
             max_output_tokens=1000,
         )
+        # Product throttle still has capacity
         result = await product_throttle.allow_request(ctx2)
         assert result.allowed is True
+        # User throttle is exhausted
         result = await user_throttle.allow_request(ctx2)
         assert result.allowed is False
 
