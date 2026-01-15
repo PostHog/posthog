@@ -72,7 +72,6 @@ CACHE_TIMEOUT_SECONDS = 300
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$")
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
@@ -233,6 +232,46 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     linked_insight_id = serializers.IntegerField(required=False, write_only=True, allow_null=True)
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+
+    def _validate_and_sanitize_link(self, link: str, context: str) -> str:
+        """Validate URL scheme and format, then sanitize HTML. Returns cleaned link."""
+        parsed_url = urlparse(link)
+
+        # Check for unsupported schemes
+        if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
+            raise serializers.ValidationError(
+                f"{context}: Link must use one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+            )
+
+        # Validate mailto links
+        if parsed_url.scheme == "mailto":
+            if not re.match(EMAIL_REGEX, link):
+                raise serializers.ValidationError(f"{context}: Invalid mailto link")
+        # Validate HTTPS URLs
+        elif parsed_url.scheme == "https":
+            if not parsed_url.netloc:
+                raise serializers.ValidationError(f"{context}: Invalid HTTPS URL")
+
+        # Sanitize HTML if present
+        if nh3.is_html(link):
+            return nh3_clean_with_allow_list(link)
+        return link
+
+    def _validate_and_sanitize_choices(self, choices: list, context: str) -> list:
+        """Validate choices are non-empty strings and sanitize HTML. Returns cleaned choices."""
+        cleaned_choices = []
+        for choice in choices:
+            if not isinstance(choice, str):
+                raise serializers.ValidationError(f"{context}: Choices must be strings")
+            if not choice.strip():
+                raise serializers.ValidationError(f"{context}: Choices cannot be empty")
+
+            if nh3.is_html(choice):
+                cleaned_choices.append(nh3_clean_with_allow_list(choice))
+            else:
+                cleaned_choices.append(choice)
+        return cleaned_choices
+
     remove_targeting_flag = serializers.BooleanField(required=False, write_only=True, allow_null=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -349,11 +388,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         cleaned_translations = {}
         for lang_code, translation_data in value.items():
-            if not LANGUAGE_CODE_PATTERN.match(lang_code):
-                raise serializers.ValidationError(
-                    f"Invalid language code '{lang_code}'. Use ISO 639-1 format (e.g., 'es', 'fr') or BCP 47 format (e.g., 'es-MX', 'en-US')"
-                )
-
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
 
@@ -380,9 +414,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         cleaned_translations = {}
 
         for lang_code, translation_data in translations_dict.items():
-            if not LANGUAGE_CODE_PATTERN.match(lang_code):
-                raise serializers.ValidationError(f"Question {question_index}: Invalid language code '{lang_code}'")
-
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(
                     f"Question {question_index}: Translation for '{lang_code}' must be an object"
@@ -509,32 +540,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if choices:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
-                for choice in choices:
-                    if not isinstance(choice, str):
-                        raise serializers.ValidationError("Question choices must be strings")
-                    if not choice.strip():
-                        raise serializers.ValidationError("Question choices cannot be empty")
+                self._validate_and_sanitize_choices(choices, "Question")
 
             link = raw_question.get("link")
             if link:
-                parsed_url = urlparse(link)
-
-                # Check for unsupported schemes
-                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
-                    raise serializers.ValidationError(
-                        f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
-                    )
-
-                # Separate validation for `mailto:` links
-                if parsed_url.scheme == "mailto":
-                    if not re.match(EMAIL_REGEX, link):
-                        raise serializers.ValidationError(
-                            "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
-                        )
-                # HTTPS validation
-                elif parsed_url.scheme == "https":
-                    if not parsed_url.netloc:
-                        raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
+                self._validate_and_sanitize_link(link, "Question")
 
             cleaned_questions.append(cleaned_question)
 
