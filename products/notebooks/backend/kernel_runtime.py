@@ -611,7 +611,7 @@ class KernelRuntimeService:
             "    )\n"
             "    _duckdb_connection.unregister(temp_name)\n"
             "\n"
-            "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 20) -> dict[str, Any] | None:\n"
+            "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 10) -> dict[str, Any] | None:\n"
             "    try:\n"
             "        import pandas as pd\n"
             "    except Exception:\n"
@@ -898,7 +898,7 @@ class KernelRuntimeService:
         variable_name: str,
         *,
         offset: int = 0,
-        limit: int = 20,
+        limit: int = 10,
         timeout: float | None = None,
     ) -> dict[str, Any]:
         if not variable_name.isidentifier():
