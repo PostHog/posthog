@@ -446,6 +446,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             batch_job = serializer.save()
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
-            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow).order_by("-created_at")
+            batch_jobs = HogFlowBatchJob.objects.filter(hog_flow=hog_flow, team=self.team).order_by("-created_at")
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
