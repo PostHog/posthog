@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
+import { MessageInput } from '../Chat/MessageInput'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function NewTicket(): JSX.Element {
-    const { messageSending, message } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setMessage, setView } = useActions(sidepanelTicketsLogic)
+    const { messageSending } = useValues(sidepanelTicketsLogic)
+    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -25,25 +26,13 @@ export function NewTicket(): JSX.Element {
                 Describe what you need help with and our team will get back to you.
             </p>
 
-            <LemonTextArea
+            <MessageInput
+                onSendMessage={sendMessage}
+                messageSending={messageSending}
                 placeholder="What can we help you with?"
-                value={message}
-                onChange={setMessage}
+                buttonText="Submit ticket"
                 minRows={4}
-                disabled={messageSending}
             />
-
-            <LemonButton
-                type="primary"
-                fullWidth
-                center
-                onClick={sendMessage}
-                loading={messageSending}
-                disabled={!message.trim() || messageSending}
-                data-attr="sidebar-submit-new-ticket"
-            >
-                Submit ticket
-            </LemonButton>
         </div>
     )
 }

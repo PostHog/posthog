@@ -6,7 +6,7 @@ import { LemonBadge, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { Ticket } from '../../types'
+import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 export function TicketsList(): JSX.Element {
@@ -48,13 +48,15 @@ export function TicketsList(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-1 mt-2">
-                    {tickets.map((ticket: Ticket) => (
+                    {tickets.map((ticket: ConversationTicket) => (
                         <div
                             key={ticket.id}
                             className={`flex items-center justify-between p-3 rounded border cursor-pointer hover:bg-surface-light transition-colors ${
-                                (ticket.unread_customer_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-white'
+                                (ticket.unread_count ?? 0) > 0 ? 'bg-primary-alt-highlight' : 'bg-white'
                             }`}
-                            onClick={() => setCurrentTicket(ticket)}
+                            onClick={() => {
+                                setCurrentTicket(ticket)
+                            }}
                         >
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 mb-1">
@@ -70,16 +72,16 @@ export function TicketsList(): JSX.Element {
                                     >
                                         {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                                     </LemonTag>
-                                    {(ticket.unread_customer_count ?? 0) > 0 && (
+                                    {(ticket.unread_count ?? 0) > 0 && (
                                         <LemonBadge.Number
-                                            count={ticket.unread_customer_count ?? 0}
+                                            count={ticket.unread_count ?? 0}
                                             size="small"
                                             status="primary"
                                         />
                                     )}
                                 </div>
-                                {ticket.last_message_text && (
-                                    <p className="text-sm text-primary truncate m-0">{ticket.last_message_text}</p>
+                                {ticket.last_message && (
+                                    <p className="text-sm text-primary truncate m-0">{ticket.last_message}</p>
                                 )}
                                 <p className="text-xs text-muted-alt m-0 mt-1">
                                     <TZLabel time={ticket.created_at} />

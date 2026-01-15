@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import type { ChatMessage, SidePanelViewState, Ticket } from '../../types'
+import type { ConversationMessage, ConversationTicket, SidePanelViewState } from '../../types'
 import type { sidepanelTicketsLogicType } from './sidepanelTicketsLogicType'
 
 export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
@@ -16,16 +16,17 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     }),
     actions({
         loadTickets: true,
-        setTickets: (tickets: Ticket[]) => ({ tickets }),
+        setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         loadMessages: (ticketId: string) => ({ ticketId }),
-        setMessages: (messages: ChatMessage[]) => ({ messages }),
+        setMessages: (messages: ConversationMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         markAsRead: (ticketId: string) => ({ ticketId }),
         setMessageSending: (sending: boolean) => ({ sending }),
         setView: (view: SidePanelViewState) => ({ view }),
-        setCurrentTicket: (ticket: Ticket) => ({ ticket }),
+        setCurrentTicket: (ticket: ConversationTicket) => ({ ticket }),
+        sendMessage: (content: string, onSuccess: () => void) => ({ content, onSuccess }),
     }),
     reducers({
         view: [
@@ -35,13 +36,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             },
         ],
         tickets: [
-            [] as Ticket[],
+            [] as ConversationTicket[],
             {
                 setTickets: (_, { tickets }) => tickets,
             },
         ],
         messages: [
-            [] as ChatMessage[],
+            [] as ConversationMessage[],
             {
                 setMessages: (_, { messages }) => messages,
             },
@@ -59,7 +60,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             },
         ],
         currentTicket: [
-            null as Ticket | null,
+            null as ConversationTicket | null,
             {
                 setCurrentTicket: (_, { ticket }) => ticket,
             },
@@ -76,12 +77,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
-        message: [
-            '' as string,
-            {
-                setMessage: (_, { message }) => message,
-            },
-        ],
     }),
     selectors({}),
     listeners(({ actions, values }) => ({
@@ -90,7 +85,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
                 if (response) {
-                    actions.setTickets(response.results as Ticket[])
+                    actions.setTickets(response.results as ConversationTicket[])
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
@@ -101,11 +96,14 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         loadMessages: async ({ ticketId }) => {
+            if (!ticketId) {
+                return
+            }
             actions.setMessagesLoading(true)
             try {
                 const response = await posthog.conversations.getMessages(ticketId)
                 if (response) {
-                    actions.setMessages(response.messages as ChatMessage[])
+                    actions.setMessages(response.messages as ConversationMessage[])
                     actions.setHasMoreMessages(response.has_more)
                 }
             } catch (e) {
@@ -115,8 +113,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessagesLoading(false)
             }
         },
-        sendMessage: async () => {
-            if (!values.message.trim() || values.messageSending) {
+        sendMessage: async ({ content, onSuccess }) => {
+            if (!content.trim() || values.messageSending) {
                 return
             }
             actions.setMessageSending(true)
@@ -124,7 +122,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // If we're in "new" view, force creation of a new ticket
                 const forceNewTicket = values.view === 'new'
 
-                const response = await posthog.conversations.sendMessage(values.message, {}, forceNewTicket)
+                const response = await posthog.conversations.sendMessage(content, {}, forceNewTicket)
                 if (response) {
                     // If we just created a new ticket, set it as current and switch to chat view
                     if (values.view === 'new') {
@@ -134,7 +132,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                             message_count: 1,
                             created_at: response.created_at,
                             unread_customer_count: 0,
-                            last_message_text: values.message,
+                            last_message_text: content,
                             last_message_at: response.created_at,
                         })
                         actions.setView('ticket')
@@ -142,12 +140,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     actions.loadTickets()
                     actions.loadMessages(response.ticket_id)
                     lemonToast.success('Message sent!')
-                    actions.setMessage('') // Clear the message input
+                    onSuccess()
                 }
             } catch (e) {
                 console.error('Failed to send message:', e)
                 lemonToast.error('Failed to send message. Please try again.')
-                // Don't call onSuccess - keep the message in the input
             } finally {
                 actions.setMessageSending(false)
             }
@@ -158,6 +155,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             } catch (e) {
                 console.error('Failed to mark as read:', e)
             }
+        },
+        setCurrentTicket: ({ ticket }: { ticket: ConversationTicket }) => {
+            actions.setView('ticket')
+            actions.loadMessages(ticket.id)
+            actions.markAsRead(ticket.id)
         },
     })),
     subscriptions(({ actions }) => ({

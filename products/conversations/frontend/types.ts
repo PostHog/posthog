@@ -36,6 +36,25 @@ export interface Ticket {
     unread_customer_count: number
 }
 
+export interface ConversationTicket {
+    id: string
+    status: TicketStatus
+    last_message?: string
+    last_message_at?: string
+    message_count: number
+    created_at: string
+    unread_count?: number
+}
+
+export interface ConversationMessage {
+    id: string
+    content: string
+    author_type: MessageAuthorType
+    author_name?: string
+    created_at: string
+    is_private: boolean
+}
+
 export interface MessageAuthor {
     first_name?: string
     last_name?: string
