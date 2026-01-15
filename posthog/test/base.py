@@ -958,6 +958,9 @@ def get_index_from_explain(query: str, index_name: str) -> dict | None:
     explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
     plan_json = json.loads(explain_result[0][0])
 
+    # Uncomment this to debug whether your expected index actually exists
+    # all_indexes = sync_execute(f"SELECT * FROM system.data_skipping_indices;")
+
     def find_indexes(obj):
         """Recursively find all Indexes arrays in the plan."""
         if isinstance(obj, dict):
