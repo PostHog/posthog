@@ -648,11 +648,6 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
-    // # Feed
-    public feed(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('feed')
-    }
-
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -2343,12 +2338,6 @@ const api = {
 
         async delete(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             return new ApiRequest().comment(id, teamId).update({ data: { deleted: true } })
-        },
-    },
-
-    feed: {
-        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
-            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
         },
     },
 
@@ -4164,6 +4153,12 @@ const api = {
         async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
         },
+        async resumeSchedules(viewIds: DataWarehouseSavedQuery['id'][]): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQueries()
+                .withAction('resume_schedules')
+                .create({ data: { view_ids: viewIds } })
+        },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
@@ -5181,6 +5176,22 @@ const api = {
                         onError(new RateLimitError(parseInt(retryAfter, 10)))
                         abortController.abort()
                     }
+                } else if (!response.ok) {
+                    let errorData: any = {}
+                    try {
+                        errorData = await response.json()
+                    } catch {
+                        // If JSON parsing fails, leave errorData empty
+                    }
+                    onError(
+                        new ApiError(
+                            errorData.error || `Request failed with status ${response.status}`,
+                            response.status,
+                            response.headers,
+                            errorData
+                        )
+                    )
+                    abortController.abort()
                 }
             },
             onmessage: onMessage,

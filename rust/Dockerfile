@@ -16,7 +16,8 @@ ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
-RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev -y
+# pkg-config is required for openssl-sys to find system OpenSSL
+RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

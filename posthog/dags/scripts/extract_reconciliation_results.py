@@ -148,6 +148,9 @@ class RunSummary:
     teams_failed: int
     failed_team_ids: list[int]
     team_results: list[TeamResult]
+    persons_processed: int
+    persons_updated: int
+    persons_skipped: int
 
 
 class DagsterCloudClient:
@@ -325,6 +328,9 @@ def extract_run_results(client: DagsterCloudClient, run: dict[str, Any]) -> RunS
     total_teams_count = 0
     total_teams_succeeded = 0
     total_teams_failed = 0
+    total_persons_processed = 0
+    total_persons_updated = 0
+    total_persons_skipped = 0
 
     for step_output in step_outputs:
         step_key = step_output.get("stepKey", "")
@@ -345,13 +351,21 @@ def extract_run_results(client: DagsterCloudClient, run: dict[str, Any]) -> RunS
         if isinstance(teams_results, list):
             for team_result in teams_results:
                 if isinstance(team_result, dict):
+                    persons_processed = team_result.get("persons_processed", 0) or 0
+                    persons_updated = team_result.get("persons_updated", 0) or 0
+                    persons_skipped = team_result.get("persons_skipped", 0) or 0
+
+                    total_persons_processed += persons_processed
+                    total_persons_updated += persons_updated
+                    total_persons_skipped += persons_skipped
+
                     all_team_results.append(
                         TeamResult(
                             team_id=team_result.get("team_id", 0),
                             status=team_result.get("status", "unknown"),
-                            persons_processed=team_result.get("persons_processed", 0),
-                            persons_updated=team_result.get("persons_updated", 0),
-                            persons_skipped=team_result.get("persons_skipped", 0),
+                            persons_processed=persons_processed,
+                            persons_updated=persons_updated,
+                            persons_skipped=persons_skipped,
                             error=team_result.get("error"),
                             run_id=run_id,
                             step_key=step_key,
@@ -369,6 +383,9 @@ def extract_run_results(client: DagsterCloudClient, run: dict[str, Any]) -> RunS
         teams_failed=total_teams_failed,
         failed_team_ids=sorted(set(all_failed_team_ids)),
         team_results=all_team_results,
+        persons_processed=total_persons_processed,
+        persons_updated=total_persons_updated,
+        persons_skipped=total_persons_skipped,
     )
 
 
@@ -405,11 +422,11 @@ def main():
     )
     parser.add_argument(
         "--since",
-        help="Only include runs created after this date/time (ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
+        help="Only include runs created after this date/time in local timezone (format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--until",
-        help="Only include runs created before this date/time (ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
+        help="Only include runs created before this date/time in local timezone (format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--run-id",
@@ -439,7 +456,7 @@ def main():
     client = DagsterCloudClient(args.org, args.deployment, args.token)
 
     def parse_date_arg(value: str, arg_name: str, end_of_day: bool = False) -> float:
-        """Parse a date string to unix timestamp."""
+        """Parse a date string to unix timestamp. Assumes input is in local timezone."""
         for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d"]:
             try:
                 dt = datetime.strptime(value, fmt)
@@ -456,8 +473,7 @@ def main():
     created_before = parse_date_arg(args.until, "--until", end_of_day=True) if args.until else None
 
     all_summaries: list[RunSummary] = []
-    all_failed_team_ids: set[int] = set()
-    all_failed_team_results: list[TeamResult] = []
+    all_team_results_by_id: dict[int, TeamResult] = {}
 
     if args.run_id:
         print(f"Fetching results for run {args.run_id}...")
@@ -500,6 +516,9 @@ def main():
 
         print(f"Found {len(runs_to_process)} runs total")
 
+    # Sort runs by start time (newest first) so we process most recent results first
+    runs_to_process.sort(key=lambda r: r.get("startTime") or 0, reverse=True)
+
     # Process each run
     for i, run in enumerate(runs_to_process, 1):
         run_id = run["runId"]
@@ -508,33 +527,48 @@ def main():
         try:
             summary = extract_run_results(client, run)
             all_summaries.append(summary)
-            all_failed_team_ids.update(summary.failed_team_ids)
 
-            # Collect failed team results
+            # Collect team results, keeping only the first (most recent) result per team
             for result in summary.team_results:
-                if result.status == "failed":
-                    all_failed_team_results.append(result)
+                if result.team_id not in all_team_results_by_id:
+                    all_team_results_by_id[result.team_id] = result
 
         except Exception as e:
             print(f"  Error processing run {run_id}: {e}", file=sys.stderr)
 
+    # Compute deduplicated aggregates (most recent result per team)
+    deduped_results = list(all_team_results_by_id.values())
+    deduped_teams_count = len(deduped_results)
+    deduped_teams_succeeded = sum(1 for r in deduped_results if r.status == "success")
+    deduped_teams_failed = sum(1 for r in deduped_results if r.status == "failed")
+    deduped_persons_processed = sum(r.persons_processed for r in deduped_results)
+    deduped_persons_updated = sum(r.persons_updated for r in deduped_results)
+    deduped_persons_skipped = sum(r.persons_skipped for r in deduped_results)
+    deduped_failed_team_ids = sorted(r.team_id for r in deduped_results if r.status == "failed")
+
+    # Compute raw totals (includes retries)
+    raw_teams_count = sum(s.teams_count for s in all_summaries)
+
     # Print summary
     print("\n" + "=" * 80)
-    print("SUMMARY")
+    print("SUMMARY (deduplicated by team - most recent run per team)")
     print("=" * 80)
 
-    total_teams_processed = sum(s.teams_count for s in all_summaries)
-    total_teams_succeeded = sum(s.teams_succeeded for s in all_summaries)
-    total_teams_failed = sum(s.teams_failed for s in all_summaries)
+    print(f"Unique teams processed: {deduped_teams_count}")
+    print(f"Teams succeeded: {deduped_teams_succeeded}")
+    print(f"Teams failed: {deduped_teams_failed}")
+    print(f"Persons processed: {deduped_persons_processed}")
+    print(f"Persons updated: {deduped_persons_updated}")
+    print(f"Persons skipped: {deduped_persons_skipped}")
 
+    if deduped_failed_team_ids:
+        print(f"\nFailed team IDs: {deduped_failed_team_ids}")
+
+    print("\n" + "-" * 80)
+    print("RAW TOTALS (all runs, includes retries)")
+    print("-" * 80)
     print(f"Runs analyzed: {len(all_summaries)}")
-    print(f"Total teams processed: {total_teams_processed}")
-    print(f"Total teams succeeded: {total_teams_succeeded}")
-    print(f"Total teams failed: {total_teams_failed}")
-    print(f"Unique failed team IDs: {len(all_failed_team_ids)}")
-
-    if all_failed_team_ids:
-        print(f"\nFailed team IDs: {sorted(all_failed_team_ids)}")
+    print(f"Raw team count: {raw_teams_count}")
 
     # Per-run breakdown
     if args.verbose and all_summaries:
@@ -551,24 +585,28 @@ def main():
             print(
                 f"  Teams: {summary.teams_count} total, {summary.teams_succeeded} succeeded, {summary.teams_failed} failed"
             )
+            print(
+                f"  Persons: {summary.persons_processed} processed, {summary.persons_updated} updated, {summary.persons_skipped} skipped"
+            )
 
             if summary.failed_team_ids:
                 print(f"  Failed team IDs: {summary.failed_team_ids}")
 
-    # Show error details for failed teams
-    if args.verbose and all_failed_team_results:
+    # Show error details for failed teams (from deduplicated results)
+    failed_team_results = [r for r in deduped_results if r.status == "failed"]
+    if args.verbose and failed_team_results:
         print("\n" + "-" * 80)
         print("FAILED TEAM DETAILS")
         print("-" * 80)
 
-        for result in all_failed_team_results:
+        for result in failed_team_results:
             print(f"\nTeam {result.team_id}:")
             print(f"  Run: {result.run_id}")
             print(f"  Step: {result.step_key}")
             print(f"  Error: {result.error or 'No error message'}")
 
-    # Export to CSV if requested
-    if args.output_csv and all_failed_team_results:
+    # Export to CSV if requested (uses deduplicated results)
+    if args.output_csv and failed_team_results:
         print(f"\nWriting failed teams to {args.output_csv}...")
         with open(args.output_csv, "w", newline="") as csvfile:
             writer = csv.DictWriter(
@@ -585,7 +623,7 @@ def main():
                 ],
             )
             writer.writeheader()
-            for result in all_failed_team_results:
+            for result in failed_team_results:
                 writer.writerow(
                     {
                         "team_id": result.team_id,
@@ -598,10 +636,10 @@ def main():
                         "persons_skipped": result.persons_skipped,
                     }
                 )
-        print(f"Wrote {len(all_failed_team_results)} failed team records to {args.output_csv}")
+        print(f"Wrote {len(failed_team_results)} failed team records to {args.output_csv}")
 
     # Exit with error code if there were failures
-    if all_failed_team_ids:
+    if deduped_failed_team_ids:
         sys.exit(1)
     sys.exit(0)
 

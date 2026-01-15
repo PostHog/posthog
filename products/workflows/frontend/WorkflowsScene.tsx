@@ -94,10 +94,9 @@ export function WorkflowsScene(): JSX.Element {
     const { currentTab } = useValues(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
+    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
     const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
-    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
 
     if (!hasWorkflowsFeatureFlag) {
         return (
@@ -189,11 +188,7 @@ export function WorkflowsScene(): JSX.Element {
                                         product_type: ProductKey.WORKFLOWS,
                                         intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                     })
-                                    if (canCreateTemplates) {
-                                        showNewWorkflowModal()
-                                    } else {
-                                        createEmptyWorkflow()
-                                    }
+                                    showNewWorkflowModal()
                                 }}
                                 type="primary"
                                 size="small"

@@ -27,7 +27,7 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
     }
 
     return (
-        <div className="flex grow overflow-hidden h-[calc(100vh-var(--scene-layout-header-height))]">
+        <div className="flex grow overflow-hidden h-full">
             <ChatHistoryPanel tabId={tabId} />
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
