@@ -25,16 +25,12 @@ def create_test_app(mock_db_pool: MagicMock) -> FastAPI:
     async def test_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
-        output_throttles = [
-            ProductModelOutputTokenThrottle(redis=None),
-            UserModelOutputTokenThrottle(redis=None),
-        ]
-        app.state.output_throttles = output_throttles
         app.state.throttle_runner = ThrottleRunner(
             throttles=[
                 ProductModelInputTokenThrottle(redis=None),
                 UserModelInputTokenThrottle(redis=None),
-                *output_throttles,
+                ProductModelOutputTokenThrottle(redis=None),
+                UserModelOutputTokenThrottle(redis=None),
             ]
         )
         yield
