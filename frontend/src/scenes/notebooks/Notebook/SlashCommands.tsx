@@ -275,6 +275,23 @@ order by count() desc
             ),
     },
     {
+        title: 'Duck SQL',
+        search: 'duck sql',
+        icon: <IconHogQL color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.DuckSQL,
+                attrs: {
+                    code: '',
+                    returnVariable: 'duck_df',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
+        featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
+    },
+    {
         title: 'Python',
         search: 'python',
         icon: <IconPython color="currentColor" />,

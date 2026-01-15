@@ -29,7 +29,7 @@ import { PythonRunMenu } from './components/PythonRunMenu'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlus, IconX } from '@posthog/icons'
+import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconPlay, IconPlus, IconX } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
@@ -75,6 +75,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         actions,
         nodeId,
         pythonRunLoading,
+        duckSqlRunLoading,
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
@@ -89,6 +90,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         copyToClipboard,
         convertToBacklink,
         runPythonNodeWithMode,
+        runDuckSqlNode,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -146,12 +148,25 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
+    const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
     const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
     const pythonAttributes = attributes as { code?: string; pythonExecutionCodeHash?: number | null }
     const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
     const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
     const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
+    const duckSqlAttributes = attributes as {
+        code?: string
+        duckExecutionCodeHash?: number | null
+        returnVariable?: string
+    }
+    const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
+    const resolvedDuckSqlReturnVariable = duckSqlAttributes.returnVariable?.trim() || 'duck_df'
+    const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${resolvedDuckSqlReturnVariable}`)
+    const duckSqlIsStale = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash !== duckSqlCodeHash
+    const duckSqlIsFresh = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash === duckSqlCodeHash
+    const duckSqlRunIconClass = duckSqlIsFresh ? 'text-success' : duckSqlIsStale ? 'text-danger' : undefined
+    const duckSqlRunTooltip = `Run Duck SQL query.${duckSqlIsStale ? ' Stale.' : ''}`
 
     const menuItems: LemonMenuItems = [
         {
@@ -237,6 +252,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         queued={pythonRunQueued}
                                                         disabledReason={pythonRunDisabledReason}
                                                         onRun={(mode) => void runPythonNodeWithMode({ mode })}
+                                                    />
+                                                ) : null}
+
+                                                {isDuckSqlNode ? (
+                                                    <LemonButton
+                                                        onClick={() => void runDuckSqlNode()}
+                                                        size="small"
+                                                        icon={<IconPlay className={duckSqlRunIconClass} />}
+                                                        loading={duckSqlRunLoading}
+                                                        disabledReason={pythonRunDisabledReason}
+                                                        tooltip={duckSqlRunTooltip}
                                                     />
                                                 ) : null}
 

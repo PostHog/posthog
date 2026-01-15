@@ -22,6 +22,7 @@ import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
@@ -120,6 +121,7 @@ export function Editor(): JSX.Element {
         NotebookNodeBacklink,
         NotebookNodeQuery,
         NotebookNodePython,
+        NotebookNodeDuckSQL,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,

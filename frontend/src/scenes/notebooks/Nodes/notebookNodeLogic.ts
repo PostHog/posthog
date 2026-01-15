@@ -52,6 +52,14 @@ type RunPythonCellParams = {
     setPythonRunLoading: (loading: boolean) => void
 }
 
+type RunDuckSqlCellParams = {
+    notebookId: string
+    code: string
+    returnVariable: string
+    updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
+    setDuckSqlRunLoading: (loading: boolean) => void
+}
+
 const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean => {
     const query = nodeAttributes?.query
     if (!query) {
@@ -61,6 +69,16 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
         return isHogQLQuery(query.source)
     }
     return false
+}
+
+const resolveDuckSqlReturnVariable = (returnVariable: string): string => {
+    return returnVariable.trim() || 'duck_df'
+}
+
+const buildDuckSqlCode = (code: string, returnVariable: string): string => {
+    const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
+    const sqlLiteral = JSON.stringify(code ?? '')
+    return `${resolvedReturnVariable} = duck_execute(${sqlLiteral})\n${resolvedReturnVariable}`
 }
 
 const runPythonCell = async ({
@@ -91,6 +109,39 @@ const runPythonCell = async ({
         return false
     } finally {
         setPythonRunLoading(false)
+    }
+}
+
+const runDuckSqlCell = async ({
+    notebookId,
+    code,
+    returnVariable,
+    updateAttributes,
+    setDuckSqlRunLoading,
+}: RunDuckSqlCellParams): Promise<boolean> => {
+    setDuckSqlRunLoading(true)
+    const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
+    const executionCode = buildDuckSqlCode(code, returnVariable)
+    try {
+        const execution = (await api.notebooks.kernelExecute(notebookId, {
+            code: executionCode,
+            return_variables: true,
+        })) as PythonKernelExecuteResponse
+
+        updateAttributes({
+            duckExecution: buildPythonExecutionResult(execution, [{ name: resolvedReturnVariable, type: 'DataFrame' }]),
+            duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
+        })
+        return true
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to run Duck SQL query.'
+        updateAttributes({
+            duckExecution: buildPythonExecutionError(message, [{ name: resolvedReturnVariable, type: 'DataFrame' }]),
+            duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
+        })
+        return false
+    } finally {
+        setDuckSqlRunLoading(false)
     }
 }
 
@@ -136,6 +187,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         runPythonNodeWithMode: (payload: { mode: PythonRunMode }) => payload,
         setPythonRunLoading: (loading: boolean) => ({ loading }),
         setPythonRunQueued: (queued: boolean) => ({ queued }),
+        runDuckSqlNode: true,
+        setDuckSqlRunLoading: (loading: boolean) => ({ loading }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -209,6 +262,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             false,
             {
                 setPythonRunQueued: (_, { queued }) => queued,
+            },
+        ],
+        duckSqlRunLoading: [
+            false,
+            {
+                setDuckSqlRunLoading: (_, { loading }) => loading,
             },
         ],
     })),
@@ -425,7 +484,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowThis)
             if (
                 props.nodeType === NotebookNodeType.Python ||
-                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))
+                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
+                props.nodeType === NotebookNodeType.DuckSQL
             ) {
                 actions.updateAttributes({ showSettings: shouldShowThis })
             }
@@ -442,7 +502,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 }
                 if (
                     (props.nodeType === NotebookNodeType.Python ||
-                        (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))) &&
+                        (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
+                        props.nodeType === NotebookNodeType.DuckSQL) &&
                     __init.showSettings
                 ) {
                     actions.updateAttributes({ showSettings: true })
@@ -451,7 +512,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
             if (
                 props.nodeType === NotebookNodeType.Python ||
-                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))
+                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes)) ||
+                props.nodeType === NotebookNodeType.DuckSQL
             ) {
                 const shouldShowSettings = values.nodeAttributes.showSettings ?? __init?.showSettings
                 if (typeof shouldShowSettings === 'boolean') {
@@ -519,6 +581,27 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 exportedGlobals: values.exportedGlobals,
                 updateAttributes: actions.updateAttributes,
                 setPythonRunLoading: actions.setPythonRunLoading,
+            })
+        },
+
+        runDuckSqlNode: async () => {
+            if (props.nodeType !== NotebookNodeType.DuckSQL) {
+                return
+            }
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+            const { code = '', returnVariable = 'duck_df' } = values.nodeAttributes as {
+                code?: string
+                returnVariable?: string
+            }
+            await runDuckSqlCell({
+                notebookId: notebook.short_id,
+                code,
+                returnVariable,
+                updateAttributes: actions.updateAttributes,
+                setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
             })
         },
 
