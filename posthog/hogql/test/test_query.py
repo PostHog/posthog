@@ -554,15 +554,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
-            # Reversed join order fails with enable_analyzer=0 due to complex expressions in JOIN ON
-            with self.assertRaises(InternalCHQueryError) as e:
-                execute_hogql_query(
-                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
-                    team=self.team,
-                    pretty=False,
-                )
-            self.assertIn("Unsupported JOIN ON conditions", str(e.exception))
-
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
         with freeze_time("2020-01-10"):
@@ -598,15 +589,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
-
-            # Reversed join order fails with enable_analyzer=0 due to complex expressions in JOIN ON
-            with self.assertRaises(InternalCHQueryError) as e:
-                execute_hogql_query(
-                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
-                    team=self.team,
-                    pretty=False,
-                )
-            self.assertIn("Unsupported JOIN ON conditions", str(e.exception))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_lambdas(self):
@@ -1377,11 +1359,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
-        # With enable_analyzer=0, subqueries in table function arguments aren't constant expressions
-        query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
-        with self.assertRaises(InternalCHQueryError) as ch_err:
-            execute_hogql_query(query, team=self.team)
-        self.assertIn("is not a constant expression", str(ch_err.exception))
+        query = "SELECT number from numbers(2 + 2)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(0,), (1,), (2,), (3,)])
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)
