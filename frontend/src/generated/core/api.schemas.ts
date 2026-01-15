@@ -2944,6 +2944,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2952,6 +2953,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
