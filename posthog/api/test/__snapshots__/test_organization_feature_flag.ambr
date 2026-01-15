@@ -581,7 +581,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.23
   '''
-<<<<<<< HEAD
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -671,26 +670,6 @@
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."primary_dashboard_id" = 99999
-=======
-  SELECT "posthog_dashboardtile"."id",
-         "posthog_dashboardtile"."dashboard_id",
-         "posthog_dashboardtile"."insight_id",
-         "posthog_dashboardtile"."text_id",
-         "posthog_dashboardtile"."layouts",
-         "posthog_dashboardtile"."color",
-         "posthog_dashboardtile"."filters_hash",
-         "posthog_dashboardtile"."last_refresh",
-         "posthog_dashboardtile"."refreshing",
-         "posthog_dashboardtile"."refresh_attempt",
-         "posthog_dashboardtile"."filters_overrides",
-         "posthog_dashboardtile"."deleted"
-  FROM "posthog_dashboardtile"
-  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
-  WHERE (NOT ("posthog_dashboardtile"."deleted"
-              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
-         AND NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboardtile"."dashboard_id" = 99999)
->>>>>>> master
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.24
@@ -1520,7 +1499,6 @@
   LIMIT 21
   '''
 # ---
-<<<<<<< HEAD
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.37
   '''
   SELECT "posthog_team"."id",
@@ -1651,8 +1629,6 @@
   LIMIT 21
   '''
 # ---
-=======
->>>>>>> master
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.39
   '''
   SELECT "posthog_team"."id",
@@ -1781,7 +1757,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.40
   '''
-<<<<<<< HEAD
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1895,8 +1870,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.42
   '''
-=======
->>>>>>> master
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -3057,7 +3030,6 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.8
   '''
-<<<<<<< HEAD
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3149,47 +3121,6 @@
   WHERE "posthog_team"."project_id" = 99999
   ORDER BY "posthog_team"."id" ASC
   LIMIT 1
-=======
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 99999
->>>>>>> master
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.9
@@ -3365,7 +3296,6 @@
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.5
   '''
   SELECT "posthog_team"."id",
-<<<<<<< HEAD
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
          "posthog_team"."parent_team_id",
@@ -3452,16 +3382,6 @@
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."business_model"
-=======
-         "posthog_team"."organization_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
-  '''
-# ---
-# name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.6
-  '''
-  SELECT "posthog_team"."id"
->>>>>>> master
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
