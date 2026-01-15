@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { ZendeskSourceSetupPrompt } from 'scenes/data-pipelines/ZendeskSourceSetupPrompt'
 
 import { Query } from '~/queries/Query/Query'
@@ -27,7 +27,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
     const { status, priority, orderBy, orderDirection } = useValues(zendeskTicketsFiltersLogic({ logicKey: nodeId }))
     const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMenuItems([
             {
                 label: 'Remove',
@@ -36,7 +36,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeZendeskTicketsA
                 status: 'danger',
             },
         ])
-    }, [removeNode, setMenuItems])
+    })
 
     const query = personId
         ? zendeskPersonTicketsQuery({ personId, status, priority, orderBy, orderDirection })

@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 import { personLogic } from 'scenes/persons/personLogic'
 
@@ -58,7 +58,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
     const logic = personLogic({ id, distinctId })
     const { person, personLoading } = useValues(logic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMenuItems([
             {
                 label: 'Remove',
@@ -67,7 +67,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonFeedAttri
                 status: 'danger',
             },
         ])
-    }, [removeNode, setMenuItems])
+    })
 
     if (!expanded) {
         return null

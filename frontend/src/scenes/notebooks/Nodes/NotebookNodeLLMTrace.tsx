@@ -1,9 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -43,7 +43,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
     const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMenuItems([
             {
                 label: 'Remove',
@@ -52,7 +52,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
                 status: 'danger',
             },
         ])
-    }, [removeNode, setMenuItems])
+    })
 
     if (!expanded) {
         return null

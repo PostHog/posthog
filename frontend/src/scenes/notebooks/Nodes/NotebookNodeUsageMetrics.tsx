@@ -1,9 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { IconPlusSmall, IconRefresh, IconX } from '@posthog/icons'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
@@ -49,7 +49,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
     const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setActions([
             {
                 text: 'Add metric',
@@ -81,7 +81,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 status: 'danger',
             },
         ])
-    }, [removeNode, setActions, setMenuItems, loadData, openModal])
+    })
 
     if (!expanded) {
         return null

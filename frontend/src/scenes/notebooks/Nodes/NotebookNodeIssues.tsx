@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { Query } from '~/queries/Query/Query'
@@ -43,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     const logicKey = getLogicKey({ tabId, personId, groupKey })
     const { removeNode } = useActions(customerProfileLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMenuItems([
             {
                 label: 'Remove',
@@ -52,7 +53,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
                 status: 'danger',
             },
         ])
-    }, [removeNode, setMenuItems])
+    })
 
     if (!expanded) {
         return null
