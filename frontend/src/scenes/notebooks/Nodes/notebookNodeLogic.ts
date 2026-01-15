@@ -32,7 +32,7 @@ import {
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
-import { resolveDuckSqlReturnVariable } from './notebookNodeContent'
+import { getUniqueDuckSqlReturnVariable, resolveDuckSqlReturnVariable } from './notebookNodeContent'
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import {
@@ -346,8 +346,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (duckSqlNodeSummaries, nodeId) => duckSqlNodeSummaries.findIndex((node) => node.nodeId === nodeId),
         ],
         duckSqlReturnVariable: [
-            (s) => [s.nodeAttributes],
-            (nodeAttributes): string => resolveDuckSqlReturnVariable(nodeAttributes.returnVariable ?? ''),
+            (s) => [s.duckSqlNodeSummaries, s.nodeId, s.nodeAttributes],
+            (duckSqlNodeSummaries, nodeId, nodeAttributes): string =>
+                getUniqueDuckSqlReturnVariable(duckSqlNodeSummaries, nodeId, nodeAttributes.returnVariable ?? ''),
         ],
         duckSqlTablesUsed: [
             (s) => [s.dependencyGraph, s.nodeId],
@@ -547,6 +548,20 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowSettings)
                 }
             }
+            if (props.nodeType === NotebookNodeType.DuckSQL) {
+                const currentReturnVariable =
+                    typeof values.nodeAttributes.returnVariable === 'string'
+                        ? values.nodeAttributes.returnVariable
+                        : 'duck_df'
+                const uniqueReturnVariable = getUniqueDuckSqlReturnVariable(
+                    values.duckSqlNodeSummaries,
+                    values.nodeId,
+                    currentReturnVariable
+                )
+                if (uniqueReturnVariable !== resolveDuckSqlReturnVariable(currentReturnVariable)) {
+                    actions.updateAttributes({ returnVariable: uniqueReturnVariable })
+                }
+            }
         },
 
         copyToClipboard: async () => {
@@ -623,10 +638,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 code?: string
                 returnVariable?: string
             }
+            const resolvedReturnVariable = getUniqueDuckSqlReturnVariable(
+                values.duckSqlNodeSummaries,
+                values.nodeId,
+                returnVariable
+            )
             await runDuckSqlCell({
                 notebookId: notebook.short_id,
                 code,
-                returnVariable,
+                returnVariable: resolvedReturnVariable,
                 updateAttributes: actions.updateAttributes,
                 setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
             })
@@ -672,7 +692,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     nodeLogic.actions.setDuckSqlRunQueued(false)
                     const nodeAttributes = nodeLogic.values.nodeAttributes as { code?: string; returnVariable?: string }
                     const nodeCode = nodeAttributes.code ?? node.code ?? ''
-                    const nodeReturnVariable = nodeAttributes.returnVariable ?? node.returnVariable ?? 'duck_df'
+                    const nodeReturnVariable = getUniqueDuckSqlReturnVariable(
+                        values.duckSqlNodeSummaries,
+                        node.nodeId,
+                        nodeAttributes.returnVariable ?? node.returnVariable ?? 'duck_df'
+                    )
                     const executed = await runDuckSqlCell({
                         notebookId: notebook.short_id,
                         code: nodeCode,

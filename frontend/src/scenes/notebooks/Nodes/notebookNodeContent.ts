@@ -105,6 +105,49 @@ export const resolveDuckSqlReturnVariable = (returnVariable: string): string => 
     return returnVariable.trim() || 'duck_df'
 }
 
+const buildUniqueDuckSqlReturnVariable = (baseReturnVariable: string, used: Set<string>): string => {
+    const normalizedBase = normalizeDuckSqlIdentifier(baseReturnVariable)
+    if (!used.has(normalizedBase)) {
+        return baseReturnVariable
+    }
+
+    let suffix = 2
+    while (true) {
+        const candidate = `${baseReturnVariable}_${suffix}`
+        if (!used.has(normalizeDuckSqlIdentifier(candidate))) {
+            return candidate
+        }
+        suffix += 1
+    }
+}
+
+export const getUniqueDuckSqlReturnVariable = (
+    nodes: DuckSqlNodeSummary[],
+    nodeId: string,
+    fallbackReturnVariable: string
+): string => {
+    const used = new Set<string>()
+    let resolvedReturnVariable = resolveDuckSqlReturnVariable(fallbackReturnVariable)
+    let resolvedFromNodes = false
+
+    nodes.forEach((node) => {
+        const baseReturnVariable = resolveDuckSqlReturnVariable(node.returnVariable)
+        const uniqueReturnVariable = buildUniqueDuckSqlReturnVariable(baseReturnVariable, used)
+        used.add(normalizeDuckSqlIdentifier(uniqueReturnVariable))
+
+        if (node.nodeId === nodeId) {
+            resolvedReturnVariable = uniqueReturnVariable
+            resolvedFromNodes = true
+        }
+    })
+
+    if (!resolvedFromNodes) {
+        resolvedReturnVariable = buildUniqueDuckSqlReturnVariable(resolvedReturnVariable, used)
+    }
+
+    return resolvedReturnVariable
+}
+
 export const collectPythonNodes = (content?: JSONContent | null): PythonNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -141,6 +184,7 @@ export const collectDuckSqlNodes = (content?: JSONContent | null): DuckSqlNodeSu
     }
 
     const nodes: DuckSqlNodeSummary[] = []
+    const usedReturnVariables = new Set<string>()
 
     const walk = (node: any): void => {
         if (!node || typeof node !== 'object') {
@@ -149,9 +193,11 @@ export const collectDuckSqlNodes = (content?: JSONContent | null): DuckSqlNodeSu
         if (node.type === NotebookNodeType.DuckSQL) {
             const attrs = node.attrs ?? {}
             const code = typeof attrs.code === 'string' ? attrs.code : ''
-            const returnVariable = resolveDuckSqlReturnVariable(
+            const baseReturnVariable = resolveDuckSqlReturnVariable(
                 typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'duck_df'
             )
+            const returnVariable = buildUniqueDuckSqlReturnVariable(baseReturnVariable, usedReturnVariables)
+            usedReturnVariables.add(normalizeDuckSqlIdentifier(returnVariable))
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 code,
@@ -199,6 +245,7 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
     const nodes: NotebookDependencyNode[] = []
     let pythonIndex = 0
     let duckSqlIndex = 0
+    const usedDuckSqlReturnVariables = new Set<string>()
 
     const walk = (node: any): void => {
         if (!node || typeof node !== 'object') {
@@ -224,9 +271,11 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
         if (node.type === NotebookNodeType.DuckSQL) {
             const attrs = node.attrs ?? {}
             duckSqlIndex += 1
-            const returnVariable = resolveDuckSqlReturnVariable(
+            const baseReturnVariable = resolveDuckSqlReturnVariable(
                 typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'duck_df'
             )
+            const returnVariable = buildUniqueDuckSqlReturnVariable(baseReturnVariable, usedDuckSqlReturnVariables)
+            usedDuckSqlReturnVariables.add(normalizeDuckSqlIdentifier(returnVariable))
             const code = typeof attrs.code === 'string' ? attrs.code : ''
             nodes.push({
                 nodeId: attrs.nodeId ?? '',

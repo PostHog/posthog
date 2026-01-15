@@ -81,6 +81,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         pythonRunQueued,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
+        duckSqlReturnVariable,
     } = useValues(nodeLogic)
     const {
         setRef,
@@ -163,8 +164,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         returnVariable?: string
     }
     const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
-    const resolvedDuckSqlReturnVariable = duckSqlAttributes.returnVariable?.trim() || 'duck_df'
-    const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${resolvedDuckSqlReturnVariable}`)
+    const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${duckSqlReturnVariable}`)
     const duckSqlIsStale = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash !== duckSqlCodeHash
     const duckSqlIsFresh = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash === duckSqlCodeHash
     const menuItems: LemonMenuItems = [
