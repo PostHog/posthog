@@ -1,8 +1,7 @@
 import './KeyboardShortcut.scss'
 
-import clsx from 'clsx'
-
 import { isMac, isMobile } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { HotKeyOrModifier } from '~/types'
 
@@ -29,9 +28,16 @@ export interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, 
     className?: string
     /** If true, keys are displayed in the order they're passed instead of sorted */
     preserveOrder?: boolean
+    /** If true, the keyboard shortcut is displayed in a minimal style */
+    minimal?: boolean
 }
 
-export function KeyboardShortcut({ className, preserveOrder, ...keys }: KeyboardShortcutProps): JSX.Element | null {
+export function KeyboardShortcut({
+    className,
+    preserveOrder,
+    minimal,
+    ...keys
+}: KeyboardShortcutProps): JSX.Element | null {
     const keyList = Object.keys(keys) as HotKeyOrModifier[]
 
     const sortedKeys = preserveOrder
@@ -62,7 +68,13 @@ export function KeyboardShortcut({ className, preserveOrder, ...keys }: Keyboard
     }
 
     return (
-        <kbd className={clsx('KeyboardShortcut gap-x-0.5', className)}>
+        <kbd
+            className={cn(
+                'KeyboardShortcut gap-x-0.5',
+                minimal && 'bg-transparent border-none text-tertiary dark:text-secondary opacity-75',
+                className
+            )}
+        >
             {sortedKeys.map((key) => (
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}

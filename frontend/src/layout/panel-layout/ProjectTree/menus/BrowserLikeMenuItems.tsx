@@ -7,13 +7,15 @@ import { CustomMenuProps } from '../types'
 
 interface BrowserLikeMenuProps extends CustomMenuProps {
     href: string
-    resetPanelLayout: (animate: boolean) => void
+    resetPanelLayout?: (animate: boolean) => void
+    onClick?: () => void
 }
 
 export function BrowserLikeMenuItems({
     MenuItem = DropdownMenuItem,
     href,
     resetPanelLayout,
+    onClick,
 }: BrowserLikeMenuProps): JSX.Element {
     return (
         <>
@@ -22,7 +24,8 @@ export function BrowserLikeMenuItems({
                 onClick={(e) => {
                     e.stopPropagation()
                     newInternalTab(href)
-                    resetPanelLayout(false)
+                    resetPanelLayout?.(false)
+                    onClick?.()
                 }}
                 data-attr="tree-item-menu-open-link-button"
             >
@@ -33,6 +36,7 @@ export function BrowserLikeMenuItems({
                 onClick={(e) => {
                     e.stopPropagation()
                     window.open(href, '_blank')
+                    onClick?.()
                 }}
                 data-attr="tree-item-menu-open-link-button"
             >
