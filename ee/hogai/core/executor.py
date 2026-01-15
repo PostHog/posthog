@@ -213,6 +213,8 @@ class AgentExecutor:
 
         # Cancel any running subagent workflows for this conversation
         await self._cancel_subagent_workflows(client)
+        # Cancel any queued message workflows for this conversation
+        await self._cancel_queue_workflows(client)
 
         await self._redis_stream.delete_stream()
 
@@ -248,6 +250,30 @@ class AgentExecutor:
             # Log but don't fail the main cancellation if listing subagents fails
             logger.warning(
                 "Failed to list subagent workflows for cancellation",
+                conversation_id=str(self._conversation.id),
+                error=str(e),
+            )
+
+    async def _cancel_queue_workflows(self, client) -> None:
+        """Cancel all running queued message workflows for this conversation."""
+        queue_prefix = f"conversation-{self._conversation.id}-queued-"
+        query = f'WorkflowId STARTS_WITH "{queue_prefix}" AND ExecutionStatus = "Running"'
+
+        try:
+            async for workflow in client.list_workflows(query=query):
+                try:
+                    queue_handle = client.get_workflow_handle(workflow_id=workflow.id)
+                    await queue_handle.cancel()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to cancel queued workflow",
+                        workflow_id=workflow.id,
+                        conversation_id=str(self._conversation.id),
+                        error=str(e),
+                    )
+        except Exception as e:
+            logger.warning(
+                "Failed to list queued workflows for cancellation",
                 conversation_id=str(self._conversation.id),
                 error=str(e),
             )
