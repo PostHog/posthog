@@ -271,11 +271,11 @@ def get_minmax_index_name(column: str) -> str:
 
 
 def get_bloom_filter_index_name(column: str) -> str:
-    return f"bf_{column}"
+    return f"bloom_filter_{column}"
 
 
 def get_ngram_lower_index_name(column: str) -> str:
-    return f"ngram_lower_{column}"
+    return f"ngram_bf_lower_{column}"
 
 
 @dataclass
