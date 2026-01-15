@@ -20,7 +20,8 @@ import {
 import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
-import { keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
+import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
@@ -39,6 +40,7 @@ import {
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { formatConversationDate } from 'scenes/max/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -57,7 +59,6 @@ import { ActivityTab, ConversationDetail, ConversationStatus } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
-import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { BrowserLikeMenuItems } from './ProjectTree/menus/BrowserLikeMenuItems'
 
@@ -128,6 +129,16 @@ function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const [open, setOpen] = useState(false)
 
+    useAppShortcut({
+        name: 'open-all-apps-menu',
+        keybind: [keyBinds.allApps],
+        intent: 'Open all apps menu',
+        interaction: 'function',
+        callback: () => {
+            setOpen(!open)
+        },
+    })
+
     const productGroups = useMemo(() => {
         const allProducts = getTreeItemsProducts()
         const filteredProducts = allProducts.filter((p) => !p.flag || (featureFlags as Record<string, boolean>)[p.flag])
@@ -158,15 +169,30 @@ function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
             defaultInputValue=""
             autoHighlight
         >
-            <Combobox.Trigger className={menuTriggerStyles}>
-                <IconApps className="size-4 text-secondary" />
-                {!isCollapsed && (
-                    <>
-                        <span className="flex-1 text-left">Apps</span>
-                        <IconChevronRight className="size-3 text-secondary" />
-                    </>
-                )}
-            </Combobox.Trigger>
+            <Combobox.Trigger
+                render={
+                    <ButtonPrimitive
+                        iconOnly={isCollapsed}
+                        tooltip={
+                            <>
+                                <span>Apps</span> <RenderKeybind keybind={[keyBinds.allApps]} />
+                            </>
+                        }
+                        tooltipPlacement="right"
+                        menuItem
+                        className={cn('hidden lg:flex', menuTriggerStyles)}
+                        onClick={() => setOpen(!open)}
+                    >
+                        <IconApps className="size-4 text-secondary" />
+                        {!isCollapsed && (
+                            <>
+                                <span className="flex-1 text-left">Apps</span>
+                                <IconChevronRight className="size-3 text-secondary" />
+                            </>
+                        )}
+                    </ButtonPrimitive>
+                }
+            />
             <Combobox.Portal>
                 <Combobox.Positioner
                     className="z-[var(--z-popover)]"
@@ -337,8 +363,8 @@ function AllConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.El
 
     useAppShortcut({
         name: 'open-all-chats',
-        keybind: [['g', 'then', 'c']],
-        intent: 'Open all chats',
+        keybind: [keyBinds.allChats],
+        intent: 'Open all chats menu',
         interaction: 'function',
         callback: () => {
             setOpen(!open)
@@ -361,11 +387,7 @@ function AllConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.El
                         iconOnly={isCollapsed}
                         tooltip={
                             <>
-                                <span>All chats</span>{' '}
-                                <KeyboardShortcut
-                                    preserveOrder
-                                    {...keybindToKeyboardShortcutProps(['g', 'then', 'c'])}
-                                />
+                                <span>All chats</span> <RenderKeybind keybind={[keyBinds.allChats]} />
                             </>
                         }
                         tooltipPlacement="right"
@@ -571,6 +593,16 @@ export function AiFirstNavBar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
 
+    useAppShortcut({
+        name: 'open-new-chat',
+        keybind: [keyBinds.newChat],
+        intent: 'Open new chat',
+        interaction: 'function',
+        callback: () => {
+            newInternalTab(urls.ai())
+        },
+    })
+
     return (
         <>
             <div className="flex gap-0 relative">
@@ -631,7 +663,11 @@ export function AiFirstNavBar(): JSX.Element {
                                     })}
                                 >
                                     <LemonButton
-                                        tooltip={isLayoutNavCollapsed ? 'New chat' : undefined}
+                                        tooltip={
+                                            <>
+                                                <span>New chat</span> <RenderKeybind keybind={[keyBinds.newChat]} />
+                                            </>
+                                        }
                                         tooltipPlacement="right"
                                         onClick={() => router.actions.push(urls.ai())}
                                         type="secondary"
