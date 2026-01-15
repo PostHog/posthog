@@ -1,14 +1,13 @@
 import './ImpersonationNotice.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { DraggableSnapZones } from 'lib/components/DraggableSnapZones'
+import { DraggableWithSnapZones } from 'lib/components/DraggableWithSnapZones'
 import { dayjs } from 'lib/dayjs'
-import { useDraggableSnap } from 'lib/hooks/useDraggableSnap'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -50,18 +49,7 @@ export function ImpersonationNotice(): JSX.Element | null {
     const { user, userLoading } = useValues(userLogic)
     const { logout, loadUser } = useActions(userLogic)
 
-    const ref = useRef<HTMLDivElement>(null)
-
-    const { position, isDragging, fixedPosition, snapZones, handlers, setElement } = useDraggableSnap({
-        defaultPosition: 'bottom-right',
-        persistKey: 'impersonation-notice-position',
-    })
-
-    useEffect(() => {
-        if (ref.current) {
-            setElement(ref.current)
-        }
-    }, [setElement])
+    const [isDragging, setIsDragging] = useState(false)
 
     if (!user?.is_impersonated) {
         return null
@@ -70,26 +58,21 @@ export function ImpersonationNotice(): JSX.Element | null {
     const isReadOnly = user.is_impersonated_read_only
 
     return (
-        <>
-            <DraggableSnapZones isDragging={isDragging} snapZones={snapZones} fixedPosition={fixedPosition} />
+        <DraggableWithSnapZones
+            handle=".ImpersonationNotice__sidebar"
+            defaultSnapPosition="bottom-right"
+            persistKey="impersonation-notice-position"
+            onDragStart={() => setIsDragging(true)}
+            onDragStop={() => setIsDragging(false)}
+        >
             <div
-                ref={ref}
                 className={cn(
                     'ImpersonationNotice',
                     isDragging && 'ImpersonationNotice--dragging',
                     isReadOnly ? 'ImpersonationNotice--read-only' : 'ImpersonationNotice--read-write'
                 )}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    left: position.x,
-                    top: position.y,
-                }}
             >
-                <div
-                    className="ImpersonationNotice__sidebar"
-                    onMouseDown={handlers.onMouseDown}
-                    onTouchStart={handlers.onTouchStart}
-                >
+                <div className="ImpersonationNotice__sidebar">
                     <IconDragHandle className="ImpersonationNotice__drag-handle" />
                 </div>
                 <div className="ImpersonationNotice__main">
@@ -128,6 +111,6 @@ export function ImpersonationNotice(): JSX.Element | null {
                     </div>
                 </div>
             </div>
-        </>
+        </DraggableWithSnapZones>
     )
 }

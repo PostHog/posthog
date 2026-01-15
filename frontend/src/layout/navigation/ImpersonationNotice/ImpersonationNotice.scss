@@ -1,16 +1,11 @@
 .ImpersonationNotice {
-    position: fixed;
-    z-index: var(--z-modal);
     display: flex;
     width: 320px;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
-    transition:
-        transform 150ms ease,
-        box-shadow 150ms ease;
-    transform: translate(-50%, -50%);
+    transition: box-shadow 150ms ease;
 
     &--read-only {
         .ImpersonationNotice__sidebar {
@@ -46,7 +41,6 @@
         box-shadow:
             var(--shadow-elevation-3000),
             0 8px 24px rgb(0 0 0 / 20%);
-        transform: translate(-50%, -50%) scale(1.02);
     }
 
     &__sidebar {
