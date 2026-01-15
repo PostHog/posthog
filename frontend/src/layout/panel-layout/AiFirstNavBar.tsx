@@ -3,7 +3,7 @@ import { Menu } from '@base-ui-components/react/menu'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconApps,
@@ -471,37 +471,43 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
     const currentConversationId = searchParams?.chat
     const recentConversations = conversationHistory.slice(0, MAX_RECENT_CONVERSATIONS)
 
-    // Show loading only on initial load (no data yet and still loading)
-    const isInitialLoading = conversationHistoryLoading && conversationHistory.length === 0
+    const [loadingStarted, setLoadingStarted] = useState(false)
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false)
 
-    // Render skeletons for empty slots to maintain consistent height
-    const skeletonCount = isInitialLoading
-        ? MAX_RECENT_CONVERSATIONS
-        : Math.max(0, MAX_RECENT_CONVERSATIONS - recentConversations.length)
+    useEffect(() => {
+        if (conversationHistoryLoading) {
+            setLoadingStarted(true)
+        } else if (loadingStarted && !initialLoadComplete) {
+            setInitialLoadComplete(true)
+        }
+    }, [conversationHistoryLoading, loadingStarted, initialLoadComplete])
+
+    // Show skeleton until initial load completes
+    if (!initialLoadComplete) {
+        return (
+            <div className="flex flex-col gap-px">
+                {Array.from({ length: MAX_RECENT_CONVERSATIONS }).map((_, i) => (
+                    <WrappingLoadingSkeleton key={`skeleton-${i}`} fullWidth>
+                        <ButtonPrimitive inert aria-hidden>
+                            Loading...
+                        </ButtonPrimitive>
+                    </WrappingLoadingSkeleton>
+                ))}
+            </div>
+        )
+    }
+
+    // After load: show empty state or content
+    if (recentConversations.length === 0) {
+        return (
+            <div className="flex flex-col gap-px">
+                <div className="text-muted text-xs px-2 py-1">No chats yet</div>
+            </div>
+        )
+    }
 
     return (
-        <div className="flex flex-col gap-px h-[187px]">
-            {/* Fill remaining slots with skeletons or empty placeholder to prevent reflow */}
-            {skeletonCount > 0 &&
-                (isInitialLoading ? (
-                    Array.from({ length: skeletonCount }).map((_, i) => (
-                        <WrappingLoadingSkeleton key={`skeleton-${i}`} fullWidth>
-                            <ButtonPrimitive inert aria-hidden>
-                                Loading...
-                            </ButtonPrimitive>
-                        </WrappingLoadingSkeleton>
-                    ))
-                ) : (
-                    // Empty placeholder to maintain height when fewer than MAX conversations
-                    <div className="invisible" aria-hidden>
-                        {Array.from({ length: skeletonCount }).map((_, i) => (
-                            <ButtonPrimitive key={`placeholder-${i}`} inert>
-                                &nbsp;
-                            </ButtonPrimitive>
-                        ))}
-                    </div>
-                ))}
-
+        <div className={cn('flex flex-col gap-px', { 'h-[187px]': recentConversations.length > 0 })}>
             {recentConversations.map((conversation) => {
                 const isActive = conversation.id === currentConversationId
                 return (
@@ -517,24 +523,15 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
                     >
                         <IconMessage className="size-4 text-secondary opacity-50" />
                         {!isCollapsed && (
-                            <span className="flex-1 line-clamp-1 text-primary text-sm pr-4 break-all">
+                            <span className="flex-1 line-clamp-1 text-primary text-sm break-all">
                                 {conversation.title}
                             </span>
                         )}
                         {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
-                        {!isCollapsed && (
-                            <span className="size-4 opacity-30 text-xs absolute right-1">
-                                {formatConversationDate(conversation.updated_at)}
-                            </span>
-                        )}
                     </Link>
                 )
             })}
             <AllConversationsMenu isCollapsed={false} />
-
-            {!isInitialLoading && recentConversations.length === 0 && (
-                <div className="text-muted text-xs px-2 py-1">No chats yet</div>
-            )}
         </div>
     )
 }
