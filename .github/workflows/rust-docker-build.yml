@@ -157,7 +157,7 @@ jobs:
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-rust-image-build'
-                  properties: '{"status": "failure", "image": "${{ matrix.image }}", "commit_hash": "${{ github.sha }}", "runId": "${{ github.run_id }}"}'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: Container image digest
               id: digest
