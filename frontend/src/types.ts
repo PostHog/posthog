@@ -4655,6 +4655,7 @@ export const INTEGRATION_KINDS = [
     'bing-ads',
     'vercel',
     'azure-blob',
+    'firebase',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
