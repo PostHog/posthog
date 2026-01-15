@@ -35,8 +35,5 @@ prost = "0.13.5"
 bytes = { workspace = true }
 tower-http = { workspace = true }
 
-[dev-dependencies]
-axum-test = "15.7.4"
-
 [lints]
 workspace = true
