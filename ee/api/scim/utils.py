@@ -10,7 +10,7 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
-FILTER_QUOTED_VALUE = re.compile(r'"([^"]*)"')
+FILTER_QUOTED_VALUE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def _looks_like_email(value: str) -> bool:
@@ -51,33 +51,27 @@ def mask_scim_filter(filter_str: str) -> str:
     return FILTER_QUOTED_VALUE.sub(replace_quoted, filter_str)
 
 
-def mask_scim_payload(data: Any, parent_key: str | None = None) -> Any:
-    """
-    Recursively mask PII fields in a SCIM payload.
-    Handles nested dicts, lists, and the special 'emails' array structure.
-    """
-    if isinstance(data, dict):
-        result = {}
-        for key, value in data.items():
-            if key in PII_FIELDS:
-                if isinstance(value, dict):
-                    result[key] = mask_scim_payload(value, key)
-                else:
-                    result[key] = mask_pii_value(value)
-            elif key == "emails" and isinstance(value, list):
-                result[key] = [mask_scim_payload(item, "emails") for item in value]
-            elif key == "name" and isinstance(value, dict):
-                result[key] = mask_scim_payload(value, "name")
-            elif key == "members" and isinstance(value, list):
-                result[key] = [mask_scim_payload(item, "members") for item in value]
-            elif key == "Operations" and isinstance(value, list):
-                result[key] = [mask_scim_payload(op, "Operations") for op in value]
-            else:
-                result[key] = mask_scim_payload(value, key)
-        return result
-    elif isinstance(data, list):
-        return [mask_scim_payload(item, parent_key) for item in data]
-    return data
+def mask_scim_payload(data: Any, depth: int = 0) -> Any:
+    """Recursively mask PII fields in a SCIM payload."""
+    if depth > 20:
+        return data
+
+    match data:
+        case dict():
+            result = {}
+            for key, value in data.items():
+                match value:
+                    case dict():
+                        result[key] = mask_scim_payload(value, depth + 1)
+                    case list():
+                        result[key] = [mask_scim_payload(item, depth + 1) for item in value]
+                    case _:
+                        result[key] = mask_pii_value(value) if key in PII_FIELDS else value
+            return result
+        case list():
+            return [mask_scim_payload(item, depth + 1) for item in data]
+        case _:
+            return data
 
 
 def enable_scim_for_domain(domain: OrganizationDomain) -> str:

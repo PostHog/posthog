@@ -56,15 +56,13 @@ class TestMaskScimPayload:
             "active": True,
         }
 
-        result = mask_scim_payload(payload)
-
-        assert result["schemas"] == payload["schemas"]
-        assert result["userName"] == "j***e@example.com"
-        assert result["name"]["givenName"] == "J***n"
-        assert result["name"]["familyName"] == "D***e"
-        assert result["emails"][0]["value"] == "j***e@example.com"
-        assert result["emails"][0]["primary"] is True
-        assert result["active"] is True
+        assert mask_scim_payload(payload) == {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "j***e@example.com",
+            "name": {"givenName": "J***n", "familyName": "D***e"},
+            "emails": [{"value": "j***e@example.com", "primary": True}],
+            "active": True,
+        }
 
     def test_masks_patch_operations(self):
         payload = {
@@ -72,20 +70,18 @@ class TestMaskScimPayload:
             "Operations": [
                 {"op": "replace", "path": "userName", "value": "new.email@example.com"},
                 {"op": "replace", "path": "active", "value": False},
-                {
-                    "op": "replace",
-                    "path": "name",
-                    "value": {"givenName": "Jane", "familyName": "Smith"},
-                },
+                {"op": "replace", "path": "name", "value": {"givenName": "Jane", "familyName": "Smith"}},
             ],
         }
 
-        result = mask_scim_payload(payload)
-
-        assert result["Operations"][0]["value"] == "n***l@example.com"
-        assert result["Operations"][1]["value"] is False
-        assert result["Operations"][2]["value"]["givenName"] == "J***e"
-        assert result["Operations"][2]["value"]["familyName"] == "S***h"
+        assert mask_scim_payload(payload) == {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {"op": "replace", "path": "userName", "value": "n***l@example.com"},
+                {"op": "replace", "path": "active", "value": False},
+                {"op": "replace", "path": "name", "value": {"givenName": "J***e", "familyName": "S***h"}},
+            ],
+        }
 
     def test_masks_group_with_members(self):
         payload = {
@@ -97,12 +93,14 @@ class TestMaskScimPayload:
             ],
         }
 
-        result = mask_scim_payload(payload)
-
-        assert result["displayName"] == "E***m"
-        assert result["members"][0]["value"] == "u***3"
-        assert result["members"][0]["display"] == "j***e@example.com"
-        assert result["members"][1]["display"] == "j***h@example.com"
+        assert mask_scim_payload(payload) == {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+            "displayName": "E***m",
+            "members": [
+                {"value": "u***3", "display": "j***e@example.com"},
+                {"value": "u***6", "display": "j***h@example.com"},
+            ],
+        }
 
     def test_preserves_non_pii_fields(self):
         payload = {
@@ -112,11 +110,7 @@ class TestMaskScimPayload:
             "meta": {"resourceType": "User", "created": "2024-01-01T00:00:00Z"},
         }
 
-        result = mask_scim_payload(payload)
-
-        assert result["id"] == "12345"
-        assert result["externalId"] == "ext-123"
-        assert result["meta"] == payload["meta"]
+        assert mask_scim_payload(payload) == payload
 
     def test_handles_empty_payload(self):
         assert mask_scim_payload({}) == {}
@@ -133,6 +127,9 @@ class TestMaskScimFilter:
             ('userName eq "a@b.com"', 'userName eq "*@b.com"'),
             ("active eq true", "active eq true"),
             ('userName eq "test@x.com" and active eq true', 'userName eq "t***t@x.com" and active eq true'),
+            # escaped quotes and backslashes
+            (r'displayName eq "John \"The Man\" Doe"', r'displayName eq "J***e"'),
+            (r'displayName eq "path\\to\\file"', r'displayName eq "p***e"'),
         ]
     )
     def test_mask_scim_filter(self, input_value, expected):
