@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -87,6 +88,8 @@ const Component = ({
     const { navigateToNode } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
+    const lastAutoHeightRef = useRef<number | null>(null)
+    const lastExecutionCodeHashRef = useRef<number | null>(null)
 
     const duckExecution = attributes.duckExecution ?? null
     const hasResult = duckExecution?.result !== undefined && duckExecution?.result !== null
@@ -97,6 +100,18 @@ const Component = ({
             hasResult ||
             duckExecution.media?.length ||
             duckExecution.traceback?.length)
+    const executionCodeHash = attributes.duckExecutionCodeHash ?? null
+
+    const debouncedUpdateHeight = useDebouncedCallback((height: number) => {
+        updateAttributes({ height })
+        lastAutoHeightRef.current = height
+    }, 150)
+
+    useEffect(() => {
+        return () => {
+            debouncedUpdateHeight.cancel()
+        }
+    }, [debouncedUpdateHeight])
 
     useLayoutEffect(() => {
         if (!hasExecution) {
@@ -109,9 +124,27 @@ const Component = ({
         const footerHeight = footerRef.current?.offsetHeight ?? 0
         const desiredHeight = Math.min(MAX_DUCK_SQL_NODE_HEIGHT, output.scrollHeight + footerHeight)
         const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_DUCK_SQL_NODE_HEIGHT
+        const lastExecutionCodeHash = lastExecutionCodeHashRef.current
+        const executionChanged = executionCodeHash !== lastExecutionCodeHash
+
+        if (executionChanged) {
+            lastExecutionCodeHashRef.current = executionCodeHash
+            lastAutoHeightRef.current = currentHeight
+        }
+
+        const lastAutoHeight = lastAutoHeightRef.current
+        const hasManualResize =
+            !executionChanged &&
+            lastAutoHeight !== null &&
+            typeof currentHeight === 'number' &&
+            currentHeight < lastAutoHeight
+
+        if (hasManualResize) {
+            return
+        }
 
         if (desiredHeight > currentHeight) {
-            updateAttributes({ height: desiredHeight })
+            debouncedUpdateHeight(desiredHeight)
         }
     }, [
         attributes.height,
@@ -120,8 +153,9 @@ const Component = ({
         duckExecution?.stderr,
         duckExecution?.stdout,
         duckExecution?.traceback?.length,
+        executionCodeHash,
         hasExecution,
-        updateAttributes,
+        debouncedUpdateHeight,
     ])
 
     const isSettingsVisible = attributes.showSettings ?? false
