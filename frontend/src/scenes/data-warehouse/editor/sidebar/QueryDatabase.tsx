@@ -16,68 +16,12 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { multitabEditorLogic } from '~/scenes/data-warehouse/editor/multitabEditorLogic'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { OutputTab } from '../outputPaneLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
-
-const normalizeIdentifier = (identifier: string): string => {
-    return identifier.replace(/^[`"']|[`"']$/g, '').toLowerCase()
-}
-
-const parseSelectedColumns = (selectedColumns: string): string[] => {
-    return selectedColumns
-        .split(',')
-        .map((column) => column.trim())
-        .filter((column) => column.length > 0)
-}
-
-const buildQueryForColumnClick = (currentQuery: string | null, tableName: string, columnName: string): string => {
-    const baseQuery = `select ${columnName} from ${tableName} limit 10000`
-
-    if (!currentQuery) {
-        return baseQuery
-    }
-
-    const match = currentQuery.match(/^\s*select\s+([\s\S]+?)\s+from\s+([^\s;]+)[\s\S]*$/i)
-
-    if (!match) {
-        return baseQuery
-    }
-
-    const [, selectedColumnsRaw, selectedTableRaw] = match
-
-    if (normalizeIdentifier(selectedTableRaw) !== normalizeIdentifier(tableName)) {
-        return baseQuery
-    }
-
-    let columns = parseSelectedColumns(selectedColumnsRaw)
-    const normalizedColumnName = normalizeIdentifier(columnName)
-    const isStarOnly = columns.length === 1 && columns[0] === '*'
-
-    if (isStarOnly) {
-        columns = []
-    } else {
-        columns = columns.filter((column) => column !== '*')
-    }
-
-    const existingIndex = columns.findIndex((column) => normalizeIdentifier(column) === normalizedColumnName)
-
-    if (existingIndex >= 0) {
-        columns.splice(existingIndex, 1)
-    } else {
-        columns.push(columnName)
-    }
-
-    if (columns.length === 0) {
-        columns = ['*']
-    }
-
-    return `select ${columns.join(', ')} from ${tableName} limit 10000`
-}
 
 export const QueryDatabase = (): JSX.Element => {
     const {
@@ -101,8 +45,6 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { queryInput } = useValues(multitabEditorLogic)
-    const { setQueryInput } = useActions(multitabEditorLogic)
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
@@ -142,7 +84,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
-                    setQueryInput(buildQueryForColumnClick(queryInput, item.record.table, item.record.columnName))
+                    void copyToClipboard(item.record.columnName, item.record.columnName)
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
