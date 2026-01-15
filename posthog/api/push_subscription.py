@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team
-from posthog.models.person.person_distinct_id import PersonDistinctId
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
