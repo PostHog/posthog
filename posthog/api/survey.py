@@ -393,12 +393,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             cleaned_translation = {**translation_data}
 
-            # Sanitize name and description to prevent XSS
-            if "name" in translation_data and isinstance(translation_data["name"], str):
+            # Validate and sanitize name and description to prevent XSS
+            if "name" in translation_data:
+                if not isinstance(translation_data["name"], str):
+                    raise serializers.ValidationError(f"Translation for '{lang_code}': 'name' must be a string")
                 if nh3.is_html(translation_data["name"]):
                     cleaned_translation["name"] = nh3_clean_with_allow_list(translation_data["name"])
 
-            if "description" in translation_data and isinstance(translation_data["description"], str):
+            if "description" in translation_data:
+                if not isinstance(translation_data["description"], str):
+                    raise serializers.ValidationError(f"Translation for '{lang_code}': 'description' must be a string")
                 if nh3.is_html(translation_data["description"]):
                     cleaned_translation["description"] = nh3_clean_with_allow_list(translation_data["description"])
 
@@ -421,9 +425,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             cleaned_translation = {**translation_data}
 
-            # Sanitize all translatable fields
+            # Validate and sanitize all translatable fields
             for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
-                if field in translation_data and isinstance(translation_data[field], str):
+                if field in translation_data:
+                    if not isinstance(translation_data[field], str):
+                        raise serializers.ValidationError(
+                            f"Question {question_index}: Translation '{lang_code}' field '{field}' must be a string"
+                        )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
 
@@ -467,7 +475,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not question_text:
                 raise serializers.ValidationError("Question text is required")
 
+            if not isinstance(question_text, str):
+                raise serializers.ValidationError("Question text must be a string")
+
             description = raw_question.get("description")
+            if description and not isinstance(description, str):
+                raise serializers.ValidationError("Question description must be a string")
+
             if nh3.is_html(question_text):
                 cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
             if description and nh3.is_html(description):
