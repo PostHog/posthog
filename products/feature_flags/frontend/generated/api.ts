@@ -442,7 +442,7 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
 
 /**
  * Deprecated: Use GET /dependent_flags instead.
-This will be safe to delete some time after GET /dependent_flags has been live.
+Safe to delete after usage falls to zero, expected by Jan 22, 2026.
  */
 export type featureFlagsHasActiveDependentsCreateResponse200 = {
     data: void
