@@ -3,15 +3,28 @@ Workflow template loader for global templates stored in code.
 """
 
 import json
-from pathlib import Path
 from typing import Optional
 
 import structlog
 from rest_framework import serializers
 
+from . import (
+    announce_a_new_feature,
+    onboarding_started_but_not_completed,
+    trial_started_upgrade_nudge,
+    welcome_email_sequence,
+)
+
 logger = structlog.get_logger(__name__)
 
-# Cache for loaded templates
+# List of all template modules - update this when adding new templates
+TEMPLATE_MODULES = [
+    announce_a_new_feature,
+    onboarding_started_but_not_completed,
+    trial_started_upgrade_nudge,
+    welcome_email_sequence,
+]
+
 _TEMPLATE_CACHE: Optional[list[dict]] = None
 
 
@@ -102,7 +115,7 @@ class SimpleHogFlowTemplateSerializer(serializers.Serializer):
 
 def load_global_templates() -> list[dict]:
     """
-    Load all global workflow templates from Python files in this directory.
+    Load all global workflow templates from imported modules.
     Returns a list of template dictionaries.
     Templates are cached after first load for performance.
     """
@@ -112,40 +125,29 @@ def load_global_templates() -> list[dict]:
         return _TEMPLATE_CACHE
 
     templates = []
-    templates_dir = Path(__file__).parent
 
-    # Find all .template.py files
-    for template_file in templates_dir.glob("*.template.py"):
-        if template_file.name == "__init__.py":
-            continue
-
+    for module in TEMPLATE_MODULES:
         try:
-            # Read and execute the file to get the template dict
-            namespace = {}
-            code = template_file.read_text()
-            exec(code, namespace)
+            if not hasattr(module, "template"):
+                logger.warning(f"Module {module.__name__} does not have a 'template' attribute")
+                continue
 
-            # Get the template dict
-            if "template" in namespace:
-                template_dict = namespace["template"]
-                # The 'data' field is a JSON string that needs to be parsed
-                data_str = template_dict["data"]
-                data = json.loads(data_str) if isinstance(data_str, str) else data_str
+            template_dict = module.template
+            data_str = template_dict["data"]
+            data = json.loads(data_str) if isinstance(data_str, str) else data_str
 
-                # Validate the template using the simplified serializer
-                try:
-                    serializer = SimpleHogFlowTemplateSerializer(data=data)
-                    if serializer.is_valid():
-                        templates.append(data)
-                    else:
-                        logger.error(f"Template validation failed for {template_file.name}", errors=serializer.errors)
-                except Exception:
-                    logger.exception(f"Failed to validate template from {template_file.name}")
+            # Validate the template using the simplified serializer
+            try:
+                serializer = SimpleHogFlowTemplateSerializer(data=data)
+                if serializer.is_valid():
+                    templates.append(data)
+                else:
+                    logger.error(f"Template validation failed for {module.__name__}", errors=serializer.errors)
+            except Exception:
+                logger.exception(f"Failed to validate template from {module.__name__}")
         except Exception as e:
-            # Log but don't fail if one template has issues
-            logger.warning(f"Failed to load template from {template_file.name}", error=str(e))
+            logger.warning(f"Failed to load template from {module.__name__}", error=str(e))
 
-    # Cache the templates
     _TEMPLATE_CACHE = templates
     return templates
 

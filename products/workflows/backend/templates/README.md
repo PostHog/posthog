@@ -33,10 +33,31 @@ This directory contains global workflow templates that are stored in code and ve
 
    Simply paste the JSON you copied from the "See JSON" modal directly into the `data` field as a multi-line string using triple quotes (`"""`)
 
-4. **Template registration**:
-   - Templates are automatically loaded from all `*.template.py` files in this directory
-   - No need to manually register them in `__init__.py`
-   - The template ID and name come from the JSON data itself
+4. **Register the template in `__init__.py`**:
+   - Open `__init__.py` in this directory
+   - Add an import for your new template file (remove the `.template.py` extension):
+
+     ```python
+     from . import (
+         announce_a_new_feature,
+         onboarding_started_but_not_completed,
+         trial_started_upgrade_nudge,
+         welcome_email_sequence,
+         your_new_template,  # Add this line
+     )
+     ```
+
+   - Add your template module to the `TEMPLATE_MODULES` list:
+
+     ```python
+     TEMPLATE_MODULES = [
+         announce_a_new_feature,
+         onboarding_started_but_not_completed,
+         trial_started_upgrade_nudge,
+         welcome_email_sequence,
+         your_new_template,  # Add this line
+     ]
+     ```
 
 ## Editing an Existing Template
 
@@ -56,3 +77,4 @@ Templates are:
 - **Test thoroughly**: Always test templates before committing
 - **Watch for secrets**: Make sure the template doesn't contain any secret keys or other data we want to keep private
 - **r-strings**: Note that data must be an r-string (r"""), otherwise parsing the json will fail
+- **Import registration required**: New templates must be imported in `__init__.py` to be loaded
