@@ -325,6 +325,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_TICKET_COMMAND: 'posthog-ai-ticket-command', // owner: #team-posthog-ai
     POSTHOG_AI_UPSERT_DASHBOARD: 'phai-upsert-dashboards', // owner: #team-posthog-ai
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
+    RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
