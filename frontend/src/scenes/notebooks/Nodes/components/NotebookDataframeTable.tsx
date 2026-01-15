@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { LemonButton, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 
@@ -70,9 +70,18 @@ export const NotebookDataframeTable = ({
     const endIndex = rowCount > 0 ? Math.min(page * pageSize, rowCount) : 0
     const hasPrevious = page > 1
     const hasNext = endIndex < rowCount
+    const isInitialLoading = loading && rowCount === 0
+    const emptyState = isInitialLoading ? (
+        <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted">
+            <Spinner className="text-base" />
+            <span>Loading rows…</span>
+        </div>
+    ) : (
+        'No rows to display.'
+    )
 
     return (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
             <LemonTable
                 data-attr="notebook-dataframe-table"
                 columns={columns}
@@ -81,7 +90,7 @@ export const NotebookDataframeTable = ({
                 embedded
                 size="small"
                 rowKey="__rowId"
-                emptyState={loading ? 'Loading…' : 'No rows to display.'}
+                emptyState={emptyState}
                 loadingSkeletonRows={pageSize}
             />
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">

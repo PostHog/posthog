@@ -205,7 +205,7 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
 class NotebookKernelDataframeSerializer(serializers.Serializer):
     variable_name = serializers.CharField()
     offset = serializers.IntegerField(default=0, min_value=0)
-    limit = serializers.IntegerField(default=20, min_value=1, max_value=500)
+    limit = serializers.IntegerField(default=10, min_value=1, max_value=500)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
 
     def validate_variable_name(self, value: str) -> str:

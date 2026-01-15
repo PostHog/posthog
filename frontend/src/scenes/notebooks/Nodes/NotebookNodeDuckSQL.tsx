@@ -188,7 +188,7 @@ const Component = ({
             {expanded ? (
                 <div
                     ref={outputRef}
-                    className="p-3 overflow-y-auto h-full space-y-3"
+                    className="space-y-3"
                     onMouseDown={(event) => event.stopPropagation()}
                     onDragStart={(event) => event.stopPropagation()}
                 >
