@@ -1,5 +1,6 @@
 import math
 import hashlib
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.db import transaction
@@ -486,9 +487,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             except Exception:
                 status = KernelRuntime.Status.STOPPED
 
-        if runtime and status == KernelRuntime.Status.STOPPED and runtime.status != KernelRuntime.Status.STOPPED:
-            runtime.status = KernelRuntime.Status.STOPPED
-            runtime.save(update_fields=["status"])
+        if runtime and status == KernelRuntime.Status.STOPPED:
+            if (
+                runtime.backend == KernelRuntime.Backend.MODAL
+                and runtime.status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
+                and runtime.last_used_at
+                and sandbox_config.ttl_seconds
+                and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.ttl_seconds)
+            ):
+                status = KernelRuntime.Status.TIMED_OUT
+
+            if runtime.status != status:
+                runtime.status = status
+                runtime.save(update_fields=["status"])
 
         return Response(
             {

@@ -205,6 +205,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     running: { label: 'Running', tone: 'success' },
                     starting: { label: 'Starting', tone: 'warning' },
                     stopped: { label: 'Stopped', tone: 'default' },
+                    timed_out: { label: 'Timed out', tone: 'warning' },
                     discarded: { label: 'Discarded', tone: 'default' },
                     error: { label: 'Error', tone: 'danger' },
                 }
