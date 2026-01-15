@@ -14,7 +14,8 @@ export const buildQueryForColumnClick = (
     tableName: string,
     columnName: string
 ): string => {
-    const baseQuery = `select ${columnName} from ${tableName} limit 100`
+    const limitOffsetClause = currentQuery ? extractLimitOffsetClause(currentQuery) : null
+    const baseQuery = `select ${columnName} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
 
     if (!currentQuery) {
         return baseQuery
@@ -54,11 +55,21 @@ export const buildQueryForColumnClick = (
         columns = ['*']
     }
 
-    return `select ${columns.join(', ')} from ${tableName} limit 100`
+    return `select ${columns.join(', ')} from ${tableName} ${limitOffsetClause ?? 'limit 100'}`
 }
 
 const normalizeKeywordSpacing = (query: string): string => {
     return query.replace(/\s+/g, ' ').trim()
+}
+
+const extractLimitOffsetClause = (query: string): string | null => {
+    const matches = Array.from(query.matchAll(/\b(limit\s+\d+(?:\s+offset\s+\d+)?|offset\s+\d+)\b/gi))
+
+    if (matches.length === 0) {
+        return null
+    }
+
+    return matches[matches.length - 1][0].replace(/;$/, '').trim()
 }
 
 export const parseQueryTablesAndColumns = (queryInput: string | null): Record<string, Record<string, boolean>> => {
