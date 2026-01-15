@@ -20,10 +20,10 @@ ARG BIN
 RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
-# Disable sccache for chef cook - was seeing CD failures due to it.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    RUSTC_WRAPPER="" cargo chef cook --release --recipe-path recipe.json --bin $BIN
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
 RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
