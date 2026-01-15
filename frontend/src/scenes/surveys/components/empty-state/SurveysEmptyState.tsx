@@ -113,7 +113,6 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                 <FeaturedTemplateCard
                                     template={featuredTemplate}
                                     idx={0}
-                                    setSurveyTemplateValues={() => {}}
                                     reportSurveyTemplateClicked={() => {}}
                                     surveyAppearance={featuredTemplate.appearance ?? {}}
                                     handleTemplateClick={handleTemplateClick}
@@ -126,8 +125,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     key={template.templateType}
                                     template={template}
                                     idx={idx + 1}
-                                    setSurveyTemplateValues={() => {}} // Not used in this context
-                                    reportSurveyTemplateClicked={() => {}} // Not used in this context
+                                    reportSurveyTemplateClicked={() => {}}
                                     surveyAppearance={template.appearance ?? defaultSurveyAppearance}
                                     handleTemplateClick={handleTemplateClick}
                                 />
