@@ -19,7 +19,6 @@ use uuid::Uuid;
 
 use super::{evaluation, types::FeatureFlagEvaluationContext, with_canonical_log};
 use crate::router;
-use common_hypercache::CacheSource;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -154,12 +153,7 @@ pub async fn fetch_and_filter(
     let flag_result = flag_service.get_flags_from_cache_or_pg(team_id).await?;
 
     // Record cache source in canonical log for observability
-    let source_name = match flag_result.cache_source {
-        CacheSource::Redis => "Redis",
-        CacheSource::S3 => "S3",
-        CacheSource::Fallback => "Fallback",
-    };
-    with_canonical_log(|log| log.flags_cache_source = Some(source_name));
+    with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
     // First filter by survey flags if requested
     let flags_after_survey_filter = filter_survey_flags(

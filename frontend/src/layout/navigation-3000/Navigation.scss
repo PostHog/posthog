@@ -1,15 +1,18 @@
 @import '../../styles/vars';
 
+// These are used in SceneLayout.css
+:root {
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 40px;
+    --scene-title-section-height: 50px;
+    --side-panel-min-width: 28rem;
+}
+
 .Navigation3000 {
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
-
-    // These are used in SceneLayout.css
-    --scene-layout-panel-width: 300px;
-    --scene-layout-header-height: 40px;
-    --scene-title-section-height: 50px;
 
     position: relative;
     display: flex;
@@ -20,6 +23,7 @@
 
     .storybook-test-runner & {
         height: auto;
+        min-height: 100vh;
     }
 
     > main {
@@ -695,4 +699,50 @@
     z-index: 1; // Show above .SidebarListItem::after gradient
     display: none; // Only show on hover/focus or for current page
     transform: translateY(-50%);
+}
+
+.app-layout {
+    --left-nav-width: var(--project-navbar-width); /* Default, overridden via inline style */
+
+    display: grid;
+    grid-template:
+        'left top right' var(--scene-layout-header-height) 'left content right' 1fr / var(--left-nav-width)
+        minmax(0, 1fr) var(--side-panel-width);
+    height: 100vh;
+    overflow: hidden;
+
+    .storybook-test-runner & {
+        height: fit-content;
+    }
+
+    /* Mobile layout - single column with overlay nav */
+    &.app-layout--mobile {
+        grid-template:
+            'top' var(--scene-layout-header-height)
+            'content' 1fr / minmax(0, 1fr);
+
+        .right-nav {
+            display: none;
+        }
+
+        .main-content-container {
+            margin-right: 0;
+        }
+    }
+}
+
+.left-nav {
+    grid-area: left;
+}
+
+.top-nav {
+    grid-area: top;
+}
+
+.right-nav {
+    grid-area: right;
+}
+
+.main-content-container {
+    grid-area: content;
 }

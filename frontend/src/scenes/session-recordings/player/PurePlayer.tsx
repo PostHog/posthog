@@ -90,7 +90,9 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
-        mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
+        mode === SessionRecordingPlayerMode.Screenshot ||
+        mode === SessionRecordingPlayerMode.Video ||
+        mode === SessionRecordingPlayerMode.Kiosk
 
     useEffect(() => {
         if (hidePlayerElements) {

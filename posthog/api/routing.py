@@ -439,7 +439,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
             serializer_context["team_id"] = serializer_context["project_id"]
         return serializer_context
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
         team_found = None
         token = get_token(None, self.request)

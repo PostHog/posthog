@@ -106,6 +106,7 @@ export const SidePanelDocs = (): JSX.Element => {
                     title="Docs"
                     className={clsx('w-full h-full', !iframeReady && 'hidden')}
                     ref={ref}
+                    sandbox="allow-scripts allow-same-origin"
                 />
 
                 {!iframeReady && <SidePanelDocsSkeleton />}

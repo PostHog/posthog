@@ -82,9 +82,9 @@ export const customerProfileConfigLogic = kea<customerProfileConfigLogicType>([
     })),
 
     selectors({
-        personProfileConfig: [
-            (s) => [s.configs],
-            (configs): CustomerProfileConfigType | undefined => configs.find((c) => c.scope === 'person'),
+        customerProfileConfig: [
+            (s) => [s.configs, (_, props) => props.scope],
+            (configs, scope): CustomerProfileConfigType | undefined => configs.find((c) => c.scope === scope),
         ],
     }),
 

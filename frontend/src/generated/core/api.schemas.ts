@@ -481,11 +481,13 @@ export interface CreateGroupApi {
  * `clickup` - Clickup
  * `vercel` - Vercel
  * `databricks` - Databricks
+ * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
  */
-export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export type Kind9f6EnumApi = (typeof Kind9f6EnumApi)[keyof typeof Kind9f6EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnumApi = {
+export const Kind9f6EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -508,6 +510,8 @@ export const KindEnumApi = {
     clickup: 'clickup',
     vercel: 'vercel',
     databricks: 'databricks',
+    'azure-blob': 'azure-blob',
+    firebase: 'firebase',
 } as const
 
 /**
@@ -515,7 +519,7 @@ export const KindEnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindEnumApi
+    kind: Kind9f6EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -2940,6 +2944,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2948,6 +2953,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
@@ -3922,7 +3928,7 @@ export type GroupsUpdatePropertyCreateParams = {
     group_type_index: number
 }
 
-export type IntegrationsListParams = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */

@@ -2,10 +2,12 @@ import re
 import logging
 import functools
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Optional, Union
-from urllib.parse import urlsplit
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from urllib.parse import urlparse, urlsplit
 
 from django.apps import apps
+from django.conf import settings
+from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -13,10 +15,13 @@ from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 
 import jwt
+import structlog
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from webauthn import verify_authentication_response
+from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -26,11 +31,37 @@ from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
+
+
+def get_webauthn_rp_id() -> str:
+    """Get the Relying Party ID from SITE_URL."""
+    parsed = urlparse(settings.SITE_URL)
+    return parsed.hostname or "localhost"
+
+
+def get_webauthn_rp_origin() -> str:
+    """Get the Relying Party origin from SITE_URL."""
+    parsed = urlparse(settings.SITE_URL)
+    if parsed.port and parsed.port not in (80, 443):
+        return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+    return f"{parsed.scheme}://{parsed.hostname}"
+
+
+class WebAuthnAuthenticationResponse(TypedDict):
+    """WebAuthn authentication response data structure."""
+
+    authenticatorData: str
+    clientDataJSON: str
+    signature: str
+    userHandle: str
+
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
 
 logger = logging.getLogger(__name__)
+structlog_logger = structlog.get_logger(__name__)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -564,3 +595,109 @@ def authenticate_secondarily(endpoint):
         return endpoint(request)
 
     return wrapper
+
+
+class WebauthnBackend(BaseBackend):
+    """
+    Custom authentication backend for WebAuthn/passkey login.
+
+    Handles the complete WebAuthn authentication flow:
+    1. Extracts challenge from session
+    2. Extracts userHandle and credential_id from request data
+    3. Looks up user and credential
+    4. Verifies the authentication response
+    5. Updates credential sign count
+    """
+
+    name = "webauthn"
+
+    def authenticate(
+        self,
+        request: Optional[Union[HttpRequest, Request]],
+        credential_id: Optional[str] = None,
+        challenge: Optional[str] = None,
+        response: Optional[WebAuthnAuthenticationResponse] = None,
+        **kwargs: Any,
+    ) -> Optional[User]:
+        """
+        Authenticate a user via WebAuthn.
+
+        Verifies the WebAuthn assertion and returns the authenticated user.
+
+        Args:
+            request: The HTTP request object
+            credential_id: The base64url-encoded credential ID (rawId)
+            response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
+        """
+        if challenge is None or credential_id is None or response is None:
+            structlog_logger.warning(
+                "no request, response, or credential id while authenticating webauthn credential",
+                credential_id=credential_id,
+                challenge=challenge,
+                response=response,
+            )
+            return None
+
+        try:
+            # Decode credential ID
+            credential_id_bytes = base64url_to_bytes(credential_id)
+
+            # Find the credential
+            credential = (
+                WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
+                .select_related("user")
+                .first()
+            )
+
+            if not credential:
+                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
+                return None
+
+            user = credential.user
+            # Check if user is active
+            if not user.is_active:
+                structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
+                return None
+
+            # Construct credential dict for webauthn library
+            # The library expects both 'id' and 'rawId' to be present
+            credential_dict = {
+                "id": credential_id,
+                "rawId": credential_id,
+                "response": response,
+                "type": "public-key",
+            }
+
+            # Verify the authentication response
+            expected_challenge = base64url_to_bytes(challenge)
+            verification = verify_authentication_response(
+                credential=credential_dict,
+                expected_challenge=expected_challenge,
+                expected_rp_id=get_webauthn_rp_id(),
+                expected_origin=get_webauthn_rp_origin(),
+                credential_public_key=credential.public_key,
+                credential_current_sign_count=credential.counter,
+                require_user_verification=True,
+            )
+
+            # Update sign count
+            credential.counter = verification.new_sign_count
+            credential.save()
+
+            structlog_logger.info("webauthn_login_success", user_id=user.pk, credential_id=credential.pk)
+
+            return user
+
+        except Exception as e:
+            structlog_logger.exception("webauthn_login_error", error=str(e))
+            return None
+
+    def get_user(self, user_id: int) -> Optional[User]:
+        """Get a user by their primary key.
+
+        Required by Django's authentication system to load the user on subsequent requests.
+        """
+        try:
+            return User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return None

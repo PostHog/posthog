@@ -1,7 +1,8 @@
 use crate::{
     api::{auth, errors::FlagError},
+    metrics::consts::DB_TEAM_READS_COUNTER,
     router::State as AppState,
-    team::{team_models::Team, team_operations},
+    team::team_models::Team,
 };
 use axum::{
     debug_handler,
@@ -9,10 +10,11 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{CacheSource, HyperCacheConfig, HyperCacheReader, KeyType};
+use common_hypercache::{CacheSource, KeyType};
+use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{info, warn};
+use tracing::info;
 
 /// Response for flag definitions endpoint
 /// This is returned as raw JSON from cache to avoid deserialization overhead
@@ -98,26 +100,44 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token
-/// Tries Redis cache first, then falls back to PostgreSQL
+/// Fetches a team by its API token from HyperCache or PostgreSQL
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
+    let key = KeyType::string(token);
     let pg_reader = state.database_pools.non_persons_reader.clone();
-    let token_str = token.to_string();
+    let token_owned = token.to_string();
 
-    team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_client.clone(),
-        token,
-        Some(state.config.team_cache_ttl_seconds),
-        || async move {
-            Team::from_pg(pg_reader, &token_str)
+    let (data, source) = state
+        .team_hypercache_reader
+        .get_with_source_or_fallback(&key, || async move {
+            let team = Team::from_pg(pg_reader, &token_owned)
                 .await
-                .map_err(|_| FlagError::TokenValidationError)
-        },
-    )
-    .await
+                .map_err(|_| FlagError::TokenValidationError)?;
+            inc(DB_TEAM_READS_COUNTER, &[], 1);
+            let value = serde_json::to_value(&team).map_err(|e| {
+                tracing::error!("Failed to serialize team from PG: {}", e);
+                FlagError::Internal(format!("Failed to serialize team: {e}"))
+            })?;
+            Ok::<Option<serde_json::Value>, FlagError>(Some(value))
+        })
+        .await?;
+
+    let team = Team::from_hypercache_value(data)?;
+
+    let source_name = match source {
+        CacheSource::Redis => "Redis",
+        CacheSource::S3 => "S3",
+        CacheSource::Fallback => "Fallback",
+    };
+    info!(
+        team_id = team.id,
+        source = source_name,
+        "Fetched team metadata"
+    );
+
+    Ok(team)
 }
 
-/// Retrieves the cached response using HyperCache (Redis + S3 fallback)
+/// Retrieves the cached response using the pre-initialized HyperCacheReader
 ///
 /// Always uses the cache with cohorts included to match Django's behavior and ensure
 /// consistency across all clients accessing the same team's data. The cohorts are required
@@ -126,34 +146,15 @@ async fn get_from_cache(
     state: &AppState,
     team: &Team,
 ) -> Result<FlagDefinitionsResponse, FlagError> {
-    // Configure HyperCache to use the flags_with_cohorts.json cache key
-    // This ensures we always return cohort definitions along with flag definitions
-    let hypercache_config = HyperCacheConfig::new(
-        "feature_flags".to_string(),
-        "flags_with_cohorts.json".to_string(),
-        state.config.object_storage_region.clone(),
-        state.config.object_storage_bucket.clone(),
-    );
-
-    // Set S3 endpoint if configured
-    let mut config = hypercache_config;
-    if !state.config.object_storage_endpoint.is_empty() {
-        config.s3_endpoint = Some(state.config.object_storage_endpoint.clone());
-    }
-
-    // Create HyperCacheReader with the Redis client from state
-    let hypercache_reader = HyperCacheReader::new(state.redis_client.clone(), config)
-        .await
-        .map_err(|e| {
-            warn!(team_id = team.id, error = %e, "Failed to create HyperCacheReader");
-            FlagError::CacheMiss
-        })?;
-
     // Use KeyType::team() to generate the proper cache key
     let team_key = KeyType::team(team.clone());
 
-    // Try to get data from cache (Redis first, then S3 fallback)
-    let (data, source) = hypercache_reader.get_with_source(&team_key).await?;
+    // Use the pre-initialized HyperCacheReader for flags with cohorts
+    // This avoids per-request AWS SDK initialization overhead
+    let (data, source) = state
+        .flags_with_cohorts_hypercache_reader
+        .get_with_source(&team_key)
+        .await?;
 
     let source_name = match source {
         CacheSource::Redis => "Redis",

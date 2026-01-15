@@ -40,6 +40,7 @@ export const NullEnumApi = {} as const
  * `Redshift` - Redshift
  * `BigQuery` - Bigquery
  * `Databricks` - Databricks
+ * `AzureBlob` - Azure Blob
  * `Workflows` - Workflows
  * `HTTP` - Http
  * `NoOp` - Noop
@@ -55,6 +56,7 @@ export const BatchExportDestinationTypeEnumApi = {
     Redshift: 'Redshift',
     BigQuery: 'BigQuery',
     Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
     Workflows: 'Workflows',
     HTTP: 'HTTP',
     NoOp: 'NoOp',
@@ -72,6 +74,7 @@ export interface BatchExportDestinationApi {
 * `Redshift` - Redshift
 * `BigQuery` - Bigquery
 * `Databricks` - Databricks
+* `AzureBlob` - Azure Blob
 * `Workflows` - Workflows
 * `HTTP` - Http
 * `NoOp` - Noop */

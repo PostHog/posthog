@@ -111,6 +111,7 @@ TEAM_METADATA_FIELDS = [
     "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "logs_settings",
     "conversations_enabled",
     "conversations_settings",
     "inject_web_apps",
@@ -140,7 +141,15 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "organization_id":
         return str(value) if value else None
     elif field == "session_recording_sample_rate":
-        return float(value) if value is not None else None
+        # Match the logic in decide.py and remote_config.py:
+        # - Convert Decimal to string directly (preserves precision like "1.00")
+        # - Return None for 100% sampling (no sampling needed)
+        if value is not None:
+            str_value = str(value)
+            if str_value == "1.00":
+                return None
+            return str_value
+        return None
     return value
 
 

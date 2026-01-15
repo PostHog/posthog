@@ -9,7 +9,7 @@ import (
 )
 
 const maxLogLines = 100
-const logFilePath = "posthog-hobby.log"
+const logFilePath = "hobby-installer.log"
 
 type LogBuffer struct {
 	mu      sync.RWMutex

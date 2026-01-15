@@ -23,6 +23,7 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
+    TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -389,7 +390,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return null
                 }
 
-                // Generate insight events query from actors query
                 const { select: _select, ...source } = actorsQuery
 
                 const kind =
@@ -401,13 +401,20 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
+                const trendsQuery = insightActorsQuery.source as TrendsQuery
+                const seriesIndex = insightActorsQuery.series ?? 0
+                const seriesNode = trendsQuery.series?.[seriesIndex]
+                const eventName = seriesNode && 'event' in seriesNode ? seriesNode.event : undefined
+
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
                         source: insightActorsQuery,
                         select: ['*', 'event', 'person', 'timestamp'],
-                        after: 'all', // Show all events by default because date range is filtered by the source
+                        // Show all events by default because date range is filtered by the source
+                        after: 'all',
+                        event: eventName,
                     },
                     full: true,
                 }
