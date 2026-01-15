@@ -37,7 +37,7 @@ export function HogFlowDuration({
                     { label: 'Day(s)', value: 'd' },
                 ]}
                 value={unit}
-                onChange={(v) => onChange(`${numberValue}${v}`)}
+                onChange={(v) => onChange(`${Math.min(numberValue, MAX_VALUE_FOR_DURATION_UNIT[v])}${v}`)}
             />
         </div>
     )
