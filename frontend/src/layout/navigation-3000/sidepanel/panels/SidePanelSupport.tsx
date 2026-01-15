@@ -306,7 +306,7 @@ export function SidePanelSupport(): JSX.Element {
         // Clear any previous recording result before starting a new one
         setSendSupportRequestValue('feedbackRecordingResult', undefined)
 
-        posthog.startUserFeedbackRecording((result: UserFeedbackRecordingResult) => {
+        posthog.feedbackManager?.launchFeedbackRecordingUI((result: UserFeedbackRecordingResult) => {
             // When recording is complete, set the recording data and open the email form
             setSendSupportRequestValue('feedbackRecordingResult', result)
             setSendSupportRequestValue(
