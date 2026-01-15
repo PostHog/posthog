@@ -1,7 +1,3 @@
-"""
-Workflow template loader for global templates stored in code.
-"""
-
 import json
 from typing import Optional
 
@@ -153,10 +149,6 @@ def load_global_templates() -> list[dict]:
 
 
 def get_global_template_by_id(template_id: str) -> Optional[dict]:
-    """
-    Get a specific global template by ID.
-    Returns None if not found.
-    """
     templates = load_global_templates()
     for template in templates:
         if template.get("id") == template_id:
@@ -165,8 +157,5 @@ def get_global_template_by_id(template_id: str) -> Optional[dict]:
 
 
 def clear_template_cache() -> None:
-    """
-    Clear the template cache. Useful for development and testing.
-    """
     global _TEMPLATE_CACHE
     _TEMPLATE_CACHE = None
