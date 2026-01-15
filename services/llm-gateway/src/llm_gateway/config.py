@@ -50,8 +50,18 @@ class Settings(BaseSettings):
             return {}
         if isinstance(v, dict):
             return v
-        parsed = json.loads(v)
-        return {int(k): int(val) for k, val in parsed.items()}
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in team_rate_limit_multipliers: {e}")
+        
+        if not isinstance(parsed, dict):
+            raise ValueError("team_rate_limit_multipliers must be a JSON object")
+        
+        try:
+            return {int(k): int(val) for k, val in parsed.items()}
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"team_rate_limit_multipliers keys and values must be integers: {e}")
 
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 
