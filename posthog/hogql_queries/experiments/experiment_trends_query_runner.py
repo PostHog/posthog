@@ -61,7 +61,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def __init__(
         self,
         count_modifiers: Optional[HogQLQueryModifiers] = None,
-        exposures_modifiers: Optional[HogQLQueryModifiers] = None,
+        exposure_modifiers: Optional[HogQLQueryModifiers] = None,
         *args,
         **kwargs,
     ):
