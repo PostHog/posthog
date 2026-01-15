@@ -473,7 +473,7 @@ class InsightSerializer(InsightBasicSerializer):
                 # Check permission before adding insight to dashboard
                 if (
                     self.user_permissions.dashboard(dashboard).effective_privilege_level
-                    == Dashboard.PrivilegeLevel.CAN_VIEW
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
                 ):
                     raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
@@ -622,7 +622,7 @@ class InsightSerializer(InsightBasicSerializer):
             # it will mean this dashboard becomes restricted because of the patch
             if (
                 self.user_permissions.dashboard(dashboard).effective_privilege_level
-                == Dashboard.PrivilegeLevel.CAN_VIEW
+                != Dashboard.PrivilegeLevel.CAN_EDIT
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
@@ -641,7 +641,7 @@ class InsightSerializer(InsightBasicSerializer):
             for dashboard in dashboards_to_remove:
                 if (
                     self.user_permissions.dashboard(dashboard).effective_privilege_level
-                    == Dashboard.PrivilegeLevel.CAN_VIEW
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
                 ):
                     raise PermissionDenied(f"You don't have permission to remove insights from dashboard: {dashboard.id}")
 
