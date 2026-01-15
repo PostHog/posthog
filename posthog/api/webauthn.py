@@ -43,6 +43,7 @@ from posthog.helpers.two_factor_session import set_two_factor_verified_in_sessio
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 
 logger = structlog.get_logger(__name__)
 
@@ -452,6 +453,10 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         try:
             credential = WebauthnCredential.objects.get(pk=pk, user=user)
+
+            if credential.verified:
+                send_passkey_removed_email.delay(user.id)
+
             credential.delete()
             logger.info("webauthn_credential_deleted", user_id=user.pk, credential_id=pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -583,6 +588,8 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             credential.verified = True
             credential.counter = verification.new_sign_count
             credential.save()
+
+            send_passkey_added_email.delay(user.id)
 
             logger.info("webauthn_credential_verify_complete", user_id=user.pk, credential_id=credential.pk)
 

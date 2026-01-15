@@ -276,10 +276,12 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertEqual(len(credentials), 1)
         self.assertEqual(credentials[0]["label"], "My Passkey")
 
-    def test_delete_credential(self):
+    @patch("posthog.api.webauthn.send_passkey_removed_email")
+    def test_delete_credential(self, mock_send_email):
         response = self.client.delete(f"/api/webauthn/credentials/{self.credential.pk}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
+        mock_send_email.delay.assert_called_once_with(self.user.id)
         self.assertFalse(WebauthnCredential.objects.filter(pk=self.credential.pk).exists())
 
     def test_delete_nonexistent_credential(self):
@@ -313,6 +315,35 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
 
         self.credential.refresh_from_db()
         self.assertEqual(self.credential.label, "Renamed Passkey")
+
+    @patch("posthog.api.webauthn.send_passkey_added_email")
+    @patch("posthog.api.webauthn.verify_authentication_response")
+    def test_verify_complete_sends_passkey_added_email(self, mock_verify, mock_send_email):
+        unverified_credential = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"unverified-credential-id",
+            label="Unverified Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+
+        verify_begin_response = self.client.post(f"/api/webauthn/credentials/{unverified_credential.pk}/verify/")
+        self.assertEqual(verify_begin_response.status_code, status.HTTP_200_OK)
+
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        verify_complete_response = self.client.post(
+            f"/api/webauthn/credentials/{unverified_credential.pk}/verify_complete/",
+            {},
+            format="json",
+        )
+        self.assertEqual(verify_complete_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(verify_complete_response.json()["verified"])
+
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
     @parameterized.expand(
         [
