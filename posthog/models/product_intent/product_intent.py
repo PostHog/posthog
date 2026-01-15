@@ -109,8 +109,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return Experiment.objects.filter(team=self.team, start_date__isnull=False).exists()
 
     def has_activated_error_tracking(self) -> bool:
-        # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        # the team has any error tracking issues
+        return ErrorTrackingIssue.objects.filter(team=self.team).exists()
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
