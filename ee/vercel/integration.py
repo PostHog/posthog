@@ -300,7 +300,7 @@ class VercelIntegration:
                 user = existing_user
                 user_created = False
                 if VercelIntegration._user_has_any_vercel_mapping(existing_user):
-                    VercelIntegration._ensure_user_membership(
+                    VercelIntegration._add_user_to_organization(
                         existing_user, organization, OrganizationMembership.Level.OWNER
                     )
                     should_create_mapping = True
@@ -863,7 +863,7 @@ class VercelIntegration:
                 )
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
-                created = VercelIntegration._ensure_user_membership(
+                created = VercelIntegration._add_user_to_organization(
                     request.user, installation.organization, intended_level
                 )
 
@@ -907,7 +907,7 @@ class VercelIntegration:
         return OrganizationMembership.Level.MEMBER
 
     @staticmethod
-    def _ensure_user_membership(
+    def _add_user_to_organization(
         user: User, organization: Organization, level: OrganizationMembership.Level
     ) -> tuple[OrganizationMembership, bool]:
         membership, created = OrganizationMembership.objects.get_or_create(
@@ -1063,7 +1063,7 @@ class VercelIntegration:
             )
             created = True
 
-        VercelIntegration._ensure_user_membership(user, organization, level)
+        VercelIntegration._add_user_to_organization(user, organization, level)
 
         return user, created
 
