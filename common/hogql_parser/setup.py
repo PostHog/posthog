@@ -49,9 +49,9 @@ setup(
     include_package_data=True,
     ext_modules=[module],
     python_requires=">=3.10",
+    license="MIT",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
-        "License :: OSI Approved :: MIT License",
         "Operating System :: MacOS",
         "Operating System :: POSIX :: Linux",
         "Programming Language :: Python",
