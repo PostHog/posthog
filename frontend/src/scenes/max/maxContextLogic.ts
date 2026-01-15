@@ -43,6 +43,12 @@ import {
     insightToMaxContext,
 } from './utils'
 
+export interface ContextTagItemData {
+    type: 'dashboard' | 'insight' | 'event' | 'action'
+    id: string | number
+    name: string
+}
+
 // Type definitions for better reusability
 export type TaxonomicItem =
     | DashboardType
@@ -682,6 +688,66 @@ export const maxContextLogic = kea<maxContextLogicType>([
                         }
                     }
                 })
+
+                return items
+            },
+        ],
+        contextTagItems: [
+            (s: any) => [s.contextDashboards, s.contextInsights, s.contextEvents, s.contextActions, s.toolContextItems],
+            (
+                contextDashboards: MaxDashboardContext[],
+                contextInsights: MaxInsightContext[],
+                contextEvents: MaxEventContext[],
+                contextActions: MaxActionContext[],
+                toolContextItems: Array<{ text: string; icon: any }>
+            ): ContextTagItemData[] => {
+                const items: ContextTagItemData[] = []
+
+                // Collect tool context item names (these have precedence and shouldn't be duplicated)
+                const toolContextNames = new Set<string>()
+                toolContextItems.forEach((item) => {
+                    toolContextNames.add(item.text.toLowerCase())
+                })
+
+                // Add dashboards
+                if (contextDashboards) {
+                    contextDashboards.forEach((dashboard) => {
+                        const name = dashboard.name || `Dashboard ${dashboard.id}`
+                        if (!toolContextNames.has(name.toLowerCase())) {
+                            items.push({ type: 'dashboard', id: dashboard.id, name })
+                        }
+                    })
+                }
+
+                // Add insights
+                if (contextInsights) {
+                    contextInsights.forEach((insight) => {
+                        const name = insight.name || `Insight ${insight.id}`
+                        if (!toolContextNames.has(name.toLowerCase())) {
+                            items.push({ type: 'insight', id: insight.id, name })
+                        }
+                    })
+                }
+
+                // Add events
+                if (contextEvents) {
+                    contextEvents.forEach((event) => {
+                        const name = event.name
+                        if (name && !toolContextNames.has(name.toLowerCase())) {
+                            items.push({ type: 'event', id: event.id, name })
+                        }
+                    })
+                }
+
+                // Add actions
+                if (contextActions) {
+                    contextActions.forEach((action) => {
+                        const name = action.name || `Action ${action.id}`
+                        if (!toolContextNames.has(name.toLowerCase())) {
+                            items.push({ type: 'action', id: action.id, name })
+                        }
+                    })
+                }
 
                 return items
             },

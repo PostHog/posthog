@@ -133,11 +133,11 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <>
+        <div className="contents isolate">
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
             <GlobalShortcuts />
-        </>
+        </div>
     )
 }

@@ -23,7 +23,7 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
         }
 
         return (
-            <div className={cn('relative flex flex-col gap-0 input-like', wrapperClassName)}>
+            <div className={cn('relative flex flex-col gap-0', wrapperClassName)}>
                 <TextareaAutosize
                     ref={ref}
                     onFocus={onFocus}

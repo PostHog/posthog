@@ -5,7 +5,6 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { Intro } from '../Intro'
 import { Thread } from '../Thread'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
@@ -101,13 +100,13 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
             <div className={`transition-[flex-grow] duration-300 ease-out ${hasMessages ? 'grow-0' : 'grow'}`} />
 
             {/* Intro - fades out when messages appear */}
-            <div
+            {/* <div
                 className={`flex flex-col items-center transition-all duration-200 ease-out ${
                     hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 pb-3'
                 }`}
             >
                 <Intro />
-            </div>
+            </div> */}
 
             {/* Suggestion boxes - shown when no messages, hidden when thread visible */}
             {/* <div
@@ -143,6 +142,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >
+                {/* {!conversation?.has_unsupported_content && <AiFirstInput />} */}
                 {!conversation?.has_unsupported_content && <AiFirstInput />}
             </div>
 
