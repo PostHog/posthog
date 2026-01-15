@@ -243,7 +243,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     />
                                                 ) : null}
 
-                                                {isEditable && Settings ? (
                                                 {(isEditable || isInCanvas) && Settings ? (
                                                     <LemonButton
                                                         onClick={() => toggleEditing()}
