@@ -295,11 +295,17 @@ const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { runPythonNodeWithMode } = useActions(nodeLogic)
+
     return (
         <CodeEditorResizeable
             language="python"
             value={attributes.code}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
+            onPressCmdEnter={() => {
+                void runPythonNodeWithMode({ mode: 'auto' })
+            }}
             allowManualResize={false}
             minHeight={160}
             embedded

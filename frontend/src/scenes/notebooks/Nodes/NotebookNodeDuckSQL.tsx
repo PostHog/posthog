@@ -253,11 +253,17 @@ const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeDuckSQLAttributes>): JSX.Element => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { runDuckSqlNodeWithMode } = useActions(nodeLogic)
+
     return (
         <CodeEditorResizeable
             language="sql"
             value={attributes.code}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
+            onPressCmdEnter={() => {
+                void runDuckSqlNodeWithMode({ mode: 'auto' })
+            }}
             allowManualResize={false}
             minHeight={160}
             embedded
