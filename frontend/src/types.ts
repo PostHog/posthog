@@ -3836,6 +3836,7 @@ export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
     Monthly = 'monthly',
+    Yearly = 'yearly',
 }
 
 export type ScheduledChangePayload =
