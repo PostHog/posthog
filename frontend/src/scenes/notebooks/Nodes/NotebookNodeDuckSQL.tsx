@@ -162,7 +162,12 @@ const Component = ({
                 </div>
             ) : null}
             {showReturnVariableRow ? (
-                <div ref={footerRef} className="flex items-center gap-2 text-xs text-muted border-t p-2">
+                <div
+                    ref={footerRef}
+                    className="flex items-center gap-2 text-xs text-muted border-t p-2"
+                    onClick={(event) => event.stopPropagation()}
+                    onMouseDown={(event) => event.stopPropagation()}
+                >
                     <span className="font-mono mt-0.5">
                         <IconCornerDownRight />
                     </span>
