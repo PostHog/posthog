@@ -103,7 +103,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
         const { batchHogFlowRequest, team, hogFlow } = batchHogFlowRequestMessage
         const { filters } = batchHogFlowRequest
 
-        if (!filters.properties) {
+        if (!filters.properties || !filters.properties.length) {
             logger.error('Batch HogFlow request missing property filters', { batchHogFlowRequest })
             return []
         }
