@@ -70,11 +70,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AdvancedSettingsPanel } from './panels/AdvancedSettingsPanel'
-import { BasicsPanel } from './panels/BasicsPanel'
-import { TargetingPanel } from './panels/TargetingPanel'
-import { FeatureFlagTemplates } from './FeatureFlagTemplates'
-
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -114,11 +109,16 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
+import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
+import { FeatureFlagWorkflow } from './FeatureFlagWorkflow'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { AdvancedSettingsPanel } from './panels/AdvancedSettingsPanel'
+import { BasicsPanel } from './panels/BasicsPanel'
+import { TargetingPanel } from './panels/TargetingPanel'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -145,7 +145,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         nonEmptyVariants,
         variantErrors,
         propertySelectErrors,
-        aggregationTargetName,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -202,7 +201,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const useNewUI = true // TODO: Gate with feature flag once we're ready
+    const useWorkflowUI = featureFlags[FEATURE_FLAGS.FEATURE_FLAG_WORKFLOW_UI]
 
+    // Call hooks before any conditional returns
     useFileSystemLogView({
         type: 'feature_flag',
         ref: featureFlag?.id,
@@ -216,6 +217,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         ),
         deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
+
+    // Use new workflow UI if feature flag is enabled
+    if (useWorkflowUI) {
+        return <FeatureFlagWorkflow id={id} />
+    }
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -454,8 +460,13 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         if (featureFlag.key) {
                                                                             parts.push(featureFlag.key)
                                                                         }
-                                                                        if (multivariateEnabled && nonEmptyVariants.length > 0) {
-                                                                            parts.push(`${nonEmptyVariants.length} variants`)
+                                                                        if (
+                                                                            multivariateEnabled &&
+                                                                            nonEmptyVariants.length > 0
+                                                                        ) {
+                                                                            parts.push(
+                                                                                `${nonEmptyVariants.length} variants`
+                                                                            )
                                                                         } else {
                                                                             parts.push('Boolean')
                                                                         }
@@ -465,11 +476,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     })()}
                                                                     {(() => {
                                                                         const hasKeyError = !featureFlag.key
-                                                                        const hasVariantErrors = multivariateEnabled && variantErrors?.some(e => e.key)
+                                                                        const hasVariantErrors =
+                                                                            multivariateEnabled &&
+                                                                            variantErrors?.some((e) => e.key)
                                                                         if (hasKeyError || hasVariantErrors) {
-                                                                            return <IconWarning className="text-warning" />
+                                                                            return (
+                                                                                <IconWarning className="text-warning" />
+                                                                            )
                                                                         }
-                                                                        return <IconCheckCircle className="text-success" />
+                                                                        return (
+                                                                            <IconCheckCircle className="text-success" />
+                                                                        )
                                                                     })()}
                                                                 </div>
                                                             )}
@@ -489,24 +506,41 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                       {!activeCollapseKeys.includes('targeting') && (
                                                                           <div className="flex items-center gap-2 text-sm text-muted">
                                                                               {(() => {
-                                                                                  const groups = featureFlag?.filters?.groups || []
+                                                                                  const groups =
+                                                                                      featureFlag?.filters?.groups || []
                                                                                   if (groups.length === 0) {
-                                                                                      return <span>No release conditions</span>
+                                                                                      return (
+                                                                                          <span>
+                                                                                              No release conditions
+                                                                                          </span>
+                                                                                      )
                                                                                   }
                                                                                   const parts: string[] = []
                                                                                   const ruleCount = groups.length
-                                                                                  parts.push(`${ruleCount} ${ruleCount === 1 ? 'rule' : 'rules'}`)
-                                                                                  return <span>{parts.join(' · ')}</span>
+                                                                                  parts.push(
+                                                                                      `${ruleCount} ${ruleCount === 1 ? 'rule' : 'rules'}`
+                                                                                  )
+                                                                                  return (
+                                                                                      <span>{parts.join(' · ')}</span>
+                                                                                  )
                                                                               })()}
                                                                               {(() => {
-                                                                                  const hasErrors = propertySelectErrors?.some((group: any) =>
-                                                                                      group?.properties?.some((p: any) => p?.value) ||
-                                                                                      group?.rollout_percentage
-                                                                                  )
+                                                                                  const hasErrors =
+                                                                                      propertySelectErrors?.some(
+                                                                                          (group: any) =>
+                                                                                              group?.properties?.some(
+                                                                                                  (p: any) => p?.value
+                                                                                              ) ||
+                                                                                              group?.rollout_percentage
+                                                                                      )
                                                                                   if (hasErrors) {
-                                                                                      return <IconWarning className="text-warning" />
+                                                                                      return (
+                                                                                          <IconWarning className="text-warning" />
+                                                                                      )
                                                                                   }
-                                                                                  return <IconCheckCircle className="text-success" />
+                                                                                  return (
+                                                                                      <IconCheckCircle className="text-success" />
+                                                                                  )
                                                                               })()}
                                                                           </div>
                                                                       )}
@@ -530,12 +564,22 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         if (featureFlag.filters?.payloads?.['true']) {
                                                                             parts.push('Has payload')
                                                                         }
-                                                                        if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
+                                                                        if (
+                                                                            featureFlag.evaluation_runtime &&
+                                                                            featureFlag.evaluation_runtime !==
+                                                                                FeatureFlagEvaluationRuntime.ALL
+                                                                        ) {
                                                                             const runtimeLabels = {
-                                                                                [FeatureFlagEvaluationRuntime.CLIENT]: 'Client-side only',
-                                                                                [FeatureFlagEvaluationRuntime.SERVER]: 'Server-side only',
+                                                                                [FeatureFlagEvaluationRuntime.CLIENT]:
+                                                                                    'Client-side only',
+                                                                                [FeatureFlagEvaluationRuntime.SERVER]:
+                                                                                    'Server-side only',
                                                                             }
-                                                                            parts.push(runtimeLabels[featureFlag.evaluation_runtime] || '')
+                                                                            parts.push(
+                                                                                runtimeLabels[
+                                                                                    featureFlag.evaluation_runtime
+                                                                                ] || ''
+                                                                            )
                                                                         }
                                                                         if (featureFlag.ensure_experience_continuity) {
                                                                             parts.push('Persists across auth')
