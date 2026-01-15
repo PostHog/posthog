@@ -309,15 +309,25 @@ export default {
         // OAuth Protected Resource Metadata (RFC 9728)
         // This endpoint tells MCP clients where to authenticate to get tokens.
         //
+        // Per RFC 9728, the well-known URL is constructed by inserting /.well-known/oauth-protected-resource
+        // between the host and the path. For example:
+        // - Resource: https://mcp.posthog.com/mcp → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp
+        // - Resource: https://mcp.posthog.com/sse → Well-known: https://mcp.posthog.com/.well-known/oauth-protected-resource/sse
+        //
         // OAuth flow for MCP:
         // 1. Client connects to MCP server without a token
         // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
         // 3. Client fetches this metadata to discover the authorization server
         // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
         // 5. Client reconnects to MCP with the access token
-        if (url.pathname === '/.well-known/oauth-protected-resource') {
+        const wellKnownPrefix = '/.well-known/oauth-protected-resource'
+        if (url.pathname.startsWith(wellKnownPrefix)) {
+            // Extract the resource path from after the well-known prefix
+            // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
+            const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
+
             const resourceUrl = new URL(request.url)
-            resourceUrl.pathname = '/'
+            resourceUrl.pathname = resourcePath
             resourceUrl.search = ''
 
             // Determine authorization server based on region param.
@@ -348,10 +358,14 @@ export default {
         if (!token) {
             // Return 401 with WWW-Authenticate header per RFC 9728.
             // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-            // We preserve the region param so OAuth flows use the correct PostHog instance.
-            // Normalize to lowercase for consistency with the metadata endpoint.
+            // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
+            // between the host and the resource path:
+            // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
+            // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
             const regionParam = url.searchParams.get('region')?.toLowerCase()
-            const metadataUrl = new URL('/.well-known/oauth-protected-resource', request.url)
+            const metadataUrl = new URL(request.url)
+            metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
+            metadataUrl.search = ''
             if (regionParam) {
                 metadataUrl.searchParams.set('region', regionParam)
             }
