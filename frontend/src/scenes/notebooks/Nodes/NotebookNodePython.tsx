@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -8,7 +8,7 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
@@ -179,27 +179,63 @@ const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | n
     )
 }
 
-const Component = (): JSX.Element | null => {
+const DEFAULT_PYTHON_NODE_HEIGHT = 100
+const MAX_PYTHON_NODE_HEIGHT = 500
+
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
+    const outputRef = useRef<HTMLDivElement | null>(null)
+    const footerRef = useRef<HTMLDivElement | null>(null)
+
+    const hasResult = pythonExecution?.result !== undefined && pythonExecution?.result !== null
+    const hasExecution =
+        pythonExecution &&
+        (pythonExecution.stdout ||
+            pythonExecution.stderr ||
+            hasResult ||
+            pythonExecution.media?.length ||
+            pythonExecution.traceback?.length ||
+            pythonExecution.variables?.length)
+
+    useLayoutEffect(() => {
+        if (!hasExecution) {
+            return
+        }
+        const output = outputRef.current
+        if (!output) {
+            return
+        }
+        const footerHeight = footerRef.current?.offsetHeight ?? 0
+        const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight)
+        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_PYTHON_NODE_HEIGHT
+
+        if (desiredHeight > currentHeight) {
+            updateAttributes({ height: desiredHeight })
+        }
+    }, [
+        attributes.height,
+        hasExecution,
+        pythonExecution?.media?.length,
+        pythonExecution?.result,
+        pythonExecution?.stderr,
+        pythonExecution?.stdout,
+        pythonExecution?.traceback?.length,
+        pythonExecution?.variables?.length,
+        updateAttributes,
+    ])
 
     if (!expanded) {
         return null
     }
 
-    const hasExecution =
-        pythonExecution &&
-        (pythonExecution.stdout ||
-            pythonExecution.stderr ||
-            pythonExecution.result ||
-            pythonExecution.media?.length ||
-            pythonExecution.traceback?.length ||
-            pythonExecution.variables?.length)
-
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
-            <div className="p-3 overflow-y-auto h-full space-y-3">
+            <div ref={outputRef} className="p-3 overflow-y-auto h-full space-y-3">
                 {hasExecution ? (
                     <>
                         {pythonExecution?.stdout ? (
@@ -208,7 +244,7 @@ const Component = (): JSX.Element | null => {
                         {pythonExecution?.stderr ? (
                             <OutputBlock title="stderr" toneClassName="text-danger" value={pythonExecution.stderr} />
                         ) : null}
-                        {pythonExecution?.result ? (
+                        {hasResult ? (
                             <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
                         ) : null}
                         {pythonExecution?.media?.map((media, index) => (
@@ -227,7 +263,7 @@ const Component = (): JSX.Element | null => {
                 )}
             </div>
             {exportedGlobals.length > 0 ? (
-                <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
+                <div ref={footerRef} className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
                     <span className="font-mono mt-1">
                         <IconCornerDownRight />
                     </span>
