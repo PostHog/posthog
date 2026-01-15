@@ -13,7 +13,7 @@ from autoevals.llm import LLMClassifier
 from braintrust import EvalCase, Score
 
 from products.surveys.backend.summarization import format_as_markdown, summarize_responses
-from products.surveys.backend.summarization.llm.schema import SurveySummaryResponse
+from products.surveys.backend.summarization.llm.gemini import SummarizationResult
 
 from ..base import MaxPublicEval
 
@@ -75,13 +75,13 @@ Rate the theme accuracy:
 
 
 class FrequencyClassificationScorer(LLMClassifier):
-    """Evaluates whether frequency labels (common/moderate/rare) are accurate."""
+    """Evaluates whether frequency labels (percentage ranges) are accurate."""
 
     def __init__(self, **kwargs):
         super().__init__(
             name="frequency_classification",
             prompt_template="""
-Evaluate whether the frequency classifications (common, moderate, rare) are accurate.
+Evaluate whether the frequency classifications (percentage ranges) are accurate.
 
 Total Responses: {{input.response_count}}
 
@@ -91,10 +91,11 @@ Survey Responses:
 Themes with Frequencies:
 {{output.themes}}
 
-Frequency Guidelines:
-- common: Theme appears in majority of responses (>40%)
-- moderate: Theme appears in notable portion (15-40%)
-- rare: Theme appears in few responses (<15%)
+Frequency Guidelines (as percentage of total responses):
+- >50%: Theme appears in majority of responses
+- 25-50%: Theme appears in significant portion
+- 10-25%: Theme appears in moderate portion
+- <10%: Theme appears in few responses
 
 Evaluation Criteria:
 1. Count how many responses support each theme
@@ -212,18 +213,19 @@ async def run_summarization(input_data: dict) -> dict:
         return {"success": False, "error": "GEMINI_API_KEY not configured"}
 
     try:
-        result: SurveySummaryResponse = summarize_responses(
+        result: SummarizationResult = summarize_responses(
             question_text=input_data["question"],
             responses=input_data["responses"],
         )
+        summary = result.summary
         return {
             "success": True,
-            "overview": result.overview,
+            "overview": summary.overview,
             "themes": [
-                {"theme": t.theme, "description": t.description, "frequency": t.frequency} for t in result.themes
+                {"theme": t.theme, "description": t.description, "frequency": t.frequency} for t in summary.themes
             ],
-            "key_insight": result.key_insight,
-            "markdown": format_as_markdown(result),
+            "key_insight": summary.key_insight,
+            "markdown": format_as_markdown(summary),
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
