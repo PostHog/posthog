@@ -432,7 +432,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "choices" in translation_data and isinstance(translation_data["choices"], list):
                 cleaned_choices = []
                 for choice in translation_data["choices"]:
-                    if isinstance(choice, str) and nh3.is_html(choice):
+                    if not isinstance(choice, str):
+                        raise serializers.ValidationError(
+                            f"Question {question_index}: Translation '{lang_code}' choices must be strings"
+                        )
+                    if nh3.is_html(choice):
                         cleaned_choices.append(nh3_clean_with_allow_list(choice))
                     else:
                         cleaned_choices.append(choice)
