@@ -48,16 +48,17 @@ class TracesNeighborsQueryRunner(AnalyticsQueryRunner[TracesNeighborsQueryRespon
     def _get_neighbor_trace(self, current_timestamp: datetime, direction: str) -> tuple[str | None, str | None]:
         """Get the previous or next trace relative to the current timestamp."""
         if direction == "prev":
-            # Previous = most recent trace before current timestamp
+            # Previous = most recent trace before current (or same timestamp but earlier trace_id)
             comparison_op = "<"
             order = "DESC"
         else:
-            # Next = oldest trace after current timestamp
+            # Next = oldest trace after current (or same timestamp but later trace_id)
             comparison_op = ">"
             order = "ASC"
 
         with self.timings.measure(f"traces_neighbors_{direction}"), tags_context(product=Product.LLM_ANALYTICS):
             # Use a subquery to first get max timestamp per trace, then filter
+            # Use tuple comparison (timestamp, trace_id) to handle identical timestamps deterministically
             query = parse_select(
                 f"""
                 SELECT trace_id, trace_timestamp
@@ -70,8 +71,8 @@ class TracesNeighborsQueryRunner(AnalyticsQueryRunner[TracesNeighborsQueryRespon
                       AND {{conditions}}
                     GROUP BY properties.$ai_trace_id
                 )
-                WHERE trace_timestamp {comparison_op} {{current_timestamp}}
-                ORDER BY trace_timestamp {order}
+                WHERE (trace_timestamp, trace_id) {comparison_op} ({{current_timestamp}}, {{current_trace_id}})
+                ORDER BY trace_timestamp {order}, trace_id {order}
                 LIMIT 1
                 """,
             )
@@ -82,6 +83,7 @@ class TracesNeighborsQueryRunner(AnalyticsQueryRunner[TracesNeighborsQueryRespon
                 placeholders={
                     "conditions": self._get_filter_conditions(),
                     "current_timestamp": ast.Constant(value=current_timestamp),
+                    "current_trace_id": ast.Constant(value=self.query.traceId),
                 },
                 team=self.team,
                 timings=self.timings,
@@ -104,13 +106,7 @@ class TracesNeighborsQueryRunner(AnalyticsQueryRunner[TracesNeighborsQueryRespon
                 left=ast.Field(chain=["properties", "$ai_trace_id"]),
                 right=ast.Constant(value=""),
             ),
-            # Exclude current trace
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=["properties", "$ai_trace_id"]),
-                right=ast.Constant(value=self.query.traceId),
-            ),
-            # Date range filter
+            # Date range filter (current trace exclusion is handled by tuple comparison in query)
             self._get_date_range_filter(),
         ]
 
