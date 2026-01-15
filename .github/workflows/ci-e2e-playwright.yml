@@ -399,20 +399,20 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes (modified or untracked) in the playwright directory
+                  # Check if there are any changes (modified or untracked) in the snapshots directory
                   # Use git status --porcelain to detect both modifications and new untracked files
-                  if [ -z "$(git status --porcelain playwright/)" ]; then
+                  if [ -z "$(git status --porcelain playwright/__snapshots__/)" ]; then
                     echo "No screenshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "Screenshot changes detected:"
-                    git status --short playwright/
+                    git status --short playwright/__snapshots__/
 
                     # Stage untracked files so git diff can include them in the patch
-                    git add -N playwright/
+                    git add -N playwright/__snapshots__/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
-                    git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
+                    git diff --binary --full-index playwright/__snapshots__/ > /tmp/patches/playwright-patch.patch
                     echo "Created patch file"
                     echo "has-changes=true" >> $GITHUB_OUTPUT
                   fi
