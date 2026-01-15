@@ -3540,7 +3540,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"in(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name})",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -3553,23 +3553,25 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_materialized_column_in_bails_out_for_sentinel_value_on_non_nullable(self) -> None:
+        # When sentinel values are present, we bail out and let default handling apply nullIf wrapping
+        # Note: default IN handling does not add ifNull wrapper (unlike Eq/Like)
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('null', 'value2')",
-                f"ifNull(in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_1)s, %(hogql_val_2)s)), 0)",
-                {"hogql_val_1": "null", "hogql_val_2": "value2"},
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "null", "hogql_val_1": "value2"},
             )
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('', 'value2')",
-                f"ifNull(in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_1)s, %(hogql_val_2)s)), 0)",
-                {"hogql_val_1": "", "hogql_val_2": "value2"},
+                f"in(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "", "hogql_val_1": "value2"},
             )
 
     def test_materialized_column_in_nullable(self) -> None:
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"and(in(events.{mat_col.name}, tuple(%(hogql_val_0)s, %(hogql_val_1)s)), events.{mat_col.name} IS NOT NULL)",
+                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), events.mat_test_prop IS NOT NULL)",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
@@ -3696,14 +3698,18 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_mat_col", None),
-            ("nullable_mat_col", True),
-            ("non_nullable_mat_col", False),
+            ("no_mat_col", None, False),
+            ("nullable_mat_col", True, False),
+            ("non_nullable_mat_col", False, False),
+            ("nullable_mat_col_with_bloom_filter", True, True),
+            ("non_nullable_mat_col_with_bloom_filter", False, True),
         ]
     )
-    def test_in_and_not_in_optimization_gives_correct_results(self, _, is_nullable) -> None:
+    def test_in_and_not_in_optimization_gives_correct_results(self, _, is_nullable, create_bloom_filter_index) -> None:
         if is_nullable is not None:
-            mat_col = materialize("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_index=True)
+            mat_col = materialize(
+                "events", "test_prop", is_nullable=is_nullable, create_bloom_filter_index=create_bloom_filter_index
+            )
             self.addCleanup(cleanup_materialized_columns)
         else:
             mat_col = None
@@ -3758,15 +3764,13 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             assert in_matches == in_expected, f"IN {in_values}"
 
             if mat_col:
-                assert in_result.clickhouse is not None
-                # We can use the bloom filter index if:
-                # - The column has a bloom filter index
-                # - We didn't need to bail out (i.e., no sentinel values for non-nullable, or is_nullable)
+                assert in_result.clickhouse
+                # We can use the bloom filter index if it exists and we didn't need to bail out of the optimisation
                 contains_sentinel = any(v in ("", "null") for v in in_values)
-                should_use_index = is_nullable or not contains_sentinel
-                did_use_index = bool(
-                    get_index_from_explain(in_result.clickhouse, get_bloom_filter_index_name(mat_col.name))
-                )
+                should_use_index = create_bloom_filter_index and (is_nullable or not contains_sentinel)
+                index_name = get_bloom_filter_index_name(mat_col.name)
+                index_info = get_index_from_explain(in_result.clickhouse, index_name)
+                did_use_index = bool(index_info)
                 assert should_use_index == did_use_index, f"IN {in_values}: expected index use={should_use_index}"
 
             not_in_expected = cases.difference(in_expected)

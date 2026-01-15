@@ -34,6 +34,10 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+# In non-nullable materialized columns, these values are treat at NULL
+MAT_COL_NULL_SENTINELS = ["", "null"]
+
+# We skip nullIf/ifNull wrapping for these columns, to improve performance and help skip index usage
 COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     "mat_$ai_trace_id",
     "mat_$ai_session_id",
@@ -295,7 +299,7 @@ class ClickHousePrinter(HogQLPrinter):
         # Only optimize for non-empty, non-null string constants
         if not isinstance(constant_expr.value, str):
             return None
-        if constant_expr.value == "" or constant_expr.value == "null":
+        if constant_expr.value in MAT_COL_NULL_SENTINELS:
             return None
 
         # Check if this property uses an individually materialized column (not a property group)
@@ -389,7 +393,7 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
             # regular code path handle it, which handles this case
-            if any(ilike_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+            if any(ilike_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
                 return None
 
             if node.op == ast.CompareOperationOp.ILike:
@@ -451,7 +455,7 @@ class ClickHousePrinter(HogQLPrinter):
         else:
             # Non-nullable columns store null values as the string 'null', so bail out of optimizing and let the
             # regular code path handle it, which handles this case
-            if any(like_matches(pattern_expr.value, s) for s in ["", "null", '"null"']):
+            if any(like_matches(pattern_expr.value, s) for s in MAT_COL_NULL_SENTINELS):
                 return None
 
             # For non-nullable columns with non-sentinel patterns, use raw column for performance
@@ -488,18 +492,9 @@ class ClickHousePrinter(HogQLPrinter):
             return None
 
         if isinstance(node.right, ast.Constant):
-            if not isinstance(node.right.value, str):
-                return None
-            if node.right.value == "" or node.right.value == "null":
-                return None
             values = [node.right]
         elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
             values = list(node.right.exprs)
-            for v in values:
-                if not isinstance(v, ast.Constant) or not isinstance(v.value, str):
-                    return None
-                if v.value == "" or v.value == "null":
-                    return None
         else:
             return None
 
@@ -507,16 +502,23 @@ class ClickHousePrinter(HogQLPrinter):
             return "0" if node.op == ast.CompareOperationOp.In else "1"
 
         materialized_column_sql = str(property_source)
-        values_sql = ", ".join(self.visit(v) for v in values)
 
         if property_source.is_nullable:
+            values_sql = ", ".join(self.visit(v) for v in values)
             if node.op == ast.CompareOperationOp.In:
-                return f"and(in({materialized_column_sql}, tuple({values_sql})), {materialized_column_sql} IS NOT NULL)"
+                # We use transform_null_in=1 which makes it hard to use a skip index with the in() function in clickhouse.
+                # As a workaround, flip the args and use has() - this is safe because we already excluded NULL
+                return f"and(has([{values_sql}], {materialized_column_sql}), {materialized_column_sql} IS NOT NULL)"
             else:
                 return f"ifNull(notIn({materialized_column_sql}, tuple({values_sql})), 1)"
         else:
+            # non-nullable materialized columns store NULL as 'null' or '', so bail out if the values contain this
+            for value in values:
+                if value.value in MAT_COL_NULL_SENTINELS:
+                    return None
+            values_sql = ", ".join(self.visit(v) for v in values)
             if node.op == ast.CompareOperationOp.In:
-                return f"in({materialized_column_sql}, tuple({values_sql}))"
+                return f"has([{values_sql}], {materialized_column_sql})"
             else:
                 return f"notIn({materialized_column_sql}, tuple({values_sql}))"
 
