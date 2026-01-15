@@ -319,16 +319,47 @@ jobs:
                   # Only bazelified products changed - check if legacy is affected
                   echo "Only bazelified products changed - checking legacy impact..."
 
-                  if ! TARGETS=$(target-determinator -targets="//products/..." "origin/${{ github.base_ref }}" 2>&1); then
-                    echo "target-determinator failed, assuming legacy impact"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                  elif echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
-                    echo "Product changes affect legacy code - Django tests will run"
+                  # Build target pattern from changed bazelified products (more focused than //products/...)
+                  TARGET_PATTERN=""
+                  for product in $CHANGED_PRODUCTS; do
+                    if [[ -f "products/$product/backend/BUILD.bazel" ]]; then
+                      if [[ -n "$TARGET_PATTERN" ]]; then
+                        TARGET_PATTERN="$TARGET_PATTERN + //products/$product/..."
+                      else
+                        TARGET_PATTERN="//products/$product/..."
+                      fi
+                    fi
+                  done
+                  echo "Target pattern: $TARGET_PATTERN"
+
+                  # Warm up Bazel with a simple query first (shares state with determinator)
+                  echo "::group::Bazel warmup"
+                  time bazel query "//products/visual_review/..." --output=package 2>&1 | tail -20
+                  echo "::endgroup::"
+
+                  # Run target-determinator with timing and verbose output
+                  echo "::group::target-determinator"
+                  echo "Running: target-determinator -verbose -targets=\"$TARGET_PATTERN\" origin/${{ github.base_ref }}"
+                  DETERMINATOR_START=$(date +%s)
+                  if ! TARGETS=$(target-determinator -verbose -targets="$TARGET_PATTERN" "origin/${{ github.base_ref }}" 2>&1); then
+                    DETERMINATOR_END=$(date +%s)
+                    echo "target-determinator failed after $((DETERMINATOR_END - DETERMINATOR_START))s, assuming legacy impact"
+                    echo "$TARGETS"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
-                    echo "No legacy impact - Django tests can be skipped!"
-                    echo "run_legacy=false" >> $GITHUB_OUTPUT
+                    DETERMINATOR_END=$(date +%s)
+                    echo "target-determinator completed in $((DETERMINATOR_END - DETERMINATOR_START))s"
+                    echo "Output:"
+                    echo "$TARGETS"
+                    if echo "$TARGETS" | grep -q "//ci:legacy_pytest"; then
+                      echo "Product changes affect legacy code - Django tests will run"
+                      echo "run_legacy=true" >> $GITHUB_OUTPUT
+                    else
+                      echo "No legacy impact - Django tests can be skipped!"
+                      echo "run_legacy=false" >> $GITHUB_OUTPUT
+                    fi
                   fi
+                  echo "::endgroup::"
 
                   # Run all product tests (Bazel handles test discovery)
                   run_tests
