@@ -7,7 +7,7 @@ import structlog
 import posthoganalytics
 from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.event_usage import groups
 from posthog.models import ExportedAsset
@@ -145,7 +145,7 @@ def export_asset_direct(
     @retry(
         retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
         stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=2, max=10),
+        wait=wait_exponential_jitter(initial=2, max=10),
         before_sleep=_create_retry_logger(exported_asset),
         reraise=True,
     )

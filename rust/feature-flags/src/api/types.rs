@@ -157,6 +157,10 @@ pub struct ConfigResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surveys: Option<Value>,
 
+    /// Logs product options
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<LogsConfig>,
+
     /// Parameters for the toolbar
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub toolbar_params: Option<Value>,
@@ -481,6 +485,9 @@ impl FromFeatureAndMatch for FlagDetails {
                 Some("Holdout condition value".to_string())
             }
             FeatureFlagMatchReason::FlagDisabled => Some("Feature flag is disabled".to_string()),
+            FeatureFlagMatchReason::MissingDependency => {
+                Some("Flag cannot be evaluated due to missing dependency".to_string())
+            }
         }
     }
 }
@@ -520,6 +527,12 @@ pub struct SessionRecordingConfig {
 pub enum SessionRecordingField {
     Disabled(bool), // NB: this should only ever be false
     Config(Box<SessionRecordingConfig>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsConfig {
+    pub capture_console_logs: Option<bool>,
 }
 
 impl Default for SessionRecordingField {
@@ -677,6 +690,26 @@ mod tests {
             payload: None,
         },
         Some("Holdout condition value".to_string())
+    )]
+    #[case::flag_disabled(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::FlagDisabled,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Feature flag is disabled".to_string())
+    )]
+    #[case::missing_dependency(
+        FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::MissingDependency,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Flag cannot be evaluated due to missing dependency".to_string())
     )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,

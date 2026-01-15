@@ -44,6 +44,12 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
         mock_stream_processor = MagicMock()
         mock_stream_processor.mark_id_as_streamed = MagicMock()
 
+        # Create a proper mock graph class that returns a mock when instantiated
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
         class TestRunner(BaseAgentRunner):
             def get_initial_state(self):
                 return AssistantState(messages=[])
@@ -55,7 +61,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             team=self.team,
             conversation=self.conversation,
             user=self.user,
-            graph_class=cast(type[BaseAssistantGraph], mock_graph),
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             stream_processor=mock_stream_processor,
@@ -69,7 +75,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             (
                 "anthropic_bad_request",
                 anthropic.BadRequestError(
-                    message="Your credit balance is too low to access the Anthropic API.",
+                    message="prompt is too long: 1004486 tokens > 1000000 maximum",
                     response=httpx.Response(
                         status_code=400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
                     ),
@@ -78,9 +84,164 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 "anthropic",
             ),
             (
-                "openai_api_error",
-                openai.APIError(
+                "openai_bad_request",
+                openai.BadRequestError(
+                    message="This model's maximum context length is 128000 tokens.",
+                    response=httpx.Response(
+                        status_code=400, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+                    ),
+                    body=None,
+                ),
+                "openai",
+            ),
+        ]
+    )
+    async def test_llm_client_errors_handled_with_appropriate_message(self, _name, exception, expected_provider):
+        """Client errors (400, 422) get a user-actionable message, not 'try again later'."""
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_CLIENT_ERROR_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            # Verify that a FailureMessage was yielded with appropriate message
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                message.content,
+                "I'm unable to process this request. The conversation may be too long. Please start a new conversation.",
+            )
+
+            # Verify state was reset
+            mock_graph.aupdate_state.assert_called()
+
+            # Verify Prometheus counter was incremented with correct provider
+            mock_counter.labels.assert_called_with(provider=expected_provider)
+            mock_counter.labels.return_value.inc.assert_called_once()
+
+            # Verify error was logged as client error
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args
+            self.assertEqual(call_args[0][0], "llm_client_error")
+            self.assertEqual(call_args[1]["provider"], expected_provider)
+
+            # Verify exception was captured with correct type
+            mock_posthog.capture_exception.assert_called_once()
+            capture_call_args = mock_posthog.capture_exception.call_args
+            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_client_error")
+            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    @parameterized.expand(
+        [
+            (
+                "anthropic_internal_server_error",
+                anthropic.InternalServerError(
+                    message="Internal server error",
+                    response=httpx.Response(
+                        status_code=500, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+                    ),
+                    body=None,
+                ),
+                "anthropic",
+            ),
+            (
+                "anthropic_rate_limit",
+                anthropic.RateLimitError(
                     message="Rate limit exceeded",
+                    response=httpx.Response(
+                        status_code=429, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+                    ),
+                    body=None,
+                ),
+                "anthropic",
+            ),
+            (
+                "openai_internal_server_error",
+                openai.InternalServerError(
+                    message="Internal server error",
+                    response=httpx.Response(
+                        status_code=500, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+                    ),
+                    body=None,
+                ),
+                "openai",
+            ),
+            (
+                "openai_rate_limit",
+                openai.RateLimitError(
+                    message="Rate limit exceeded",
+                    response=httpx.Response(
+                        status_code=429, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+                    ),
+                    body=None,
+                ),
+                "openai",
+            ),
+        ]
+    )
+    async def test_llm_transient_errors_handled_with_retry_message(self, _name, exception, expected_provider):
+        """Transient errors (5xx, rate limits) get a 'try again later' message."""
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            # Verify that a FailureMessage was yielded with retry message
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                message.content,
+                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            )
+
+            # Verify state was reset
+            mock_graph.aupdate_state.assert_called()
+
+            # Verify Prometheus counter was incremented with correct provider
+            mock_counter.labels.assert_called_with(provider=expected_provider)
+            mock_counter.labels.return_value.inc.assert_called_once()
+
+            # Verify error was logged as provider error
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args
+            self.assertEqual(call_args[0][0], "llm_provider_error")
+            self.assertEqual(call_args[1]["provider"], expected_provider)
+
+            # Verify exception was captured with correct type
+            mock_posthog.capture_exception.assert_called_once()
+            capture_call_args = mock_posthog.capture_exception.call_args
+            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
+            self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    @parameterized.expand(
+        [
+            (
+                "openai_generic_api_error",
+                openai.APIError(
+                    message="Unknown API error",
                     request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
                     body=None,
                 ),
@@ -88,7 +249,8 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             ),
         ]
     )
-    async def test_llm_api_errors_are_handled_gracefully(self, _name, exception, expected_provider):
+    async def test_llm_generic_api_errors_handled_gracefully(self, _name, exception, expected_provider):
+        """Generic API errors (not client or transient) get a generic message."""
         runner, mock_graph = self._create_mock_runner(exception)
 
         with (
@@ -111,7 +273,7 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             self.assertIsInstance(message, FailureMessage)
             self.assertEqual(
                 message.content,
-                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                "I'm unable to respond right now. Please try again later.",
             )
 
             # Verify state was reset
@@ -121,16 +283,16 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             mock_counter.labels.assert_called_with(provider=expected_provider)
             mock_counter.labels.return_value.inc.assert_called_once()
 
-            # Verify error was logged
+            # Verify error was logged as api error
             mock_logger.exception.assert_called_once()
             call_args = mock_logger.exception.call_args
-            self.assertEqual(call_args[0][0], "llm_provider_error")
+            self.assertEqual(call_args[0][0], "llm_api_error")
             self.assertEqual(call_args[1]["provider"], expected_provider)
 
-            # Verify exception was captured
+            # Verify exception was captured with correct type
             mock_posthog.capture_exception.assert_called_once()
             capture_call_args = mock_posthog.capture_exception.call_args
-            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
+            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
 
 
@@ -233,12 +395,12 @@ class TestRunnerSubagentBehavior(BaseTest):
         """
         When use_checkpointer=False (subagent), state should NOT be reset on LLM errors.
         """
-        exception = anthropic.BadRequestError(
-            message="Error",
+        exception = anthropic.InternalServerError(
+            message="Internal server error",
             response=httpx.Response(
-                status_code=400, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+                status_code=500, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
             ),
-            body={"type": "error", "error": {"type": "invalid_request_error"}},
+            body=None,
         )
 
         runner, mock_graph = self._create_runner(use_checkpointer)

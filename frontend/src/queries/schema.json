@@ -749,6 +749,25 @@
                 }
             ]
         },
+        "ApprovalCardUIStatus": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ApprovalDecisionStatus"
+                },
+                {
+                    "const": "approving",
+                    "type": "string"
+                },
+                {
+                    "const": "rejecting",
+                    "type": "string"
+                }
+            ]
+        },
+        "ApprovalDecisionStatus": {
+            "enum": ["pending", "approved", "rejected", "auto_rejected"],
+            "type": "string"
+        },
         "ArtifactContent": {
             "anyOf": [
                 {
@@ -917,7 +936,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
             "type": "string"
         },
         "AssistantForm": {
@@ -1933,7 +1952,9 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "upsert_dashboard"
+                "upsert_dashboard",
+                "manage_memories",
+                "create_notebook"
             ],
             "type": "string"
         },
@@ -8769,6 +8790,30 @@
             ],
             "type": "object"
         },
+        "DangerousOperationResponse": {
+            "additionalProperties": false,
+            "description": "Response returned when a tool operation requires user approval",
+            "properties": {
+                "payload": {
+                    "type": "object"
+                },
+                "preview": {
+                    "type": "string"
+                },
+                "proposalId": {
+                    "type": "string"
+                },
+                "status": {
+                    "const": "pending_approval",
+                    "type": "string"
+                },
+                "toolName": {
+                    "type": "string"
+                }
+            },
+            "required": ["status", "proposalId", "toolName", "preview", "payload"],
+            "type": "object"
+        },
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
@@ -15484,7 +15529,6 @@
                 "insight/stickiness",
                 "insight/hog",
                 "team_activity",
-                "feed",
                 "home",
                 "apps",
                 "live",
@@ -18284,7 +18328,10 @@
                 "reddit-ads",
                 "databricks",
                 "tiktok-ads",
-                "bing-ads"
+                "bing-ads",
+                "vercel",
+                "azure-blob",
+                "firebase"
             ],
             "type": "string"
         },
@@ -20559,6 +20606,122 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "MaxErrorTrackingIssuePreview": {
+            "additionalProperties": false,
+            "description": "Preview of an error tracking issue for display in Max AI chat",
+            "properties": {
+                "description": {
+                    "description": "Issue description or exception message",
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "description": "When the issue was first seen",
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "description": "Issue ID",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "description": "When the issue was last seen",
+                    "type": ["string", "null"]
+                },
+                "library": {
+                    "description": "Library/runtime that generated the error",
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "description": "Issue name/title",
+                    "type": ["string", "null"]
+                },
+                "occurrences": {
+                    "description": "Total number of occurrences",
+                    "type": "number"
+                },
+                "sessions": {
+                    "description": "Number of affected sessions",
+                    "type": "number"
+                },
+                "status": {
+                    "description": "Issue status (active, resolved, etc.)",
+                    "type": "string"
+                },
+                "users": {
+                    "description": "Number of affected users",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "description",
+                "status",
+                "library",
+                "first_seen",
+                "last_seen",
+                "occurrences",
+                "users",
+                "sessions"
+            ],
+            "type": "object"
+        },
+        "MaxErrorTrackingSearchResponse": {
+            "additionalProperties": false,
+            "description": "Response from error tracking search tool containing filters, pagination, and results",
+            "properties": {
+                "date_from": {
+                    "description": "Start of date range",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of date range",
+                    "type": ["string", "null"]
+                },
+                "has_more": {
+                    "description": "Whether there are more results available",
+                    "type": ["boolean", "null"]
+                },
+                "issues": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MaxErrorTrackingIssuePreview"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Preview of issues found matching the filters"
+                },
+                "limit": {
+                    "description": "Number of results to return",
+                    "type": ["number", "null"]
+                },
+                "next_cursor": {
+                    "description": "Cursor for pagination",
+                    "type": ["string", "null"]
+                },
+                "order_by": {
+                    "description": "Field to order by",
+                    "type": ["string", "null"]
+                },
+                "order_direction": {
+                    "description": "Order direction (ASC or DESC)",
+                    "type": ["string", "null"]
+                },
+                "search_query": {
+                    "description": "Free text search query",
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "description": "Issue status filter (active, resolved, etc.)",
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -22346,7 +22509,16 @@
                 "in",
                 "not_in",
                 "is_cleaned_path_exact",
-                "flag_evaluates_to"
+                "flag_evaluates_to",
+                "semver_eq",
+                "semver_neq",
+                "semver_gt",
+                "semver_gte",
+                "semver_lt",
+                "semver_lte",
+                "semver_tilde",
+                "semver_caret",
+                "semver_wildcard"
             ],
             "type": "string"
         },
@@ -29381,6 +29553,12 @@
                 },
                 "issue_id": {
                     "type": "string"
+                },
+                "metadata": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
                 },
                 "title": {
                     "type": "string"
