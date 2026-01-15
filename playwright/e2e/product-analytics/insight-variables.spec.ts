@@ -15,6 +15,7 @@ test.describe('insight variables', () => {
 
         // Add a temporary override
         await page.goto(page.url() + '?query_variables=%7B"variable_4"%3A40%7D%20')
+        await expect(page.locator('.InsightCard').first()).toBeVisible()
 
         const cardForDefaultVariable = page.locator('.InsightCard').nth(0)
         await cardForDefaultVariable.scrollIntoViewIfNeeded()
