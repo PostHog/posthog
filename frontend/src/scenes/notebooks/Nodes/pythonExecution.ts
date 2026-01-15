@@ -9,6 +9,11 @@ export type PythonExecutionVariable = {
     traceback?: string[]
 }
 
+export type PythonExecutionMedia = {
+    mimeType: string
+    data: string
+}
+
 export type PythonExecutionResult = {
     status: string
     stdout: string
@@ -18,6 +23,7 @@ export type PythonExecutionResult = {
     errorName?: string | null
     traceback?: string[]
     variables?: PythonExecutionVariable[]
+    media?: PythonExecutionMedia[]
     startedAt?: string
     completedAt?: string
 }
@@ -37,6 +43,7 @@ export type PythonKernelExecuteResponse = {
     stdout: string
     stderr: string
     result?: Record<string, any> | null
+    media?: { mime_type: string; data: string }[] | null
     execution_count?: number | null
     error_name?: string | null
     traceback?: string[]
@@ -53,6 +60,10 @@ const extractTextValue = (data?: Record<string, any> | null): string | undefined
     const preferred = data['text/plain'] ?? data['text/html']
     if (typeof preferred === 'string') {
         return preferred
+    }
+
+    if (data['image/png'] || data['image/jpeg'] || data['image/svg+xml']) {
+        return undefined
     }
 
     try {
@@ -116,6 +127,7 @@ export const buildPythonExecutionResult = (
         stdout: response.stdout ?? '',
         stderr: response.stderr ?? '',
         result: extractTextValue(response.result ?? undefined),
+        media: response.media?.map((item) => ({ mimeType: item.mime_type, data: item.data })) ?? [],
         executionCount: response.execution_count ?? null,
         errorName: response.error_name ?? null,
         traceback: response.traceback ?? [],

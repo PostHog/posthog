@@ -11,7 +11,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { PythonExecutionResult } from './pythonExecution'
+import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
@@ -148,6 +148,37 @@ const OutputBlock = ({
     )
 }
 
+const buildMediaSource = (media: PythonExecutionMedia): string | null => {
+    if (media.mimeType === 'image/png') {
+        return `data:image/png;base64,${media.data}`
+    }
+    if (media.mimeType === 'image/jpeg') {
+        return `data:image/jpeg;base64,${media.data}`
+    }
+    if (media.mimeType === 'image/svg+xml') {
+        return `data:image/svg+xml;utf8,${encodeURIComponent(media.data)}`
+    }
+    return null
+}
+
+const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | null => {
+    const source = buildMediaSource(media)
+    if (!source) {
+        return null
+    }
+
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
+            <img
+                src={source}
+                alt="Python output"
+                className="mt-2 max-w-full border border-border rounded bg-bg-light"
+            />
+        </div>
+    )
+}
+
 const Component = (): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
@@ -162,6 +193,7 @@ const Component = (): JSX.Element | null => {
         (pythonExecution.stdout ||
             pythonExecution.stderr ||
             pythonExecution.result ||
+            pythonExecution.media?.length ||
             pythonExecution.traceback?.length ||
             pythonExecution.variables?.length)
 
@@ -179,6 +211,9 @@ const Component = (): JSX.Element | null => {
                         {pythonExecution?.result ? (
                             <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
                         ) : null}
+                        {pythonExecution?.media?.map((media, index) => (
+                            <MediaBlock key={`python-media-${index}`} media={media} />
+                        ))}
                         {pythonExecution?.status === 'error' && pythonExecution.traceback?.length ? (
                             <OutputBlock
                                 title="Error"

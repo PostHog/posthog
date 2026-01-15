@@ -38,6 +38,7 @@ class KernelExecutionResult:
     stdout: str
     stderr: str
     result: dict[str, Any] | None
+    media: list[dict[str, Any]]
     execution_count: int | None
     error_name: str | None
     traceback: list[str]
@@ -52,6 +53,7 @@ class KernelExecutionResult:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "result": self.result,
+            "media": self.media,
             "execution_count": self.execution_count,
             "error_name": self.error_name,
             "traceback": self.traceback,
@@ -710,6 +712,7 @@ class KernelRuntimeService:
             "        stderr = []\n"
             "        traceback_lines = []\n"
             "        result = None\n"
+            "        media = []\n"
             "        status = 'ok'\n"
             "        execution_count = None\n"
             "        error_name = None\n"
@@ -726,8 +729,13 @@ class KernelRuntimeService:
             "                destination.append(content.get('text', ''))\n"
             "                continue\n"
             "            if msg_type in ('execute_result', 'display_data'):\n"
-            "                result = content.get('data') or result\n"
+            "                data = content.get('data') or {}\n"
+            "                result = data or result\n"
             "                execution_count = content.get('execution_count', execution_count)\n"
+            "                for mime_type in ('image/png', 'image/jpeg', 'image/svg+xml'):\n"
+            "                    image_data = data.get(mime_type)\n"
+            "                    if isinstance(image_data, str):\n"
+            "                        media.append({'mime_type': mime_type, 'data': image_data})\n"
             "                continue\n"
             "            if msg_type == 'error':\n"
             "                status = 'error'\n"
@@ -756,6 +764,7 @@ class KernelRuntimeService:
             "            'stdout': ''.join(stdout),\n"
             "            'stderr': ''.join(stderr),\n"
             "            'result': result,\n"
+            "            'media': media,\n"
             "            'execution_count': execution_count,\n"
             "            'error_name': error_name,\n"
             "            'traceback': traceback_lines,\n"
@@ -764,13 +773,14 @@ class KernelRuntimeService:
             "        print(json.dumps(payload_out))\n"
             "except Empty:\n"
             "    print(json.dumps({'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
-            "'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
+            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
             "except Exception as err:\n"
             "    print(json.dumps({\n"
             "        'status': 'error',\n"
             "        'stdout': '',\n"
             "        'stderr': str(err),\n"
             "        'result': None,\n"
+            "        'media': [],\n"
             "        'execution_count': None,\n"
             "        'error_name': err.__class__.__name__,\n"
             "        'traceback': traceback.format_exception(type(err), err, err.__traceback__),\n"
@@ -853,6 +863,7 @@ class KernelRuntimeService:
             stdout=payload_out.get("stdout", ""),
             stderr=payload_out.get("stderr", ""),
             result=payload_out.get("result"),
+            media=payload_out.get("media", []) or [],
             execution_count=execution_count,
             error_name=error_name,
             traceback=traceback,
