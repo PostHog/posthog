@@ -648,7 +648,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
+    def test_post_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-webhook",
@@ -671,9 +671,52 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
-    def test_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
+    def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
 
         assert response.status_code == 404, response.json()
+
+    def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Create another flow
+        hog_flow_2, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example2.com"}},
+            }
+        )
+        create_response_2 = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_2)
+        assert create_response_2.status_code == 201, create_response_2.json()
+        flow_id_2 = create_response_2.json()["id"]
+
+        # Create batch jobs for both flows
+        batch_job_data_1 = {"variables": [{"key": "first_name", "value": "Test1"}]}
+        batch_job_data_2 = {"variables": [{"key": "first_name", "value": "Test2"}]}
+
+        job_response_1 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", batch_job_data_1
+        )
+        assert job_response_1.status_code == 200, job_response_1.json()
+
+        job_response_2 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id_2}/batch_jobs", batch_job_data_2
+        )
+        assert job_response_2.status_code == 200, job_response_2.json()
+
+        # Fetch jobs for the first flow
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs")
+        assert get_response.status_code == 200, get_response.json()
+        jobs = get_response.json()
+        assert len(jobs) == 1
+        assert jobs[0]["id"] == job_response_1.json()["id"]
