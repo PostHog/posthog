@@ -5,17 +5,12 @@ use std::{path::Path, path::PathBuf, sync::Arc};
 use tokio::{fs::File, io::AsyncWriteExt};
 use tracing::debug;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ExtractorType {
     ZipGzipJson,
+    #[default]
     PlainGzip,
-}
-
-impl Default for ExtractorType {
-    fn default() -> Self {
-        Self::PlainGzip
-    }
 }
 
 impl ExtractorType {

@@ -22,7 +22,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -1357,9 +1357,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
@@ -1914,7 +1914,7 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         backup_codes = response.json()["backup_codes"]
-        self.assertEqual(len(backup_codes), 5)  # Verify 5 backup codes are generated
+        self.assertEqual(len(backup_codes), 10)  # Verify 10 backup codes are generated
 
         # Verify codes are stored in database
         static_device = StaticDevice.objects.get(user=self.user)

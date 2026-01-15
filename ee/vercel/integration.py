@@ -127,6 +127,7 @@ class VercelIntegration:
         "billing": "/organization/billing/overview",
         "usage": "/organization/billing/usage",
         "support": "/#panel=support",
+        "secrets": "/settings/project#variables",
     }
     SSO_DEFAULT_REDIRECT = "/"
 
@@ -222,8 +223,8 @@ class VercelIntegration:
             {
                 "id": "posthog-usage-based",
                 "type": "subscription",
-                "name": "PostHog",
-                "description": "Usage-based analytics. First 1M events free. View pricing: https://posthog.com/pricing",
+                "name": "Pay-as-you-go",
+                "description": "Usage-based pricing. View pricing: https://posthog.com/pricing",
                 "scope": "installation",
                 "paymentMethodRequired": True,
                 "preauthorizationAmount": 0.5,

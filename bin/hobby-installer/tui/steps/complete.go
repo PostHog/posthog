@@ -65,7 +65,7 @@ func (m CompleteModel) successView() string {
 		ui.MutedStyle.Render("  Stop PostHog:    ")+"docker-compose stop",
 		ui.MutedStyle.Render("  Start PostHog:   ")+"docker-compose start",
 		ui.MutedStyle.Render("  View logs:       ")+"docker-compose logs -f",
-		ui.MutedStyle.Render("  Upgrade:         ")+"./posthog-hobby",
+		ui.MutedStyle.Render("  Upgrade:         ")+"./hobby-installer",
 		"",
 		ui.MutedStyle.Render("  Clean up old images: ")+"docker system prune -a",
 	)
@@ -111,7 +111,7 @@ func (m CompleteModel) errorView() string {
 		"",
 		ui.MutedStyle.Render("  • Delete everything and try again:"),
 		"    rm -rf posthog docker-compose.yml .env",
-		"    ./posthog-hobby",
+		"    ./hobby-installer",
 	)
 
 	content := lipgloss.JoinVertical(

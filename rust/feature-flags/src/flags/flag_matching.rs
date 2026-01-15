@@ -27,7 +27,7 @@ use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{
     build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
-    DependencyGraph,
+    DependencyGraph, DependencyGraphResult, FilteredGraphResult,
 };
 use anyhow::Result;
 use common_metrics::{inc, timing_guard};
@@ -46,6 +46,8 @@ pub struct FlagEvaluationOverrides {
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub hash_key_overrides: Option<HashMap<String, String>>,
     pub hash_key_override_error: bool,
+    /// The request's anon_distinct_id, used as a fallback for EEC flags when no DB override exists
+    pub request_hash_key_override: Option<String>,
 }
 
 #[derive(Debug)]
@@ -70,6 +72,18 @@ impl FeatureFlagMatch {
             (true, Some(variant)) => FlagValue::String(variant.clone()),
             (true, None) => FlagValue::Boolean(true),
             (false, _) => FlagValue::Boolean(false),
+        }
+    }
+
+    /// Creates a match result for flags with missing dependencies.
+    /// These flags evaluate to `false` (fail closed) with the `MissingDependency` reason.
+    pub fn missing_dependency() -> Self {
+        Self {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::MissingDependency,
+            condition_index: None,
+            payload: None,
         }
     }
 }
@@ -238,25 +252,33 @@ impl FeatureFlagMatcher {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
         // Build dependency graph once - reused for both optimization check and evaluation
-        let (global_dependency_graph, graph_errors) =
-            match build_dependency_graph(&feature_flags, self.team_id) {
-                Some((graph, errors)) => (graph, errors),
-                None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
-            };
+        let DependencyGraphResult {
+            graph: global_dependency_graph,
+            errors: graph_errors,
+            flags_with_missing_deps: global_flags_with_missing_deps,
+        } = match build_dependency_graph(&feature_flags, self.team_id) {
+            Some(result) => result,
+            None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
+        };
 
         // Filter graph by flag_keys if specified (includes transitive dependencies)
-        let dependency_graph = if let Some(ref keys) = flag_keys {
-            match filter_graph_by_keys(&global_dependency_graph, keys) {
-                Some(filtered_graph) => filtered_graph,
+        let (dependency_graph, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
+            match filter_graph_by_keys(
+                &global_dependency_graph,
+                keys,
+                &global_flags_with_missing_deps,
+            ) {
+                Some(FilteredGraphResult {
+                    graph,
+                    flags_with_missing_deps,
+                }) => (graph, flags_with_missing_deps),
                 None => return FlagsResponse::new(true, HashMap::new(), None, request_id),
             }
         } else {
-            global_dependency_graph
+            (global_dependency_graph, global_flags_with_missing_deps)
         };
 
-        // Track graph construction errors for the response (errors already logged in build_dependency_graph)
-        let has_graph_errors = !graph_errors.is_empty();
-        if has_graph_errors {
+        if !graph_errors.is_empty() {
             with_canonical_log(|log| log.dependency_graph_errors = graph_errors.len());
         }
 
@@ -318,6 +340,10 @@ impl FeatureFlagMatcher {
             with_canonical_log(|log| log.hash_key_override_skipped = true);
         }
 
+        // Clone the request's hash_key_override before passing it to process_hash_key_override_if_needed
+        // since we also need it for the FlagEvaluationOverrides struct
+        let request_hash_key_override = hash_key_override.clone();
+
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self
             .process_hash_key_override_if_needed(do_hash_key_lookup, hash_key_override)
@@ -328,16 +354,23 @@ impl FeatureFlagMatcher {
             group_property_overrides,
             hash_key_overrides,
             hash_key_override_error: flag_hash_key_override_error,
+            request_hash_key_override,
         };
 
         // Pass the pre-built graph to avoid redundant graph construction
         let flags_response = self
-            .evaluate_flags_with_overrides(overrides, request_id, dependency_graph)
+            .evaluate_flags_with_overrides(
+                overrides,
+                request_id,
+                dependency_graph,
+                flags_with_missing_deps,
+            )
             .await;
 
+        let has_cycle_errors = graph_errors.iter().any(|e| e.is_cycle());
         let has_errors = flag_hash_key_override_error
             || flags_response.errors_while_computing_flags
-            || has_graph_errors;
+            || has_cycle_errors;
 
         eval_timer
             .label("outcome", if has_errors { "error" } else { "success" })
@@ -507,6 +540,7 @@ impl FeatureFlagMatcher {
         overrides: FlagEvaluationOverrides,
         request_id: Uuid,
         dependency_graph: DependencyGraph<FeatureFlag>,
+        flags_with_missing_deps: HashSet<i32>,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
@@ -547,7 +581,9 @@ impl FeatureFlagMatcher {
                 &overrides.person_property_overrides,
                 &overrides.group_property_overrides,
                 &overrides.hash_key_overrides,
+                &overrides.request_hash_key_override,
                 &mut evaluated_flags_map,
+                &flags_with_missing_deps,
             )
             .await;
         errors_while_computing_flags |= graph_evaluation_errors;
@@ -562,13 +598,16 @@ impl FeatureFlagMatcher {
 
     /// Evaluates flags using the provided dependency graph.
     /// Returns true if there were errors during evaluation.
+    #[allow(clippy::too_many_arguments)]
     async fn evaluate_flags_with_dependency_graph(
         &mut self,
         flag_dependency_graph: DependencyGraph<FeatureFlag>,
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
+        flags_with_missing_deps: &HashSet<i32>,
     ) -> bool {
         // Get evaluation stages for the dependency graph
         let evaluation_stages = match flag_dependency_graph.evaluation_stages() {
@@ -589,6 +628,8 @@ impl FeatureFlagMatcher {
                     person_property_overrides,
                     group_property_overrides,
                     hash_key_overrides,
+                    request_hash_key_override,
+                    flags_with_missing_deps,
                 )
                 .await;
             errors_while_computing_flags |= level_errors;
@@ -665,6 +706,7 @@ impl FeatureFlagMatcher {
     ///
     /// This function is designed to be used as part of a level-based evaluation strategy
     /// (e.g., Kahn's algorithm) for handling flag dependencies.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(team_id = %self.team_id, distinct_id = %self.distinct_id))]
     async fn evaluate_flags_in_level(
         &mut self,
@@ -673,6 +715,8 @@ impl FeatureFlagMatcher {
         person_property_overrides: &Option<HashMap<String, Value>>,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: &Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+        flags_with_missing_deps: &HashSet<i32>,
     ) -> (HashMap<String, FlagDetails>, bool) {
         // initialize some state
         let mut errors_while_computing_flags = false;
@@ -722,6 +766,11 @@ impl FeatureFlagMatcher {
         let results: Vec<(String, Result<FeatureFlagMatch, FlagError>)> = flags_to_evaluate
             .par_iter()
             .map(|flag| {
+                // Flags with missing dependencies evaluate to false (fail closed)
+                if flags_with_missing_deps.contains(&flag.id) {
+                    return (flag.key.clone(), Ok(FeatureFlagMatch::missing_dependency()));
+                }
+
                 // If the overrides for this flag are not in the pre-computed map, assume no overrides
                 // this shouldn't happen, but it's here to avoid panics
                 let property_overrides = precomputed_property_overrides
@@ -730,7 +779,12 @@ impl FeatureFlagMatcher {
                     .clone();
                 (
                     flag.key.clone(),
-                    self.get_match(flag, property_overrides, hash_key_overrides.clone()),
+                    self.get_match(
+                        flag,
+                        property_overrides,
+                        hash_key_overrides.clone(),
+                        request_hash_key_override.clone(),
+                    ),
                 )
             })
             .collect();
@@ -841,6 +895,7 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
         if !flag.active {
             return Ok(FeatureFlagMatch {
@@ -852,7 +907,8 @@ impl FeatureFlagMatcher {
             });
         }
         // Check if this is a group-based flag with missing group
-        let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
+        let hashed_id =
+            self.hashed_identifier(flag, hash_key_overrides.clone(), &request_hash_key_override)?;
         if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
             // This is a group-based flag but we don't have the group key
             return Ok(FeatureFlagMatch {
@@ -875,6 +931,7 @@ impl FeatureFlagMatcher {
                     flag,
                     property_overrides.clone(),
                     hash_key_overrides.clone(),
+                    &request_hash_key_override,
                 )?;
 
                 if super_condition_evaluation.should_evaluate {
@@ -903,7 +960,7 @@ impl FeatureFlagMatcher {
         if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag)?;
+                    self.is_holdout_condition_match(flag, &request_hash_key_override)?;
                 if is_match {
                     let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
                     return Ok(FeatureFlagMatch {
@@ -926,6 +983,7 @@ impl FeatureFlagMatcher {
                 condition,
                 property_overrides.clone(),
                 hash_key_overrides.clone(),
+                &request_hash_key_override,
             )?;
 
             // Update highest_match and highest_index
@@ -955,11 +1013,19 @@ impl FeatureFlagMatcher {
                         Some(variant_override.clone())
                     } else {
                         // If override isn't valid, fall back to computed variant
-                        self.get_matching_variant(flag, hash_key_overrides.clone())?
+                        self.get_matching_variant(
+                            flag,
+                            hash_key_overrides.clone(),
+                            &request_hash_key_override,
+                        )?
                     }
                 } else {
                     // No override, use computed variant
-                    self.get_matching_variant(flag, hash_key_overrides.clone())?
+                    self.get_matching_variant(
+                        flag,
+                        hash_key_overrides.clone(),
+                        &request_hash_key_override,
+                    )?
                 };
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
@@ -1015,12 +1081,18 @@ impl FeatureFlagMatcher {
         condition: &FlagPropertyGroup,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         let rollout_percentage = condition.rollout_percentage.unwrap_or(100.0);
 
         if let Some(flag_property_filters) = &condition.properties {
             if flag_property_filters.is_empty() {
-                return self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides);
+                return self.check_rollout(
+                    feature_flag,
+                    rollout_percentage,
+                    hash_key_overrides,
+                    request_hash_key_override,
+                );
             }
 
             // Separate flag value filters from other filters
@@ -1071,7 +1143,12 @@ impl FeatureFlagMatcher {
             }
         }
 
-        self.check_rollout(feature_flag, rollout_percentage, hash_key_overrides)
+        self.check_rollout(
+            feature_flag,
+            rollout_percentage,
+            hash_key_overrides,
+            request_hash_key_override,
+        )
     }
 
     /// Gets the properties to check for a feature flag condition, merging DB properties with overrides.
@@ -1134,6 +1211,7 @@ impl FeatureFlagMatcher {
     fn is_holdout_condition_match(
         &self,
         flag: &FeatureFlag,
+        request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
         // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
 
@@ -1150,7 +1228,8 @@ impl FeatureFlagMatcher {
 
                 if let Some(percentage) = rollout_percentage {
                     if percentage < 100.0
-                        && self.get_holdout_hash(flag, None)? > (percentage / 100.0)
+                        && self.get_holdout_hash(flag, None, request_hash_key_override)?
+                            > (percentage / 100.0)
                     {
                         // If hash is greater than percentage, we're OUT of holdout
                         return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
@@ -1162,7 +1241,7 @@ impl FeatureFlagMatcher {
                 let variant = if let Some(variant_override) = condition.variant.as_ref() {
                     variant_override.clone()
                 } else {
-                    self.get_matching_variant(flag, None)?
+                    self.get_matching_variant(flag, None, request_hash_key_override)?
                         .unwrap_or_else(|| "holdout".to_string())
                 };
 
@@ -1187,6 +1266,7 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<SuperConditionEvaluation, FlagError> {
         if let Some(super_condition) = feature_flag
             .filters
@@ -1210,6 +1290,7 @@ impl FeatureFlagMatcher {
                     super_condition,
                     Some(merged_properties),
                     hash_key_overrides,
+                    request_hash_key_override,
                 )?;
 
                 return Ok(SuperConditionEvaluation {
@@ -1231,10 +1312,16 @@ impl FeatureFlagMatcher {
     ///
     /// This function generates a hashed identifier for a feature flag based on the feature flag's group type index.
     /// If the feature flag is group-based, it fetches the group key; otherwise, it uses the distinct ID.
+    ///
+    /// For person-based flags with ensure_experience_continuity enabled, the identifier priority is:
+    /// 1. DB-stored hash_key_override (for consistency across sessions)
+    /// 2. Request's hash_key_override (anon_distinct_id) for first-time evaluations
+    /// 3. distinct_id (final fallback)
     fn hashed_identifier(
         &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<String, FlagError> {
         if let Some(group_type_index) = feature_flag.get_group_type_index() {
             // Group-based flag
@@ -1277,11 +1364,19 @@ impl FeatureFlagMatcher {
             }
 
             // Use hash key overrides for experience continuity
+            // Priority: DB override > request's anon_distinct_id > distinct_id
             if let Some(hash_key_override) = hash_key_overrides
                 .as_ref()
                 .and_then(|h| h.get(&feature_flag.key))
             {
                 Ok(hash_key_override.clone())
+            } else if feature_flag.has_experience_continuity() {
+                // For EEC flags, use the request's anon_distinct_id as fallback when no DB override exists
+                if let Some(request_override) = request_hash_key_override {
+                    Ok(request_override.clone())
+                } else {
+                    Ok(self.distinct_id.clone())
+                }
             } else {
                 Ok(self.distinct_id.clone())
             }
@@ -1297,8 +1392,10 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         salt: &str,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag, hash_key_overrides)?;
+        let hashed_identifier =
+            self.hashed_identifier(feature_flag, hash_key_overrides, request_hash_key_override)?;
         if hashed_identifier.is_empty() {
             // Return a hash value that will make the flag evaluate to false; since we
             // can't evaluate a flag without an identifier.
@@ -1312,8 +1409,10 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         salt: Option<&str>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<f64, FlagError> {
-        let hashed_identifier = self.hashed_identifier(feature_flag, None)?;
+        let hashed_identifier =
+            self.hashed_identifier(feature_flag, None, request_hash_key_override)?;
         let hash = calculate_hash("holdout-", &hashed_identifier, salt.unwrap_or(""))?;
         Ok(hash)
     }
@@ -1329,11 +1428,17 @@ impl FeatureFlagMatcher {
         feature_flag: &FeatureFlag,
         rollout_percentage: f64,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
         if rollout_percentage == 100.0 {
             return Ok((true, FeatureFlagMatchReason::ConditionMatch));
         }
-        let hash = self.get_hash(feature_flag, "", hash_key_overrides)?;
+        let hash = self.get_hash(
+            feature_flag,
+            "",
+            hash_key_overrides,
+            request_hash_key_override,
+        )?;
         if hash <= (rollout_percentage / 100.0) {
             Ok((true, FeatureFlagMatchReason::ConditionMatch))
         } else {
@@ -1346,8 +1451,14 @@ impl FeatureFlagMatcher {
         &self,
         feature_flag: &FeatureFlag,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
     ) -> Result<Option<String>, FlagError> {
-        let hash = self.get_hash(feature_flag, "variant", hash_key_overrides)?;
+        let hash = self.get_hash(
+            feature_flag,
+            "variant",
+            hash_key_overrides,
+            request_hash_key_override,
+        )?;
         let mut cumulative_percentage = 0.0;
 
         for variant in feature_flag.get_variants() {

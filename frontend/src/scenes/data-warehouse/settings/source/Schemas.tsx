@@ -44,12 +44,22 @@ interface SchemasProps {
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 export const Schemas = ({ id }: SchemasProps): JSX.Element => {
-    const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
+    const logicProps = { id, availableSources: {} }
+    const logic = dataWarehouseSourceSettingsLogic(logicProps)
+    const { source, sourceLoading, filteredSchemas, showEnabledSchemasOnly } = useValues(logic)
+    const { setShowEnabledSchemasOnly } = useActions(logic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
-        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={{ id, availableSources: {} }}>
-            <SchemaTable schemas={source?.schemas ?? []} isLoading={sourceLoading} />
+        <BindLogic logic={dataWarehouseSourceSettingsLogic} props={logicProps}>
+            <div className="flex items-center gap-2 mb-2">
+                <LemonSwitch
+                    checked={showEnabledSchemasOnly}
+                    onChange={setShowEnabledSchemasOnly}
+                    label="Show enabled only"
+                />
+            </div>
+            <SchemaTable schemas={filteredSchemas} isLoading={sourceLoading} />
             {source?.source_type && REVENUE_ENABLED_SOURCES.includes(source.source_type) && (
                 <div className="flex justify-end">
                     <LemonButton

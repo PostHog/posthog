@@ -3,6 +3,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
+use crate::cohorts::cohort_cache_manager::CohortCacheManager;
+use crate::config::Config;
+use crate::database_pools::DatabasePools;
+use crate::db_monitor::DatabasePoolMonitor;
+use crate::router;
+use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{
@@ -13,14 +20,6 @@ use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
-
-use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
-use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::config::Config;
-use crate::database_pools::DatabasePools;
-use crate::db_monitor::DatabasePoolMonitor;
-use crate::router;
-use common_cookieless::CookielessManager;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
@@ -186,7 +185,7 @@ where
         .clone()
         .unwrap_or_else(|| redis_client.clone());
 
-    let mut hypercache_config = HyperCacheConfig::new(
+    let mut flags_hypercache_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags.json".to_string(),
         config.object_storage_region.clone(),
@@ -194,20 +193,97 @@ where
     );
 
     if !config.object_storage_endpoint.is_empty() {
-        hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+        flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
     }
 
     let flags_hypercache_reader =
-        match HyperCacheReader::new(flags_redis_client, hypercache_config).await {
+        match HyperCacheReader::new(flags_redis_client, flags_hypercache_config).await {
             Ok(reader) => {
                 tracing::info!("Created HyperCacheReader for feature flags");
                 Arc::new(reader)
             }
             Err(e) => {
-                tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
                 return;
             }
         };
+
+    // Create HyperCacheReader for team metadata at startup
+    // Uses token-based lookup instead of team_id
+    let team_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut team_hypercache_config = HyperCacheConfig::new(
+        "team_metadata".to_string(),
+        "full_metadata.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    team_hypercache_config.token_based = true;
+
+    if !config.object_storage_endpoint.is_empty() {
+        team_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let team_hypercache_reader =
+        match HyperCacheReader::new(team_redis_client, team_hypercache_config).await {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for team metadata");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                return;
+            }
+        };
+
+    // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
+    let flags_with_cohorts_redis_client = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+
+    let mut flags_with_cohorts_config = HyperCacheConfig::new(
+        "feature_flags".to_string(),
+        "flags_with_cohorts.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+
+    if !config.object_storage_endpoint.is_empty() {
+        flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let flags_with_cohorts_hypercache_reader =
+        match HyperCacheReader::new(flags_with_cohorts_redis_client, flags_with_cohorts_config)
+            .await
+        {
+            Ok(reader) => {
+                tracing::info!("Created HyperCacheReader for flags with cohorts");
+                Arc::new(reader)
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create flags with cohorts HyperCacheReader: {:?}",
+                    e
+                );
+                return;
+            }
+        };
+
+    // Warn about deprecated environment variables
+    if std::env::var("TEAM_CACHE_TTL_SECONDS").is_ok() {
+        tracing::warn!(
+            "TEAM_CACHE_TTL_SECONDS is deprecated and ignored. \
+             Team cache TTL is now managed by Django's HyperCache."
+        );
+    }
+    if std::env::var("FLAGS_CACHE_TTL_SECONDS").is_ok() {
+        tracing::warn!(
+            "FLAGS_CACHE_TTL_SECONDS is deprecated and ignored. \
+             Flags cache TTL is now managed by Django's HyperCache."
+        );
+    }
 
     let app = router::router(
         redis_client,
@@ -220,6 +296,8 @@ where
         session_replay_billing_limiter,
         cookieless_manager,
         flags_hypercache_reader,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
         config,
     );
 

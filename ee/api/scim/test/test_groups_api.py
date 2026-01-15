@@ -195,9 +195,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, content_type="application/scim+json"
         )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
         assert not Role.objects.filter(name="ShouldFail", organization=self.organization).exists()
 
     def test_patch_group_not_found(self):
@@ -211,9 +211,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=patch_data, content_type="application/scim+json"
         )
 
-        assert (
-            response.status_code == status.HTTP_404_NOT_FOUND
-        ), f"Expected 404, got {response.status_code}: {response.content}"
+        assert response.status_code == status.HTTP_404_NOT_FOUND, (
+            f"Expected 404, got {response.status_code}: {response.content}"
+        )
 
     def test_patch_replace_group_without_path(self):
         user = User.objects.create_user(

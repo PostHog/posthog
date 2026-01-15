@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 export function FixedReplayHeatmapBrowser({
@@ -13,34 +11,27 @@ export function FixedReplayHeatmapBrowser({
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
 
-    const { replayIframeData, hasValidReplayIframeData, widthOverride } = useValues(logic)
-    const { onIframeLoad, setIframeWidth } = useActions(logic)
-
-    const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
-
-    const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
-    useEffect(() => {
-        if (widthOverride === null) {
-            setIframeWidth(iframeWidth ?? null)
-        }
-        setWindowWidthOverride(widthOverride)
-    }, [iframeWidth, setIframeWidth, widthOverride, setWindowWidthOverride])
+    const { replayIframeData, hasValidReplayIframeData, widthOverride, heightOverride } = useValues(logic)
+    const { onIframeLoad } = useActions(logic)
 
     return hasValidReplayIframeData ? (
         <div className="flex flex-row gap-x-2 w-full">
             <div className="relative flex-1 w-full h-full">
-                <div className="flex justify-center h-full w-full overflow-scroll">
+                <div className="flex justify-center h-full w-full overflow-auto">
                     <div
-                        className="relative h-full overflow-scroll"
+                        className="relative"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: widthOverride ?? '100%' }}
+                        style={{ width: widthOverride, height: heightOverride }}
                     >
                         <HeatmapCanvas positioning="absolute" widthOverride={widthOverride} context="in-app" />
                         <iframe
                             id="heatmap-iframe"
                             ref={iframeRef}
-                            className="w-full h-full bg-white"
+                            className="bg-white"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: widthOverride, height: heightOverride }}
                             srcDoc={replayIframeData?.html}
+                            sandbox=""
                             onLoad={onIframeLoad}
                             allow=""
                         />

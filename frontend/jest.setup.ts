@@ -40,3 +40,28 @@ jest.mock('posthog-js/dist/surveys-preview', () => ({
     renderSurveysPreview: jest.fn(),
     getNextSurveyStep: jest.fn(),
 }))
+
+// Mock posthog-js product-tours-preview to avoid ESM import issues in tests
+jest.mock('posthog-js/dist/product-tours-preview', () => ({
+    renderProductTourPreview: jest.fn(),
+}))
+
+// Mock posthog-js element-inference to avoid ESM import issues in tests
+jest.mock('posthog-js/dist/element-inference', () => ({
+    findElement: jest.fn(),
+    getElementPath: jest.fn(),
+}))
+
+jest.mock('@tiptap/extension-code-block-lowlight', () => {
+    const mockExtension = {
+        configure: jest.fn(() => ({})),
+        extend: jest.fn(() => ({
+            configure: jest.fn(() => ({})),
+        })),
+    }
+    return {
+        __esModule: true,
+        default: mockExtension,
+        CodeBlockLowlight: mockExtension,
+    }
+})

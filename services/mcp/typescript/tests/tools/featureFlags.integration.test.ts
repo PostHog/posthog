@@ -26,6 +26,7 @@ describe('Feature Flags', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
+        actions: [],
     }
 
     beforeAll(async () => {
@@ -284,15 +285,48 @@ describe('Feature Flags', { concurrent: false }, () => {
         })
 
         it('should respect offset parameter', async () => {
+            // Create test flags to ensure we have controlled data
+            const testFlags = []
+            for (let i = 0; i < 3; i++) {
+                const result = await createTool.handler(context, {
+                    name: `Offset Test Flag ${i}`,
+                    key: generateUniqueKey(`offset-test-${i}`),
+                    description: `Test flag ${i} for offset testing`,
+                    filters: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    active: true,
+                })
+                const flagData = parseToolResponse(result)
+                testFlags.push(flagData)
+                createdResources.featureFlags.push(flagData.id)
+            }
+
+            // Get all flags
             const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
             const allFlags = parseToolResponse(allResult)
-
-            if (allFlags.length > 1) {
-                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
-                const offsetFlags = parseToolResponse(offsetResult)
-                // Verify offset is working by checking first result is different from original first result
-                expect(offsetFlags[0].id).not.toBe(allFlags[0].id)
-            }
+            
+            // Get flags with offset=1
+            const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+            const offsetFlags = parseToolResponse(offsetResult)
+            
+            // Extract IDs for comparison
+            const allFlagIds = allFlags.map((f: any) => f.id)
+            const offsetFlagIds = offsetFlags.map((f: any) => f.id)
+            const testFlagIds = testFlags.map((f: any) => f.id)
+            
+            // Verify offset is working by checking that offsetFlagIds matches allFlagIds starting from index 1
+            expect(offsetFlags.length).toBeGreaterThan(0)
+            expect(offsetFlagIds[0]).toBe(allFlagIds[1])
+            
+            // Verify our test flags appear in the results to ensure we're testing with controlled data
+            const testFlagsInAll = testFlagIds.filter(id => allFlagIds.includes(id))
+            expect(testFlagsInAll.length).toBeGreaterThan(0)
         })
 
         it('should use default limit when not specified', async () => {

@@ -13,6 +13,7 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
+import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
@@ -57,21 +58,23 @@ export function LogsViewer({
     onSparklineBreakdownByChange,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-            <LogsViewerContent
-                loading={loading}
-                totalLogsCount={totalLogsCount}
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                orderBy={orderBy}
-                onChangeOrderBy={onChangeOrderBy}
-                onRefresh={onRefresh}
-                onLoadMore={onLoadMore}
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineLoading}
-                onDateRangeChange={onDateRangeChange}
-                sparklineBreakdownBy={sparklineBreakdownBy}
-                onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-            />
+        <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
+            <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
+                <LogsViewerContent
+                    loading={loading}
+                    totalLogsCount={totalLogsCount}
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    orderBy={orderBy}
+                    onChangeOrderBy={onChangeOrderBy}
+                    onRefresh={onRefresh}
+                    onLoadMore={onLoadMore}
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={onDateRangeChange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -111,15 +114,19 @@ function LogsViewerContent({
         prettifyJson,
         pinnedLogsArray,
         isFocused,
+        cursorIndex,
         cursorLogId,
         logs,
         timezone,
         isSelectionActive,
+        keyboardNavEnabled,
+        isLogDetailsOpen,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
         moveCursorUp,
-        toggleExpandLog,
+        openLogDetails,
+        closeLogDetails,
         resetCursor,
         toggleSelectLog,
         clearSelection,
@@ -222,18 +229,18 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !isFocused },
-            j: { action: handleMoveDown, disabled: !isFocused },
-            arrowup: { action: handleMoveUp, disabled: !isFocused },
-            k: { action: handleMoveUp, disabled: !isFocused },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
-                    if (cursorLogId) {
-                        toggleExpandLog(cursorLogId)
+                    if (cursorIndex !== null && logs[cursorIndex]) {
+                        openLogDetails(logs[cursorIndex])
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             r: {
                 action: () => {
@@ -255,11 +262,13 @@ function LogsViewerContent({
             },
             escape: {
                 action: () => {
-                    if (isSelectionActive) {
+                    if (isLogDetailsOpen) {
+                        closeLogDetails()
+                    } else if (isSelectionActive) {
                         clearSelection()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             p: {
                 action: () => {
@@ -272,8 +281,12 @@ function LogsViewerContent({
         },
         [
             isFocused,
-            cursorLogId,
-            toggleExpandLog,
+            keyboardNavEnabled,
+            isLogDetailsOpen,
+            cursorIndex,
+            logs,
+            openLogDetails,
+            closeLogDetails,
             onRefresh,
             loading,
             resetCursor,

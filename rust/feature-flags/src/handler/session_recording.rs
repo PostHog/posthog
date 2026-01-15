@@ -345,4 +345,68 @@ mod tests {
         headers.insert("Origin", "https://app.wrong.com".parse().unwrap());
         assert!(!on_permitted_recording_domain(&recording_domains, &headers));
     }
+
+    // Tests for sample rate handling - verifies compatibility between Python cache and Rust
+    mod sample_rate_tests {
+        use super::*;
+        use axum::http::HeaderMap;
+        use rust_decimal::Decimal;
+        use std::str::FromStr;
+
+        fn create_team_with_sample_rate(sample_rate: Option<Decimal>) -> Team {
+            Team {
+                session_recording_opt_in: true,
+                session_recording_sample_rate: sample_rate,
+                ..Team::default()
+            }
+        }
+
+        fn get_sample_rate_from_config(team: &Team) -> Option<String> {
+            let headers = HeaderMap::new();
+            match session_recording_config_response(team, &headers) {
+                Some(SessionRecordingField::Config(config)) => config.sample_rate.clone(),
+                _ => panic!("Expected Config response"),
+            }
+        }
+
+        #[test]
+        fn test_sample_rate_none_returns_none() {
+            // When sample_rate is None, should return None (no sampling configured)
+            let team = create_team_with_sample_rate(None);
+            assert_eq!(get_sample_rate_from_config(&team), None);
+        }
+
+        #[test]
+        fn test_sample_rate_100_percent_from_db_returns_none() {
+            // When sample_rate is 1.00 from PostgreSQL (preserves precision), should return None
+            // This simulates the PostgreSQL readthrough path where Decimal preserves "1.00"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("1.00").unwrap()));
+            assert_eq!(
+                get_sample_rate_from_config(&team),
+                None,
+                "100% sample rate (from DB with precision) should return None"
+            );
+        }
+
+        #[test]
+        fn test_sample_rate_80_percent_returns_value() {
+            // 80% sample rate should return "0.80"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.80").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.80".to_string()));
+        }
+
+        #[test]
+        fn test_sample_rate_50_percent_returns_value() {
+            // 50% sample rate should return "0.50"
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.50").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.50".to_string()));
+        }
+
+        #[test]
+        fn test_sample_rate_0_percent_returns_value() {
+            // 0% sample rate should return "0.00" (record nothing)
+            let team = create_team_with_sample_rate(Some(Decimal::from_str("0.00").unwrap()));
+            assert_eq!(get_sample_rate_from_config(&team), Some("0.00".to_string()));
+        }
+    }
 }

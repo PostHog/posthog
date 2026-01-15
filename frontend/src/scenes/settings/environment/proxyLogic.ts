@@ -43,11 +43,27 @@ export const proxyLogic = kea<proxyLogicType>([
         showForm: true,
         completeForm: true,
         maybeRefreshRecords: true,
+        acknowledgeCloudflareOptIn: true,
+        setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
     })),
     reducers(() => ({
         formState: [
             'collapsed' as FormState,
             { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
+        ],
+        cloudflareOptInAcknowledged: [
+            false,
+            { persist: true },
+            {
+                acknowledgeCloudflareOptIn: () => true,
+            },
+        ],
+        cloudflareOptInChecked: [
+            false,
+            {
+                setCloudflareOptInChecked: (_, { checked }) => checked,
+                acknowledgeCloudflareOptIn: () => false, // Reset when acknowledged
+            },
         ],
     })),
     loaders(({ values, actions }) => ({
