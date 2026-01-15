@@ -1,0 +1,47 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: uX4BNmTi
+  db_id: 24
+  created_at: '2026-01-14T19:26:14.257213+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  last_modified_at: '2026-01-14T19:26:14.256937+00:00'
+  last_modified_by: ~
+  checksum: sha256:7f25fa313cdd7a7e
+  last_synced: '2026-01-15T10:28:53.737446+00:00'
+name: Pageviews
+description: Total pageviews over time
+saved: true
+favorited: false
+query:
+  kind: InsightVizNode
+  source:
+    kind: TrendsQuery
+    series:
+    - kind: EventsNode
+      math: total
+      event: $pageview
+      custom_name: $pageview
+    interval: day
+    dateRange:
+      date_from: -30d
+      explicitDate: false
+    properties: []
+    trendsFilter:
+      display: ActionsLineGraph
+      showLegend: false
+      yAxisScaleType: linear
+      showMultipleYAxes: false
+      showValuesOnSeries: false
+      smoothingIntervals: 1
+      showPercentStackView: false
+      aggregationAxisFormat: numeric
+      resultCustomizationBy: value
+      showAlertThresholdLines: false
+    filterTestAccounts: true
+_refs:
+  dashboards:
+  - 1

@@ -1,0 +1,30 @@
+# PostHog Cohort - team-1
+_meta:
+  type: cohort
+  id: 2
+  created_at: '2026-01-14T10:17:32.051909+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  count: 2649
+  last_calculation: '2026-01-15T10:22:02.122421+00:00'
+  checksum: sha256:3e5877b116544811
+  last_synced: '2026-01-15T10:28:53.812310+00:00'
+name: Real persons
+description: People who don't belong to the Hedgebox team.
+is_static: false
+groups:
+- days: ~
+  count: ~
+  label: ~
+  end_date: ~
+  event_id: ~
+  action_id: ~
+  properties:
+  - key: email
+    type: person
+    value: '@hedgebox.net$'
+    operator: not_regex
+  start_date: ~
+  count_operator: ~

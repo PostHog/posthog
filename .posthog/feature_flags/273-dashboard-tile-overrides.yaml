@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 273
+  version: 1
+  created_at: '2026-01-14T10:18:10.918633+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:10.918715+00:00'
+  last_modified_by: ~
+  checksum: sha256:1f6bed9f57284da4
+  last_synced: '2026-01-15T10:28:54.837920+00:00'
+key: dashboard-tile-overrides
+name: dashboard-tile-overrides
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

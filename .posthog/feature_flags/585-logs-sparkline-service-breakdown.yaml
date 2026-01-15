@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 585
+  version: 1
+  created_at: '2026-01-14T10:18:41.349214+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:41.349295+00:00'
+  last_modified_by: ~
+  checksum: sha256:1dc46aa5a2714417
+  last_synced: '2026-01-15T10:28:53.922550+00:00'
+key: logs-sparkline-service-breakdown
+name: logs-sparkline-service-breakdown
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

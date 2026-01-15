@@ -1,0 +1,88 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: WUdQS7xQ
+  db_id: 4
+  created_at: '2026-01-14T10:17:32.379922+00:00'
+  created_by: ~
+  last_modified_at: '2025-12-11T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:e0c379a98e5cd331
+  last_synced: '2026-01-15T10:28:53.780617+00:00'
+name: New user retention
+description: ''
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: RetentionQuery
+    tags: ~
+    version: ~
+    response: ~
+    dateRange: ~
+    modifiers: ~
+    properties:
+    - key: email
+      type: person
+      label: ~
+      value: ~
+      operator: is_set
+    dataColorTheme: ~
+    samplingFactor: ~
+    breakdownFilter: ~
+    retentionFilter:
+      period: Week
+      display: ActionsTable
+      goalLines: ~
+      cumulative: ~
+      targetEntity:
+        id: signed_up
+        kind: ~
+        name: signed_up
+        type: events
+        uuid: ~
+        order: ~
+        properties: ~
+        custom_name: ~
+      retentionType: retention_first_time
+      showTrendLines: ~
+      timeWindowMode: ~
+      totalIntervals: 9
+      returningEntity:
+        id: '1'
+        kind: ~
+        name: Interacted with file
+        type: actions
+        uuid: ~
+        order: ~
+        properties: ~
+        custom_name: ~
+      dashboardDisplay: ~
+      selectedInterval: ~
+      minimumOccurrences: ~
+      retentionReference: ~
+      retentionCustomBrackets: ~
+      meanRetentionCalculation: ~
+    filterTestAccounts: false
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~
+_refs:
+  dashboards:
+  - 1

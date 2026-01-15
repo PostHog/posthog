@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 354
+  version: 1
+  created_at: '2026-01-14T10:18:14.129599+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:14.129689+00:00'
+  last_modified_by: ~
+  checksum: sha256:23dfa312d48c832b
+  last_synced: '2026-01-15T10:28:54.610283+00:00'
+key: session-replay-url-trigger
+name: session-replay-url-trigger
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

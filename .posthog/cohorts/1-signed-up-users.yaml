@@ -1,0 +1,30 @@
+# PostHog Cohort - team-1
+_meta:
+  type: cohort
+  id: 1
+  created_at: '2026-01-14T10:17:31.980792+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  count: 128
+  last_calculation: '2026-01-15T10:22:02.113526+00:00'
+  checksum: sha256:ce88db66e69d12eb
+  last_synced: '2026-01-15T10:28:53.813089+00:00'
+name: Signed-up users
+description: ''
+is_static: false
+groups:
+- days: ~
+  count: ~
+  label: ~
+  end_date: ~
+  event_id: ~
+  action_id: ~
+  properties:
+  - key: email
+    type: person
+    value: is_set
+    operator: is_set
+  start_date: ~
+  count_operator: ~

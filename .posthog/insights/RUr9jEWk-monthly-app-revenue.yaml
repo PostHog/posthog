@@ -1,0 +1,104 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: RUr9jEWk
+  db_id: 7
+  created_at: '2026-01-14T10:17:32.630291+00:00'
+  created_by: ~
+  last_modified_at: '2025-12-16T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:e4890b88b15c00f0
+  last_synced: '2026-01-15T10:28:53.774857+00:00'
+name: Monthly app revenue
+description: ''
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: TrendsQuery
+    tags: ~
+    series:
+    - kind: EventsNode
+      math: sum
+      name: paid_bill
+      event: paid_bill
+      limit: ~
+      orderBy: ~
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties: ~
+      custom_name: ~
+      math_property: amount_usd
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    version: ~
+    interval: month
+    response: ~
+    dateRange:
+      date_to: ~
+      date_from: -6m
+      explicitDate: false
+    modifiers: ~
+    properties: []
+    trendsFilter:
+      display: ActionsLineGraph
+      formula: ~
+      formulas: ~
+      goalLines: ~
+      showLegend: false
+      formulaNodes: ~
+      decimalPlaces: ~
+      showTrendLines: ~
+      yAxisScaleType: linear
+      confidenceLevel: ~
+      minDecimalPlaces: ~
+      showMovingAverage: ~
+      showMultipleYAxes: false
+      showLabelsOnSeries: ~
+      showValuesOnSeries: false
+      smoothingIntervals: 1
+      hiddenLegendIndexes: ~
+      resultCustomizations: ~
+      showPercentStackView: false
+      aggregationAxisFormat: numeric
+      aggregationAxisPrefix: ~
+      resultCustomizationBy: value
+      aggregationAxisPostfix: ~
+      movingAverageIntervals: ~
+      showAlertThresholdLines: false
+      showConfidenceIntervals: ~
+      breakdown_histogram_bin_count: ~
+      detailedResultsAggregationType: ~
+    compareFilter: ~
+    conversionGoal: ~
+    dataColorTheme: ~
+    samplingFactor: ~
+    breakdownFilter: ~
+    filterTestAccounts: false
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~
+_refs:
+  dashboards:
+  - 2

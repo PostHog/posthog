@@ -1,0 +1,45 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: hpV07Ct4
+  db_id: 25
+  created_at: '2026-01-14T19:32:37.587109+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  last_modified_at: '2026-01-14T19:32:37.586827+00:00'
+  last_modified_by: ~
+  checksum: sha256:2d2225be9dc0b82e
+  last_synced: '2026-01-15T10:28:53.735234+00:00'
+name: Pageview to signup conversion
+description: Conversion rate from pageviews to user signups
+saved: true
+favorited: false
+query:
+  kind: InsightVizNode
+  source:
+    kind: FunnelsQuery
+    series:
+    - kind: EventsNode
+      event: $pageview
+    - kind: EventsNode
+      event: signed_up
+    dateRange:
+      date_from: -30d
+      explicitDate: false
+    properties: []
+    funnelsFilter:
+      layout: vertical
+      exclusions: []
+      funnelVizType: steps
+      funnelOrderType: ordered
+      showValuesOnSeries: false
+      funnelStepReference: total
+      funnelWindowInterval: 14
+      breakdownAttributionType: first_touch
+      funnelWindowIntervalUnit: day
+    filterTestAccounts: true
+_refs:
+  dashboards:
+  - 1

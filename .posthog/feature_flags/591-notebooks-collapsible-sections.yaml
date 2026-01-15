@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 591
+  version: 1
+  created_at: '2026-01-14T10:18:41.655423+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:41.655504+00:00'
+  last_modified_by: ~
+  checksum: sha256:2633c40a86785b52
+  last_synced: '2026-01-15T10:28:53.914732+00:00'
+key: notebooks-collapsible-sections
+name: notebooks-collapsible-sections
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

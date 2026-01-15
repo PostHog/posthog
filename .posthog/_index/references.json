@@ -1,0 +1,234 @@
+{
+  "insight:hpV07Ct4": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:uX4BNmTi": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:173EeqPW": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:7sSczTNS": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:yPpbeial": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:nBB1vkd4": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:j8GGsbTK": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:1oj2mcff": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          3
+        ]
+      }
+    ]
+  },
+  "insight:nSrQCXaD": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          3
+        ]
+      }
+    ]
+  },
+  "insight:0T24A7nf": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          2
+        ]
+      }
+    ]
+  },
+  "insight:RUr9jEWk": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          2
+        ]
+      }
+    ]
+  },
+  "insight:fr2EkwgL": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "insight:WUdQS7xQ": {
+    "references": [
+      {
+        "type": "dashboard",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  },
+  "dashboard:4": {
+    "references": [
+      {
+        "type": "insight",
+        "ids": [
+          "7TeCq63X",
+          "soRfamzP",
+          "HQhK6Wdi",
+          "Ypc4BIG3",
+          "NH4CkLmR",
+          "3Ynr87sH",
+          "USPGCkpx",
+          "o0rUowKH",
+          "ckYyT7wi"
+        ]
+      }
+    ]
+  },
+  "dashboard:3": {
+    "references": [
+      {
+        "type": "insight",
+        "ids": [
+          "nSrQCXaD",
+          "1oj2mcff"
+        ]
+      }
+    ]
+  },
+  "dashboard:2": {
+    "references": [
+      {
+        "type": "insight",
+        "ids": [
+          "RUr9jEWk",
+          "0T24A7nf"
+        ]
+      }
+    ]
+  },
+  "dashboard:1": {
+    "references": [
+      {
+        "type": "insight",
+        "ids": [
+          "j8GGsbTK",
+          "7sSczTNS",
+          "nBB1vkd4",
+          "WUdQS7xQ",
+          "fr2EkwgL",
+          "yPpbeial",
+          "173EeqPW",
+          "uX4BNmTi",
+          "hpV07Ct4"
+        ]
+      }
+    ]
+  },
+  "experiment:2": {
+    "references": [
+      {
+        "type": "feature_flag",
+        "id": 4
+      },
+      {
+        "type": "feature_flag_key",
+        "id": "file-engagement-v2"
+      }
+    ]
+  },
+  "experiment:1": {
+    "references": [
+      {
+        "type": "feature_flag",
+        "id": 3
+      },
+      {
+        "type": "feature_flag_key",
+        "id": "onboarding-test-v1"
+      }
+    ]
+  },
+  "feature_flag:4": {
+    "references": [
+      {
+        "type": "experiment",
+        "ids": [
+          2
+        ]
+      }
+    ]
+  },
+  "feature_flag:3": {
+    "references": [
+      {
+        "type": "experiment",
+        "ids": [
+          1
+        ]
+      }
+    ]
+  }
+}

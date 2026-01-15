@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 475
+  version: 1
+  created_at: '2026-01-14T10:18:19.684211+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:19.684304+00:00'
+  last_modified_by: ~
+  checksum: sha256:98dc5e96f19ff641
+  last_synced: '2026-01-15T10:28:54.152727+00:00'
+key: replay-active-hours-heatmap
+name: replay-active-hours-heatmap
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

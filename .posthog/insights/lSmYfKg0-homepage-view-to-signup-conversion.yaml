@@ -1,0 +1,135 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: lSmYfKg0
+  db_id: 11
+  created_at: '2026-01-14T10:17:32.957916+00:00'
+  created_by: ~
+  last_modified_at: '2025-12-26T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:7162646d19b5656c
+  last_synced: '2026-01-15T10:28:53.757612+00:00'
+name: Homepage view to signup conversion
+description: ''
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: FunnelsQuery
+    tags: ~
+    series:
+    - kind: EventsNode
+      math: ~
+      name: $pageview
+      event: $pageview
+      limit: ~
+      orderBy: ~
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties:
+      - key: $current_url
+        type: event
+        label: ~
+        value: https://hedgebox.net/
+        operator: exact
+      custom_name: Viewed homepage
+      math_property: ~
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    - kind: EventsNode
+      math: ~
+      name: $pageview
+      event: $pageview
+      limit: ~
+      orderBy: ~
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties:
+      - key: $current_url
+        type: event
+        label: ~
+        value: https://hedgebox.net/signup/
+        operator: regex
+      custom_name: Viewed signup page
+      math_property: ~
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    - kind: EventsNode
+      math: ~
+      name: signed_up
+      event: signed_up
+      limit: ~
+      orderBy: ~
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties: ~
+      custom_name: Signed up
+      math_property: ~
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    version: ~
+    interval: day
+    response: ~
+    dateRange:
+      date_to: ~
+      date_from: -1m
+      explicitDate: false
+    modifiers: ~
+    properties: []
+    funnelsFilter:
+      layout: vertical
+      useUdf: ~
+      binCount: ~
+      goalLines: ~
+      exclusions: []
+      funnelToStep: ~
+      funnelVizType: steps
+      funnelFromStep: ~
+      funnelOrderType: ordered
+      showValuesOnSeries: false
+      funnelStepReference: total
+      funnelWindowInterval: 14
+      resultCustomizations: ~
+      funnelAggregateByHogQL: ~
+      hiddenLegendBreakdowns: ~
+      breakdownAttributionType: first_touch
+      funnelWindowIntervalUnit: day
+      breakdownAttributionValue: ~
+    dataColorTheme: ~
+    samplingFactor: ~
+    breakdownFilter: ~
+    filterTestAccounts: true
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~

@@ -1,0 +1,172 @@
+# PostHog Dashboard - team-1
+_meta:
+  type: dashboard
+  id: 4
+  created_at: '2026-01-14T15:36:44.846171+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:77fd82d2748bc144
+  last_synced: '2026-01-15T10:28:53.788720+00:00'
+name: LLM Analytics Default
+description: Overview of your LLM usage, costs, and performance
+pinned: false
+filters:
+  date_from: -7d
+tiles:
+- insight_ref: ckYyT7wi
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 0
+      y: 15
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 40
+      minH: 5
+      minW: 3
+- insight_ref: o0rUowKH
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 8
+      y: 10
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 35
+      minH: 5
+      minW: 3
+- insight_ref: USPGCkpx
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 4
+      y: 10
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 30
+      minH: 5
+      minW: 3
+- insight_ref: 3Ynr87sH
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 0
+      y: 10
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 25
+      minH: 5
+      minW: 3
+- insight_ref: NH4CkLmR
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 6
+      y: 5
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 20
+      minH: 5
+      minW: 3
+- insight_ref: Ypc4BIG3
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 5
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 15
+      minH: 5
+      minW: 3
+- insight_ref: HQhK6Wdi
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 8
+      y: 0
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 10
+      minH: 5
+      minW: 3
+- insight_ref: soRfamzP
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 4
+      y: 0
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 5
+      minH: 5
+      minW: 3
+- insight_ref: 7TeCq63X
+  layouts:
+    sm:
+      h: 5
+      w: 4
+      x: 0
+      y: 0
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 0
+      minH: 5
+      minW: 3
+_refs:
+  insights:
+  - 7TeCq63X
+  - soRfamzP
+  - HQhK6Wdi
+  - Ypc4BIG3
+  - NH4CkLmR
+  - 3Ynr87sH
+  - USPGCkpx
+  - o0rUowKH
+  - ckYyT7wi

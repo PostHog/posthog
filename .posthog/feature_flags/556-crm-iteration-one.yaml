@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 556
+  version: 1
+  created_at: '2026-01-14T10:18:39.940234+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:39.940309+00:00'
+  last_modified_by: ~
+  checksum: sha256:315f6b63084906d3
+  last_synced: '2026-01-15T10:28:53.975141+00:00'
+key: crm-iteration-one
+name: crm-iteration-one
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

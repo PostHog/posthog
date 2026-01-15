@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 172
+  version: 1
+  created_at: '2026-01-14T10:18:07.504390+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:07.504468+00:00'
+  last_modified_by: ~
+  checksum: sha256:322070f7a007c9ba
+  last_synced: '2026-01-15T10:28:55.068262+00:00'
+key: annotations-recording-scope
+name: annotations-recording-scope
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

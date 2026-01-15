@@ -1,0 +1,168 @@
+# PostHog Dashboard - team-1
+_meta:
+  type: dashboard
+  id: 1
+  created_at: '2026-01-14T10:17:32.127592+00:00'
+  created_by: ~
+  checksum: sha256:31be528a6d0c0d10
+  last_synced: '2026-01-15T10:28:53.806662+00:00'
+name: 🔑 Key metrics
+description: Company overview.
+pinned: true
+tiles:
+- insight_ref: hpV07Ct4
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 5
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 10
+      minH: 1
+      minW: 1
+- insight_ref: uX4BNmTi
+  layouts:
+    sm:
+      h: 5
+      w: 5
+      x: 6
+      y: 0
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 5
+      minH: 1
+      minW: 1
+- insight_ref: 173EeqPW
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 6
+      y: 20
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 35
+      minH: 1
+      minW: 1
+- insight_ref: yPpbeial
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 25
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 40
+      minH: 1
+      minW: 1
+- insight_ref: fr2EkwgL
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 20
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 30
+      minH: 1
+      minW: 1
+- insight_ref: WUdQS7xQ
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 6
+      y: 15
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 25
+      minH: 1
+      minW: 1
+- insight_ref: nBB1vkd4
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 15
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 20
+      minH: 1
+      minW: 1
+- insight_ref: 7sSczTNS
+  layouts:
+    sm:
+      h: 5
+      w: 12
+      x: 0
+      y: 10
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 15
+      minH: 1
+      minW: 1
+- insight_ref: j8GGsbTK
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 0
+      minH: 1
+      minW: 1
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 0
+      minH: 1
+      minW: 1
+  color: blue
+_refs:
+  insights:
+  - j8GGsbTK
+  - 7sSczTNS
+  - nBB1vkd4
+  - WUdQS7xQ
+  - fr2EkwgL
+  - yPpbeial
+  - 173EeqPW
+  - uX4BNmTi
+  - hpV07Ct4

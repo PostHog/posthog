@@ -1,0 +1,75 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: fr2EkwgL
+  db_id: 5
+  created_at: '2026-01-14T10:17:32.467627+00:00'
+  created_by: ~
+  last_modified_at: '2025-12-11T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:11f9d21672bad259
+  last_synced: '2026-01-15T10:28:53.778072+00:00'
+name: Active user lifecycle
+description: An active user being defined by interaction with files.
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: LifecycleQuery
+    tags: ~
+    series:
+    - id: 1
+      kind: ActionsNode
+      math: total
+      name: Interacted with file
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties: ~
+      custom_name: ~
+      math_property: ~
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    version: ~
+    interval: day
+    response: ~
+    dateRange:
+      date_to: ~
+      date_from: -8w
+      explicitDate: false
+    modifiers: ~
+    properties: []
+    dataColorTheme: ~
+    samplingFactor: ~
+    lifecycleFilter:
+      stacked: true
+      showLegend: false
+      toggledLifecycles: ~
+      showValuesOnSeries: ~
+    filterTestAccounts: true
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~
+_refs:
+  dashboards:
+  - 1

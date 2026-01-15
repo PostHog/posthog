@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 164
+  version: 1
+  created_at: '2026-01-14T10:18:07.247123+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:07.247198+00:00'
+  last_modified_by: ~
+  checksum: sha256:f4e31261c90ccf4b
+  last_synced: '2026-01-15T10:28:55.080780+00:00'
+key: query-based-insights-saving
+name: query-based-insights-saving
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

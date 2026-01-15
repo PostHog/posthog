@@ -1,0 +1,31 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 616
+  version: 1
+  created_at: '2026-01-14T10:18:42.884957+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:42.885049+00:00'
+  last_modified_by: ~
+  checksum: sha256:b9a716c9de953259
+  last_synced: '2026-01-15T10:28:53.882369+00:00'
+key: signup-aa-test
+name: signup-aa-test
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: ~
+  multivariate:
+    variants:
+    - key: control
+      name: Control
+      rollout_percentage: 0
+    - key: test
+      name: Test
+      rollout_percentage: 100
+rollout_percentage: 100

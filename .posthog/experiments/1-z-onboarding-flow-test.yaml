@@ -1,0 +1,74 @@
+# PostHog Experiment - team-1
+_meta:
+  type: experiment
+  id: 1
+  created_at: '2025-10-22T02:05:05.287486+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:17:33.478676+00:00'
+  checksum: sha256:c231d72eb35da49b
+  last_synced: '2026-01-15T10:28:53.824821+00:00'
+name: z. Onboarding flow test
+description: Testing variations of our onboarding process to improve activation and engagement.
+type: product
+archived: false
+start_date: '2025-10-22T03:05:05.287486+00:00'
+end_date: '2025-11-27T06:10:10.574972+00:00'
+parameters:
+  feature_flag_variants:
+  - key: control
+    rollout_percentage: 34
+  - key: red
+    rollout_percentage: 33
+  - key: blue
+    rollout_percentage: 33
+  recommended_sample_size: 175
+  minimum_detectable_effect: 15
+metrics:
+- kind: ExperimentFunnelsQuery
+  name: Signup activation
+  uuid: 757bbc12-e02c-4e11-94f0-02e52d31b4ca
+  funnels_query:
+    kind: FunnelsQuery
+    series:
+    - kind: EventsNode
+      name: Signed up
+      event: signed_up
+    - kind: EventsNode
+      name: Uploaded file
+      event: uploaded_file
+    dateRange:
+      date_to: ~
+      date_from: -1m
+    funnelsFilter:
+      layout: horizontal
+      funnelVizType: steps
+      funnelOrderType: ordered
+      funnelWindowInterval: 14
+      funnelWindowIntervalUnit: day
+    filterTestAccounts: true
+- kind: ExperimentTrendsQuery
+  name: Signup count
+  uuid: 5a79fe59-cd64-487f-b33f-3d76d335f3af
+  count_query:
+    kind: TrendsQuery
+    series:
+    - kind: EventsNode
+      name: signed_up
+      event: signed_up
+    interval: day
+    dateRange:
+      date_to: ~
+      date_from: -1m
+      explicitDate: true
+    trendsFilter:
+      display: ActionsLineGraph
+    filterTestAccounts: true
+conclusion: won
+conclusion_comment: The red variant demonstrated a 15% improvement in activation rate with statistical significance. Rolling
+  out to all users.
+_refs:
+  feature_flag: 3
+  feature_flag_key: onboarding-test-v1

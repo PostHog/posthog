@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 524
+  version: 1
+  created_at: '2026-01-14T10:18:38.214983+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:38.215072+00:00'
+  last_modified_by: ~
+  checksum: sha256:d202e61a2b855406
+  last_synced: '2026-01-15T10:28:54.017560+00:00'
+key: mexicspo
+name: mexicspo
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

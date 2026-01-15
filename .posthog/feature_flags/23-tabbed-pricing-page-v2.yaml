@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 23
+  version: 1
+  created_at: '2026-01-14T10:18:01.792967+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:01.793212+00:00'
+  last_modified_by: ~
+  checksum: sha256:6fc752eb367e3410
+  last_synced: '2026-01-15T10:28:55.295108+00:00'
+key: tabbed-pricing-page-v2
+name: tabbed-pricing-page-v2
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

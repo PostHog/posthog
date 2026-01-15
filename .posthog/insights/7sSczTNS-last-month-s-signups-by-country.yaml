@@ -1,0 +1,113 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: 7sSczTNS
+  db_id: 2
+  created_at: '2026-01-14T10:17:32.222268+00:00'
+  created_by: ~
+  last_modified_at: '2026-01-08T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:ebd112006e73cf20
+  last_synced: '2026-01-15T10:28:53.741557+00:00'
+name: Last month's signups by country
+description: ''
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: TrendsQuery
+    tags: ~
+    series:
+    - kind: EventsNode
+      math: ~
+      name: signed_up
+      event: signed_up
+      limit: ~
+      orderBy: ~
+      version: ~
+      response: ~
+      math_hogql: ~
+      properties: ~
+      custom_name: ~
+      math_property: ~
+      fixedProperties: ~
+      math_multiplier: ~
+      optionalInFunnel: ~
+      math_property_type: ~
+      math_group_type_index: ~
+      math_property_revenue_currency: ~
+    version: ~
+    interval: day
+    response: ~
+    dateRange:
+      date_to: ~
+      date_from: -1m
+      explicitDate: false
+    modifiers: ~
+    properties: []
+    trendsFilter:
+      display: WorldMap
+      formula: ~
+      formulas: ~
+      goalLines: ~
+      showLegend: false
+      formulaNodes: ~
+      decimalPlaces: ~
+      showTrendLines: ~
+      yAxisScaleType: linear
+      confidenceLevel: ~
+      minDecimalPlaces: ~
+      showMovingAverage: ~
+      showMultipleYAxes: false
+      showLabelsOnSeries: ~
+      showValuesOnSeries: false
+      smoothingIntervals: 1
+      hiddenLegendIndexes: ~
+      resultCustomizations: ~
+      showPercentStackView: false
+      aggregationAxisFormat: numeric
+      aggregationAxisPrefix: ~
+      resultCustomizationBy: value
+      aggregationAxisPostfix: ~
+      movingAverageIntervals: ~
+      showAlertThresholdLines: false
+      showConfidenceIntervals: ~
+      breakdown_histogram_bin_count: ~
+      detailedResultsAggregationType: ~
+    compareFilter: ~
+    conversionGoal: ~
+    dataColorTheme: ~
+    samplingFactor: ~
+    breakdownFilter:
+      breakdown: $geoip_country_code
+      breakdowns: ~
+      breakdown_type: event
+      breakdown_limit: ~
+      breakdown_normalize_url: ~
+      breakdown_path_cleaning: ~
+      breakdown_group_type_index: ~
+      breakdown_histogram_bin_count: ~
+      breakdown_hide_other_aggregation: ~
+    filterTestAccounts: false
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~
+_refs:
+  dashboards:
+  - 1

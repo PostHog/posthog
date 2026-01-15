@@ -1,0 +1,78 @@
+# PostHog Experiment - team-1
+_meta:
+  type: experiment
+  id: 2
+  created_at: '2025-12-09T05:11:52.337468+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:17:33.553491+00:00'
+  checksum: sha256:751b9d5b720b42a4
+  last_synced: '2026-01-15T10:28:53.823128+00:00'
+name: File engagement boost
+description: Testing features to increase file uploads, sharing, and overall user engagement with files.
+type: product
+archived: false
+start_date: '2025-12-09T07:11:52.337468+00:00'
+parameters:
+  feature_flag_variants:
+  - key: control
+    rollout_percentage: 34
+  - key: red
+    rollout_percentage: 33
+  - key: blue
+    rollout_percentage: 33
+  recommended_sample_size: 200
+  minimum_detectable_effect: 10
+metrics:
+- goal: increase
+  kind: ExperimentMetric
+  name: Upload activation
+  uuid: 864c948e-e87b-410d-9fa2-d1ec3985d19a
+  series:
+  - kind: EventsNode
+    event: $pageview
+  - kind: EventsNode
+    event: uploaded_file
+  metric_type: funnel
+  conversion_window: 7
+  conversion_window_unit: day
+- goal: increase
+  kind: ExperimentMetric
+  name: Active sessions per user
+  uuid: 48ef4f67-bfd4-4621-b777-d7b7088b085b
+  source:
+    kind: EventsNode
+    event: $pageview
+  metric_type: mean
+- goal: increase
+  kind: ExperimentMetric
+  name: Download-to-upload ratio
+  uuid: 0cc4a46e-3bf5-49fd-8b3e-5a5aae6e3dd0
+  numerator:
+    kind: EventsNode
+    event: downloaded_file
+  denominator:
+    kind: EventsNode
+    event: uploaded_file
+  metric_type: ratio
+- goal: increase
+  kind: ExperimentMetric
+  name: 7-day user retention
+  uuid: e38c3cd4-a8a9-42c3-a60c-bd1ceb6cf18f
+  metric_type: retention
+  start_event:
+    kind: EventsNode
+    event: $pageview
+  start_handling: first_seen
+  completion_event:
+    kind: EventsNode
+    math: total
+    event: $pageview
+  retention_window_end: 7
+  retention_window_unit: day
+  retention_window_start: 1
+_refs:
+  feature_flag: 4
+  feature_flag_key: file-engagement-v2

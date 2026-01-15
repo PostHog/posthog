@@ -1,0 +1,31 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 602
+  version: 1
+  created_at: '2026-01-14T10:18:42.192804+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:42.192877+00:00'
+  last_modified_by: ~
+  checksum: sha256:f9aef6e8aa11685a
+  last_synced: '2026-01-15T10:28:53.900563+00:00'
+key: onboarding-ai-product-recommendations
+name: onboarding-ai-product-recommendations
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: ~
+  multivariate:
+    variants:
+    - key: control
+      name: Control
+      rollout_percentage: 0
+    - key: test
+      name: Test
+      rollout_percentage: 100
+rollout_percentage: 100

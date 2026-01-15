@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 56
+  version: 1
+  created_at: '2026-01-14T10:18:02.866038+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:02.866158+00:00'
+  last_modified_by: ~
+  checksum: sha256:07f73103e2099289
+  last_synced: '2026-01-15T10:28:55.246749+00:00'
+key: test-1
+name: test-1
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

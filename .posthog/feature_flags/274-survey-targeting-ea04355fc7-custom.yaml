@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 274
+  version: 1
+  created_at: '2026-01-14T10:18:10.950792+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:10.950873+00:00'
+  last_modified_by: ~
+  checksum: sha256:7a3e2994f151bf30
+  last_synced: '2026-01-15T10:28:54.835397+00:00'
+key: survey-targeting-ea04355fc7-custom
+name: survey-targeting-ea04355fc7-custom
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

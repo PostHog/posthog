@@ -1,0 +1,52 @@
+# PostHog Dashboard - team-1
+_meta:
+  type: dashboard
+  id: 2
+  created_at: '2026-01-14T10:17:32.610947+00:00'
+  created_by: ~
+  checksum: sha256:836bf191437fcc3b
+  last_synced: '2026-01-15T10:28:53.801567+00:00'
+name: 💸 Revenue
+description: ''
+pinned: true
+tiles:
+- insight_ref: 0T24A7nf
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 6
+      y: 0
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 5
+      minH: 5
+      minW: 3
+      moved: false
+      static: false
+- insight_ref: RUr9jEWk
+  layouts:
+    sm:
+      h: 5
+      w: 6
+      x: 0
+      y: 0
+      minH: 5
+      minW: 3
+    xs:
+      h: 5
+      w: 1
+      x: 0
+      y: 0
+      minH: 5
+      minW: 3
+      moved: false
+      static: false
+_refs:
+  insights:
+  - RUr9jEWk
+  - 0T24A7nf

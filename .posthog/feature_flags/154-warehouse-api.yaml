@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 154
+  version: 1
+  created_at: '2026-01-14T10:18:06.945007+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:06.945098+00:00'
+  last_modified_by: ~
+  checksum: sha256:65b69350ae338557
+  last_synced: '2026-01-15T10:28:55.094935+00:00'
+key: warehouse-api
+name: warehouse-api
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

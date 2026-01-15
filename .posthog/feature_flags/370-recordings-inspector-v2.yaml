@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 370
+  version: 1
+  created_at: '2026-01-14T10:18:14.740895+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:14.740970+00:00'
+  last_modified_by: ~
+  checksum: sha256:4ca4c04a1f6c7372
+  last_synced: '2026-01-15T10:28:54.550642+00:00'
+key: recordings-inspector-v2
+name: recordings-inspector-v2
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

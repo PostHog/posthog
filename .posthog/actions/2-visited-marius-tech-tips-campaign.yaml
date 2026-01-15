@@ -1,0 +1,18 @@
+# PostHog Action - team-1
+_meta:
+  type: action
+  id: 2
+  created_at: '2026-01-14T10:17:31.903494+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:17:31.903504+00:00'
+  checksum: sha256:0b84ac853dbeac7c
+  last_synced: '2026-01-15T10:28:53.816937+00:00'
+name: Visited Marius Tech Tips campaign
+description: Visited page of the campaign we did with Marius Tech Tips, the best YouTube channel for tech tips.
+steps:
+- url: /mariustechtips
+  event: $pageview
+  url_matching: contains

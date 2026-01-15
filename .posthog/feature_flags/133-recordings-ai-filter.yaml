@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 133
+  version: 1
+  created_at: '2026-01-14T10:18:06.208713+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:06.208806+00:00'
+  last_modified_by: ~
+  checksum: sha256:dbb2bae96da40a25
+  last_synced: '2026-01-15T10:28:55.128233+00:00'
+key: recordings-ai-filter
+name: recordings-ai-filter
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

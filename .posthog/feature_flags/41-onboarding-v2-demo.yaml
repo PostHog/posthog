@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 41
+  version: 1
+  created_at: '2026-01-14T10:18:02.355162+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:02.355282+00:00'
+  last_modified_by: ~
+  checksum: sha256:50e9b407e4b59f0e
+  last_synced: '2026-01-15T10:28:55.271229+00:00'
+key: onboarding-v2-demo
+name: onboarding-v2-demo
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

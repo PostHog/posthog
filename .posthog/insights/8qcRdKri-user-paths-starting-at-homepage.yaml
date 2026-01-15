@@ -1,0 +1,69 @@
+# PostHog Insight - team-1
+_meta:
+  type: insight
+  id: 8qcRdKri
+  db_id: 12
+  created_at: '2026-01-14T10:17:33.001266+00:00'
+  created_by: ~
+  last_modified_at: '2026-01-05T10:16:57.624954+00:00'
+  last_modified_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  checksum: sha256:81ba04d800fc008f
+  last_synced: '2026-01-15T10:28:53.744785+00:00'
+name: User paths starting at homepage
+description: ''
+saved: true
+favorited: false
+query:
+  full: ~
+  kind: InsightVizNode
+  source:
+    kind: PathsQuery
+    tags: ~
+    version: ~
+    response: ~
+    dateRange:
+      date_to: ~
+      date_from: -30d
+      explicitDate: false
+    modifiers: ~
+    properties: []
+    pathsFilter:
+      endPoint: ~
+      edgeLimit: 50
+      stepLimit: 5
+      pathEndKey: ~
+      startPoint: https://hedgebox.net/
+      pathStartKey: ~
+      showFullUrls: ~
+      excludeEvents: []
+      maxEdgeWeight: ~
+      minEdgeWeight: ~
+      pathGroupings:
+      - /files/*
+      pathDropoffKey: ~
+      pathReplacements: ~
+      includeEventTypes:
+      - $pageview
+      pathsHogQLExpression: ~
+      localPathCleaningFilters: []
+    dataColorTheme: ~
+    samplingFactor: ~
+    funnelPathsFilter: ~
+    filterTestAccounts: false
+    aggregation_group_type_index: ~
+  version: ~
+  embedded: ~
+  showTable: ~
+  showHeader: ~
+  showFilters: ~
+  showResults: ~
+  hidePersonsModal: ~
+  vizSpecificOptions: ~
+  hideTooltipOnScroll: ~
+  showLastComputation: ~
+  showCorrelationTable: ~
+  showLastComputationRefresh: ~
+  suppressSessionAnalysisWarning: ~

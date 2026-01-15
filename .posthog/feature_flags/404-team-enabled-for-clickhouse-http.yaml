@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 404
+  version: 1
+  created_at: '2026-01-14T10:18:16.542798+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:16.542902+00:00'
+  last_modified_by: ~
+  checksum: sha256:05b6f673869c3380
+  last_synced: '2026-01-15T10:28:54.457417+00:00'
+key: team-enabled-for-clickhouse-http
+name: team-enabled-for-clickhouse-http
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

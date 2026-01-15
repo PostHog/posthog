@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 420
+  version: 1
+  created_at: '2026-01-14T10:18:17.186822+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:17.186915+00:00'
+  last_modified_by: ~
+  checksum: sha256:07c6842d143fdbad
+  last_synced: '2026-01-15T10:28:54.408280+00:00'
+key: quotehog-invoice-style-calculator
+name: quotehog-invoice-style-calculator
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100

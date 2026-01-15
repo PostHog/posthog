@@ -1,0 +1,24 @@
+# PostHog Feature Flag - team-1
+_meta:
+  type: feature_flag
+  id: 503
+  version: 1
+  created_at: '2026-01-14T10:18:37.259278+00:00'
+  created_by:
+    id: 1
+    email: test@posthog.com
+    first_name: Employee 427
+  updated_at: '2026-01-14T10:18:37.259366+00:00'
+  last_modified_by: ~
+  checksum: sha256:26b5fbe872b9302c
+  last_synced: '2026-01-15T10:28:54.045529+00:00'
+key: redirect-signups-to-instance
+name: redirect-signups-to-instance
+active: true
+ensure_experience_continuity: false
+filters:
+  groups:
+  - properties: []
+    rollout_percentage: 100
+  payloads: {}
+rollout_percentage: 100
