@@ -1,5 +1,5 @@
 # Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
-FROM rust:1.92 AS base
+FROM rust:1.91 AS base
 RUN cargo install --locked cargo-chef sccache
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
@@ -20,10 +20,10 @@ ARG BIN
 RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
+# Disable sccache for chef cook - was seeing CD failures due to it.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json --bin $BIN
+    RUSTC_WRAPPER="" cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
 RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
