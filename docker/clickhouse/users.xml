@@ -25,6 +25,18 @@
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
 
+            <!-- Critical settings synced from production (via sync-clickhouse-versions.yml) -->
+            <compatibility>25.6</compatibility>
+            <distributed_product_mode>global</distributed_product_mode>
+            <enable_parallel_replicas>0</enable_parallel_replicas>
+            <max_parallel_replicas>1</max_parallel_replicas>
+            <allow_experimental_window_functions>1</allow_experimental_window_functions>
+            <allow_suspicious_low_cardinality_types>1</allow_suspicious_low_cardinality_types>
+            <!-- Insert/mutation behavior -->
+            <insert_distributed_sync>1</insert_distributed_sync>
+            <throw_on_max_partitions_per_insert_block>false</throw_on_max_partitions_per_insert_block>
+            <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
+
         </default>
 
         <!-- Profile that allows only read queries. -->

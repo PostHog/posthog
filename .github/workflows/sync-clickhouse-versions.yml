@@ -1,4 +1,8 @@
-name: Sync ClickHouse Versions
+name: Sync ClickHouse Versions and Settings
+
+# Syncs ClickHouse versions AND critical configuration settings from posthog-cloud-infra.
+# This reduces the chance of issues where queries work in CI but fail in production due to config mismatches
+# (e.g., enable_analyzer setting affecting JOIN ON conditions).
 
 on:
     schedule:
@@ -101,6 +105,115 @@ jobs:
                   echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "::notice::Production EU: $production_eu, Production US: $production_us, Local: $local_version, Oldest supported: $oldest_supported"
 
+            - name: Fetch and compare ClickHouse settings from infra repo
+              id: fetch-settings
+              env:
+                  GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+              run: |
+                  # Fetch users.xml from production EU workers to extract settings
+                  prod_users_xml=$(gh api "repos/PostHog/posthog-cloud-infra/contents/ansible/eu/clickhouse/config/workers/users.xml" \
+                    --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || echo "")
+
+                  if [ -z "$prod_users_xml" ]; then
+                    echo "::warning::Could not fetch production users.xml - skipping config sync"
+                    exit 0
+                  fi
+
+                  # Extract setting value from XML (using sed for portability)
+                  extract_setting() {
+                    local xml="$1"
+                    local setting="$2"
+                    echo "$xml" | sed -n "s/.*<$setting>\([^<]*\)<\/$setting>.*/\1/p" | head -1
+                  }
+
+                  # Read local config
+                  local_users_xml=$(cat docker/clickhouse/users-dev.xml)
+
+                  # Settings that affect query BEHAVIOR (not just performance)
+                  # Pattern: settings starting with enable_, allow_, or known behavioral settings
+                  # We extract all such settings from production and compare with local
+                  behavioral_settings=(
+                    # Compatibility mode - locks behavior to a specific version
+                    "compatibility"
+                    # Query processing
+                    "enable_analyzer"
+                    "distributed_product_mode"
+                    "enable_parallel_replicas"
+                    "max_parallel_replicas"
+                    # Mutations
+                    "allow_nondeterministic_mutations"
+                    "number_of_mutations_to_throw"
+                    # Experimental features that affect query syntax/semantics
+                    "allow_experimental_window_functions"
+                    "allow_suspicious_low_cardinality_types"
+                    "allow_experimental_analyzer"
+                    "allow_experimental_lightweight_delete"
+                    # INSERT behavior
+                    "insert_distributed_sync"
+                    "throw_on_max_partitions_per_insert_block"
+                    # JOIN behavior
+                    "join_use_nulls"
+                    "any_join_distinct_right_table_keys"
+                    "join_algorithm"
+                    # NULL handling
+                    "transform_null_in"
+                    "cast_keep_nullable"
+                  )
+
+                  echo "=== Comparing production vs local settings ==="
+                  mismatches=""
+
+                  for setting in "${behavioral_settings[@]}"; do
+                    prod_value=$(extract_setting "$prod_users_xml" "$setting")
+                    local_value=$(extract_setting "$local_users_xml" "$setting")
+
+                    if [ -n "$prod_value" ]; then
+                      echo "$setting=$prod_value" >> $GITHUB_OUTPUT
+
+                      if [ -z "$local_value" ]; then
+                        echo "::warning::$setting: production=$prod_value, local=NOT SET"
+                        mismatches="$mismatches\n- \`$setting\`: production=\`$prod_value\`, local=not set"
+                      elif [ "$prod_value" != "$local_value" ]; then
+                        echo "::warning::$setting: production=$prod_value, local=$local_value"
+                        mismatches="$mismatches\n- \`$setting\`: production=\`$prod_value\`, local=\`$local_value\`"
+                      else
+                        echo "$setting: OK ($prod_value)"
+                      fi
+                    fi
+                  done
+
+                  # Also scan for ANY setting in production default profile that we might have missed
+                  echo ""
+                  echo "=== Scanning for additional production settings ==="
+                  # Extract all setting names from the default profile using sed (portable)
+                  prod_default_settings=$(echo "$prod_users_xml" | sed -n '/<default>/,/<\/default>/p' | sed -n 's/.*<\([a-z_]*\)>[^<]*<\/\1>.*/\1/p' | sort -u || echo "")
+
+                  for setting in $prod_default_settings; do
+                    # Skip known performance-only settings
+                    case "$setting" in
+                      max_memory_usage|max_threads|max_execution_time|max_bytes_*|max_rows_*|load_balancing|profile|readonly)
+                        continue ;;
+                    esac
+
+                    # Check if it's a behavioral setting we haven't covered
+                    if ! printf '%s\n' "${behavioral_settings[@]}" | grep -q "^$setting$"; then
+                      prod_value=$(extract_setting "$prod_users_xml" "$setting")
+                      local_value=$(extract_setting "$local_users_xml" "$setting")
+
+                      if [ -n "$prod_value" ] && [ "$prod_value" != "$local_value" ]; then
+                        echo "::notice::Found additional setting $setting: production=$prod_value, local=${local_value:-NOT SET}"
+                      fi
+                    fi
+                  done
+
+                  if [ -n "$mismatches" ]; then
+                    echo "mismatches<<EOF" >> $GITHUB_OUTPUT
+                    echo -e "$mismatches" >> $GITHUB_OUTPUT
+                    echo "EOF" >> $GITHUB_OUTPUT
+                  fi
+
+                  echo "::notice::Settings comparison complete"
+
             - name: Update .github/clickhouse-versions.json
               run: |
                   production_eu="${{ steps.fetch-versions.outputs.production_eu }}"
@@ -125,6 +238,73 @@ jobs:
                   echo "Updated .github/clickhouse-versions.json:"
                   cat .github/clickhouse-versions.json
 
+            - name: Update local ClickHouse config to match production
+              run: |
+                  # Function to update a setting in an XML file
+                  update_setting() {
+                    local file="$1"
+                    local setting="$2"
+                    local new_value="$3"
+
+                    if [ -z "$new_value" ]; then
+                      return 0
+                    fi
+
+                    local current_value=$(sed -n "s/.*<$setting>\([^<]*\)<\/$setting>.*/\1/p" "$file" 2>/dev/null | head -1)
+
+                    if [ "$current_value" = "$new_value" ]; then
+                      echo "  $setting: OK ($new_value)"
+                    elif [ -n "$current_value" ]; then
+                      echo "  $setting: $current_value → $new_value"
+                      sed -i "s|<$setting>$current_value</$setting>|<$setting>$new_value</$setting>|" "$file"
+                    else
+                      echo "  $setting: MISSING (production=$new_value) - add manually"
+                      return 1
+                    fi
+                    return 0
+                  }
+
+                  # All behavioral settings to sync (must match the list in fetch-settings)
+                  # Format: setting_name:output_variable
+                  declare -A settings_map=(
+                    ["compatibility"]="${{ steps.fetch-settings.outputs.compatibility }}"
+                    ["enable_analyzer"]="${{ steps.fetch-settings.outputs.enable_analyzer }}"
+                    ["distributed_product_mode"]="${{ steps.fetch-settings.outputs.distributed_product_mode }}"
+                    ["enable_parallel_replicas"]="${{ steps.fetch-settings.outputs.enable_parallel_replicas }}"
+                    ["max_parallel_replicas"]="${{ steps.fetch-settings.outputs.max_parallel_replicas }}"
+                    ["allow_nondeterministic_mutations"]="${{ steps.fetch-settings.outputs.allow_nondeterministic_mutations }}"
+                    ["allow_experimental_window_functions"]="${{ steps.fetch-settings.outputs.allow_experimental_window_functions }}"
+                    ["allow_suspicious_low_cardinality_types"]="${{ steps.fetch-settings.outputs.allow_suspicious_low_cardinality_types }}"
+                    ["insert_distributed_sync"]="${{ steps.fetch-settings.outputs.insert_distributed_sync }}"
+                    ["throw_on_max_partitions_per_insert_block"]="${{ steps.fetch-settings.outputs.throw_on_max_partitions_per_insert_block }}"
+                    ["number_of_mutations_to_throw"]="${{ steps.fetch-settings.outputs.number_of_mutations_to_throw }}"
+                    ["join_use_nulls"]="${{ steps.fetch-settings.outputs.join_use_nulls }}"
+                    ["any_join_distinct_right_table_keys"]="${{ steps.fetch-settings.outputs.any_join_distinct_right_table_keys }}"
+                    ["transform_null_in"]="${{ steps.fetch-settings.outputs.transform_null_in }}"
+                  )
+
+                  files=(
+                    "docker/clickhouse/users-dev.xml"
+                    "docker/clickhouse/users.xml"
+                  )
+
+                  missing_settings=""
+                  for file in "${files[@]}"; do
+                    echo "=== $file ==="
+                    for setting in "${!settings_map[@]}"; do
+                      value="${settings_map[$setting]}"
+                      if ! update_setting "$file" "$setting" "$value"; then
+                        missing_settings="$missing_settings$setting "
+                      fi
+                    done
+                  done
+
+                  if [ -n "$missing_settings" ]; then
+                    echo ""
+                    echo "::warning::Some settings are missing from local config files: $missing_settings"
+                    echo "Please add them to docker/clickhouse/users-dev.xml and users.xml"
+                  fi
+
             - name: Check for changes
               id: check-changes
               run: |
@@ -145,7 +325,7 @@ jobs:
                   commit-message: 'chore(ci): sync ClickHouse versions from infra'
                   title: 'chore(ci): sync ClickHouse versions from infra'
                   body: |
-                      Automated sync of ClickHouse versions from posthog-cloud-infra.
+                      Automated sync of ClickHouse versions and settings from posthog-cloud-infra.
 
                       **Current versions:**
                       | Environment | Version | Source |
@@ -155,8 +335,27 @@ jobs:
                       | Local | `${{ steps.fetch-versions.outputs.local }}` | docker-compose.base.yml |
                       | **Oldest Supported** | `${{ steps.fetch-versions.outputs.oldest_supported }}` | min(EU, US) |
 
+                      **Critical settings synced (affect query behavior):**
+                      | Setting | Production Value | Impact |
+                      |---------|-----------------|--------|
+                      | `compatibility` | `${{ steps.fetch-settings.outputs.compatibility }}` | 🔴 Locks behavior to specific CH version |
+                      | `enable_analyzer` | `${{ steps.fetch-settings.outputs.enable_analyzer }}` | 🔴 Query analyzer - complex JOIN ON, subqueries, CTEs |
+                      | `distributed_product_mode` | `${{ steps.fetch-settings.outputs.distributed_product_mode }}` | 🟡 How distributed JOINs broadcast data |
+                      | `enable_parallel_replicas` | `${{ steps.fetch-settings.outputs.enable_parallel_replicas }}` | 🟡 Query determinism - parallel replica reads |
+                      | `max_parallel_replicas` | `${{ steps.fetch-settings.outputs.max_parallel_replicas }}` | 🟢 Max replicas per query |
+                      | `allow_nondeterministic_mutations` | `${{ steps.fetch-settings.outputs.allow_nondeterministic_mutations }}` | 🟢 dictGet() in ALTER UPDATE |
+                      | `allow_experimental_window_functions` | `${{ steps.fetch-settings.outputs.allow_experimental_window_functions }}` | 🟢 ROW_NUMBER(), LAG(), etc. |
+                      | `allow_suspicious_low_cardinality_types` | `${{ steps.fetch-settings.outputs.allow_suspicious_low_cardinality_types }}` | 🟢 LowCardinality type combinations |
+                      | `join_use_nulls` | `${{ steps.fetch-settings.outputs.join_use_nulls }}` | 🟡 NULL handling in JOINs |
+                      | `any_join_distinct_right_table_keys` | `${{ steps.fetch-settings.outputs.any_join_distinct_right_table_keys }}` | 🟡 ANY JOIN behavior |
+                      | `transform_null_in` | `${{ steps.fetch-settings.outputs.transform_null_in }}` | 🟡 NULL in IN() expressions |
+
+                      ${{ steps.fetch-settings.outputs.mismatches != '' && format('**⚠️ Settings that differ from production:**{0}', steps.fetch-settings.outputs.mismatches) || '' }}
+
                       **Files updated:**
                       - `.github/clickhouse-versions.json` - version definitions (source of truth)
+                      - `docker/clickhouse/users-dev.xml` - CI/dev ClickHouse config
+                      - `docker/clickhouse/users.xml` - hobby deploy ClickHouse config
 
                       The "oldest_supported" version is the minimum across production environments and is used as the primary compatibility target in CI. If tests pass on the oldest supported version, they should work everywhere.
 
