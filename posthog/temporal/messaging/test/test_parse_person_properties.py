@@ -86,23 +86,13 @@ class TestParsePersonProperties:
 
         assert result == properties
 
-    def test_truncates_long_invalid_json_in_log(self):
-        """Should truncate very long invalid JSON strings in log messages."""
+    def test_handles_long_invalid_json_string(self):
+        """Should handle very long invalid JSON strings without errors."""
         long_invalid_json = "{invalid" + "x" * 200
 
         result = parse_person_properties(long_invalid_json, "person123")
 
         assert result == {}
-        # The function should handle truncation internally (tested by not raising exceptions)
-
-    def test_does_not_truncate_short_invalid_json_in_log(self):
-        """Should not truncate short invalid JSON strings in log messages."""
-        short_invalid_json = "{invalid}"
-
-        result = parse_person_properties(short_invalid_json, "person123")
-
-        assert result == {}
-        # The function should handle short strings without issues
 
     def test_preserves_unicode_characters(self):
         """Should correctly parse JSON with unicode characters."""
