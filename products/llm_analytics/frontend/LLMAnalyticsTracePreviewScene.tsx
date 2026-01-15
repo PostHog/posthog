@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconAIText, IconReceipt, IconUpload } from '@posthog/icons'
+import { IconReceipt, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTabs, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -18,7 +18,7 @@ import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { EnrichedTraceTreeNode, SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import { TraceViewMode } from './llmAnalyticsTraceLogic'
 import { llmAnalyticsTracePreviewLogic } from './llmAnalyticsTracePreviewLogic'
-import { formatLLMCost, formatLLMEventTitle, formatLLMLatency, formatLLMUsage, isLLMEvent } from './utils'
+import { formatLLMCost, formatLLMEventTitle, formatLLMLatency, isLLMEvent } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTracePreviewScene,
@@ -35,9 +35,7 @@ export function LLMAnalyticsTracePreviewScene(): JSX.Element {
             <div className="max-w-7xl mx-auto">
                 <header className="mb-6">
                     <h1 className="text-2xl font-bold mb-2">LLM trace preview</h1>
-                    <p className="text-muted">
-                        Paste JSON from the "Copy trace JSON" button to preview a trace without authentication.
-                    </p>
+                    <p className="text-muted">Paste the exported LLM trace JSON to preview it.</p>
                 </header>
 
                 {!hasTrace ? (
@@ -171,16 +169,6 @@ function Chip({
     )
 }
 
-function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
-    const usage = formatLLMUsage(event)
-
-    return usage ? (
-        <Chip title="Usage" icon={<IconAIText />}>
-            {usage}
-        </Chip>
-    ) : null
-}
-
 function PreviewTraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
     return (
         <header className="flex gap-1.5 flex-wrap">
@@ -189,7 +177,6 @@ function PreviewTraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
                     <span className="font-medium">{trace.traceName}</span>
                 </Chip>
             )}
-            <UsageChip event={trace} />
             {typeof trace.inputCost === 'number' && (
                 <Chip title="Input cost" icon={<IconArrowUp />}>
                     {formatLLMCost(trace.inputCost)}
