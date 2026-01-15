@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import type { HogFlowTemplate } from './hogflows/types'
+import type { HogFlowTemplate } from '../hogflows/types'
 import type { workflowTemplatesLogicType } from './workflowTemplatesLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse

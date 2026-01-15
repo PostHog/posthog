@@ -5,7 +5,6 @@ import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
@@ -95,19 +94,6 @@ export function WorkflowsScene(): JSX.Element {
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
-
-    const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
-
-    if (!hasWorkflowsFeatureFlag) {
-        return (
-            <div className="flex flex-col justify-center items-center h-full">
-                <h1 className="text-2xl font-bold">Coming soon!</h1>
-                <p className="text-sm text-muted-foreground">
-                    We're working on bringing workflows to PostHog. Stay tuned for updates!
-                </p>
-            </div>
-        )
-    }
 
     const newChannelMenuItems: LemonMenuItems = [
         {
