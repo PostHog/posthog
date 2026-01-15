@@ -18,6 +18,8 @@ import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils'
 
+import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
+
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
@@ -48,6 +50,17 @@ type RunPythonCellParams = {
     exportedGlobals: { name: string; type: string }[]
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setPythonRunLoading: (loading: boolean) => void
+}
+
+const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean => {
+    const query = nodeAttributes?.query
+    if (!query) {
+        return false
+    }
+    if (isNodeWithSource(query)) {
+        return isHogQLQuery(query.source)
+    }
+    return false
 }
 
 const runPythonCell = async ({
@@ -410,7 +423,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const shouldShowThis = typeof visible === 'boolean' ? visible : !isEditing
 
             props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowThis)
-            if (props.nodeType === NotebookNodeType.Python) {
+            if (
+                props.nodeType === NotebookNodeType.Python ||
+                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))
+            ) {
                 actions.updateAttributes({ showSettings: shouldShowThis })
             }
         },
@@ -424,12 +440,19 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 if (__init.showSettings) {
                     actions.toggleEditing(true)
                 }
-                if (props.nodeType === NotebookNodeType.Python && __init.showSettings) {
+                if (
+                    (props.nodeType === NotebookNodeType.Python ||
+                        (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))) &&
+                    __init.showSettings
+                ) {
                     actions.updateAttributes({ showSettings: true })
                 }
                 props.updateAttributes({ __init: null })
             }
-            if (props.nodeType === NotebookNodeType.Python) {
+            if (
+                props.nodeType === NotebookNodeType.Python ||
+                (props.nodeType === NotebookNodeType.Query && isSqlQueryNode(values.nodeAttributes))
+            ) {
                 const shouldShowSettings = values.nodeAttributes.showSettings ?? __init?.showSettings
                 if (typeof shouldShowSettings === 'boolean') {
                     props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowSettings)

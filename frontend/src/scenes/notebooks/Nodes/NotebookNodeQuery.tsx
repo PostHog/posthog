@@ -143,6 +143,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    showSettings?: boolean
 }
 
 export const Settings = ({
@@ -272,6 +273,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
         isDefaultFilterApplied: {
+            default: false,
+        },
+        showSettings: {
             default: false,
         },
     },
