@@ -5,20 +5,20 @@ import structlog
 from rest_framework import serializers
 
 from . import (
-    announce_a_new_feature,
-    onboarding_started_but_not_completed,
-    trial_started_upgrade_nudge,
-    welcome_email_sequence,
+    announce_a_new_feature_template,
+    onboarding_started_but_not_completed_template,
+    trial_started_upgrade_nudge_template,
+    welcome_email_sequence_template,
 )
 
 logger = structlog.get_logger(__name__)
 
 # List of all template modules - update this when adding new templates
 TEMPLATE_MODULES = [
-    announce_a_new_feature,
-    onboarding_started_but_not_completed,
-    trial_started_upgrade_nudge,
-    welcome_email_sequence,
+    announce_a_new_feature_template,
+    onboarding_started_but_not_completed_template,
+    trial_started_upgrade_nudge_template,
+    welcome_email_sequence_template,
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None

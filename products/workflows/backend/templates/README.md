@@ -12,8 +12,8 @@ This directory contains global workflow templates that are stored in code and ve
    - Copy the JSON using the copy button
 
 2. **Create a new template file**:
-   - Create a new file in this directory with the naming pattern: `<template_name>.template.py`
-   - Use lowercase and underscores for the filename (e.g., `welcome_email_sequence.template.py`)
+   - Create a new file in this directory with the naming pattern: `<template_name>_template.py`
+   - Use lowercase and underscores for the filename (e.g., `welcome_email_sequence_template.py`)
 
 3. **Add the template code**:
 
@@ -35,14 +35,14 @@ This directory contains global workflow templates that are stored in code and ve
 
 4. **Register the template in `__init__.py`**:
    - Open `__init__.py` in this directory
-   - Add an import for your new template file (remove the `.template.py` extension):
+   - Add an import for your new template file (remove the `.py` extension):
 
      ```python
      from . import (
-         announce_a_new_feature,
-         onboarding_started_but_not_completed,
-         trial_started_upgrade_nudge,
-         welcome_email_sequence,
+         announce_a_new_feature_template,
+         onboarding_started_but_not_completed_template,
+         trial_started_upgrade_nudge_template,
+         welcome_email_sequence_template,
          your_new_template,  # Add this line
      )
      ```
@@ -51,10 +51,10 @@ This directory contains global workflow templates that are stored in code and ve
 
      ```python
      TEMPLATE_MODULES = [
-         announce_a_new_feature,
-         onboarding_started_but_not_completed,
-         trial_started_upgrade_nudge,
-         welcome_email_sequence,
+         announce_a_new_feature_template,
+         onboarding_started_but_not_completed_template,
+         trial_started_upgrade_nudge_template,
+         welcome_email_sequence_template,
          your_new_template,  # Add this line
      ]
      ```
