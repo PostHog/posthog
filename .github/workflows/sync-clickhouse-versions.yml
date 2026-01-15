@@ -71,10 +71,7 @@ jobs:
                   ansible_grep='clickhouse_version:'
                   ansible_sed='s/.*: *([0-9.]+).*/\1/'
 
-                  # Production EU uses Ansible role defaults (the TF file is stale)
                   production_eu=$(fetch_infra_version "Production EU" "ansible/roles/clickhouse/defaults/main.yml" "$ansible_grep" "$ansible_sed")
-
-                  # Production US uses Terragrunt (new cluster)
                   production_us=$(fetch_infra_version "Production US" "terraform/environments/aws-accnt-clickhouse-prod-us/us-east-1/clickhouse/terragrunt.hcl" "$tf_grep" "$tf_sed")
 
                   # Local version from docker-compose (extract from this repo)
@@ -126,12 +123,10 @@ jobs:
                     echo "$xml" | sed -n "s/.*<$setting>\([^<]*\)<\/$setting>.*/\1/p" | head -1
                   }
 
-                  # Read local config
                   local_users_xml=$(cat docker/clickhouse/users-dev.xml)
 
-                  # Settings that affect query BEHAVIOR (not just performance)
-                  # Pattern: settings starting with enable_, allow_, or known behavioral settings
-                  # We extract all such settings from production and compare with local
+                  # Settings that affect query behaviour
+                  # If new items are added, don't forget to also update: `settings_map` defined below
                   behavioral_settings=(
                     # Compatibility mode - locks behavior to a specific version
                     "compatibility"
@@ -221,8 +216,6 @@ jobs:
                   local_version="${{ steps.fetch-versions.outputs.local }}"
                   oldest_supported="${{ steps.fetch-versions.outputs.oldest_supported }}"
 
-                  # Build JSON with all versions (CI handles deduplication)
-                  # "oldest_supported" is the minimum version across production environments - used as primary compat target
                   jq -n \
                     --arg production_eu "clickhouse/clickhouse-server:$production_eu" \
                     --arg production_us "clickhouse/clickhouse-server:$production_us" \
@@ -240,7 +233,6 @@ jobs:
 
             - name: Update local ClickHouse config to match production
               run: |
-                  # Function to update a setting in an XML file
                   update_setting() {
                     local file="$1"
                     local setting="$2"
@@ -280,7 +272,11 @@ jobs:
                     ["number_of_mutations_to_throw"]="${{ steps.fetch-settings.outputs.number_of_mutations_to_throw }}"
                     ["join_use_nulls"]="${{ steps.fetch-settings.outputs.join_use_nulls }}"
                     ["any_join_distinct_right_table_keys"]="${{ steps.fetch-settings.outputs.any_join_distinct_right_table_keys }}"
+                    ["join_algorithm"]="${{ steps.fetch-settings.outputs.join_algorithm }}"
                     ["transform_null_in"]="${{ steps.fetch-settings.outputs.transform_null_in }}"
+                    ["cast_keep_nullable"]="${{ steps.fetch-settings.outputs.cast_keep_nullable }}"
+                    ["allow_experimental_analyzer"]="${{ steps.fetch-settings.outputs.allow_experimental_analyzer }}"
+                    ["allow_experimental_lightweight_delete"]="${{ steps.fetch-settings.outputs.allow_experimental_lightweight_delete }}"
                   )
 
                   files=(
@@ -328,27 +324,27 @@ jobs:
                       Automated sync of ClickHouse versions and settings from posthog-cloud-infra.
 
                       **Current versions:**
-                      | Environment | Version | Source |
-                      |-------------|---------|--------|
-                      | Production EU | `${{ steps.fetch-versions.outputs.production_eu }}` | Ansible defaults |
-                      | Production US | `${{ steps.fetch-versions.outputs.production_us }}` | Terragrunt |
-                      | Local | `${{ steps.fetch-versions.outputs.local }}` | docker-compose.base.yml |
-                      | **Oldest Supported** | `${{ steps.fetch-versions.outputs.oldest_supported }}` | min(EU, US) |
+                      | Environment | Version |
+                      |-------------|---------|
+                      | Production EU | `${{ steps.fetch-versions.outputs.production_eu }}` |
+                      | Production US | `${{ steps.fetch-versions.outputs.production_us }}` |
+                      | Local | `${{ steps.fetch-versions.outputs.local }}` |
+                      | Oldest Supported on prod | `${{ steps.fetch-versions.outputs.oldest_supported }}` |
 
-                      **Critical settings synced (affect query behavior):**
-                      | Setting | Production Value | Impact |
-                      |---------|-----------------|--------|
-                      | `compatibility` | `${{ steps.fetch-settings.outputs.compatibility }}` | 🔴 Locks behavior to specific CH version |
-                      | `enable_analyzer` | `${{ steps.fetch-settings.outputs.enable_analyzer }}` | 🔴 Query analyzer - complex JOIN ON, subqueries, CTEs |
-                      | `distributed_product_mode` | `${{ steps.fetch-settings.outputs.distributed_product_mode }}` | 🟡 How distributed JOINs broadcast data |
-                      | `enable_parallel_replicas` | `${{ steps.fetch-settings.outputs.enable_parallel_replicas }}` | 🟡 Query determinism - parallel replica reads |
-                      | `max_parallel_replicas` | `${{ steps.fetch-settings.outputs.max_parallel_replicas }}` | 🟢 Max replicas per query |
-                      | `allow_nondeterministic_mutations` | `${{ steps.fetch-settings.outputs.allow_nondeterministic_mutations }}` | 🟢 dictGet() in ALTER UPDATE |
-                      | `allow_experimental_window_functions` | `${{ steps.fetch-settings.outputs.allow_experimental_window_functions }}` | 🟢 ROW_NUMBER(), LAG(), etc. |
-                      | `allow_suspicious_low_cardinality_types` | `${{ steps.fetch-settings.outputs.allow_suspicious_low_cardinality_types }}` | 🟢 LowCardinality type combinations |
-                      | `join_use_nulls` | `${{ steps.fetch-settings.outputs.join_use_nulls }}` | 🟡 NULL handling in JOINs |
-                      | `any_join_distinct_right_table_keys` | `${{ steps.fetch-settings.outputs.any_join_distinct_right_table_keys }}` | 🟡 ANY JOIN behavior |
-                      | `transform_null_in` | `${{ steps.fetch-settings.outputs.transform_null_in }}` | 🟡 NULL in IN() expressions |
+                      **Synced settings:**
+                      | Setting | Production Value |
+                      |---------|-----------------|
+                      | `compatibility` | `${{ steps.fetch-settings.outputs.compatibility }}` |
+                      | `enable_analyzer` | `${{ steps.fetch-settings.outputs.enable_analyzer }}` |
+                      | `distributed_product_mode` | `${{ steps.fetch-settings.outputs.distributed_product_mode }}` |
+                      | `enable_parallel_replicas` | `${{ steps.fetch-settings.outputs.enable_parallel_replicas }}` |
+                      | `max_parallel_replicas` | `${{ steps.fetch-settings.outputs.max_parallel_replicas }}` |
+                      | `allow_nondeterministic_mutations` | `${{ steps.fetch-settings.outputs.allow_nondeterministic_mutations }}` |
+                      | `allow_experimental_window_functions` | `${{ steps.fetch-settings.outputs.allow_experimental_window_functions }}` |
+                      | `allow_suspicious_low_cardinality_types` | `${{ steps.fetch-settings.outputs.allow_suspicious_low_cardinality_types }}` |
+                      | `join_use_nulls` | `${{ steps.fetch-settings.outputs.join_use_nulls }}` |
+                      | `any_join_distinct_right_table_keys` | `${{ steps.fetch-settings.outputs.any_join_distinct_right_table_keys }}` |
+                      | `transform_null_in` | `${{ steps.fetch-settings.outputs.transform_null_in }}` |
 
                       ${{ steps.fetch-settings.outputs.mismatches != '' && format('**⚠️ Settings that differ from production:**{0}', steps.fetch-settings.outputs.mismatches) || '' }}
 
