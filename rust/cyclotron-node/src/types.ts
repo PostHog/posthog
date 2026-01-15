@@ -34,7 +34,7 @@ export type CyclotronJob = {
     state: CyclotronJobState
     priority: number
     scheduled: string | null
-    batchJobId: string | null
+    parentJobId: string | null
     vmState: object | null
     metadata: object | null
     parameters: object | null
@@ -42,9 +42,9 @@ export type CyclotronJob = {
 }
 
 export type CyclotronJobInit = Pick<CyclotronJob, 'teamId' | 'functionId' | 'queueName' | 'priority'> &
-        Pick<Partial<CyclotronJob>, 'id' | 'scheduled' | 'batchJobId' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
+        Pick<Partial<CyclotronJob>, 'id' | 'scheduled' | 'parentJobId' | 'vmState' | 'parameters' | 'metadata' | 'blob'>
 
 export type CyclotronJobUpdate = Pick<
     Partial<CyclotronJob>,
-    'queueName' | 'priority' | 'batchJobId' | 'vmState' | 'parameters' | 'metadata' | 'blob' | 'scheduled'
+    'queueName' | 'priority' | 'parentJobId' | 'vmState' | 'parameters' | 'metadata' | 'blob' | 'scheduled'
 >

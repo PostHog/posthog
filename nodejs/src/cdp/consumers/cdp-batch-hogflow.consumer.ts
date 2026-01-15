@@ -21,7 +21,7 @@ import { counterParseError } from './metrics'
 export interface BatchHogFlowRequest {
     teamId: number
     hogFlowId: HogFlow['id']
-    batchJobId: string
+    parentRunId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
 }
 
@@ -50,14 +50,14 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
     }
 
     private createHogFlowInvocation({
-        batchJobId,
+        parentRunId,
         hogFlow,
         team,
         personId,
         distinctId,
         defaultVariables,
     }: {
-        batchJobId: string
+        parentRunId: string
         hogFlow: HogFlow
         team: Team
         personId: string
@@ -82,7 +82,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id,
-            batchJobId,
+            parentRunId,
             hogFlow,
             person: invocationGlobals.person,
             filterGlobals,
@@ -120,7 +120,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
 
         logger.info(
             '📝',
-            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.batchJobId}`
+            `Found ${matchingPersonsCount} matching persons for batch HogFlow run ${batchHogFlowRequest.parentRunId}`
         )
 
         // Build default variables from hogFlow
@@ -143,7 +143,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase {
                 onPersonBatch: async (persons: { personId: string; distinctId: string }[]) => {
                     const batchInvocations = persons.map(({ personId, distinctId }) =>
                         this.createHogFlowInvocation({
-                            batchJobId: batchHogFlowRequest.batchJobId,
+                            parentRunId: batchHogFlowRequest.parentRunId,
                             hogFlow,
                             team,
                             personId,

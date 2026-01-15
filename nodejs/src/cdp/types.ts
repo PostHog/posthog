@@ -267,7 +267,7 @@ export type CyclotronJobInvocation = {
     teamId: Team['id']
     functionId: string
     // Optional batch job ID if this invocation is part of a batch
-    batchJobId?: string | null
+    parentRunId?: string | null
     state: Record<string, any> | null
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind

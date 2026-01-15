@@ -669,9 +669,9 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
 
         if let Some(parent_run_id) = &job.parent_run_id {
             let js_parent_run_id = cx.string(parent_run_id);
-            js_obj.set(cx, "batchJobId", js_parent_run_id)?;
+            js_obj.set(cx, "parentRunId", js_parent_run_id)?;
         } else {
-            js_obj.set(cx, "batchJobId", null)?;
+            js_obj.set(cx, "parentRunId", null)?;
         }
 
         if let Some(vm_state) = job.vm_state {
