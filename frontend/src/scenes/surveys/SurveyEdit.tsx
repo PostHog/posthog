@@ -239,7 +239,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasBranchingLogic,
         deviceTypesMatchTypeValidationError,
         surveyErrors,
-        isExternalSurveyFFEnabled,
         user,
         surveyLoading,
     } = useValues(surveyLogic)
@@ -398,11 +397,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                             title={SURVEY_TYPE_LABEL_MAP[SurveyType.ExternalSurvey]}
                                                             description="Collect responses via an external link, hosted on PostHog. If you are already using surveys, make sure to upgrade posthog-js to at least v1.258.1."
                                                             value={SurveyType.ExternalSurvey}
-                                                            disabled={!isExternalSurveyFFEnabled}
                                                         >
-                                                            <LemonTag type="warning">
-                                                                {isExternalSurveyFFEnabled ? 'BETA' : 'COMING SOON'}
-                                                            </LemonTag>
+                                                            <LemonTag type="warning">BETA</LemonTag>
                                                         </PresentationTypeCard>
                                                     </div>
                                                     {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
