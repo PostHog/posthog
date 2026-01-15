@@ -2958,6 +2958,7 @@ export interface MaxExperimentVariantResultFrequentist {
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 

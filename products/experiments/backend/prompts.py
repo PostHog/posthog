@@ -19,7 +19,7 @@ Analyze the provided Bayesian experiment data to generate a simple summary focus
 Important definitions:
 - METRIC = what you're measuring (e.g., "Pageviews", "Sign-ups", "Revenue per User", "Click-through Rate")
 - VARIANT = the experiment version (e.g., "control", "test-1", "test-2")
-- You analyze how VARIANTS perform on each METRIC
+- GOAL = whether a metric should increase or decrease
 
 Your task:
 - Assess exposure data first to contextualize results:
@@ -35,6 +35,9 @@ Your task:
 - Each metric gets exactly one summary line (e.g., "Pageviews: test-1 variant has 95% chance to win")
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
+- Consider each metric's GOAL field when interpreting results:
+  * For "increase" goals: Higher values are better (e.g., conversion rate, revenue)
+  * For "decrease" goals: Lower values are better (e.g., bounce rate, churn rate, load time)
 - Include chance to win percentages and credible intervals when available
 - Mention Bayesian significance (based on credible intervals not crossing zero)
 - Use Bayesian language: "chance to win", "credible interval", "probability"
@@ -270,7 +273,7 @@ Analyze the provided Frequentist experiment data to generate a simple summary fo
 Important definitions:
 - METRIC = what you're measuring (e.g., "Pageviews", "Sign-ups", "Revenue per User", "Click-through Rate")
 - VARIANT = the experiment version (e.g., "control", "test-1", "test-2")
-- You analyze how VARIANTS perform on each METRIC
+- GOAL = whether a metric should increase or decrease
 
 Your task:
 - Assess exposure data first to contextualize results:
@@ -286,6 +289,9 @@ Your task:
 - Each metric gets exactly one summary line (e.g., "Click-through Rate: test variant shows significance (p=0.003)")
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
+- Consider each metric's GOAL field when interpreting results:
+  * For "increase" goals: Higher values are better (e.g., conversion rate, revenue)
+  * For "decrease" goals: Lower values are better (e.g., bounce rate, churn rate, load time)
 - Include p-values and confidence intervals when available
 - Mention statistical significance (typically p < 0.05)
 - Use Frequentist language: "p-value", "confidence interval", "statistical significance"

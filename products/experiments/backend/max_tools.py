@@ -299,6 +299,8 @@ class ExperimentSummaryTool(MaxTool):
             lines.append(f"\n{section_name}:")
             for metric in metrics:
                 lines.append(f"\nMetric: {metric.name}")
+                if metric.goal:
+                    lines.append(f"  Goal: {metric.goal.title()}")
 
                 if not metric.variant_results:
                     continue

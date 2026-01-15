@@ -54,6 +54,7 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
                     return {
                         name: metricName,
+                        goal: metric.goal || null,
                         variant_results: variants,
                     }
                 })

@@ -5219,6 +5219,7 @@ class MaxExperimentMetricResult(BaseModel):
         extra="forbid",
     )
     name: str
+    goal: ExperimentMetricGoal | None = None
     variant_results: list[MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist]
 
 
