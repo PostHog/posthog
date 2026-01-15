@@ -37,6 +37,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
+        setIsPlayerCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
@@ -114,6 +115,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPlaylistCollapsed: (_, { collapsed }) => collapsed,
+                setIsPlayerCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
         showMetadataFooter: [
