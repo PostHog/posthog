@@ -161,7 +161,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
 
-    // TODO: Add list on non-copyable nodes
+    const defaultMenuItems: LemonMenuItems = [
     const defaultMenuItems: LemonMenuItems = [
         !NON_COPYABLE_NODES.includes(nodeType)
             ? {
