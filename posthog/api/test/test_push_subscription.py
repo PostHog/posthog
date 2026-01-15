@@ -11,8 +11,7 @@ class TestPushSubscriptionAPI(BaseTest):
     def setUp(self):
         super().setUp()
         self.team = self.organization.teams.first()
-        if not self.team:
-            raise ValueError("Test requires a team")
+        assert self.team is not None
         self.client = Client()
 
     def test_sdk_register_push_subscription_success(self):
