@@ -1,7 +1,6 @@
 import {
     actions,
     afterMount,
-    beforeUnmount,
     connect,
     kea,
     key,
@@ -92,13 +91,6 @@ export interface DependentFlag {
     id: number
     key: string
     name: string
-}
-
-export interface PendingDependentFlagsConfirmation {
-    originalFlag: FeatureFlagType | null
-    updatedFlag: Partial<FeatureFlagType>
-    onConfirm: () => void
-    timeoutId: ReturnType<typeof setTimeout>
 }
 
 export const NEW_FLAG: FeatureFlagType = {
@@ -376,7 +368,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
         }),
-        setPendingDependentFlagsConfirmation: (pending: PendingDependentFlagsConfirmation | null) => ({ pending }),
         showDependentFlagsConfirmation: (payload: {
             originalFlag: FeatureFlagType | null
             updatedFlag: Partial<FeatureFlagType>
@@ -426,6 +417,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadFeatureFlagSuccess: (_, { featureFlag }) => {
                     // Transform the original flag when it's first loaded
                     // Apply the same transformations we'd use when sending it back
+                    return featureFlag
+                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
+                        : null
+                },
+                setFeatureFlag: (_, { featureFlag }) => {
+                    // Also set originalFeatureFlag when flag is set from cache (e.g., from list view)
                     return featureFlag
                         ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
                         : null
@@ -690,12 +687,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
         ],
-        pendingDependentFlagsConfirmation: [
-            null as PendingDependentFlagsConfirmation | null,
-            {
-                setPendingDependentFlagsConfirmation: (_, { pending }) => pending,
-            },
-        ],
     }),
     sharedListeners(({ values, actions }) => ({
         checkDependentFlagsAndConfirm: async (payload: {
@@ -704,37 +695,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             onConfirm: () => void
         }) => {
             const { originalFlag, updatedFlag, onConfirm } = payload
-
-            // Check if flag is being disabled and has active dependents
-            const isBeingDisabled = updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
+            const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
             let dependentFlagsForConfirmation: DependentFlag[] = []
             if (isBeingDisabled) {
+                // check whether or not this flag is depended on by other flags
+                // if it is, we're going to display a warning dialog
                 if (values.dependentFlagsLoading) {
-                    const timeoutId = setTimeout(() => {
-                        // On timeout we'll clear the pending flags confirmation dialog
-                        // and show it with empty dependent flags - we didn't load in
-                        // time
-                        const pending = values.pendingDependentFlagsConfirmation
-                        if (pending) {
-                            actions.setPendingDependentFlagsConfirmation(null)
-                            actions.showDependentFlagsConfirmation({
-                                originalFlag: pending.originalFlag,
-                                updatedFlag: pending.updatedFlag,
-                                onConfirm: pending.onConfirm,
-                                dependentFlags: [],
-                                isBeingDisabled: true,
-                            })
-                        }
-                    }, FLAG_DEPENDENCY_TIMEOUT_MS)
-
-                    actions.setPendingDependentFlagsConfirmation({
-                        originalFlag,
-                        updatedFlag,
-                        onConfirm,
-                        timeoutId,
-                    })
-                    return
+                    await Promise.race([
+                        new Promise<void>((resolve) => {
+                            const poll = (): unknown =>
+                                values.dependentFlagsLoading ? setTimeout(poll, 50) : resolve()
+                            poll()
+                        }),
+                        new Promise<void>((resolve) => setTimeout(resolve, FLAG_DEPENDENCY_TIMEOUT_MS)),
+                    ])
                 }
                 dependentFlagsForConfirmation = values.dependentFlags
             }
@@ -743,8 +718,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 originalFlag,
                 updatedFlag,
                 onConfirm,
+                isBeingDisabled,
                 dependentFlags: dependentFlagsForConfirmation,
-                isBeingDisabled: !!isBeingDisabled,
             })
         },
         showDependentFlagsConfirmation: (payload: {
@@ -1309,37 +1284,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
         },
-        loadDependentFlagsSuccess: () => {
-            const pending = values.pendingDependentFlagsConfirmation
-            if (pending) {
-                // Clear timeout since we got the data in time
-                clearTimeout(pending.timeoutId)
-                actions.setPendingDependentFlagsConfirmation(null)
-                actions.showDependentFlagsConfirmation({
-                    originalFlag: pending.originalFlag,
-                    updatedFlag: pending.updatedFlag,
-                    onConfirm: pending.onConfirm,
-                    dependentFlags: values.dependentFlags,
-                    isBeingDisabled: true,
-                })
-            }
-        },
-        loadDependentFlagsFailure: () => {
-            const pending = values.pendingDependentFlagsConfirmation
-            if (pending) {
-                // if the API request fails, just ignore dependent flags
-                // most flags won't have them, and we made our best effort
-                clearTimeout(pending.timeoutId)
-                actions.setPendingDependentFlagsConfirmation(null)
-                actions.showDependentFlagsConfirmation({
-                    originalFlag: pending.originalFlag,
-                    updatedFlag: pending.updatedFlag,
-                    onConfirm: pending.onConfirm,
-                    dependentFlags: [],
-                    isBeingDisabled: true,
-                })
-            }
-        },
         copyFlagSuccess: ({ featureFlagCopy }) => {
             if (featureFlagCopy?.success.length) {
                 const operation = values.projectsWithCurrentFlag.find(
@@ -1730,13 +1674,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id === 'new') {
             // Load default evaluation environments for new flags
             actions.loadFeatureFlag()
-        }
-    }),
-    beforeUnmount(({ values }) => {
-        // Clean up any pending confirmation timeout to prevent memory leaks
-        const pending = values.pendingDependentFlagsConfirmation
-        if (pending) {
-            clearTimeout(pending.timeoutId)
         }
     }),
 ])
