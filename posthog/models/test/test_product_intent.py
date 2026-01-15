@@ -17,6 +17,8 @@ from posthog.models.surveys.survey import Survey
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
+from products.error_tracking.backend.models import ErrorTrackingIssue
+
 
 class TestProductIntent(BaseTest):
     def setUp(self):
@@ -527,6 +529,33 @@ class TestProductIntent(BaseTest):
 
         Survey.objects.create(team=self.team, name="Survey Test")
         assert self.product_intent.has_activated_surveys() is False
+
+    def test_has_activated_error_tracking_with_issue(self):
+        self.product_intent.product_type = ProductKey.ERROR_TRACKING
+        self.product_intent.save()
+
+        ErrorTrackingIssue.objects.create(team=self.team)
+        assert self.product_intent.has_activated_error_tracking() is True
+
+    def test_has_activated_error_tracking_with_resolved_issue(self):
+        self.product_intent.product_type = ProductKey.ERROR_TRACKING
+        self.product_intent.save()
+
+        ErrorTrackingIssue.objects.create(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED)
+        assert self.product_intent.has_activated_error_tracking() is True
+
+    def test_has_activated_error_tracking_with_archived_issue(self):
+        self.product_intent.product_type = ProductKey.ERROR_TRACKING
+        self.product_intent.save()
+
+        ErrorTrackingIssue.objects.create(team=self.team, status=ErrorTrackingIssue.Status.ARCHIVED)
+        assert self.product_intent.has_activated_error_tracking() is True
+
+    def test_has_not_activated_error_tracking_without_issues(self):
+        self.product_intent.product_type = ProductKey.ERROR_TRACKING
+        self.product_intent.save()
+
+        assert self.product_intent.has_activated_error_tracking() is False
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_check_and_update_activation_skips_if_already_activated(self):
