@@ -147,14 +147,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
-            earliest_timestamp = self._earliest_timestamp
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
                 else:
                     query_date_range = self.query_previous_date_range
-
-                query_date_range._earliest_timestamp_fallback = earliest_timestamp
 
                 query_builder = TrendsQueryBuilder(
                     trends_query=series.overriden_query or self.query,
@@ -686,6 +683,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            earliest_timestamp_fallback=self._earliest_timestamp,
         )
 
     @cached_property
@@ -699,6 +697,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 now=datetime.now(),
                 compare_to=self.query.compareFilter.compare_to,
                 exact_timerange=self.exact_timerange,
+                earliest_timestamp_fallback=self._earliest_timestamp,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
@@ -706,6 +705,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             interval=self.query.interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
+            earliest_timestamp_fallback=self._earliest_timestamp,
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
