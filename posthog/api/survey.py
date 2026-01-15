@@ -391,7 +391,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(f"Translation for '{lang_code}' must be an object")
 
-            cleaned_translation = {**translation_data}
+            cleaned_translation = {}
 
             # Validate and sanitize name and description to prevent XSS
             if "name" in translation_data:
@@ -399,12 +399,16 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     raise serializers.ValidationError(f"Translation for '{lang_code}': 'name' must be a string")
                 if nh3.is_html(translation_data["name"]):
                     cleaned_translation["name"] = nh3_clean_with_allow_list(translation_data["name"])
+                else:
+                    cleaned_translation["name"] = translation_data["name"]
 
             if "description" in translation_data:
                 if not isinstance(translation_data["description"], str):
                     raise serializers.ValidationError(f"Translation for '{lang_code}': 'description' must be a string")
                 if nh3.is_html(translation_data["description"]):
                     cleaned_translation["description"] = nh3_clean_with_allow_list(translation_data["description"])
+                else:
+                    cleaned_translation["description"] = translation_data["description"]
 
             cleaned_translations[lang_code] = cleaned_translation
 
@@ -423,7 +427,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     f"Question {question_index}: Translation for '{lang_code}' must be an object"
                 )
 
-            cleaned_translation = {**translation_data}
+            cleaned_translation = {}
 
             # Validate and sanitize all translatable fields
             for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
@@ -434,9 +438,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
+                    else:
+                        cleaned_translation[field] = translation_data[field]
 
             # Validate and sanitize link field
-            if "link" in translation_data and isinstance(translation_data["link"], str):
+            if "link" in translation_data:
+                if not isinstance(translation_data["link"], str):
+                    raise serializers.ValidationError(
+                        f"Question {question_index}: Translation '{lang_code}' field 'link' must be a string"
+                    )
                 cleaned_translation["link"] = self._validate_and_sanitize_link(
                     translation_data["link"], f"Question {question_index}: Translation '{lang_code}'"
                 )
