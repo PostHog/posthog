@@ -1,4 +1,4 @@
-# Dockerfile for the base sandbox image.
+# Dockerfile for the notebook sandbox image (Python notebooks).
 
 FROM ubuntu:24.04
 
@@ -6,7 +6,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Install system packages (expanded for coding environments)
+# Install system packages (expanded for notebook environments)
 RUN apt-get update && \
     apt-get install -y \
     # Core tools
@@ -92,6 +92,34 @@ ENV IS_SANDBOX=1
 ENV PYTHONPATH="/tmp/workspace"
 
 WORKDIR /tmp/workspace
+
+# Install common notebook Python dependencies
+RUN python3 -m venv /opt/notebook-venv && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/notebook-venv/bin/pip install --no-cache-dir \
+    ipython \
+    jupyter \
+    jupyterlab \
+    notebook \
+    ipywidgets \
+    numpy \
+    pandas \
+    scipy \
+    scikit-learn \
+    matplotlib \
+    seaborn \
+    plotly \
+    pyarrow \
+    duckdb \
+    polars \
+    sqlalchemy \
+    requests \
+    lxml \
+    beautifulsoup4 && \
+    /opt/notebook-venv/bin/python -m ipykernel install --sys-prefix
+
+ENV VIRTUAL_ENV=/opt/notebook-venv
+ENV PATH="/opt/notebook-venv/bin:$PATH"
 
 RUN python3 --version && \
     node --version && \
