@@ -47,6 +47,7 @@ class PipelineV3(Generic[ResumableData]):
     _kafka_producer: KafkaBatchProducer
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema: HogQLSchema
+    _accumulated_pa_schema: pa.Schema | None
     _batcher: Batcher
     _load_id: int
     _batch_results: list[BatchWriteResult]
@@ -88,6 +89,7 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         self._batcher = Batcher(self._logger)
         self._internal_schema = HogQLSchema()
+        self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
         self._earliest_incremental_field_value: Any = process_incremental_value(
@@ -175,9 +177,15 @@ class PipelineV3(Generic[ResumableData]):
         )  # TODO: probably change this to another type of debug column
         pa_table = normalize_table_column_names(pa_table)
 
-        existing_schema = self._internal_schema.to_pyarrow_schema() if batch_index > 0 else None
-        pa_table = _evolve_pyarrow_schema(pa_table, existing_schema)
+        pa_table = _evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+
+        # Add missing columns from previous batches for schema consistency
+        if self._accumulated_pa_schema is not None:
+            for field in self._accumulated_pa_schema:
+                if field.name not in pa_table.schema.names:
+                    null_column = pa.array([None] * pa_table.num_rows, type=field.type)
+                    pa_table = pa_table.append_column(field, null_column)
 
         batch_result = self._s3_batch_writer.write_batch(pa_table, batch_index)
         self._batch_results.append(batch_result)
@@ -185,6 +193,14 @@ class PipelineV3(Generic[ResumableData]):
         self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False)
 
         self._internal_schema.add_pyarrow_table(pa_table)
+
+        # Update accumulated schema with any new columns from this batch
+        if self._accumulated_pa_schema is None:
+            self._accumulated_pa_schema = pa_table.schema
+        else:
+            for field in pa_table.schema:
+                if field.name not in self._accumulated_pa_schema.names:
+                    self._accumulated_pa_schema = self._accumulated_pa_schema.append(field)
 
         self._last_incremental_field_value, self._earliest_incremental_field_value = update_incremental_field_values(
             self._schema,

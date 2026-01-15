@@ -29,7 +29,7 @@ class S3BatchWriter:
     _data_folder: str
     _schema: pa.Schema | None
 
-    def __init__(self, job: ExternalDataJob, logger: FilteringBoundLogger, run_uuid: str) -> None:
+    def __init__(self, job: ExternalDataJob, logger: FilteringBoundLogger, run_uuid: str | None = None) -> None:
         self._job = job
         self._logger = logger
         self._run_uuid = run_uuid

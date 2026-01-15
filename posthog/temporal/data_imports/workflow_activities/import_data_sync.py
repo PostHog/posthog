@@ -1,6 +1,9 @@
 import uuid
 import dataclasses
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    pass
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
