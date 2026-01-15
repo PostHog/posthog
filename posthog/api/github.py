@@ -170,9 +170,10 @@ class SecretAlert(APIView):
         for item in items:
             # Strip whitespace from token in case GitHub sends it with extra formatting
             token = item["token"].strip()
+            token_sha256 = sha256(token.encode("utf-8")).hexdigest()
 
             result = {
-                "token_hash": sha256(token.encode("utf-8")).hexdigest(),
+                "token_hash": token_sha256,
                 "token_type": item["type"],
                 "label": "false_positive",
             }
@@ -182,6 +183,7 @@ class SecretAlert(APIView):
                 "token_length": len(token),
                 "token_prefix": token[:8],
                 "token_suffix": token[-4:],
+                "token_sha256": token_sha256,
             }
 
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
