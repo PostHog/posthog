@@ -221,7 +221,6 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
     def dangerously_get_queryset(self):
         # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
         # Only return team-specific templates from DB (global templates now come from files)
-        # Explicitly exclude global templates since they're loaded from code files
         qs = HogFlowTemplate.objects.filter(team_id=self.team_id).exclude(scope=HogFlowTemplate.Scope.GLOBAL)
 
         if self.action == "list":
@@ -257,19 +256,17 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
 
     def retrieve(self, request, *args, **kwargs):
         """
-        Override retrieve to check file-based global templates first.
+        Check file-based global templates first, then DB team templates.
+        The queryset excludes all global templates from DB, so this only returns team templates from DB.
         """
         template_id = kwargs.get("pk")
 
-        # First check if it's a global template from files
-        try:
-            file_template = get_global_template_by_id(template_id)
-            if file_template:
-                return Response(file_template)
-        except Exception as e:
-            logger.warning("Failed to load global template from files", template_id=template_id, error=str(e))
+        # Check if it's a global template from files
+        file_template = get_global_template_by_id(template_id)
+        if file_template:
+            return Response(file_template)
 
-        # Fall back to database
+        # Not in files, check DB for team templates
         return super().retrieve(request, *args, **kwargs)
 
     def perform_create(self, serializer):
