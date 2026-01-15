@@ -68,6 +68,12 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y libssl-dev pkg-config
 
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
@@ -162,6 +168,12 @@ jobs:
               with:
                   toolchain: 1.91.1
 
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
+
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
@@ -249,6 +261,12 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y libssl-dev pkg-config
+
+            - name: Install protoc
+              uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+              with:
+                  version: '28.x'
+                  repo-token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
