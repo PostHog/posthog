@@ -99,6 +99,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
         filters: ActionFiltersSchema,
+        filter_test_accounts: z.boolean().optional(),
     }),
     z.object({
         type: z.literal('webhook'),
@@ -132,6 +133,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
         }),
         scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        filter_test_accounts: z.boolean().optional(),
         // Future: recurring schedule fields can be added here
     }),
 ])

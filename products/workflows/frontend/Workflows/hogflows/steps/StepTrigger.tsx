@@ -37,6 +37,7 @@ import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
 
@@ -239,7 +240,7 @@ function StepTriggerConfigurationEvents({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'event' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { setWorkflowActionConfig, partialSetWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
@@ -253,12 +254,23 @@ function StepTriggerConfigurationEvents({
                 <HogFlowEventFilters
                     filters={config.filters ?? {}}
                     setFilters={(filters) =>
-                        setWorkflowActionConfig(action.id, { type: 'event', filters: filters ?? {} })
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: filters ?? {},
+                            filter_test_accounts: config.filter_test_accounts,
+                        })
                     }
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
                 />
             </LemonField.Pure>
+
+            <TestAccountFilter
+                filters={{ filter_test_accounts: config.filter_test_accounts }}
+                onChange={({ filter_test_accounts }) =>
+                    partialSetWorkflowActionConfig(action.id, { filter_test_accounts })
+                }
+            />
 
             <LemonDivider />
             <FrequencySection />
@@ -469,6 +481,12 @@ function StepTriggerConfigurationBatch({
                     hasRowOperator={false}
                 />
             </div>
+            <TestAccountFilter
+                filters={{ filter_test_accounts: config.filter_test_accounts }}
+                onChange={({ filter_test_accounts }) =>
+                    partialSetWorkflowActionConfig(action.id, { filter_test_accounts })
+                }
+            />
             <LemonDivider />
             <div className="flex gap-2">
                 <span className="font-semibold">Schedule for later?</span>
