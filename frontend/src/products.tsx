@@ -408,6 +408,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
     },
     TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
+    Toolbar: {
+        name: 'Toolbar',
+        projectBased: true,
+        description: 'PostHog toolbar launches PostHog right in your app or website.',
+        iconType: 'toolbar',
+    },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -688,6 +694,7 @@ export const productUrls = {
     surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    toolbarLaunch: (): string => '/toolbar',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
@@ -1289,6 +1296,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
         sceneKey: 'TaskTracker',
         sceneKeys: ['TaskTracker', 'TaskDetail'],
+    },
+    {
+        path: 'Toolbar',
+        href: urls.toolbarLaunch(),
+        type: 'toolbar',
+        category: 'Tools',
+        iconType: 'toolbar',
+        sceneKey: 'Toolbar',
+        sceneKeys: ['Toolbar'],
     },
     {
         path: 'User interviews',
