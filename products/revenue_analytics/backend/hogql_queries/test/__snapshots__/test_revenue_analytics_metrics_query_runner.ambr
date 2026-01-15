@@ -24,7 +24,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -132,7 +133,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT '' AS id,
                '' AS source_label,
@@ -220,7 +222,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -468,7 +471,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -787,7 +791,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -1033,7 +1038,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -1279,7 +1285,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -1539,7 +1546,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -1785,7 +1793,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -2031,7 +2040,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -2279,7 +2289,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -2527,7 +2538,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -2775,7 +2787,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -3023,7 +3036,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -3287,7 +3301,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,
@@ -3549,7 +3564,8 @@
             and(ifNull(equals(prev_subscription_count, 0), 0), ifNull(greater(subscription_count, 0), 0)) AS is_new_customer,
             and(ifNull(greater(churned_subscription_count, 0), 0), ifNull(equals(churned_subscription_count, prev_subscription_count), isNull(churned_subscription_count)
                                                                           and isNull(prev_subscription_count))) AS is_churned_customer,
-            sumIf(revenue_analytics_revenue_item.amount, equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start)) AS revenue
+            sumIf(revenue_analytics_revenue_item.amount, ifNull(equals(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')), period_start), isNull(toStartOfMonth(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC')))
+                                                                and isNull(period_start))) AS revenue
      FROM
        (SELECT subscription_id AS id,
                'revenue_analytics.events.purchase' AS source_label,

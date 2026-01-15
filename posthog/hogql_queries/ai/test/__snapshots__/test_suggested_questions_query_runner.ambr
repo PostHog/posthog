@@ -4,7 +4,7 @@
   SELECT events.event AS event,
          count() AS count
   FROM events
-  WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))))
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), 0))
   GROUP BY events.event
   ORDER BY count DESC
   LIMIT 500 SETTINGS readonly=2,

@@ -61,7 +61,7 @@
                                                                                          actor_id AS id
                                                                                   FROM
                                                                                     (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0)) AS min_timestamp_with_condition,
                                                                                             if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                                                                             argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                                                                                             argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
@@ -73,7 +73,7 @@
                                                                                         WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                         GROUP BY person_distinct_id_overrides.distinct_id
                                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                                     WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
+                                                                                     WHERE and(equals(e.team_id, 99999), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
                                                                                      GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                                                                                      HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                                                                                        and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
@@ -216,7 +216,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0)), in(e.event, tuple('$new_view'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -1162,7 +1162,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0)), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -1263,7 +1263,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0)), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -1284,7 +1284,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$new_view'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$new_view'), ifNull(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
@@ -1387,7 +1387,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
+              WHERE and(equals(e.team_id, 99999), and(and(ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0)), in(e.event, tuple('$pageview'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
            GROUP BY aggregation_target
            HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
         WHERE bitTest(steps_bitfield, 1)
@@ -1407,7 +1407,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), ifNull(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), ifNull(greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))
         GROUP BY if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)
         HAVING ifNull(greaterOrEquals(count(), 1), 0)
         ORDER BY count() DESC)
@@ -1839,7 +1839,7 @@
                                                                                          actor_id AS id
                                                                                   FROM
                                                                                     (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                                                                                            minIf(toTimeZone(e.timestamp, 'UTC'), ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0)) AS min_timestamp_with_condition,
                                                                                             if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                                                                                             argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                                                                                             argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
@@ -1851,7 +1851,7 @@
                                                                                         WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                         GROUP BY person_distinct_id_overrides.distinct_id
                                                                                         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                                     WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
+                                                                                     WHERE and(equals(e.team_id, 99999), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), and(equals(e.event, '$autocapture'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://posthog.com/feedback/123'), 0)))
                                                                                      GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                                                                                      HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                                                                                        and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)

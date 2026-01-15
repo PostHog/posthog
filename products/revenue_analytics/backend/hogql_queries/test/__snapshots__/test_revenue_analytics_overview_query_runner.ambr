@@ -45,7 +45,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -325,7 +325,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -356,7 +356,7 @@
                '' AS currency,
                0 AS amount
         WHERE 0) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0)))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -416,7 +416,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -556,7 +556,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-02 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-02 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -696,7 +696,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -836,7 +836,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -976,7 +976,7 @@
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
         ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -1125,7 +1125,7 @@
            FROM events
            WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product C'))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product C'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -1279,7 +1279,7 @@
            FROM events
            WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product D'))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_product.name, 'Product D'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -1472,7 +1472,7 @@
               HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
         ORDER BY persons.created_at DESC) AS revenue_analytics_customer ON equals(revenue_analytics_revenue_item.customer_id, revenue_analytics_customer.id)
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_customer.country, 'US'))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_customer.country, 'US'))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
@@ -1644,7 +1644,7 @@
            FROM events
            WHERE equals(events.team_id, 99999))
         ORDER BY id ASC) AS revenue_analytics_product ON equals(revenue_analytics_revenue_item.product_id, revenue_analytics_product.id)
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), in(revenue_analytics_product.name, tuple('Product A', 'Product D')))
+     WHERE and(and(ifNull(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-04-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), in(revenue_analytics_product.name, tuple('Product A', 'Product D')))
      UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
                       count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM

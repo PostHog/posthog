@@ -8,7 +8,7 @@
   FROM
     (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
      FROM events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+     WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), 0), equals(events.event, 'event1'))
      ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,
@@ -42,7 +42,7 @@
      FROM
        (SELECT [tuple('zero_duration_recording_count_in_period', JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'))] AS kv
         FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'), ''))) ARRAY
+        WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), 0), equals(events.event, 'organization usage report'), notEquals(JSONExtractString(events.properties, 'zero_duration_recording_count_in_period'), ''))) ARRAY
      JOIN (kv).1 AS key,
           (kv).2 AS value
      WHERE ifNull(notEquals(value, ''), 1)
@@ -72,7 +72,7 @@
   FROM
     (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
      FROM events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
+     WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), 0), equals(events.event, '$pageview'))
      ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,

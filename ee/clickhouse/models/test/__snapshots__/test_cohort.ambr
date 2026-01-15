@@ -296,7 +296,7 @@
                      actor_id AS id
               FROM
                 (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                        minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                        minIf(toTimeZone(e.timestamp, 'UTC'), ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0)) AS min_timestamp_with_condition,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
@@ -308,7 +308,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
+                 WHERE and(equals(e.team_id, 99999), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                    and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
@@ -338,7 +338,7 @@
                      actor_id AS id
               FROM
                 (SELECT min(toTimeZone(e.timestamp, 'UTC')) AS min_timestamp,
-                        minIf(toTimeZone(e.timestamp, 'UTC'), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))) AS min_timestamp_with_condition,
+                        minIf(toTimeZone(e.timestamp, 'UTC'), ifNull(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0)) AS min_timestamp_with_condition,
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
@@ -350,7 +350,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
+                 WHERE and(equals(e.team_id, 99999), ifNull(lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), 0), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                    and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)

@@ -1,6 +1,42 @@
 # serializer version: 1
 # name: TestMarketingAnalyticsTableQueryRunnerBusiness.test_comprehensive_marketing_analytics_basic
   '''
+  WITH
+      campaign_costs AS (
+  SELECT
+              campaign,
+              id,
+              source,
+              any(match_key) AS match_key,
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS match_key,
+                  toString(campaign1) AS campaign,
+                  toString(campaign1) AS id,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
+                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-11-30 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              id,
+              source)
   
   SELECT
       campaign_costs.id AS ID,
@@ -16,41 +52,7 @@
       round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`
   
   FROM
-      (
-  SELECT
-          campaign,
-          id,
-          source,
-          any(match_key) AS match_key,
-          sum(ifNull(toFloat(cost), 0)) AS total_cost,
-          sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
-          sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
-          sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
-          sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
-      
-  FROM
-          (
-  SELECT
-              toString(campaign1) AS match_key,
-              toString(campaign1) AS campaign,
-              toString(campaign1) AS id,
-              toString(source1) AS source,
-              toFloat(coalesce(impressions1, 0)) AS impressions,
-              toFloat(coalesce(clicks1, 0)) AS clicks,
-              toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-              toFloat(coalesce(0, 0)) AS reported_conversion_value
-          
-  FROM
-              `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
-          
-  WHERE
-              and(greaterOrEquals(toDateTime(date1), toDateTime('2024-11-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-11-30 23:59:59'))))
-      
-  GROUP BY
-          campaign,
-          id,
-          source) AS campaign_costs
+      campaign_costs
   
   LIMIT 101
   OFFSET 0
@@ -58,6 +60,113 @@
 # ---
 # name: TestMarketingAnalyticsTableQueryRunnerBusiness.test_conversion_goal_basic_setup
   '''
+  WITH
+      campaign_costs AS (
+  SELECT
+              campaign,
+              id,
+              source,
+              any(match_key) AS match_key,
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS match_key,
+                  toString(campaign1) AS campaign,
+                  toString(campaign1) AS id,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
+                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              id,
+              source),
+      ucg AS (
+  SELECT
+              conv.campaign AS campaign,
+              conv.id AS id,
+              conv.source AS source,
+              conv.campaign AS match_key,
+              sum(conv.conversion_0) AS conversion_0
+          
+  FROM
+              (
+  SELECT
+                  if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+                  if(notEmpty(campaign_id), campaign_id, '-') AS id,
+                  if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+                  count() AS conversion_0
+              
+  FROM
+                  (
+  SELECT
+                      person_id,
+                      if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+                      '-' AS campaign_id,
+                      if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+                      1 AS conversion_value
+                  
+  FROM
+                      (
+  SELECT
+                          person_id,
+                          conversion_timestamps[i] AS conversion_time,
+                          conversion_math_values[i] AS conversion_math_value,
+                          conversion_campaigns[i] AS conversion_campaign,
+                          conversion_sources[i] AS conversion_source,
+                          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+                          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+                          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
+                      
+  FROM
+                          (
+  SELECT
+                              events.person_id,
+                              arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
+                              arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toFloat(1), 0))) AS conversion_math_values,
+                              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
+                              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
+                              arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
+                              arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
+                              arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
+                          
+  FROM
+                              events
+                          
+  WHERE
+                              or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-01-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-01-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
+                          
+  GROUP BY
+                              events.person_id
+                          
+  HAVING
+                              greater(length(conversion_timestamps), 0))
+                      ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+              
+  GROUP BY
+                  campaign,
+                  id,
+                  source) AS conv
+          
+  GROUP BY
+              conv.campaign,
+              conv.id,
+              conv.source)
   
   SELECT
       campaign_costs.id AS ID,
@@ -75,112 +184,8 @@
       round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
   
   FROM
-      (
-  SELECT
-          campaign,
-          id,
-          source,
-          any(match_key) AS match_key,
-          sum(ifNull(toFloat(cost), 0)) AS total_cost,
-          sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
-          sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
-          sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
-          sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
-      
-  FROM
-          (
-  SELECT
-              toString(campaign1) AS match_key,
-              toString(campaign1) AS campaign,
-              toString(campaign1) AS id,
-              toString(source1) AS source,
-              toFloat(coalesce(impressions1, 0)) AS impressions,
-              toFloat(coalesce(clicks1, 0)) AS clicks,
-              toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-              toFloat(coalesce(0, 0)) AS reported_conversion_value
-          
-  FROM
-              `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
-          
-  WHERE
-              and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
-      
-  GROUP BY
-          campaign,
-          id,
-          source) AS campaign_costs
-      LEFT JOIN (
-  SELECT
-          conv.campaign AS campaign,
-          conv.id AS id,
-          conv.source AS source,
-          conv.campaign AS match_key,
-          sum(conv.conversion_0) AS conversion_0
-      
-  FROM
-          (
-  SELECT
-              if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-              if(notEmpty(campaign_id), campaign_id, '-') AS id,
-              if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-              count() AS conversion_0
-          
-  FROM
-              (
-  SELECT
-                  person_id,
-                  if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
-                  '-' AS campaign_id,
-                  if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
-                  1 AS conversion_value
-              
-  FROM
-                  (
-  SELECT
-                      person_id,
-                      conversion_timestamps[i] AS conversion_time,
-                      conversion_math_values[i] AS conversion_math_value,
-                      conversion_campaigns[i] AS conversion_campaign,
-                      conversion_sources[i] AS conversion_source,
-                      arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
-                      if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
-                      if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source
-                  
-  FROM
-                      (
-  SELECT
-                          events.person_id,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(equals(event, 'test_event'), toFloat(1), 0))) AS conversion_math_values,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-                          arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(event, 'test_event'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-                          arrayFilter(x -> greater(x, 0), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toUnixTimestamp(events.timestamp), 0))) AS utm_timestamps,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS utm_campaigns,
-                          arrayFilter(x -> notEmpty(x), groupArray(if(and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, '')))), toString(ifNull(events.properties.utm_source, '')), ''))) AS utm_sources
-                      
-  FROM
-                          events
-                      
-  WHERE
-                          or(and(equals(event, 'test_event'), greaterOrEquals(events.timestamp, toDateTime('2024-01-01 00:00:00')), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))), and(equals(events.event, '$pageview'), notEmpty(toString(ifNull(events.properties.utm_campaign, ''))), notEmpty(toString(ifNull(events.properties.utm_source, ''))), greaterOrEquals(events.timestamp, minus(toDateTime('2024-01-01 00:00:00'), toIntervalSecond(7776000))), lessOrEquals(events.timestamp, toDateTime('2024-12-31 23:59:59'))))
-                      
-  GROUP BY
-                          events.person_id
-                      
-  HAVING
-                          greater(length(conversion_timestamps), 0))
-                  ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-          
-  GROUP BY
-              campaign,
-              id,
-              source) AS conv
-      
-  GROUP BY
-          conv.campaign,
-          conv.id,
-          conv.source) AS ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source))
+      campaign_costs
+      LEFT JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source))
   ORDER BY
       Cost DESC
   
@@ -190,6 +195,42 @@
 # ---
 # name: TestMarketingAnalyticsTableQueryRunnerBusiness.test_facebook_ads_single_source_execution
   '''
+  WITH
+      campaign_costs AS (
+  SELECT
+              campaign,
+              id,
+              source,
+              any(match_key) AS match_key,
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS match_key,
+                  toString(campaign1) AS campaign,
+                  toString(campaign1) AS id,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
+                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              id,
+              source)
   
   SELECT
       campaign_costs.id AS ID,
@@ -205,41 +246,7 @@
       round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`
   
   FROM
-      (
-  SELECT
-          campaign,
-          id,
-          source,
-          any(match_key) AS match_key,
-          sum(ifNull(toFloat(cost), 0)) AS total_cost,
-          sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
-          sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
-          sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
-          sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
-      
-  FROM
-          (
-  SELECT
-              toString(campaign1) AS match_key,
-              toString(campaign1) AS campaign,
-              toString(campaign1) AS id,
-              toString(source1) AS source,
-              toFloat(coalesce(impressions1, 0)) AS impressions,
-              toFloat(coalesce(clicks1, 0)) AS clicks,
-              toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-              toFloat(coalesce(0, 0)) AS reported_conversion_value
-          
-  FROM
-              `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
-          
-  WHERE
-              and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
-      
-  GROUP BY
-          campaign,
-          id,
-          source) AS campaign_costs
+      campaign_costs
   ORDER BY
       Cost DESC
   
@@ -249,6 +256,42 @@
 # ---
 # name: TestMarketingAnalyticsTableQueryRunnerBusiness.test_facebook_only_multi_source_execution
   '''
+  WITH
+      campaign_costs AS (
+  SELECT
+              campaign,
+              id,
+              source,
+              any(match_key) AS match_key,
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+          
+  FROM
+              (
+  SELECT
+                  toString(campaign1) AS match_key,
+                  toString(campaign1) AS campaign,
+                  toString(campaign1) AS id,
+                  toString(source1) AS source,
+                  toFloat(coalesce(impressions1, 0)) AS impressions,
+                  toFloat(coalesce(clicks1, 0)) AS clicks,
+                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
+                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
+              
+  FROM
+                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+              
+  WHERE
+                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
+          
+  GROUP BY
+              campaign,
+              id,
+              source)
   
   SELECT
       campaign_costs.id AS ID,
@@ -264,41 +307,7 @@
       round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`
   
   FROM
-      (
-  SELECT
-          campaign,
-          id,
-          source,
-          any(match_key) AS match_key,
-          sum(ifNull(toFloat(cost), 0)) AS total_cost,
-          sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
-          sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
-          sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
-          sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
-      
-  FROM
-          (
-  SELECT
-              toString(campaign1) AS match_key,
-              toString(campaign1) AS campaign,
-              toString(campaign1) AS id,
-              toString(source1) AS source,
-              toFloat(coalesce(impressions1, 0)) AS impressions,
-              toFloat(coalesce(clicks1, 0)) AS clicks,
-              toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-              toFloat(coalesce(0, 0)) AS reported_conversion_value
-          
-  FROM
-              `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
-          
-  WHERE
-              and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59'))))
-      
-  GROUP BY
-          campaign,
-          id,
-          source) AS campaign_costs
+      campaign_costs
   ORDER BY
       Cost DESC
   
@@ -309,6 +318,78 @@
 # name: TestMarketingAnalyticsTableQueryRunnerBusiness.test_multi_source_business_metrics_validation
   dict({
     'query': '''
+      WITH
+          campaign_costs AS (
+      SELECT
+                  campaign,
+                  id,
+                  source,
+                  any(match_key) AS match_key,
+                  sum(ifNull(toFloat(cost), 0)) AS total_cost,
+                  sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+                  sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+                  sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+                  sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
+              
+      FROM
+                  (
+      SELECT
+                      toString(campaign1) AS match_key,
+                      toString(campaign1) AS campaign,
+                      toString(campaign1) AS id,
+                      toString(source1) AS source,
+                      toFloat(coalesce(impressions1, 0)) AS impressions,
+                      toFloat(coalesce(clicks1, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
+                      toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign2) AS match_key,
+                      toString(campaign2) AS campaign,
+                      toString(campaign2) AS id,
+                      toString(source2) AS source,
+                      toFloat(coalesce(impressions2, 0)) AS impressions,
+                      toFloat(coalesce(clicks2, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost,
+                      toFloat(coalesce(0, 0)) AS reported_conversion,
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date2), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-12-31 23:59:59')))
+                  UNION ALL
+                  
+      SELECT
+                      toString(campaign3) AS match_key,
+                      toString(campaign3) AS campaign,
+                      toString(campaign3) AS id,
+                      toString(source3) AS source,
+                      toFloat(coalesce(impressions3, 0)) AS impressions,
+                      toFloat(coalesce(clicks3, 0)) AS clicks,
+                      toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost,
+                      toFloat(coalesce(0, 0)) AS reported_conversion,
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
+                  
+      FROM
+                      `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
+                  
+      WHERE
+                      and(greaterOrEquals(toDateTime(date3), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-12-31 23:59:59'))))
+              
+      GROUP BY
+                  campaign,
+                  id,
+                  source)
       
       SELECT
           campaign_costs.id AS ID,
@@ -324,77 +405,7 @@
           round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`
       
       FROM
-          (
-      SELECT
-              campaign,
-              id,
-              source,
-              any(match_key) AS match_key,
-              sum(ifNull(toFloat(cost), 0)) AS total_cost,
-              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
-              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
-              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
-              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
-          
-      FROM
-              (
-      SELECT
-                  toString(campaign1) AS match_key,
-                  toString(campaign1) AS campaign,
-                  toString(campaign1) AS id,
-                  toString(source1) AS source,
-                  toFloat(coalesce(impressions1, 0)) AS impressions,
-                  toFloat(coalesce(clicks1, 0)) AS clicks,
-                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                  toFloat(coalesce(0, 0)) AS reported_conversion_value
-              
-      FROM
-                  `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
-              
-      WHERE
-                  and(greaterOrEquals(toDateTime(date1), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date1), toDateTime('2024-12-31 23:59:59')))
-              UNION ALL
-              
-      SELECT
-                  toString(campaign2) AS match_key,
-                  toString(campaign2) AS campaign,
-                  toString(campaign2) AS id,
-                  toString(source2) AS source,
-                  toFloat(coalesce(impressions2, 0)) AS impressions,
-                  toFloat(coalesce(clicks2, 0)) AS clicks,
-                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost,
-                  toFloat(coalesce(0, 0)) AS reported_conversion,
-                  toFloat(coalesce(0, 0)) AS reported_conversion_value
-              
-      FROM
-                  `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
-              
-      WHERE
-                  and(greaterOrEquals(toDateTime(date2), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date2), toDateTime('2024-12-31 23:59:59')))
-              UNION ALL
-              
-      SELECT
-                  toString(campaign3) AS match_key,
-                  toString(campaign3) AS campaign,
-                  toString(campaign3) AS id,
-                  toString(source3) AS source,
-                  toFloat(coalesce(impressions3, 0)) AS impressions,
-                  toFloat(coalesce(clicks3, 0)) AS clicks,
-                  toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost,
-                  toFloat(coalesce(0, 0)) AS reported_conversion,
-                  toFloat(coalesce(0, 0)) AS reported_conversion_value
-              
-      FROM
-                  `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
-              
-      WHERE
-                  and(greaterOrEquals(toDateTime(date3), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date3), toDateTime('2024-12-31 23:59:59'))))
-          
-      GROUP BY
-              campaign,
-              id,
-              source) AS campaign_costs
+          campaign_costs
       ORDER BY
           Cost DESC
       
