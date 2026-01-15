@@ -165,7 +165,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         if (editingStep) {
             setEditorWidth(getWidthValue(editingStep.maxWidth))
         }
-    }, [editingStep?.id, editingStep?.maxWidth])
+    }, [editingStep?.id, editingStep?.maxWidth, editingStep])
 
     // Initialize selector and progressionTrigger from selectedElement or editingStep
     useEffect(() => {
@@ -190,7 +190,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     useEffect(() => {
         setSurveyConfig(editingStep?.survey)
         setModalPosition(editingStep?.modalPosition ?? SurveyPosition.MiddleCenter)
-    }, [editingStep?.id])
+    }, [editingStep?.id, editingStep.survey, editingStep.modalPosition])
 
     // Render survey preview using product tour's native survey rendering
     useEffect(() => {
@@ -251,7 +251,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     // Update content state when editing a different step
     useEffect(() => {
         setStepContent(editingStep?.content ?? DEFAULT_STEP_CONTENT)
-    }, [editingStep?.id])
+    }, [editingStep?.id, editingStep.content])
 
     const style: React.CSSProperties = {
         position: 'fixed',

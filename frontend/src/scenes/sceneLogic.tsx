@@ -318,7 +318,7 @@ export const sceneLogic = kea<sceneLogicType>([
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
-        cache.mountedTabLogic = {} as Record<string, () => void>
+        cache.mountedTabLogic = {} as Record<string, { unmount: () => void; logicPath: string | undefined }>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
         cache.initialNavigationTabCreated = false
     }),
@@ -1031,15 +1031,30 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
             }
 
-            const unmount = cache.mountedTabLogic[tabId]
-            if (unmount) {
-                window.setTimeout(unmount, 50)
+            const mountedInfo = cache.mountedTabLogic[tabId]
+            const currentSceneLogicPath = exportedScene?.logic?.()?.pathString
+
+            // Only unmount if the scene is changing (different logic) or if there's no new scene
+            const shouldUnmount =
+                mountedInfo && (!currentSceneLogicPath || mountedInfo.logicPath !== currentSceneLogicPath)
+
+            if (shouldUnmount && mountedInfo) {
+                window.setTimeout(mountedInfo.unmount, 50)
                 delete cache.mountedTabLogic[tabId]
             }
-            if (exportedScene?.logic) {
+
+            // Only mount if we don't have a mounted logic for this scene, or if the scene changed
+            const shouldMount =
+                exportedScene?.logic &&
+                (!cache.mountedTabLogic[tabId] || cache.mountedTabLogic[tabId].logicPath !== currentSceneLogicPath)
+
+            if (shouldMount && exportedScene?.logic) {
                 const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                 const builtLogic = exportedScene?.logic(builtLogicProps)
-                cache.mountedTabLogic[tabId] = builtLogic.mount()
+                cache.mountedTabLogic[tabId] = {
+                    unmount: builtLogic.mount(),
+                    logicPath: currentSceneLogicPath,
+                }
             }
 
             const trackingKey = tabId || '__default__'
@@ -1500,10 +1515,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { tabIds } = values
                 for (const id of Object.keys(cache.mountedTabLogic)) {
                     if (!tabIds[id]) {
-                        const unmount = cache.mountedTabLogic[id]
-                        if (unmount) {
+                        const mountedInfo = cache.mountedTabLogic[id]
+                        if (mountedInfo?.unmount) {
                             try {
-                                unmount()
+                                mountedInfo.unmount()
                             } catch (error) {
                                 console.error('Error unmounting tab logic:', error)
                             }

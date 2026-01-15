@@ -25,8 +25,30 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
     tabAwareScene(),
     connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
 
-    actions({ setQuery: (query: Node) => ({ query }) }),
-    reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
+    actions({
+        setQuery: (query: Node) => ({ query }),
+        toggleRowExpanded: (rowIndex: number) => ({ rowIndex }),
+        collapseAllRows: true,
+    }),
+    reducers({
+        savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }],
+        expandedRowIndices: [
+            new Set<number>(),
+            {
+                toggleRowExpanded: (state, { rowIndex }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(rowIndex)) {
+                        newSet.delete(rowIndex)
+                    } else {
+                        newSet.add(rowIndex)
+                    }
+                    return newSet
+                },
+                collapseAllRows: () => new Set<number>(),
+                setQuery: () => new Set<number>(),
+            },
+        ],
+    }),
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam],

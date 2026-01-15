@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronDown, IconCopy, IconInfo, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
@@ -170,9 +171,20 @@ export function PersonScene(): JSX.Element | null {
         eventsQuery,
         exceptionsQuery,
         surveyResponsesQuery,
+        expandedEventsRowIndices,
     } = useValues(personsLogic)
-    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
-        useActions(personsLogic)
+    const {
+        loadPersons,
+        editProperty,
+        deleteProperty,
+        navigateToTab,
+        setSplitMergeModalShown,
+        setDistinctId,
+        setEventsQuery,
+        setExceptionsQuery,
+        setSurveyResponsesQuery,
+        toggleEventsRowExpanded,
+    } = useActions(personsLogic)
     const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
@@ -180,6 +192,20 @@ export function PersonScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
+
+    const eventsExpandableConfig = useMemo(
+        () => ({
+            isRowExpanded: (_record: unknown, recordIndex: number): number =>
+                expandedEventsRowIndices.has(recordIndex) ? 1 : 0,
+            onRowExpand: (_record: unknown, recordIndex: number): void => {
+                toggleEventsRowExpanded(recordIndex)
+            },
+            onRowCollapse: (_record: unknown, recordIndex: number): void => {
+                toggleEventsRowExpanded(recordIndex)
+            },
+        }),
+        [expandedEventsRowIndices, toggleEventsRowExpanded]
+    )
 
     if (personError) {
         throw new Error(personError)
@@ -277,7 +303,14 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: <Query uniqueKey="person-profile-events" query={eventsQuery} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-events"
+                                query={eventsQuery}
+                                setQuery={setEventsQuery}
+                                context={{ expandable: eventsExpandableConfig }}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -319,12 +352,12 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} />,
+                        content: <Query query={exceptionsQuery} setQuery={setExceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} />,
+                        content: <Query query={surveyResponsesQuery} setQuery={setSurveyResponsesQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,

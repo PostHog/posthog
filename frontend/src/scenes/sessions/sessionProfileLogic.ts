@@ -54,6 +54,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         loadRecordingAvailability: true,
         setEventsListFolded: (isFolded: boolean) => ({ isFolded }),
         loadSupportTicketEvents: true,
+        toggleEventExpanded: (index: number) => ({ index }),
+        collapseAllEvents: true,
     }),
     reducers({
         hasMoreEvents: [
@@ -82,6 +84,22 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             false,
             {
                 setEventsListFolded: (_, { isFolded }) => isFolded,
+            },
+        ],
+        expandedEventIndices: [
+            new Set<number>(),
+            {
+                toggleEventExpanded: (state, { index }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(index)) {
+                        newSet.delete(index)
+                    } else {
+                        newSet.add(index)
+                    }
+                    return newSet
+                },
+                collapseAllEvents: () => new Set<number>(),
+                setSortOrder: () => new Set<number>(),
             },
         ],
     }),

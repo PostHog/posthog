@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconCollapse, IconExpand, IconSort } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
@@ -34,26 +33,16 @@ export function SessionEventsList(): JSX.Element {
         sortOrder,
         eventsListFolded,
         hasRecording,
+        expandedEventIndices,
     } = useValues(sessionProfileLogic)
-    const { loadEventDetails, loadMoreSessionEvents, setSortOrder, setEventsListFolded } =
-        useActions(sessionProfileLogic)
-    const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set())
-
-    const handleToggleExpand = (index: number): void => {
-        setExpandedIndices((prev) => {
-            const newSet = new Set(prev)
-            if (newSet.has(index)) {
-                newSet.delete(index)
-            } else {
-                newSet.add(index)
-            }
-            return newSet
-        })
-    }
-
-    const handleCollapseAll = (): void => {
-        setExpandedIndices(new Set())
-    }
+    const {
+        loadEventDetails,
+        loadMoreSessionEvents,
+        setSortOrder,
+        setEventsListFolded,
+        toggleEventExpanded,
+        collapseAllEvents,
+    } = useActions(sessionProfileLogic)
 
     const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
         if (!hasMoreEvents || isLoadingMore || !loadMoreSessionEvents) {
@@ -112,7 +101,7 @@ export function SessionEventsList(): JSX.Element {
                     >
                         {sortOrder === 'asc' ? 'Oldest first' : 'Newest first'}
                     </LemonButton>
-                    <LemonButton size="small" onClick={handleCollapseAll}>
+                    <LemonButton size="small" onClick={collapseAllEvents}>
                         Collapse All
                     </LemonButton>
                 </div>
@@ -129,8 +118,8 @@ export function SessionEventsList(): JSX.Element {
                             key={event.id}
                             event={{ ...event, fullyLoaded: true } as RecordingEventType}
                             index={index}
-                            isExpanded={expandedIndices.has(index)}
-                            onToggleExpand={handleToggleExpand}
+                            isExpanded={expandedEventIndices.has(index)}
+                            onToggleExpand={toggleEventExpanded}
                             onLoadEventDetails={loadEventDetails}
                             sessionId={sessionId}
                             sessionStartTimestamp={sessionData?.start_timestamp}

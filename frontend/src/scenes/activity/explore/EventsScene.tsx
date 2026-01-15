@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -14,9 +15,23 @@ import { eventsSceneLogic } from './eventsSceneLogic'
 import { useActivityTabs } from './utils'
 
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { query } = useValues(eventsSceneLogic)
-    const { setQuery } = useActions(eventsSceneLogic)
+    const { query, expandedRowIndices } = useValues(eventsSceneLogic)
+    const { setQuery, toggleRowExpanded } = useActions(eventsSceneLogic)
     const tabs = useActivityTabs()
+
+    const expandableConfig = useMemo(
+        () => ({
+            isRowExpanded: (_record: unknown, recordIndex: number): number =>
+                expandedRowIndices.has(recordIndex) ? 1 : 0,
+            onRowExpand: (_record: unknown, recordIndex: number): void => {
+                toggleRowExpanded(recordIndex)
+            },
+            onRowCollapse: (_record: unknown, recordIndex: number): void => {
+                toggleRowExpanded(recordIndex)
+            },
+        }),
+        [expandedRowIndices, toggleRowExpanded]
+    )
 
     return (
         <SceneContent>
@@ -37,6 +52,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    expandable: expandableConfig,
                 }}
             />
         </SceneContent>

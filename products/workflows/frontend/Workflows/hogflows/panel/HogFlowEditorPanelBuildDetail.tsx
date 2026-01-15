@@ -44,7 +44,14 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 },
             } as HogFlowAction)
         }
-    }, [outputResultPath])
+    }, [
+        outputResultPath,
+        setWorkflowAction,
+        selectedNode.data.output_variable.key,
+        selectedNode.data.id,
+        selectedNode.data,
+        selectedNode.data.output_variable,
+    ])
 
     const Step = useHogFlowStep(selectedNode?.data)
 

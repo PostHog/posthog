@@ -129,6 +129,8 @@ export const personsLogic = kea<personsLogicType>([
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
+        toggleEventsRowExpanded: (rowIndex: number) => ({ rowIndex }),
+        collapseAllEventsRows: true,
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -315,6 +317,22 @@ export const personsLogic = kea<personsLogicType>([
             null as DataTableNode | null,
             {
                 setSurveyResponsesQuery: (_, { surveyResponsesQuery }) => surveyResponsesQuery,
+            },
+        ],
+        expandedEventsRowIndices: [
+            new Set<number>(),
+            {
+                toggleEventsRowExpanded: (state, { rowIndex }) => {
+                    const newSet = new Set(state)
+                    if (newSet.has(rowIndex)) {
+                        newSet.delete(rowIndex)
+                    } else {
+                        newSet.add(rowIndex)
+                    }
+                    return newSet
+                },
+                collapseAllEventsRows: () => new Set<number>(),
+                setEventsQuery: () => new Set<number>(),
             },
         ],
     })),
