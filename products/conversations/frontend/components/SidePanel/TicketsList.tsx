@@ -13,7 +13,7 @@ export function TicketsList(): JSX.Element {
     const { tickets, ticketsLoading } = useValues(sidepanelTicketsLogic)
     const { setCurrentTicket, setView } = useActions(sidepanelTicketsLogic)
 
-    if (!posthog.conversations.isAvailable()) {
+    if (!posthog.conversations || !posthog.conversations.isAvailable()) {
         return (
             <div className="text-center text-muted-alt py-8">
                 <p>Conversations are not available for this team.</p>
