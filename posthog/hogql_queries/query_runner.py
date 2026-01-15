@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args
+from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import structlog
 import posthoganalytics
@@ -1595,14 +1595,23 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
             if self.query.properties:
-                if isinstance(self.query.properties, list):
+                # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
+                properties_field = self.query.__class__.model_fields.get("properties")
+                expects_only_list = properties_field and get_origin(properties_field.annotation) is list
+
+                if expects_only_list and isinstance(self.query.properties, list):
+                    # Concatenate lists to avoid TypeError when query does: properties + other_list
                     self.query.properties = list(self.query.properties) + list(dashboard_filter.properties)
                 else:
-                    # Properties is a PropertyGroupFilter - wrap both in AND
+                    # Wrap in PropertyGroupFilter with AND
                     self.query.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND_,
                         values=[
-                            PropertyGroupFilterValue(**self.query.properties.model_dump()),
+                            (
+                                PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=self.query.properties)
+                                if isinstance(self.query.properties, list)
+                                else PropertyGroupFilterValue(**self.query.properties.model_dump())
+                            ),
                             PropertyGroupFilterValue(
                                 type=FilterLogicalOperator.AND_, values=dashboard_filter.properties
                             ),
