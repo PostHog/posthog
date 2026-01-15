@@ -409,6 +409,31 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "invalid mailto" in response.json()["detail"].lower()
 
+    def test_choices_translation_on_non_choice_question_rejected(self):
+        """Test that adding choices translation to non-choice question types is rejected"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "What do you think?",
+                        "translations": {
+                            "es": {
+                                "question": "¿Qué piensas?",
+                                "choices": ["Option A", "Option B"],  # Not allowed for open questions
+                            },
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "does not have choices" in response.json()["detail"]
+
     def test_underscore_language_codes_rejected(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

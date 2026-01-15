@@ -277,7 +277,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     question_summaries = models.JSONField(blank=True, null=True)
 
     # Translations for multi-language support
-    # Format: { [languageCode]: { name: string, description: string } }
+    # Format: { [languageCode]: { name: string, description: string, ... } }
     # Language codes: ISO 639-1 ("es", "fr") or BCP 47 ("es-MX", "en-US")
     translations = models.JSONField(blank=True, null=True)
 
