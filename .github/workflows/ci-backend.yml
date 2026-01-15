@@ -202,7 +202,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.92.0
                   components: cargo
 
             - name: Cache Rust dependencies
@@ -751,7 +751,7 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.92.0
                   components: cargo
 
             - name: Cache Rust dependencies
@@ -1145,7 +1145,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.92.0
                   components: cargo
 
             - name: Cache Rust dependencies
