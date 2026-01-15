@@ -10,7 +10,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Annotation, Dashboard, Organization, Team, User
+from posthog.models import Annotation, Dashboard, Insight, Organization, Team, User
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
@@ -366,7 +366,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["dashboard_id"] == "Dashboard not found."
+        assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
 
     def test_creating_annotation_with_dashboard_from_different_team_returns_400(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -383,7 +383,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["dashboard_id"] == "Dashboard not found."
+        assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
 
     def test_creating_annotation_with_dashboard_from_different_org_returns_400(self) -> None:
         other_org, _, other_team = Organization.objects.bootstrap(None, name="Other Org")
@@ -400,4 +400,91 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["dashboard_id"] == "Dashboard not found."
+        assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
+
+    def test_updating_annotation_with_dashboard_from_different_team_returns_400(self) -> None:
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Original annotation",
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other Dashboard")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"dashboard_id": other_dashboard.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
+
+    def test_updating_annotation_with_dashboard_from_different_org_returns_400(self) -> None:
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Original annotation",
+        )
+        other_org, _, other_team = Organization.objects.bootstrap(None, name="Other Org")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="Other Org Dashboard")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"dashboard_id": other_dashboard.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
+
+    def test_creating_annotation_with_insight_from_different_team_returns_400(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="Other Insight")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Insight annotation",
+                "scope": "dashboard_item",
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                "dashboard_item": other_insight.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response("Insight not found.", attr="dashboard_item")
+
+    def test_updating_annotation_with_insight_from_different_team_returns_400(self) -> None:
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Original annotation",
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        other_insight = Insight.objects.create(team=other_team, name="Other Insight")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.id}/",
+            {"dashboard_item": other_insight.id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response("Insight not found.", attr="dashboard_item")
+
+    def test_creating_annotation_with_insight_from_same_team(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="My Insight")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Insight annotation",
+                "scope": "dashboard_item",
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                "dashboard_item": insight.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["dashboard_item"] == insight.id

@@ -67,8 +67,19 @@ class AnnotationSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        scope = attrs.get("scope", None)
+        team = self.context["get_team"]()
+        request = self.context["request"]
 
+        dashboard_id = request.data.get("dashboard_id")
+        if dashboard_id is not None:
+            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
+                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+
+        dashboard_item = attrs.get("dashboard_item")
+        if dashboard_item is not None and dashboard_item.team_id != team.id:
+            raise serializers.ValidationError({"dashboard_item": "Insight not found."})
+
+        scope = attrs.get("scope", None)
         if scope == Annotation.Scope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
 
@@ -77,11 +88,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> Annotation:
         request = self.context["request"]
         team = self.context["get_team"]()
-
         dashboard_id = request.data.get("dashboard_id", None)
-        if dashboard_id is not None:
-            if not Dashboard.objects.filter(id=dashboard_id, team_id=team.id).exists():
-                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
 
         annotation = Annotation.objects.create(
             organization_id=team.organization_id,
