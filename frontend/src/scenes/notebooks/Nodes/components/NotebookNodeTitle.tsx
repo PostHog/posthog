@@ -12,12 +12,13 @@ import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 
 export function NotebookNodeTitle(): JSX.Element {
-    const { isEditable, pythonNodeIndices, sqlNodeIndices } = useValues(notebookLogic)
+    const { isEditable, pythonNodeIndices, sqlNodeIndices, duckSqlNodeIndices } = useValues(notebookLogic)
     const { nodeAttributes, title, titlePlaceholder, isEditingTitle, nodeType } = useValues(notebookNodeLogic)
     const { updateAttributes, toggleEditingTitle } = useActions(notebookNodeLogic)
     const [newValue, setNewValue] = useState('')
 
     const isPythonNode = nodeType === NotebookNodeType.Python
+    const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
     const isSqlNode =
         nodeType === NotebookNodeType.Query &&
         (isHogQLQuery(nodeAttributes.query) ||
@@ -25,10 +26,18 @@ export function NotebookNodeTitle(): JSX.Element {
 
     const nodeIndex = isPythonNode
         ? pythonNodeIndices.get(nodeAttributes.nodeId)
-        : isSqlNode
-          ? sqlNodeIndices.get(nodeAttributes.nodeId)
-          : undefined
-    const cellLabel = nodeIndex ? `${isPythonNode ? 'Python' : 'SQL'} ${nodeIndex}` : null
+        : isDuckSqlNode
+          ? duckSqlNodeIndices.get(nodeAttributes.nodeId)
+          : isSqlNode
+            ? sqlNodeIndices.get(nodeAttributes.nodeId)
+            : undefined
+    const cellLabel = nodeIndex
+        ? isPythonNode
+            ? `Python ${nodeIndex}`
+            : isDuckSqlNode
+              ? `SQL (duckdb) ${nodeIndex}`
+              : `SQL ${nodeIndex}`
+        : null
     const customTitle = nodeAttributes.title
     const cellTitle = cellLabel ? (customTitle ? `${cellLabel} • ${customTitle}` : cellLabel) : title
 

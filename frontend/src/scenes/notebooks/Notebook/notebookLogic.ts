@@ -536,6 +536,10 @@ export const notebookLogic = kea<notebookLogicType>([
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
         ],
+        duckSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
+        ],
 
         isShowingLeftColumn: [
             (s) => [
