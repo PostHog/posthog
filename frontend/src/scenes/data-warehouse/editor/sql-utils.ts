@@ -14,7 +14,7 @@ export const buildQueryForColumnClick = (
     tableName: string,
     columnName: string
 ): string => {
-    const baseQuery = `select ${columnName} from ${tableName} limit 10000`
+    const baseQuery = `select ${columnName} from ${tableName} limit 100`
 
     if (!currentQuery) {
         return baseQuery
@@ -54,7 +54,7 @@ export const buildQueryForColumnClick = (
         columns = ['*']
     }
 
-    return `select ${columns.join(', ')} from ${tableName} limit 10000`
+    return `select ${columns.join(', ')} from ${tableName} limit 100`
 }
 
 const normalizeKeywordSpacing = (query: string): string => {
