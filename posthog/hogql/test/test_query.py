@@ -1688,11 +1688,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_currency_conversion_with_bogus_currency_from(self):
-        # With enable_analyzer=0, ClickHouse evaluates all if() branches causing division by zero
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
-        with self.assertRaises(InternalCHQueryError) as e:
-            execute_hogql_query(query, team=self.team)
-        self.assertIn("Division by zero", str(e.exception))
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
         query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"
