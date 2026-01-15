@@ -1,5 +1,5 @@
-import { Combobox } from '@base-ui-components/react/combobox'
-import { Menu } from '@base-ui-components/react/menu'
+import { Combobox } from '@base-ui/react/combobox'
+import { Menu } from '@base-ui/react/menu'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
