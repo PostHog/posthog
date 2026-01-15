@@ -130,26 +130,6 @@ class HogQLPrinter(Visitor[str]):
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
 
-    def _cte_print_settings(self, node: ast.SelectQuery) -> Literal["none", "first", "all"]:
-        """
-        Determines how CTEs (Common Table Expressions) should be printed for a SELECT query.
-
-        CTEs are now printed wherever they are defined, maintaining their original scope.
-        This applies to both HogQL and ClickHouse dialects.
-
-        :param node: The SELECT query node being printed
-        :type node: ast.SelectQuery
-        :return: One of three CTE printing modes:
-            - 'none': No CTEs should be printed (query has no CTEs)
-            - 'all': Print CTEs wherever they are defined
-        :rtype: Literal['none', 'first', 'all']
-
-        """
-        if node.ctes:
-            return "all"
-
-        return "none"
-
     def visit_select_query(self, node: ast.SelectQuery):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
@@ -194,7 +174,6 @@ class HogQLPrinter(Visitor[str]):
             columns = ["1"]
 
         ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
-        cte_print_setting = self._cte_print_settings(node)
 
         window = (
             ", ".join(
@@ -226,9 +205,7 @@ class HogQLPrinter(Visitor[str]):
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
-            f"WITH{space}{comma.join(ctes)}"
-            if ctes and (cte_print_setting == "first" or cte_print_setting == "all")
-            else None,
+            f"WITH{space}{comma.join(ctes)}" if ctes else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
