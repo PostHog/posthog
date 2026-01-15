@@ -16,12 +16,12 @@ test.describe('Annotations', () => {
     test('Create annotation', async ({ page }) => {
         // Wait for the create button to be visible before clicking
         const createButton = page.locator('[data-attr=create-annotation]')
-        await expect(createButton).toBeVisible({ timeout: 10000 })
+        await expect(createButton).toBeVisible()
         await createButton.click()
 
         // Wait for the modal to open and input to be visible
         const annotationInput = page.locator('[data-attr=create-annotation-input]')
-        await expect(annotationInput).toBeVisible({ timeout: 5000 })
+        await expect(annotationInput).toBeVisible()
 
         // Use a unique name to avoid conflicts with retries
         const uniqueAnnotationName = `Test Annotation ${Date.now()}`
@@ -33,8 +33,6 @@ test.describe('Annotations', () => {
         await submitButton.click()
 
         // Wait for the table to contain the new annotation
-        await expect(page.locator('[data-attr=annotations-table]')).toContainText(uniqueAnnotationName, {
-            timeout: 10000,
-        })
+        await expect(page.locator('[data-attr=annotations-table]')).toContainText(uniqueAnnotationName)
     })
 })
