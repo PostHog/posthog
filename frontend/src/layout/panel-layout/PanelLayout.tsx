@@ -1,9 +1,11 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { AiFirstNavBar } from './AiFirstNavBar'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 import { PROJECT_TREE_KEY, ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
@@ -72,6 +74,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     return (
         <>
@@ -105,28 +108,32 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                <PanelLayoutNavBar>
-                    {activePanelIdentifier === 'Project' && (
-                        <ProjectTree
-                            root="project://"
-                            logicKey={PROJECT_TREE_KEY}
-                            searchPlaceholder="Search by user, type, or name"
-                            showRecents
-                        />
-                    )}
-                    {activePanelIdentifier === 'Products' && (
-                        <ProjectTree root="products://" searchPlaceholder="Search apps" />
-                    )}
-                    {activePanelIdentifier === 'Shortcuts' && (
-                        <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
-                    )}
-                    {activePanelIdentifier === 'DataManagement' && (
-                        <ProjectTree root="data://" searchPlaceholder="Search data tools" />
-                    )}
-                    {activePanelIdentifier === 'People' && (
-                        <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
-                    )}
-                </PanelLayoutNavBar>
+                {isAIFirst ? (
+                    <AiFirstNavBar />
+                ) : (
+                    <PanelLayoutNavBar>
+                        {activePanelIdentifier === 'Project' && (
+                            <ProjectTree
+                                root="project://"
+                                logicKey={PROJECT_TREE_KEY}
+                                searchPlaceholder="Search by user, type, or name"
+                                showRecents
+                            />
+                        )}
+                        {activePanelIdentifier === 'Products' && (
+                            <ProjectTree root="products://" searchPlaceholder="Search apps" />
+                        )}
+                        {activePanelIdentifier === 'Shortcuts' && (
+                            <ProjectTree root="shortcuts://" searchPlaceholder="Search your shortcuts" />
+                        )}
+                        {activePanelIdentifier === 'DataManagement' && (
+                            <ProjectTree root="data://" searchPlaceholder="Search data tools" />
+                        )}
+                        {activePanelIdentifier === 'People' && (
+                            <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
+                        )}
+                    </PanelLayoutNavBar>
+                )}
             </div>
 
             {/* Panel overlay - always rendered for exit animation */}
