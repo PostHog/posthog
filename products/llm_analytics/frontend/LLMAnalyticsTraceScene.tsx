@@ -1,10 +1,21 @@
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconAIText, IconChat, IconComment, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import {
+    IconAIText,
+    IconChat,
+    IconChevronLeft,
+    IconChevronRight,
+    IconComment,
+    IconCopy,
+    IconMessage,
+    IconReceipt,
+    IconSearch,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -25,6 +36,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -35,8 +47,9 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
@@ -71,6 +84,70 @@ import {
     isTraceLevel,
     removeMilliseconds,
 } from './utils'
+
+function TraceNavigation(): JSX.Element {
+    const { traceId, viewMode, nextTraceId, nextTimestamp, prevTraceId, prevTimestamp, neighborsLoading } =
+        useValues(llmAnalyticsTraceLogic)
+    const { loadNeighbors } = useActions(llmAnalyticsTraceLogic)
+    const { trace } = useValues(llmAnalyticsTraceDataLogic)
+
+    // Load neighbors when trace data is available with its timestamp
+    useEffect(() => {
+        if (traceId && trace?.createdAt) {
+            loadNeighbors(traceId, trace.createdAt)
+        }
+    }, [traceId, trace?.createdAt])
+
+    // In PostHog, lists are descending (newest first), so:
+    // - "Next" (n) = next row in list = older trace = prevTraceId (time-wise)
+    // - "Previous" (p) = previous row in list = newer trace = nextTraceId (time-wise)
+    const goToNext = (): void => {
+        if (prevTraceId) {
+            router.actions.push(
+                urls.llmAnalyticsTrace(prevTraceId, { timestamp: prevTimestamp ?? undefined, tab: viewMode })
+            )
+        }
+    }
+
+    const goToPrevious = (): void => {
+        if (nextTraceId) {
+            router.actions.push(
+                urls.llmAnalyticsTrace(nextTraceId, { timestamp: nextTimestamp ?? undefined, tab: viewMode })
+            )
+        }
+    }
+
+    useKeyboardHotkeys(
+        {
+            n: { action: goToNext, disabled: !prevTraceId || neighborsLoading },
+            p: { action: goToPrevious, disabled: !nextTraceId || neighborsLoading },
+        },
+        [prevTraceId, nextTraceId, prevTimestamp, nextTimestamp, neighborsLoading, viewMode]
+    )
+
+    return (
+        <div className="flex items-center gap-1">
+            <LemonButton
+                icon={<IconChevronLeft />}
+                size="xsmall"
+                type="secondary"
+                disabled={!nextTraceId || neighborsLoading}
+                onClick={goToPrevious}
+                tooltip="Previous trace"
+                sideIcon={<KeyboardShortcut p />}
+            />
+            <LemonButton
+                icon={<IconChevronRight />}
+                size="xsmall"
+                type="secondary"
+                disabled={!prevTraceId || neighborsLoading}
+                onClick={goToNext}
+                tooltip="Next trace"
+                sideIcon={<KeyboardShortcut n />}
+            />
+        </div>
+    )
+}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -115,37 +192,49 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative flex flex-col gap-3">
-                    <SceneBreadcrumbBackButton />
-                    <div className="flex items-start justify-between">
-                        <TraceMetadata
-                            trace={trace}
-                            metricEvents={metricEvents as LLMTraceEvent[]}
-                            feedbackEvents={feedbackEvents as LLMTraceEvent[]}
-                            billedTotalUsd={billedTotalUsd}
-                            billedCredits={billedCredits}
-                            markupUsd={markupUsd}
-                            showBillingInfo={showBillingInfo}
+                    <div className="flex flex-col gap-1">
+                        <SceneTitleSection
+                            name={trace.id}
+                            resourceType={{ type: 'llm_analytics' }}
+                            forceBackTo={{
+                                name: 'Traces',
+                                path: urls.llmAnalyticsTraces(),
+                                key: 'traces',
+                            }}
+                            actions={<TraceNavigation />}
+                            noBorder
                         />
-                        <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
-                            <DisplayOptionsSelect />
-                            {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={
-                                        <IconWithCount count={commentCount} showZero={false}>
-                                            <IconComment />
-                                        </IconWithCount>
-                                    }
-                                    onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                                    tooltip="Add comments on this trace"
-                                    data-attr="open-trace-discussion"
-                                >
-                                    Discussion
-                                </LemonButton>
-                            )}
-                            <CopyTraceButton trace={trace} tree={enrichedTree} />
+                        <div className="flex items-start justify-between">
+                            <TraceMetadata
+                                trace={trace}
+                                metricEvents={metricEvents as LLMTraceEvent[]}
+                                feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                                billedTotalUsd={billedTotalUsd}
+                                billedCredits={billedCredits}
+                                markupUsd={markupUsd}
+                                showBillingInfo={showBillingInfo}
+                            />
+                            <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
+                                <DisplayOptionsSelect />
+                                {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        icon={
+                                            <IconWithCount count={commentCount} showZero={false}>
+                                                <IconComment />
+                                            </IconWithCount>
+                                        }
+                                        onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                        tooltip="Add comments on this trace"
+                                        data-attr="open-trace-discussion"
+                                    >
+                                        Discussion
+                                    </LemonButton>
+                                )}
+                                <CopyTraceButton trace={trace} tree={enrichedTree} />
+                            </div>
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">

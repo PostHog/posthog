@@ -579,6 +579,9 @@
                     "$ref": "#/definitions/TraceQuery"
                 },
                 {
+                    "$ref": "#/definitions/TracesNeighborsQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 },
                 {
@@ -6701,6 +6704,68 @@
                 "results",
                 "timezone"
             ],
+            "type": "object"
+        },
+        "CachedTracesNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "nextTimestamp": {
+                    "description": "Timestamp of the next trace",
+                    "type": "string"
+                },
+                "nextTraceId": {
+                    "description": "ID of the next trace (chronologically newer)",
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "prevTimestamp": {
+                    "description": "Timestamp of the previous trace",
+                    "type": "string"
+                },
+                "prevTraceId": {
+                    "description": "ID of the previous trace (chronologically older)",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["cache_key", "is_cached", "last_refresh", "next_allowed_client_refresh", "timezone"],
             "type": "object"
         },
         "CachedTracesQueryResponse": {
@@ -21403,6 +21468,7 @@
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
                 "TraceQuery",
+                "TracesNeighborsQuery",
                 "VectorSearchQuery",
                 "DocumentSimilarityQuery",
                 "UsageMetricsQuery",
@@ -26767,6 +26833,35 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "nextTimestamp": {
+                            "description": "Timestamp of the next trace",
+                            "type": "string"
+                        },
+                        "nextTraceId": {
+                            "description": "ID of the next trace (chronologically newer)",
+                            "type": "string"
+                        },
+                        "prevTimestamp": {
+                            "description": "Timestamp of the previous trace",
+                            "type": "string"
+                        },
+                        "prevTraceId": {
+                            "description": "ID of the previous trace (chronologically older)",
+                            "type": "string"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -27177,6 +27272,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceQuery"
+                },
+                {
+                    "$ref": "#/definitions/TracesNeighborsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -31560,6 +31658,84 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TracesNeighborsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TracesNeighborsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TracesNeighborsQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "timestamp": {
+                    "description": "Timestamp of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "traceId": {
+                    "description": "ID of the current trace to find neighbors for",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "timestamp", "traceId"],
+            "type": "object"
+        },
+        "TracesNeighborsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "nextTimestamp": {
+                    "description": "Timestamp of the next trace",
+                    "type": "string"
+                },
+                "nextTraceId": {
+                    "description": "ID of the next trace (chronologically newer)",
+                    "type": "string"
+                },
+                "prevTimestamp": {
+                    "description": "Timestamp of the previous trace",
+                    "type": "string"
+                },
+                "prevTraceId": {
+                    "description": "ID of the previous trace (chronologically older)",
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "TracesQuery": {

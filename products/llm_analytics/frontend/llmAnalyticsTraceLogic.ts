@@ -14,9 +14,17 @@ import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepa
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, InsightLogicProps } from '~/types'
+import {
+    AnyResponseType,
+    DataTableNode,
+    NodeKind,
+    TraceQuery,
+    TracesNeighborsQuery,
+    TracesNeighborsQueryResponse,
+} from '~/queries/schema/schema-general'
+import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from '~/types'
 
+import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -67,7 +75,12 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTraceLogic']),
 
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmAnalyticsLogic,
+            ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
+        ],
     })),
 
     actions({
@@ -92,6 +105,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
         loadCommentCount: true,
         setViewMode: (viewMode: TraceViewMode) => ({ viewMode }),
+        loadNeighbors: (traceId: string, timestamp: string) => ({ traceId, timestamp }),
     }),
 
     reducers({
@@ -233,6 +247,44 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                 },
             },
         ],
+        neighbors: [
+            null as TracesNeighborsQueryResponse | null,
+            {
+                loadNeighbors: async ({ traceId, timestamp }, breakpoint) => {
+                    if (!traceId || !timestamp) {
+                        return null
+                    }
+
+                    await breakpoint(100)
+
+                    // Only pass dateRange if it's an explicit date (not a relative default like "-1h")
+                    // Relative dates start with "-" and are defaults, not user-selected filters
+                    const hasExplicitDateRange =
+                        values.dateFilter?.dateFrom && !values.dateFilter.dateFrom.startsWith('-')
+
+                    const query: TracesNeighborsQuery = {
+                        kind: NodeKind.TracesNeighborsQuery,
+                        traceId,
+                        timestamp,
+                        dateRange: hasExplicitDateRange
+                            ? {
+                                  date_from: values.dateFilter.dateFrom,
+                                  date_to: values.dateFilter.dateTo,
+                              }
+                            : undefined,
+                        filterTestAccounts: values.shouldFilterTestAccounts,
+                        filterSupportTraces: values.shouldFilterSupportTraces,
+                        properties: values.propertyFilters as AnyPropertyFilter[],
+                    }
+
+                    const response = await api.query(query)
+
+                    breakpoint()
+
+                    return response as TracesNeighborsQueryResponse
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -294,6 +346,10 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
                     return eventTypeExpandedMap[eventType] ?? true
                 },
         ],
+        nextTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.nextTraceId ?? null],
+        nextTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.nextTimestamp ?? null],
+        prevTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.prevTraceId ?? null],
+        prevTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.prevTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.traceId, s.featureFlags],
             (traceId, featureFlags): SidePanelSceneContext => {
