@@ -1,3 +1,4 @@
+import math
 import hashlib
 from typing import Any, Optional
 
@@ -29,8 +30,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.python_analysis import annotate_python_nodes
+from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.services.sandbox import SandboxStatus
+from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 logger = structlog.get_logger(__name__)
 
@@ -191,6 +195,43 @@ class NotebookSerializer(NotebookMinimalSerializer):
         return updated_notebook
 
 
+class NotebookKernelExecuteSerializer(serializers.Serializer):
+    code = serializers.CharField(allow_blank=True)
+    return_variables = serializers.BooleanField(default=True)
+    timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+
+
+ALLOWED_KERNEL_CPU_CORES = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
+ALLOWED_KERNEL_MEMORY_GB = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
+ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
+
+
+class NotebookKernelConfigSerializer(serializers.Serializer):
+    cpu_cores = serializers.FloatField(required=False)
+    memory_gb = serializers.FloatField(required=False)
+    idle_timeout_seconds = serializers.IntegerField(required=False)
+
+    def validate_cpu_cores(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_CPU_CORES):
+            raise serializers.ValidationError("CPU cores must be a supported option.")
+        return value
+
+    def validate_memory_gb(self, value: float) -> float:
+        if not any(math.isclose(value, option, rel_tol=0, abs_tol=1e-6) for option in ALLOWED_KERNEL_MEMORY_GB):
+            raise serializers.ValidationError("Memory must be a supported option.")
+        return value
+
+    def validate_idle_timeout_seconds(self, value: int) -> int:
+        if value not in ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS:
+            raise serializers.ValidationError("Idle timeout must be a supported option.")
+        return value
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Provide at least one kernel configuration option.")
+        return attrs
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -255,6 +296,21 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
+
+    def _get_notebook_for_kernel(self) -> Notebook:
+        if self.kwargs.get(self.lookup_field) == "scratchpad":
+            return Notebook(
+                short_id="scratchpad",
+                team=self.team,
+                created_by=self.request.user,
+                last_modified_by=self.request.user,
+                visibility=Notebook.Visibility.INTERNAL,
+            )
+
+        return self.get_object()
+
+    def _current_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -357,6 +413,151 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response(None, 304)
 
         return Response(serializer.data)
+
+    @action(methods=["POST"], url_path="kernel/start", detail=True)
+    def kernel_start(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to start notebook kernel."}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["POST"], url_path="kernel/stop", detail=True)
+    def kernel_stop(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            stopped = get_kernel_runtime(notebook, self._current_user()).shutdown()
+        except RuntimeError:
+            logger.exception("notebook_kernel_stop_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to stop notebook kernel."}, status=503)
+        return Response({"stopped": stopped})
+
+    @action(methods=["POST"], url_path="kernel/restart", detail=True)
+    def kernel_restart(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        try:
+            kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to restart notebook kernel."}, status=503)
+        return Response({"id": str(kernel_runtime.id), "status": kernel_runtime.status})
+
+    @action(methods=["GET"], url_path="kernel/status", detail=True)
+    def kernel_status(self, request: Request, **kwargs):
+        notebook = self._get_notebook_for_kernel()
+        user = self._current_user()
+        runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        service = get_kernel_runtime(notebook, user).service
+        backend = runtime.backend if runtime else service._get_backend()
+        sandbox_config = build_notebook_sandbox_config(notebook)
+        cpu_cores = sandbox_config.cpu_cores
+
+        status = runtime.status if runtime else KernelRuntime.Status.STOPPED
+        if (
+            runtime
+            and runtime.sandbox_id
+            and runtime.backend
+            in (
+                KernelRuntime.Backend.MODAL,
+                KernelRuntime.Backend.DOCKER,
+            )
+        ):
+            try:
+                sandbox_class = service._get_sandbox_class(runtime.backend)
+                sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
+                if sandbox.get_status() != SandboxStatus.RUNNING:
+                    status = KernelRuntime.Status.STOPPED
+            except Exception:
+                status = KernelRuntime.Status.STOPPED
+
+        if runtime and status == KernelRuntime.Status.STOPPED and runtime.status != KernelRuntime.Status.STOPPED:
+            runtime.status = KernelRuntime.Status.STOPPED
+            runtime.save(update_fields=["status"])
+
+        return Response(
+            {
+                "backend": backend,
+                "status": status,
+                "last_used_at": runtime.last_used_at.isoformat() if runtime else None,
+                "last_error": runtime.last_error if runtime else None,
+                "runtime_id": str(runtime.id) if runtime else None,
+                "kernel_id": runtime.kernel_id if runtime else None,
+                "kernel_pid": runtime.kernel_pid if runtime else None,
+                "sandbox_id": runtime.sandbox_id if runtime else None,
+                "cpu_cores": cpu_cores,
+                "memory_gb": sandbox_config.memory_gb,
+                "disk_size_gb": sandbox_config.disk_size_gb,
+                "idle_timeout_seconds": sandbox_config.ttl_seconds,
+            }
+        )
+
+    @action(methods=["POST"], url_path="kernel/config", detail=True)
+    def kernel_config(self, request: Request, **kwargs):
+        serializer = NotebookKernelConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+        update_fields = []
+
+        if "cpu_cores" in serializer.validated_data:
+            notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
+            update_fields.append("kernel_cpu_cores")
+        if "memory_gb" in serializer.validated_data:
+            notebook.kernel_memory_gb = serializer.validated_data["memory_gb"]
+            update_fields.append("kernel_memory_gb")
+        if "idle_timeout_seconds" in serializer.validated_data:
+            notebook.kernel_idle_timeout_seconds = serializer.validated_data["idle_timeout_seconds"]
+            update_fields.append("kernel_idle_timeout_seconds")
+
+        if notebook.pk:
+            notebook.save(update_fields=update_fields)
+
+        return Response(
+            {
+                "cpu_cores": notebook.kernel_cpu_cores,
+                "memory_gb": notebook.kernel_memory_gb,
+                "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
+            }
+        )
+
+    @action(methods=["POST"], url_path="kernel/execute", detail=True)
+    def kernel_execute(self, request: Request, **kwargs):
+        serializer = NotebookKernelExecuteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        notebook = self._get_notebook_for_kernel()
+
+        try:
+            analysis = analyze_python_globals(serializer.validated_data["code"])
+            variable_names = [entry["name"] for entry in analysis.exported_with_types]
+            execution = get_kernel_runtime(notebook, self._current_user()).execute(
+                serializer.validated_data["code"],
+                capture_variables=serializer.validated_data.get("return_variables", True),
+                variable_names=variable_names,
+                timeout=serializer.validated_data.get("timeout"),
+            )
+        except SandboxProvisionError:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
+        except RuntimeError:
+            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+            return Response({"detail": "Failed to execute notebook code."}, status=503)
+
+        return Response(execution.as_dict())
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
