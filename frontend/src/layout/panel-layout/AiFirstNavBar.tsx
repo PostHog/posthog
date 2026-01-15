@@ -507,7 +507,7 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
     }
 
     return (
-        <div className={cn('flex flex-col gap-px', { 'h-[187px]': recentConversations.length > 0 })}>
+        <div className={cn('flex flex-col gap-px')}>
             {recentConversations.map((conversation) => {
                 const isActive = conversation.id === currentConversationId
                 return (
@@ -531,7 +531,6 @@ function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Ele
                     </Link>
                 )
             })}
-            <AllConversationsMenu isCollapsed={false} />
         </div>
     )
 }
@@ -621,7 +620,10 @@ export function AiFirstNavBar(): JSX.Element {
                                         <Label intent="menu" className="text-xxs px-2 text-tertiary">
                                             Recent
                                         </Label>
-                                        <RecentConversations isCollapsed={isLayoutNavCollapsed} />
+                                        <div className="flex flex-col gap-px">
+                                            <RecentConversations isCollapsed={isLayoutNavCollapsed} />
+                                            <AllConversationsMenu isCollapsed={false} />
+                                        </div>
                                     </div>
 
                                     <div className="flex flex-col gap-px w-full">
