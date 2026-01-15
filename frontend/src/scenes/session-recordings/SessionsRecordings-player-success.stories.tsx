@@ -317,9 +317,9 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
 
 const playlistCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
     const Story: StoryFn = () => {
-        const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+        const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
         useStorybookMocks({ get: mocks })
-        useEffect(() => setPlaylistCollapsed(true), [setPlaylistCollapsed])
+        useEffect(() => setRecordingsCollapsed(true), [setRecordingsCollapsed])
         router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }))
         return <App />
     }

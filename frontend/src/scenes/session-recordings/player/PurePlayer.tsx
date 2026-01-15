@@ -86,7 +86,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
     const { isCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
-    const { setIsPlayerCollapsed } = useActions(playerSettingsLogic)
+    const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
@@ -133,7 +133,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                 action: () => setShowingClipParams(!showingClipParams),
             },
             t: {
-                action: () => setIsPlayerCollapsed(!isCollapsed),
+                action: () => setRecordingsCollapsed(!isCollapsed),
             },
             m: {
                 action: () => setMuted(!isMuted),

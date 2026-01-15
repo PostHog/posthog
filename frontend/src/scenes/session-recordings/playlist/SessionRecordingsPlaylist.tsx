@@ -51,8 +51,8 @@ function HorizontalLayout({
 }): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
-    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const { isRecordingsCollapsed } = useValues(playerSettingsLogic)
+    const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
@@ -61,7 +61,7 @@ function HorizontalLayout({
         persistPrefix: '2025-12-29',
         placement: 'right',
         closeThreshold: 100,
-        onToggleClosed: (shouldBeClosed) => setPlaylistCollapsed(shouldBeClosed),
+        onToggleClosed: (shouldBeClosed) => setRecordingsCollapsed(shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -71,13 +71,13 @@ function HorizontalLayout({
             <div
                 ref={playlistRef}
                 className={clsx('relative flex flex-col shrink-0', {
-                    'w-5': isPlaylistCollapsed,
+                    'w-5': isRecordingsCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
+                style={isRecordingsCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
             >
                 <Playlist {...props} />
-                {!isPlaylistCollapsed && (
+                {!isRecordingsCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset={-4} handleClassName="rounded my-1" />
                 )}
             </div>
@@ -96,8 +96,8 @@ function VerticalLayout({
 }): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
-    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const { isRecordingsCollapsed } = useValues(playerSettingsLogic)
+    const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-vertical',
@@ -106,7 +106,7 @@ function VerticalLayout({
         persistPrefix: '2025-12-29',
         placement: 'bottom',
         closeThreshold: 100,
-        onToggleClosed: (shouldBeClosed) => setPlaylistCollapsed(shouldBeClosed),
+        onToggleClosed: (shouldBeClosed) => setRecordingsCollapsed(shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -116,10 +116,10 @@ function VerticalLayout({
             <PlayerWrapper
                 {...props}
                 containerRef={playerRef}
-                style={isPlaylistCollapsed ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
-                className={isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0'}
+                style={isRecordingsCollapsed ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
+                className={isRecordingsCollapsed ? 'flex-1' : 'pb-2 shrink-0'}
                 resizer={
-                    !isPlaylistCollapsed ? (
+                    !isRecordingsCollapsed ? (
                         <Resizer
                             {...resizerLogicProps}
                             visible={false}
@@ -129,7 +129,7 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={clsx('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
+            <div className={clsx('relative flex flex-col min-h-0', isRecordingsCollapsed ? 'h-5' : 'flex-1')}>
                 <Playlist {...props} />
             </div>
         </>

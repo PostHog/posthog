@@ -36,8 +36,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
-        setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
-        setIsPlayerCollapsed: (collapsed: boolean) => ({ collapsed }),
+        setRecordingsCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
@@ -110,12 +109,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
-        isPlaylistCollapsed: [
+        isRecordingsCollapsed: [
             false,
             { persist: true },
             {
-                setPlaylistCollapsed: (_, { collapsed }) => collapsed,
-                setIsPlayerCollapsed: (_, { collapsed }) => collapsed,
+                setRecordingsCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
         showMetadataFooter: [
@@ -141,7 +139,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             (s) => [s.preferredSidebarStacking],
             (preferredSidebarStacking) => preferredSidebarStacking === SessionRecordingSidebarStacking.Vertical,
         ],
-        isCollapsed: [(s) => [s.isPlaylistCollapsed], (isPlaylistCollapsed: boolean) => isPlaylistCollapsed],
+        isCollapsed: [(s) => [s.isRecordingsCollapsed], (isRecordingsCollapsed: boolean) => isRecordingsCollapsed],
         hideRecordingsMenuLabelFor: [
             () => [],
             () => {
