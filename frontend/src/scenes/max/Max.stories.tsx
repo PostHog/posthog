@@ -2166,10 +2166,11 @@ ThreadWithMultiQuestionFormLongContent.parameters = {
 
 export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
     // Form without custom answer options - uses tool_calls format
-    const formQuestions = [
+    const formQuestions: MultiQuestionFormQuestion[] = [
         {
             id: 'priority',
             question: 'What is your top priority right now?',
+            title: 'Priority',
             options: [
                 { value: 'Growing user base' },
                 { value: 'Improving retention' },
@@ -2181,6 +2182,7 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
         {
             id: 'timeline',
             question: 'What is your timeline?',
+            title: 'Timeline',
             options: [{ value: 'This week' }, { value: 'This month' }, { value: 'This quarter' }],
             allow_custom_answer: false,
         },
