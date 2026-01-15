@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 export interface Option {
     label: string
     value: string
@@ -79,8 +81,13 @@ export function OptionSelector({
         }
     }, [options, onSelect, allowCustom, disabled, loading, showCustomInput])
 
+    const noDescriptions = options.every((o) => !o.description)
+
     const handleCustomSubmit = (): void => {
         if (!customInput.trim()) {
+            // When not choosing a custom input, hide the input and show button again
+            setShowCustomInput(false)
+
             return
         }
         onCustomSubmit?.(customInput.trim())
@@ -96,13 +103,18 @@ export function OptionSelector({
     }
 
     return (
-        <div className="flex flex-col gap-1.5">
+        <div
+            className={cn('flex flex-col gap-1.5', {
+                // When there are no descriptions, reduce the gap between options to 0.5
+                'gap-0.5': noDescriptions,
+            })}
+        >
             {options.map((option, index) => (
                 <div key={option.value} className="flex items-center gap-2">
                     <div className="text-muted size-4 shrink-0 flex items-center justify-center">{index + 1}.</div>
                     <LemonButton
                         onClick={() => onSelect(option.value)}
-                        type={selectedValue === option.value ? 'primary' : 'secondary'}
+                        type={selectedValue === option.value ? 'secondary' : 'tertiary'}
                         size="small"
                         icon={option.icon}
                         className="justify-start text-wrap flex-grow"
@@ -129,7 +141,7 @@ export function OptionSelector({
                                 value={customInput}
                                 onChange={(newValue) => setCustomInput(newValue)}
                                 onPressEnter={handleCustomSubmit}
-                                autoFocus
+                                autoFocus={selectedValue !== options.find((o) => o.value === selectedValue)?.value}
                                 className="flex-grow"
                             />
                             <LemonButton
@@ -145,7 +157,7 @@ export function OptionSelector({
                             onClick={() => setShowCustomInput(true)}
                             type="tertiary"
                             size="small"
-                            className="justify-start text-muted flex-grow"
+                            className="justify-start text-tertiary flex-grow h-[37px]"
                             disabledReason={disabled ? 'Please wait' : undefined}
                         >
                             Type something...
