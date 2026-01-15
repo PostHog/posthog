@@ -110,7 +110,7 @@ class MaterializedColumn:
         data_table = table_info.data_table if table_info else table
 
         with tags_context(name="get_all_materialized_columns"):
-            # Query columns and their indexes in a single query using a LEFT JOIN
+            # Query columns and their indexes using multiple LEFT JOINs
             # Returns index names as an array, parsed in Python to set boolean flags
             # Note: Columns exist on both distributed and data tables, but indexes only exist on data tables
             result = sync_execute(
@@ -119,21 +119,24 @@ class MaterializedColumn:
                     c.name,
                     c.comment,
                     c.type like 'Nullable(%%)' as is_nullable,
-                    groupArray(i.name) as index_names
+                    arrayFilter(x -> x != '', [i_minmax.name, i_bf.name, i_ngram.name]) as index_names
                 FROM system.columns c
-                LEFT JOIN system.data_skipping_indices i
-                    ON i.database = c.database
-                    AND i.table = %(data_table)s
-                    AND (
-                        i.name = concat('minmax_', c.name)
-                        OR i.name = concat('bf_', c.name)
-                        OR i.name = concat('ngram_lower_', c.name)
-                    )
+                LEFT JOIN system.data_skipping_indices i_minmax
+                    ON i_minmax.database = c.database
+                    AND i_minmax.table = %(data_table)s
+                    AND i_minmax.name = concat('minmax_', c.name)
+                LEFT JOIN system.data_skipping_indices i_bf
+                    ON i_bf.database = c.database
+                    AND i_bf.table = %(data_table)s
+                    AND i_bf.name = concat('bf_', c.name)
+                LEFT JOIN system.data_skipping_indices i_ngram
+                    ON i_ngram.database = c.database
+                    AND i_ngram.table = %(data_table)s
+                    AND i_ngram.name = concat('ngram_lower_', c.name)
                 WHERE c.database = %(database)s
                   AND c.table = %(table)s
                   AND c.comment LIKE '%%column_materializer::%%'
                   AND c.comment not LIKE '%%column_materializer::elements_chain::%%'
-                GROUP BY c.name, c.comment, c.type
                 """,
                 {"database": CLICKHOUSE_DATABASE, "table": table, "data_table": data_table},
                 ch_user=ClickHouseUser.HOGQL,

@@ -80,6 +80,29 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     return ProgressStatus.Complete
 }
 
+export function isSingleVariantShipped(experiment: Experiment): boolean {
+    const filters = experiment.feature_flag?.filters
+
+    return (
+        !!filters &&
+        Array.isArray(filters.groups?.[0]?.properties) &&
+        filters.groups?.[0]?.properties?.length === 0 &&
+        filters.groups?.[0]?.rollout_percentage === 100 &&
+        (filters.multivariate?.variants?.some(({ rollout_percentage }) => rollout_percentage === 100) || false)
+    )
+}
+
+export function getShippedVariantKey(experiment: Experiment): string | null {
+    if (!isSingleVariantShipped(experiment)) {
+        return null
+    }
+    return (
+        experiment.feature_flag?.filters.multivariate?.variants?.find(
+            ({ rollout_percentage }) => rollout_percentage === 100
+        )?.key || null
+    )
+}
+
 export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
     switch (status) {
         case ProgressStatus.Draft:
