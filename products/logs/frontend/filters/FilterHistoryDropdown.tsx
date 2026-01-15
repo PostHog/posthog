@@ -60,8 +60,19 @@ const formatHistoryEntryDetails = (entry: LogsFiltersHistoryEntry): string => {
 
 const formatServiceNames = (entry: LogsFiltersHistoryEntry): string => {
     const { filters } = entry
-    if (filters.serviceNames && filters.serviceNames.length > 0) {
-        return filters.serviceNames.join(', ')
+    const serviceNames = filters.serviceNames
+
+    if (serviceNames && serviceNames.length > 0) {
+        const maxDisplayed = 3
+        const displayedNames = serviceNames.slice(0, maxDisplayed)
+        const remainingCount = serviceNames.length - displayedNames.length
+        const baseText = displayedNames.join(', ')
+
+        if (remainingCount > 0) {
+            return `${baseText} and ${remainingCount} more`
+        }
+
+        return baseText
     }
     return 'All services'
 }
