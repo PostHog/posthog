@@ -410,6 +410,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const shouldShowThis = typeof visible === 'boolean' ? visible : !isEditing
 
             props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowThis)
+            if (props.nodeType === NotebookNodeType.Python) {
+                actions.updateAttributes({ showSettings: shouldShowThis })
+            }
         },
         initializeNode: () => {
             const { __init } = values.nodeAttributes
@@ -421,7 +424,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 if (__init.showSettings) {
                     actions.toggleEditing(true)
                 }
+                if (props.nodeType === NotebookNodeType.Python && __init.showSettings) {
+                    actions.updateAttributes({ showSettings: true })
+                }
                 props.updateAttributes({ __init: null })
+            }
+            if (props.nodeType === NotebookNodeType.Python) {
+                const shouldShowSettings = values.nodeAttributes.showSettings ?? __init?.showSettings
+                if (typeof shouldShowSettings === 'boolean') {
+                    props.notebookLogic.actions.setEditingNodeEditing(values.nodeId, shouldShowSettings)
+                }
             }
         },
 
