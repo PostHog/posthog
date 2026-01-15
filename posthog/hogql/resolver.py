@@ -411,7 +411,7 @@ class Resolver(CloningVisitor):
                     if isinstance(database_table, PersonsTable):
                         # Check for inlineable exprs in the join on the persons table
                         database_table = database_table.create_new_table_with_filter(node)
-                    node_table_type: ast.BaseTableType = ast.LazyTableType(table=database_table)
+                    node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
                 else:
                     assert isinstance(database_table, ast.Table)
