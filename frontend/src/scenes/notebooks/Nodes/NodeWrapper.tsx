@@ -162,7 +162,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
 
     const defaultMenuItems: LemonMenuItems = [
-    const defaultMenuItems: LemonMenuItems = [
         !NON_COPYABLE_NODES.includes(nodeType)
             ? {
                   label: 'Copy',
