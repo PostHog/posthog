@@ -2,7 +2,6 @@
 # name: TestResolver.test_asterisk_expander_from_subquery_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "uuid"
@@ -1494,7 +1493,6 @@
 # name: TestResolver.test_asterisk_expander_hidden_field
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "uuid"
@@ -2511,7 +2509,6 @@
 # name: TestResolver.test_asterisk_expander_multiple_base_table_with_scope
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "session_id"
@@ -3226,7 +3223,6 @@
 # name: TestResolver.test_asterisk_expander_multiple_table_with_scope
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "a"
@@ -3454,7 +3450,6 @@
 # name: TestResolver.test_asterisk_expander_select_union
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "uuid"
@@ -5968,7 +5963,6 @@
 # name: TestResolver.test_asterisk_expander_subquery
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "a"
@@ -6081,7 +6075,6 @@
 # name: TestResolver.test_asterisk_expander_subquery_alias
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "a"
@@ -6200,7 +6193,6 @@
 # name: TestResolver.test_asterisk_expander_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "uuid"
@@ -7214,7 +7206,6 @@
 # name: TestResolver.test_asterisk_expander_table_alias
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "uuid"
@@ -8232,7 +8223,6 @@
 # name: TestResolver.test_call_type
   '''
   {
-    ctes: {}
     select: [
       {
         args: [
@@ -8430,7 +8420,6 @@
 # name: TestResolver.test_expression_field_type_scope
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "some_expr"
@@ -8762,7 +8751,6 @@
 # name: TestResolver.test_resolve_boolean_operation_types
   '''
   {
-    ctes: {}
     select: [
       {
         exprs: [
@@ -8836,7 +8824,6 @@
 # name: TestResolver.test_resolve_constant_type
   '''
   {
-    ctes: {}
     select: [
       {
         type: {
@@ -8955,7 +8942,6 @@
 # name: TestResolver.test_resolve_events_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -9189,7 +9175,6 @@
 # name: TestResolver.test_resolve_events_table_alias
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -9427,7 +9412,6 @@
 # name: TestResolver.test_resolve_events_table_column_alias
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "ee"
@@ -9701,7 +9685,6 @@
 # name: TestResolver.test_resolve_events_table_column_alias_inside_subquery
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "b"
@@ -9997,7 +9980,6 @@
 # name: TestResolver.test_resolve_lazy_events_pdi_person_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -10238,7 +10220,6 @@
 # name: TestResolver.test_resolve_lazy_events_pdi_person_table_aliased
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -10484,7 +10465,6 @@
 # name: TestResolver.test_resolve_lazy_events_pdi_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -10712,7 +10692,6 @@
 # name: TestResolver.test_resolve_lazy_events_pdi_table_aliased
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
@@ -10945,7 +10924,6 @@
 # name: TestResolver.test_resolve_lazy_pdi_person_table
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "distinct_id"
@@ -11047,7 +11025,6 @@
   '''
   {
     initial_select_query: {
-      ctes: {}
       select: [
         {
           alias: "event"
@@ -11244,7 +11221,6 @@
     subsequent_select_queries: [
       {
         select_query: {
-          ctes: {}
           select: [
             {
               alias: "event"
@@ -11453,7 +11429,6 @@
 # name: TestResolver.test_resolve_virtual_events_poe
   '''
   {
-    ctes: {}
     select: [
       {
         alias: "event"
