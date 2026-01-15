@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Literal
 
-from cachetools import TTLCache
 from redis.asyncio import Redis
 
 from llm_gateway.rate_limiting.model_cost_service import get_model_limits
@@ -19,6 +18,7 @@ class TokenThrottle(Throttle):
     scope: str
     limit_key: LimitKey
     limit_multiplier: int = 1  # Override in subclass for global throttles (e.g., 10)
+    token_type: str = "Token"  # Override: "Input" or "Output"
 
     def __init__(self, redis: Redis[bytes] | None):
         self._redis = redis
@@ -45,50 +45,48 @@ class TokenThrottle(Throttle):
         """Return the number of tokens to consume."""
         ...
 
+    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        tokens = self._get_tokens(context)
+        if context.model is None or tokens is None:
+            return ThrottleResult.allow()
+
+        limiter = self._get_limiter(context.model)
+        key = self._get_cache_key(context)
+
+        if await limiter.consume(key, tokens):
+            return ThrottleResult.allow()
+
+        return ThrottleResult.deny(
+            detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
+            scope=self.scope,
+        )
+
 
 class InputTokenThrottle(TokenThrottle):
     """Base for input token throttles."""
 
     limit_key = "input_tph"
+    token_type = "Input"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.input_tokens
 
-    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        tokens = self._get_tokens(context)
-        if context.model is None or tokens is None:
-            return ThrottleResult.allow()
-
-        limiter = self._get_limiter(context.model)
-        key = self._get_cache_key(context)
-
-        if await limiter.consume(key, tokens):
-            return ThrottleResult.allow()
-
-        return ThrottleResult.deny(
-            detail=f"Input token rate limit exceeded for model {context.model}",
-            scope=self.scope,
-        )
-
 
 class OutputTokenThrottle(TokenThrottle):
-    """Base for output token throttles with reservation support."""
+    """Base for output token throttles.
+
+    Pre-request: Checks if max_output_tokens would exceed limit (without consuming).
+    Post-response: Actual output tokens are consumed via record_output_tokens().
+    """
 
     limit_key = "output_tph"
-    RESERVATION_TTL_SECONDS = 300  # 5 minutes - reservations expire if response never completes
-    RESERVATION_MAX_SIZE = 10_000  # Max concurrent requests tracked
-
-    def __init__(self, redis: Redis[bytes] | None):
-        super().__init__(redis)
-        # TTLCache auto-expires entries after TTL, preventing memory leaks from abandoned requests
-        self._reservations: TTLCache[str, tuple[str, int, str]] = TTLCache(
-            maxsize=self.RESERVATION_MAX_SIZE, ttl=self.RESERVATION_TTL_SECONDS
-        )
+    token_type = "Output"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.max_output_tokens
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        """Check if max_output_tokens would be allowed (without consuming)."""
         tokens = self._get_tokens(context)
         if context.model is None or tokens is None:
             return ThrottleResult.allow()
@@ -96,25 +94,22 @@ class OutputTokenThrottle(TokenThrottle):
         limiter = self._get_limiter(context.model)
         key = self._get_cache_key(context)
 
-        if await limiter.consume(key, tokens):
-            if context.request_id:
-                self._reservations[context.request_id] = (context.model, tokens, key)
+        if await limiter.would_allow(key, tokens):
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(
-            detail=f"Output token rate limit exceeded for model {context.model}",
+            detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
             scope=self.scope,
         )
 
-    async def adjust_after_response(self, request_id: str, actual_output_tokens: int) -> None:
-        try:
-            model, reserved, cache_key = self._reservations.pop(request_id)
-        except KeyError:  # if the reservation is missing, just return, and leave the max tokens consumed
+    async def record_output_tokens(self, context: ThrottleContext, actual_tokens: int) -> None:
+        """Record actual output tokens after response completes."""
+        if context.model is None:
             return
-        unused = reserved - actual_output_tokens
-        if unused > 0:
-            limiter = self._get_limiter(model)
-            await limiter.release(cache_key, unused)
+
+        limiter = self._get_limiter(context.model)
+        key = self._get_cache_key(context)
+        await limiter.consume(key, actual_tokens)
 
 
 class ProductModelInputTokenThrottle(InputTokenThrottle):
