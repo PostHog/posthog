@@ -491,15 +491,20 @@ class ClickHousePrinter(HogQLPrinter):
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
             return None
 
-        if isinstance(node.right, ast.Constant):
+        if isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
             values = [node.right]
         elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
-            values = list(node.right.exprs)
+            values = []
+            for value in node.right.exprs:
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    values.append(value)
+                else:
+                    return None
         else:
             return None
 
         if len(values) == 0:
-            return "0" if node.op == ast.CompareOperationOp.In else "1"
+            return None
 
         materialized_column_sql = str(property_source)
 
