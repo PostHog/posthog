@@ -1,4 +1,3 @@
-import re
 from typing import Any
 
 from rest_framework.request import Request
@@ -10,7 +9,6 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
-FILTER_QUOTED_VALUE = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"')
 
 
 def _looks_like_email(value: str) -> bool:
@@ -43,12 +41,11 @@ def mask_pii_value(value: Any) -> Any:
 
 def mask_scim_filter(filter_str: str) -> str:
     """Mask quoted values in SCIM filter strings, e.g. userName eq "email@example.com" """
-
-    def replace_quoted(match: re.Match) -> str:
-        value = match.group(1)
-        return f'"{mask_pii_value(value)}"'
-
-    return FILTER_QUOTED_VALUE.sub(replace_quoted, filter_str)
+    temp = filter_str.replace('\\"', "")
+    parts = temp.split('"')
+    for i in range(1, len(parts), 2):
+        parts[i] = mask_pii_value(parts[i])
+    return '"'.join(parts)
 
 
 def mask_scim_payload(data: Any, depth: int = 0) -> Any:
