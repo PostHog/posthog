@@ -105,6 +105,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    force_data_skipping_indices: Optional[list[str]] = None
 
 
 # Settings applied on top of all HogQL queries.
@@ -133,3 +134,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     use_hive_partitioning: Optional[int] = 0
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
+    force_data_skipping_indices: Optional[list[str]] = None

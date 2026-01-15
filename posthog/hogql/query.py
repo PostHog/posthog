@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from typing import ClassVar, Optional, Union, cast
 
@@ -204,6 +205,13 @@ class HogQLQueryExecutor:
 
         if self.query_modifiers.formatCsvAllowDoubleQuotes is not None:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
+        if self.query_modifiers.forceClickhouseDataSkippingIndexes:
+            for index in self.query_modifiers.forceClickhouseDataSkippingIndexes:
+                if not re.match(r"^[a-zA-Z0-9_$]+$", index):
+                    raise ValueError(f"Query contains invalid 'forceClickhouseDataSkippingIndexes': " + index)
+            settings.force_data_skipping_indices = ", ".join(
+                f"`{index}`" for index in self.query_modifiers.forceClickhouseDataSkippingIndexes
+            )
 
         try:
             self.clickhouse_context = dataclasses.replace(

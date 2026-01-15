@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
+    HogQLQueryModifiers,
     PropertyMathType,
     PropertyOperator,
     TrendsFilter,
@@ -54,8 +55,16 @@ from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 class ExperimentTrendsQueryRunner(QueryRunner):
     query: ExperimentTrendsQuery
     cached_response: CachedExperimentTrendsQueryResponse
+    count_modifiers: Optional[HogQLQueryModifiers] = None
+    exposure_modifiers: Optional[HogQLQueryModifiers] = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        count_modifiers: Optional[HogQLQueryModifiers] = None,
+        exposures_modifiers: Optional[HogQLQueryModifiers] = None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
 
         if not self.query.experiment_id:
@@ -73,11 +82,22 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         self.prepared_count_query = self._prepare_count_query()
         self.prepared_exposure_query = self._prepare_exposure_query()
 
+        self.count_modifiers = count_modifiers
+        self.exposure_modifiers = exposures_modifiers
+
         self.count_query_runner = TrendsQueryRunner(
-            query=self.prepared_count_query, team=self.team, timings=self.timings, limit_context=self.limit_context
+            query=self.prepared_count_query,
+            team=self.team,
+            timings=self.timings,
+            limit_context=self.limit_context,
+            modifiers=self.count_modifiers or self.modifiers,
         )
         self.exposure_query_runner = TrendsQueryRunner(
-            query=self.prepared_exposure_query, team=self.team, timings=self.timings, limit_context=self.limit_context
+            query=self.prepared_exposure_query,
+            team=self.team,
+            timings=self.timings,
+            limit_context=self.limit_context,
+            modifiers=self.exposure_modifiers or self.modifiers,
         )
 
     def _uses_math_aggregation_by_user_or_property_value(self, query: TrendsQuery):

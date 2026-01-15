@@ -11,6 +11,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    materialized,
     snapshot_clickhouse_queries,
 )
 
@@ -28,7 +29,10 @@ from posthog.schema import (
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
+    HogQLQueryModifiers,
+    MaterializationMode,
     PersonsOnEventsMode,
+    PropertyGroupsMode,
     PropertyMathType,
     TrendsQuery,
 )
@@ -50,7 +54,11 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
-from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
+from ee.clickhouse.materialized_columns.columns import (
+    get_bloom_filter_index_name,
+    get_enabled_materialized_columns,
+    materialize,
+)
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -2784,3 +2792,101 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
         # Verify the math type was converted to sum
         self.assertEqual(query_runner.query.count_query.series[0].math, PropertyMathType.SUM)
+
+    @snapshot_clickhouse_queries
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_expected_skip_indexes_are_used(self):
+        with (
+            materialized("events", "$feature_flag", is_nullable=True, create_bloom_filter_index=True) as mat_flags,
+            materialized("events", "$feature_flag_response", is_nullable=True),
+        ):
+            feature_flag = self.create_feature_flag()
+            experiment = self.create_experiment(feature_flag=feature_flag)
+
+            action = Action.objects.create(name="pageview", team=self.team, steps_json=[{"event": "$pageview"}])
+            action.save()
+
+            ff_property = f"$feature/{feature_flag.key}"
+            count_query = TrendsQuery(series=[ActionsNode(id=action.id)])
+
+            experiment_query = ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=count_query,
+                exposure_query=None,  # No exposure query provided
+            )
+
+            experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+            experiment.save()
+
+            journeys_for(
+                {
+                    "user_control_1": [
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                        {
+                            "event": "$feature_flag_called",
+                            "timestamp": "2020-01-02",
+                            "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                        },
+                    ],
+                    "user_control_2": [
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                        {
+                            "event": "$feature_flag_called",
+                            "timestamp": "2020-01-02",
+                            "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                        },
+                    ],
+                    "user_test_1": [
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                        {
+                            "event": "$feature_flag_called",
+                            "timestamp": "2020-01-02",
+                            "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
+                        },
+                    ],
+                    "user_test_2": [
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                        {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                        {
+                            "event": "$feature_flag_called",
+                            "timestamp": "2020-01-02",
+                            "properties": {"$feature_flag_response": "test", "$feature_flag": feature_flag.key},
+                        },
+                    ],
+                    "user_out_of_control": [
+                        {"event": "$pageview", "timestamp": "2020-01-02"},
+                    ],
+                    "user_out_of_control_exposure": [
+                        {"event": "$feature_flag_called", "timestamp": "2020-01-02"},
+                    ],
+                    "user_out_of_date_range": [
+                        {"event": "$pageview", "timestamp": "2019-01-01", "properties": {ff_property: "control"}},
+                        {
+                            "event": "$feature_flag_called",
+                            "timestamp": "2019-01-01",
+                            "properties": {"$feature_flag_response": "control", "$feature_flag": feature_flag.key},
+                        },
+                    ],
+                },
+                self.team,
+            )
+
+            flush_persons_and_events()
+
+            query_runner = ExperimentTrendsQueryRunner(
+                query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]),
+                team=self.team,
+                count_modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
+                ),
+                exposures_modifiers=HogQLQueryModifiers(
+                    forceClickhouseDataSkippingIndexes=[get_bloom_filter_index_name(mat_flags.name)],
+                    materializationMode=MaterializationMode.AUTO,
+                    propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+                ),
+            )
+            query_runner.calculate()
