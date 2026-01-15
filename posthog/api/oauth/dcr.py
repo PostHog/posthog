@@ -45,6 +45,38 @@ def validate_client_name(value: str) -> None:
             raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
+# Known partner patterns for deriving partner_id from client_name
+# Format: (pattern_substring, partner_id)
+KNOWN_PARTNER_PATTERNS: list[tuple[str, str]] = [
+    ("replit", "replit"),
+    ("claude code", "claude-code"),
+    ("claude-code", "claude-code"),
+    ("claudecode", "claude-code"),
+    ("cursor", "cursor"),
+    ("windsurf", "windsurf"),
+    ("zed", "zed"),
+    ("vscode", "vscode"),
+    ("visual studio code", "vscode"),
+    ("vs code", "vscode"),
+    ("cline", "cline"),
+    ("continue", "continue"),
+    ("cody", "cody"),
+    ("roo", "roo"),
+    ("roocode", "roo"),
+]
+
+
+def derive_software_id_from_name(client_name: str | None) -> str | None:
+    """Derive software_id from client_name by matching known patterns."""
+    if not client_name:
+        return None
+    lower_name = client_name.lower()
+    for pattern, software_id in KNOWN_PARTNER_PATTERNS:
+        if pattern in lower_name:
+            return software_id
+    return None
+
+
 class DCRBurstThrottle(IPThrottle):
     """Rate limit DCR by IP - burst limit."""
 
@@ -99,6 +131,12 @@ class DCRRequestSerializer(serializers.Serializer):
         default="none",
         help_text="How the client authenticates at the token endpoint (only 'none' supported for public clients)",
     )
+    # Software identification per RFC 7591 for grouping clients by integration source
+    software_id = serializers.CharField(
+        max_length=100,
+        required=False,
+        help_text="Identifier for the software registering this client per RFC 7591 (e.g., 'replit', 'claude-code')",
+    )
 
 
 class DynamicClientRegistrationView(APIView):
@@ -128,11 +166,15 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
+        # Determine software_id: use provided value or derive from client_name
+        client_name = data.get("client_name")
+        software_id = data.get("software_id") or derive_software_id_from_name(client_name)
+
         # Create the OAuth application
         # Model's clean() validates redirect URIs (HTTPS, loopback, custom schemes)
         try:
             app = OAuthApplication.objects.create(
-                name=data.get("client_name", "MCP Client"),
+                name=client_name or "MCP Client",
                 redirect_uris=" ".join(data["redirect_uris"]),
                 client_type=AbstractApplication.CLIENT_PUBLIC,
                 authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
@@ -141,6 +183,7 @@ class DynamicClientRegistrationView(APIView):
                 # DCR-specific fields
                 is_dcr_client=True,
                 dcr_client_id_issued_at=now,
+                software_id=software_id,
                 # No organization or user - DCR clients are anonymous
                 organization=None,
                 user=None,
@@ -178,6 +221,15 @@ class DynamicClientRegistrationView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        # Log successful registration for analytics
+        logger.info(
+            "dcr_client_registered",
+            client_id=str(app.client_id),
+            software_id=software_id,
+            client_name=client_name,
+            redirect_uri_count=len(data["redirect_uris"]),
+        )
+
         # Build response
         response_data: dict[str, Any] = {
             "client_id": str(app.client_id),
@@ -188,7 +240,10 @@ class DynamicClientRegistrationView(APIView):
             "client_id_issued_at": int(now.timestamp()),
         }
 
-        if data.get("client_name"):
-            response_data["client_name"] = data["client_name"]
+        if client_name:
+            response_data["client_name"] = client_name
+
+        if software_id:
+            response_data["software_id"] = software_id
 
         return Response(response_data, status=status.HTTP_201_CREATED)

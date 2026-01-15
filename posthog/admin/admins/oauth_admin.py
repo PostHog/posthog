@@ -57,6 +57,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "id",
         "name",
         "client_id",
+        "software_id",
         "is_verified",
         "is_dcr_client",
         "user_link",
@@ -64,8 +65,8 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
         "authorization_grant_type",
     )
     list_display_links = ("id", "name")
-    list_filter = ("authorization_grant_type", "is_verified", "is_dcr_client")
-    search_fields = ("name", "client_id", "user__email", "organization__name")
+    list_filter = ("authorization_grant_type", "is_verified", "is_dcr_client", "software_id")
+    search_fields = ("name", "client_id", "software_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
 
@@ -102,7 +103,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified", "is_dcr_client")}),
+                ("Status", {"fields": ("is_verified", "is_dcr_client", "software_id")}),
             )
         else:
             return (
@@ -112,7 +113,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                ("Status", {"fields": ("is_verified",)}),
+                ("Status", {"fields": ("is_verified", "software_id")}),
             )
 
     def get_form(self, request, obj=None, change=False, **kwargs):

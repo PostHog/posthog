@@ -140,6 +140,17 @@ class OAuthApplication(AbstractApplication):
         null=True, blank=True, help_text="When the client_id was issued (for DCR clients)"
     )
 
+    # Software identification per RFC 7591 - for grouping clients by integration source
+    # Examples: "replit", "claude-code", "cursor", "windsurf"
+    # Can be provided during DCR or derived from client_name patterns
+    software_id: models.CharField = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Identifier for the software that registered this client per RFC 7591 (e.g., 'replit', 'claude-code')",
+    )
+
     # Verification status - manually set by PostHog staff
     is_verified: models.BooleanField = models.BooleanField(
         default=False, help_text="True if this application has been verified by PostHog"
