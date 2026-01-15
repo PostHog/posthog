@@ -5483,7 +5483,7 @@ export type BatchExportService =
     | BatchExportServiceAzureBlob
     | BatchExportRealtimeDestinationBackfill
 
-export type PipelineInterval = 'hour' | 'day' | 'every 5 minutes'
+export type BatchExportInterval = 'hour' | 'day' | 'week' | 'every 5 minutes'
 
 export type DataWarehouseSyncInterval = '5min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'
 export type OrNever = 'never'
@@ -5495,7 +5495,7 @@ export type BatchExportConfiguration = {
     team_id: number
     name: string
     destination: BatchExportService
-    interval: PipelineInterval
+    interval: BatchExportInterval
     timezone: string | null
     interval_offset: number | null
     created_at: string
