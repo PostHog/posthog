@@ -2,40 +2,12 @@ import { AnimatePresence } from 'motion/react'
 import * as motion from 'motion/react-client'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconComment, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 
 import { SurveyQuestionType } from '~/types'
 
-const QUESTION_TYPE_OPTIONS = [
-    {
-        type: SurveyQuestionType.Open,
-        label: 'Open text',
-        icon: <IconComment />,
-    },
-    {
-        type: SurveyQuestionType.Rating,
-        label: 'Rating',
-        icon: <IconAreaChart />,
-    },
-    {
-        type: SurveyQuestionType.SingleChoice,
-        label: 'Single choice',
-        icon: <IconListView />,
-    },
-    {
-        type: SurveyQuestionType.MultipleChoice,
-        label: 'Multiple choice',
-        icon: <IconGridView />,
-    },
-    {
-        type: SurveyQuestionType.Link,
-        label: 'Link / Announcement',
-        icon: <IconLink />,
-    },
-]
+import { QUESTION_TYPE_OPTIONS } from '../constants'
 
 interface AddQuestionButtonProps {
     onAdd: (type: SurveyQuestionType) => void
@@ -54,8 +26,9 @@ export function AddQuestionButton({ onAdd }: AddQuestionButtonProps): JSX.Elemen
 
         if (isExpanded) {
             document.addEventListener('mousedown', handleClickOutside)
-            return () => document.removeEventListener('mousedown', handleClickOutside)
         }
+
+        return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [isExpanded])
 
     const handleAddQuestion = (type: SurveyQuestionType): void => {

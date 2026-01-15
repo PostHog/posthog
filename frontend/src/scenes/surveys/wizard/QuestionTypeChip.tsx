@@ -1,43 +1,16 @@
+import { cloneElement } from 'react'
+
 import { IconChevronDown, IconComment } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'
 
-import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-
 import { SurveyQuestionType } from '~/types'
 
-import { SurveyQuestionLabel } from '../constants'
-
-const QUESTION_TYPE_OPTIONS = [
-    {
-        type: SurveyQuestionType.Open,
-        label: 'Open text',
-        icon: <IconComment className="text-sm" />,
-    },
-    {
-        type: SurveyQuestionType.Rating,
-        label: 'Rating',
-        icon: <IconAreaChart className="text-sm" />,
-    },
-    {
-        type: SurveyQuestionType.SingleChoice,
-        label: 'Single choice',
-        icon: <IconListView className="text-sm" />,
-    },
-    {
-        type: SurveyQuestionType.MultipleChoice,
-        label: 'Multiple choice',
-        icon: <IconGridView className="text-sm" />,
-    },
-    {
-        type: SurveyQuestionType.Link,
-        label: 'Link / Announcement',
-        icon: <IconLink className="text-sm" />,
-    },
-]
+import { QUESTION_TYPE_OPTIONS, SurveyQuestionLabel } from '../constants'
 
 function getIconForType(type: SurveyQuestionType): JSX.Element {
     const option = QUESTION_TYPE_OPTIONS.find((o) => o.type === type)
-    return option?.icon || <IconComment className="text-sm" />
+    const icon = option?.icon || <IconComment />
+    return cloneElement(icon, { className: 'text-sm' })
 }
 
 interface QuestionTypeChipProps {
@@ -59,7 +32,7 @@ export function QuestionTypeChip({ type, onChange }: QuestionTypeChipProps): JSX
                                 option.type === type ? 'bg-fill-highlight-100 font-medium' : ''
                             }`}
                         >
-                            {option.icon}
+                            {cloneElement(option.icon, { className: 'text-sm' })}
                             <span>{option.label}</span>
                         </button>
                     ))}

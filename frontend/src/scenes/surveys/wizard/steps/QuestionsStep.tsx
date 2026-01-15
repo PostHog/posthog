@@ -11,6 +11,7 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import {
+    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     SurveyAppearance,
@@ -217,7 +218,7 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                     <span className="text-xs text-secondary shrink-0">Link URL:</span>
                     <LemonInput
                         size="xsmall"
-                        value={(question as any).link || ''}
+                        value={(question as LinkSurveyQuestion).link || ''}
                         placeholder="https://example.com"
                         onChange={(val) => onUpdate({ link: val })}
                         className="flex-1"

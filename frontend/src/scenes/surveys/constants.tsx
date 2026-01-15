@@ -31,6 +31,14 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+export const QUESTION_TYPE_OPTIONS = [
+    { type: SurveyQuestionType.Open, label: 'Open text', icon: <IconComment /> },
+    { type: SurveyQuestionType.Rating, label: 'Rating', icon: <IconAreaChart /> },
+    { type: SurveyQuestionType.SingleChoice, label: 'Single choice', icon: <IconListView /> },
+    { type: SurveyQuestionType.MultipleChoice, label: 'Multiple choice', icon: <IconGridView /> },
+    { type: SurveyQuestionType.Link, label: 'Link / Announcement', icon: <IconLink /> },
+]
+
 // Rating scale constants
 export const SURVEY_RATING_SCALE = {
     EMOJI_3_POINT: 3,
