@@ -198,6 +198,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
                         ),
                     ]
                 ),
+                # If the document type or product is different - compare all renderings
                 ast.Or(
                     exprs=[
                         ast.CompareOperation(
