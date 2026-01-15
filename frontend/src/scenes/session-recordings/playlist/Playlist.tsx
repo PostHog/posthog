@@ -257,7 +257,11 @@ export function Playlist({
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
                                     <div className="flex items-center gap-0.5">
                                         <LemonButton
-                                            icon={<IconSidebarClose className={!isPlaylistCollapsed && 'rotate-180'} />}
+                                            icon={
+                                                <IconSidebarClose
+                                                    className={clsx(isPlaylistCollapsed && 'rotate-180')}
+                                                />
+                                            }
                                             onClick={() => setPlaylistCollapsed(true)}
                                             tooltip="Collapse recordings"
                                             size="xsmall"

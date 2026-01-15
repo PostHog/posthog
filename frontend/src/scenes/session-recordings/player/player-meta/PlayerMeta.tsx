@@ -89,7 +89,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 export function PlayerMeta(): JSX.Element {
-    const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { isCollapsed } = useValues(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -179,7 +179,7 @@ export function PlayerMeta(): JSX.Element {
                         </>
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    {!isCinemaMode && <PlayerMetaLinks size={size} />}
+                    {!isCollapsed && <PlayerMetaLinks size={size} />}
                     <PlayerPersonMeta />
                 </div>
             </div>

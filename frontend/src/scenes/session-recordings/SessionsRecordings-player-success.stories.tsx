@@ -315,28 +315,32 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
     },
 }
 
-const cinemaModeStory = (mocks: Record<string, any> = {}): StoryFn => {
+const playlistCollapsedStory = (mocks: Record<string, any> = {}): StoryFn => {
     const Story: StoryFn = () => {
-        const { setIsCinemaMode } = useActions(playerSettingsLogic)
+        const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
         useStorybookMocks({ get: mocks })
-        useEffect(() => setIsCinemaMode(true), [setIsCinemaMode])
+        useEffect(() => setPlaylistCollapsed(true), [setPlaylistCollapsed])
         router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }))
         return <App />
     }
     return Story
 }
 
-const cinemaModeWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
-const cinemaModeNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
+const playlistCollapsedWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
+const playlistCollapsedNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
 
-export const CinemaModeWithIntro: StoryFn = cinemaModeStory()
-CinemaModeWithIntro.parameters = cinemaModeWideParameters
+export const PlaylistCollapsedWithIntro: StoryFn = playlistCollapsedStory()
+PlaylistCollapsedWithIntro.parameters = playlistCollapsedWideParameters
 
-export const CinemaModeSeenIntro: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntro.parameters = cinemaModeWideParameters
+export const PlaylistCollapsedSeenIntro: StoryFn = playlistCollapsedStory({
+    '/api/users/@me/': userSeenReplayIntroMock,
+})
+PlaylistCollapsedSeenIntro.parameters = playlistCollapsedWideParameters
 
-export const CinemaModeWithIntroNarrow: StoryFn = cinemaModeStory()
-CinemaModeWithIntroNarrow.parameters = cinemaModeNarrowParameters
+export const PlaylistCollapsedWithIntroNarrow: StoryFn = playlistCollapsedStory()
+PlaylistCollapsedWithIntroNarrow.parameters = playlistCollapsedNarrowParameters
 
-export const CinemaModeSeenIntroNarrow: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntroNarrow.parameters = cinemaModeNarrowParameters
+export const PlaylistCollapsedSeenIntroNarrow: StoryFn = playlistCollapsedStory({
+    '/api/users/@me/': userSeenReplayIntroMock,
+})
+PlaylistCollapsedSeenIntroNarrow.parameters = playlistCollapsedNarrowParameters
