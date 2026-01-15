@@ -61,7 +61,7 @@ export function SaveAsTemplateModal(props: WorkflowTemplateLogicProps = {}): JSX
                             <LemonInput placeholder="https://example.com/image.png" />
                         </LemonField>
 
-                        {user?.is_staff && (
+                        {user?.is_staff && !(isEditMode && isGlobalTemplate) && (
                             <LemonField name="scope" label="Scope">
                                 <LemonSelect
                                     value={templateForm.scope}
