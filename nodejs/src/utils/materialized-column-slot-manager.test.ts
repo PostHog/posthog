@@ -1,4 +1,4 @@
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -10,6 +10,7 @@ describe('MaterializedColumnSlotManager', () => {
     let slotManager: MaterializedColumnSlotManager
     let postgres: PostgresRouter
     let teamId: Team['id']
+    let projectId: Team['project_id']
     let fetchSlotsSpy: jest.SpyInstance
 
     beforeEach(async () => {
@@ -23,6 +24,7 @@ describe('MaterializedColumnSlotManager', () => {
         slotManager = new MaterializedColumnSlotManager(postgres)
         const team = await getFirstTeam(hub)
         teamId = team.id
+        projectId = team.project_id
         fetchSlotsSpy = jest.spyOn(slotManager as any, 'fetchSlots')
     })
 
@@ -131,16 +133,7 @@ describe('MaterializedColumnSlotManager', () => {
         })
 
         it('returns slots grouped by team', async () => {
-            const team2Id = teamId + 1
-            // Create team2 in database
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_team (id, uuid, organization_id, project_id, name, created_at, updated_at, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, api_token, test_account_filters, timezone, app_urls, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, session_recording_retention_period)
-                 SELECT $1, gen_random_uuid(), organization_id, project_id, 'TEST TEAM 2', NOW(), NOW(), false, true, false, true, 'token2', '[]', 'UTC', '{}', '{}', '{}', '{}', '{}', '{}', '30d'
-                 FROM posthog_team WHERE id = $2`,
-                [team2Id, teamId],
-                'create-team2'
-            )
+            const team2Id = await createTeam(postgres, projectId)
 
             await createSlot(teamId, 'prop1')
             await createSlot(team2Id, 'prop2')
