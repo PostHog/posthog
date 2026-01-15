@@ -90,6 +90,9 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
 rand = "0.8.5"
+# ssl-vendored statically links OpenSSL for production stability (no runtime libssl dependency)
+# NOTE: openssl-src is pinned to 300.4.2+3.4.1 in Cargo.lock to avoid ARM64 assembly issues in 3.5.x
+# To update: cargo update -p openssl-src --precise <version>
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }

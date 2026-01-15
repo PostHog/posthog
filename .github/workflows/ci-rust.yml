@@ -216,6 +216,8 @@ jobs:
             - name: Run cargo test
               env:
                   RUST_BACKTRACE: 1
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: 1
                   # Set up dual database environment for feature-flags service
                   PERSONS_READ_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
