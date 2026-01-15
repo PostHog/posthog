@@ -133,16 +133,16 @@ jobs:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
-            - name: Download wheels from macos-13
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: wheels-macos-13
-                  path: dist
-
             - name: Download wheels from macos-14
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-macos-14
+                  path: dist
+
+            - name: Download wheels from macos-15-intel
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: wheels-macos-15-intel
                   path: dist
 
             - name: Publish package to PyPI
