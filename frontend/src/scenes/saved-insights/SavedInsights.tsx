@@ -502,6 +502,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.TracesNeighborsQuery]: {
+        name: 'LLM Analytics Traces Neighbors',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.TraceQuery]: {
         name: 'LLM Analytics Trace',
         icon: IconLlmAnalytics,

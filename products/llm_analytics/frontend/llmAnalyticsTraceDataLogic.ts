@@ -89,11 +89,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
     connect((props: TraceDataLogicProps) => ({
         values: [
             llmAnalyticsTraceLogic,
-            ['eventId', 'searchQuery', 'traceId'],
+            ['eventId', 'searchQuery'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError'],
         ],
-        actions: [llmAnalyticsTraceLogic, ['loadNeighbors']],
     })),
     selectors({
         trace: [
@@ -293,10 +292,10 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ props }) => ({
         trace: (trace: LLMTrace | undefined) => {
-            if (trace?.createdAt && values.traceId) {
-                actions.loadNeighbors(values.traceId, trace.createdAt)
+            if (trace?.createdAt && props.traceId) {
+                llmAnalyticsTraceLogic.actions.loadNeighbors(props.traceId, trace.createdAt)
             }
         },
     })),
