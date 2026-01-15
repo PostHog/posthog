@@ -260,13 +260,25 @@ const Component = ({
                 {hasExecution ? (
                     <>
                         {pythonExecution?.stdout ? (
-                            <OutputBlock title="Output" toneClassName="text-default" value={pythonExecution.stdout} />
+                            <OutputBlock
+                                title="Output"
+                                toneClassName="text-default"
+                                value={pythonExecution.stdout ?? ''}
+                            />
                         ) : null}
                         {pythonExecution?.stderr ? (
-                            <OutputBlock title="stderr" toneClassName="text-danger" value={pythonExecution.stderr} />
+                            <OutputBlock
+                                title="stderr"
+                                toneClassName="text-danger"
+                                value={pythonExecution.stderr ?? ''}
+                            />
                         ) : null}
                         {hasResult && !showDataframeTable ? (
-                            <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
+                            <OutputBlock
+                                title="Result"
+                                toneClassName="text-default"
+                                value={pythonExecution.result ?? ''}
+                            />
                         ) : null}
                         {showDataframeTable ? (
                             <NotebookDataframeTable

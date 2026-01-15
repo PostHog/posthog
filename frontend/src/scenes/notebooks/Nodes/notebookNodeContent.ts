@@ -33,6 +33,8 @@ export type NotebookDependencyNode = {
     title: string
     exports: string[]
     uses: string[]
+    code?: string
+    returnVariable?: string
 }
 
 export type NotebookDependencyGraph = {
@@ -265,6 +267,7 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 title: typeof attrs.title === 'string' ? attrs.title : '',
                 exports: exportedGlobals,
                 uses: Array.isArray(attrs.globalsUsed) ? attrs.globalsUsed : [],
+                code: typeof attrs.code === 'string' ? attrs.code : '',
             })
         }
 
@@ -284,6 +287,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 title: typeof attrs.title === 'string' ? attrs.title : '',
                 exports: returnVariable ? [returnVariable] : [],
                 uses: extractDuckSqlTables(code),
+                code,
+                returnVariable,
             })
         }
 

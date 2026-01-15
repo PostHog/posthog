@@ -198,13 +198,25 @@ const Component = ({
                     {hasExecution ? (
                         <>
                             {duckExecution?.stdout ? (
-                                <OutputBlock title="Output" toneClassName="text-default" value={duckExecution.stdout} />
+                                <OutputBlock
+                                    title="Output"
+                                    toneClassName="text-default"
+                                    value={duckExecution.stdout ?? ''}
+                                />
                             ) : null}
                             {duckExecution?.stderr ? (
-                                <OutputBlock title="stderr" toneClassName="text-danger" value={duckExecution.stderr} />
+                                <OutputBlock
+                                    title="stderr"
+                                    toneClassName="text-danger"
+                                    value={duckExecution.stderr ?? ''}
+                                />
                             ) : null}
                             {hasResult && !showDataframeTable ? (
-                                <OutputBlock title="Result" toneClassName="text-default" value={duckExecution.result} />
+                                <OutputBlock
+                                    title="Result"
+                                    toneClassName="text-default"
+                                    value={duckExecution.result ?? ''}
+                                />
                             ) : null}
                             {showDataframeTable ? (
                                 <NotebookDataframeTable

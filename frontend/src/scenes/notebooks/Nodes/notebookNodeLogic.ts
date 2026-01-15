@@ -516,7 +516,6 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             null as HTMLElement | null,
             {
                 setRef: (_, { ref }) => ref,
-                unregisterNodeLogic: () => null,
             },
         ],
         expanded: [
