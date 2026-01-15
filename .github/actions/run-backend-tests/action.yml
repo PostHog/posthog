@@ -237,7 +237,7 @@ runs:
 
         - name: Upload updated timing data as artifacts
           uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.11.66' }}
+          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations

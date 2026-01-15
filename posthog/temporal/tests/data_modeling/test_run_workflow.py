@@ -1005,7 +1005,7 @@ async def test_run_workflow_timeout_exceeded(
         ) as mock_pause_saved_query_schedule,
     ):
         mock_hogql_table.side_effect = Exception(
-            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))"
         )
 
         async with temporalio.worker.Worker(

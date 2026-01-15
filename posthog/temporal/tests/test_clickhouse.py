@@ -149,7 +149,7 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
         return_value=(
             MagicMock(
                 status_code=500,
-                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 25.8.11.66 (official build))",
+                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 25.8.12.129 (official build))",
             )
         ),
     ):
