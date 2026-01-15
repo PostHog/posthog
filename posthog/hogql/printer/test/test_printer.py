@@ -3752,7 +3752,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             if in_expected_if_non_nullable is not None and (is_nullable is False):
                 in_expected = in_expected_if_non_nullable
 
-            in_values_exprs = [ast.Constant(value=v) for v in in_values]
+            in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 
             in_result = execute_hogql_query(
