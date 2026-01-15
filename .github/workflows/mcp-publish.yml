@@ -84,3 +84,6 @@ jobs:
 
             - name: Publish the package in the npm registry
               run: cd services/mcp/typescript && pnpm publish --access public
+              env:
+                  NPM_CONFIG_PROVENANCE: true
+                  NODE_AUTH_TOKEN: ''
