@@ -46,6 +46,7 @@ import {
     TableOfContentData,
 } from '../types'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -95,6 +96,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookKernelInfoLogic({ shortId: props.shortId }),
+            ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
         ],

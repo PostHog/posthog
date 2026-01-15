@@ -83,6 +83,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         sourceComment,
         duckSqlReturnVariable,
         customMenuItems,
+        kernelInfo,
     } = useValues(nodeLogic)
     const {
         setRef,
@@ -154,20 +155,34 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
     const pythonRunDisabledReason = !notebook ? 'Notebook not loaded' : undefined
-    const pythonAttributes = attributes as { code?: string; pythonExecutionCodeHash?: number | null }
+    const pythonAttributes = attributes as {
+        code?: string
+        pythonExecutionCodeHash?: number | null
+        pythonExecutionSandboxId?: string | null
+    }
     const pythonExecutionCodeHash = pythonAttributes.pythonExecutionCodeHash ?? null
     const pythonCodeHash = hashCodeForString(pythonAttributes.code ?? '')
-    const pythonIsStale = pythonExecutionCodeHash !== null && pythonExecutionCodeHash !== pythonCodeHash
-    const pythonIsFresh = pythonExecutionCodeHash !== null && pythonExecutionCodeHash === pythonCodeHash
+    const pythonExecutionSandboxId = pythonAttributes.pythonExecutionSandboxId ?? null
+    const kernelSandboxId = kernelInfo?.sandbox_id ?? null
+    const pythonHasExecution = pythonExecutionCodeHash !== null
+    const pythonSandboxMatches =
+        pythonExecutionSandboxId !== null && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
+    const pythonIsFresh = pythonHasExecution && pythonExecutionCodeHash === pythonCodeHash && pythonSandboxMatches
+    const pythonIsStale = pythonHasExecution && !pythonIsFresh
     const duckSqlAttributes = attributes as {
         code?: string
         duckExecutionCodeHash?: number | null
+        duckExecutionSandboxId?: string | null
         returnVariable?: string
     }
     const duckSqlExecutionCodeHash = duckSqlAttributes.duckExecutionCodeHash ?? null
     const duckSqlCodeHash = hashCodeForString(`${duckSqlAttributes.code ?? ''}\n${duckSqlReturnVariable}`)
-    const duckSqlIsStale = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash !== duckSqlCodeHash
-    const duckSqlIsFresh = duckSqlExecutionCodeHash !== null && duckSqlExecutionCodeHash === duckSqlCodeHash
+    const duckSqlExecutionSandboxId = duckSqlAttributes.duckExecutionSandboxId ?? null
+    const duckSqlHasExecution = duckSqlExecutionCodeHash !== null
+    const duckSqlSandboxMatches =
+        duckSqlExecutionSandboxId !== null && kernelSandboxId !== null && duckSqlExecutionSandboxId === kernelSandboxId
+    const duckSqlIsFresh = duckSqlHasExecution && duckSqlExecutionCodeHash === duckSqlCodeHash && duckSqlSandboxMatches
+    const duckSqlIsStale = duckSqlHasExecution && !duckSqlIsFresh
 
     // TODO: Add list on non-copyable nodes
     const defaultMenuItems: LemonMenuItems = [

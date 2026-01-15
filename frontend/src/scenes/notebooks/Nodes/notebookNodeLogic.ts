@@ -61,6 +61,7 @@ type RunPythonCellParams = {
     exportedGlobals: { name: string; type: string }[]
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setPythonRunLoading: (loading: boolean) => void
+    executionSandboxId: string | null
 }
 
 type RunDuckSqlCellParams = {
@@ -70,6 +71,7 @@ type RunDuckSqlCellParams = {
     pageSize: number
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setDuckSqlRunLoading: (loading: boolean) => void
+    executionSandboxId: string | null
 }
 
 const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean => {
@@ -156,11 +158,16 @@ const isPythonExecutionFresh = (nodeLogic: BuiltLogic<notebookNodeLogicType>, co
     const nodeAttributes = nodeLogic.values.nodeAttributes as {
         pythonExecutionCodeHash?: number | null
         pythonExecution?: PythonExecutionResult | null
+        pythonExecutionSandboxId?: string | null
     }
     const executionHash = nodeAttributes.pythonExecutionCodeHash ?? null
     const codeHash = hashCodeForString(code)
     const status = nodeAttributes.pythonExecution?.status ?? null
-    return executionHash !== null && executionHash === codeHash && status === 'ok'
+    const executionSandboxId = nodeAttributes.pythonExecutionSandboxId ?? null
+    const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const sandboxMatches =
+        executionSandboxId !== null && kernelSandboxId !== null && executionSandboxId === kernelSandboxId
+    return executionHash !== null && executionHash === codeHash && status === 'ok' && sandboxMatches
 }
 
 const isDuckSqlExecutionFresh = (
@@ -171,11 +178,16 @@ const isDuckSqlExecutionFresh = (
     const nodeAttributes = nodeLogic.values.nodeAttributes as {
         duckExecutionCodeHash?: number | null
         duckExecution?: PythonExecutionResult | null
+        duckExecutionSandboxId?: string | null
     }
     const executionHash = nodeAttributes.duckExecutionCodeHash ?? null
     const codeHash = hashCodeForString(`${code}\n${returnVariable}`)
     const status = nodeAttributes.duckExecution?.status ?? null
-    return executionHash !== null && executionHash === codeHash && status === 'ok'
+    const executionSandboxId = nodeAttributes.duckExecutionSandboxId ?? null
+    const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const sandboxMatches =
+        executionSandboxId !== null && kernelSandboxId !== null && executionSandboxId === kernelSandboxId
+    return executionHash !== null && executionHash === codeHash && status === 'ok' && sandboxMatches
 }
 
 const setDependencyNodeQueued = (
@@ -211,11 +223,14 @@ const runDependencyNodes = async ({
         for (const { node, nodeLogic } of entries) {
             setDependencyNodeQueued(nodeLogic, node.nodeType, false)
             if (node.nodeType === NotebookNodeType.Python) {
-                const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
-                if (mode === 'auto' && isPythonExecutionFresh(nodeLogic, nodeCode)) {
-                    if (node.nodeId === currentNodeId) {
-                        break
-                    }
+                const nodeAttributes = nodeLogic.values.nodeAttributes as {
+                    code?: string
+                    pythonExecutionSandboxId?: string | null
+                }
+                const nodeCode = nodeAttributes.code ?? node.code ?? ''
+                const executionSandboxId =
+                    nodeLogic.values.kernelInfo?.sandbox_id ?? nodeAttributes.pythonExecutionSandboxId ?? null
+                if (mode === 'auto' && node.nodeId !== currentNodeId && isPythonExecutionFresh(nodeLogic, nodeCode)) {
                     continue
                 }
                 const { executed, execution } = await runPythonCell({
@@ -224,6 +239,7 @@ const runDependencyNodes = async ({
                     exportedGlobals: nodeLogic.values.exportedGlobals,
                     updateAttributes: nodeLogic.actions.updateAttributes,
                     setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
+                    executionSandboxId,
                 })
 
                 const isSuccess = executed && execution?.status === 'ok'
@@ -240,17 +256,24 @@ const runDependencyNodes = async ({
             }
 
             if (node.nodeType === NotebookNodeType.DuckSQL) {
-                const nodeAttributes = nodeLogic.values.nodeAttributes as { code?: string; returnVariable?: string }
+                const nodeAttributes = nodeLogic.values.nodeAttributes as {
+                    code?: string
+                    returnVariable?: string
+                    duckExecutionSandboxId?: string | null
+                }
                 const nodeCode = nodeAttributes.code ?? node.code ?? ''
                 const nodeReturnVariable = getUniqueDuckSqlReturnVariable(
                     duckSqlNodeSummaries,
                     node.nodeId,
                     nodeAttributes.returnVariable ?? node.returnVariable ?? 'duck_df'
                 )
-                if (mode === 'auto' && isDuckSqlExecutionFresh(nodeLogic, nodeCode, nodeReturnVariable)) {
-                    if (node.nodeId === currentNodeId) {
-                        break
-                    }
+                const executionSandboxId =
+                    nodeLogic.values.kernelInfo?.sandbox_id ?? nodeAttributes.duckExecutionSandboxId ?? null
+                if (
+                    mode === 'auto' &&
+                    node.nodeId !== currentNodeId &&
+                    isDuckSqlExecutionFresh(nodeLogic, nodeCode, nodeReturnVariable)
+                ) {
                     continue
                 }
                 const { executed, execution } = await runDuckSqlCell({
@@ -260,6 +283,7 @@ const runDependencyNodes = async ({
                     pageSize: nodeLogic.values.dataframePageSize,
                     updateAttributes: nodeLogic.actions.updateAttributes,
                     setDuckSqlRunLoading: nodeLogic.actions.setDuckSqlRunLoading,
+                    executionSandboxId,
                 })
 
                 const isSuccess = executed && execution?.status === 'ok'
@@ -285,6 +309,7 @@ const runPythonCell = async ({
     exportedGlobals,
     updateAttributes,
     setPythonRunLoading,
+    executionSandboxId,
 }: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
     try {
@@ -297,6 +322,7 @@ const runPythonCell = async ({
         updateAttributes({
             pythonExecution: executionResult,
             pythonExecutionCodeHash: hashCodeForString(code),
+            pythonExecutionSandboxId: executionSandboxId,
         })
         return { executed: true, execution: executionResult }
     } catch (error) {
@@ -305,6 +331,7 @@ const runPythonCell = async ({
         updateAttributes({
             pythonExecution: executionResult,
             pythonExecutionCodeHash: hashCodeForString(code),
+            pythonExecutionSandboxId: executionSandboxId,
         })
         return { executed: false, execution: executionResult }
     } finally {
@@ -319,6 +346,7 @@ const runDuckSqlCell = async ({
     pageSize,
     updateAttributes,
     setDuckSqlRunLoading,
+    executionSandboxId,
 }: RunDuckSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setDuckSqlRunLoading(true)
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
@@ -335,6 +363,7 @@ const runDuckSqlCell = async ({
         updateAttributes({
             duckExecution: executionResult,
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
+            duckExecutionSandboxId: executionSandboxId,
         })
         return { executed: true, execution: executionResult }
     } catch (error) {
@@ -345,6 +374,7 @@ const runDuckSqlCell = async ({
         updateAttributes({
             duckExecution: executionResult,
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
+            duckExecutionSandboxId: executionSandboxId,
         })
         return { executed: false, execution: executionResult }
     } finally {
@@ -476,6 +506,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 'duckSqlNodeSummaries',
                 'dependencyGraph',
                 'notebook',
+                'kernelInfo',
             ],
         ],
     })),
@@ -944,12 +975,17 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (!notebook) {
                 return
             }
+            const executionSandboxId =
+                values.kernelInfo?.sandbox_id ??
+                (values.nodeAttributes as { pythonExecutionSandboxId?: string | null }).pythonExecutionSandboxId ??
+                null
             const { executed, execution } = await runPythonCell({
                 notebookId: notebook.short_id,
                 code,
                 exportedGlobals: values.exportedGlobals,
                 updateAttributes: actions.updateAttributes,
                 setPythonRunLoading: actions.setPythonRunLoading,
+                executionSandboxId,
             })
             if (!executed) {
                 actions.setDataframeVariableName(null)
@@ -970,7 +1006,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const { code = '', returnVariable = 'duck_df' } = values.nodeAttributes as {
                 code?: string
                 returnVariable?: string
+                duckExecutionSandboxId?: string | null
             }
+            const executionSandboxId =
+                values.kernelInfo?.sandbox_id ?? values.nodeAttributes.duckExecutionSandboxId ?? null
             const resolvedReturnVariable = getUniqueDuckSqlReturnVariable(
                 values.duckSqlNodeSummaries,
                 values.nodeId,
@@ -983,6 +1022,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 pageSize: values.dataframePageSize,
                 updateAttributes: actions.updateAttributes,
                 setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
+                executionSandboxId,
             })
             if (!executed || execution?.status !== 'ok') {
                 actions.setDataframeVariableName(null)

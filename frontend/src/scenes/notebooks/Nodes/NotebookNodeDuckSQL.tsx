@@ -19,6 +19,7 @@ export type NotebookNodeDuckSQLAttributes = {
     returnVariable: string
     duckExecution?: PythonExecutionResult | null
     duckExecutionCodeHash?: number | null
+    duckExecutionSandboxId?: string | null
     showSettings?: boolean
 }
 
@@ -313,6 +314,9 @@ export const NotebookNodeDuckSQL = createPostHogWidgetNode<NotebookNodeDuckSQLAt
             default: null,
         },
         duckExecutionCodeHash: {
+            default: null,
+        },
+        duckExecutionSandboxId: {
             default: null,
         },
         showSettings: {

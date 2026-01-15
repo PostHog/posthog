@@ -22,6 +22,7 @@ export type NotebookNodePythonAttributes = {
     globalsAnalysisHash?: string | null
     pythonExecution?: PythonExecutionResult | null
     pythonExecutionCodeHash?: number | null
+    pythonExecutionSandboxId?: string | null
     showSettings?: boolean
     autoHeight?: boolean
 }
@@ -362,6 +363,9 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
             default: null,
         },
         pythonExecutionCodeHash: {
+            default: null,
+        },
+        pythonExecutionSandboxId: {
             default: null,
         },
         showSettings: {
