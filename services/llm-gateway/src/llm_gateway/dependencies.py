@@ -11,7 +11,7 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.products.config import check_product_access
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
-from llm_gateway.request_context import get_request_id
+from llm_gateway.request_context import get_request_id, set_throttle_context
 
 
 async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # noqa: UP037
@@ -99,14 +99,7 @@ async def enforce_throttles(
     if body:
         try:
             data: dict[str, Any] = json.loads(body)
-            # HOTFIX: Don't reserve output tokens for streaming requests.
-            # Streaming doesn't release reservations after completion, causing
-            # rapid rate limit exhaustion. Disable until proper fix is implemented.
-            # TODO: Extract actual output tokens from stream and release properly.
-            is_streaming = data.get("stream", False)
-            if not is_streaming:
-                max_output_tokens = data.get("max_tokens")
-
+            max_output_tokens = data.get("max_tokens")
             if model and "messages" in data:
                 token_counter = getattr(request.app.state, "token_counter", None)
                 if token_counter:
@@ -123,6 +116,7 @@ async def enforce_throttles(
         request_id=get_request_id() or None,
     )
     request.state.throttle_context = context
+    set_throttle_context(runner, context)
     result = await runner.check(context)
 
     if not result.allowed:

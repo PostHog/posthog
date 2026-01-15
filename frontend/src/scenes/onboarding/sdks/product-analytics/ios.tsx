@@ -1,6 +1,4 @@
-import { IOSInstallation } from '@posthog/shared-onboarding/product-analytics/ios'
-
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { IOSInstallation } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKKey } from '~/types'
 
@@ -8,9 +6,9 @@ import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstruc
 
 export function ProductAnalyticsIOSInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <>
             <IOSInstallation />
             <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.IOS} />
-        </OnboardingDocsContentWrapper>
+        </>
     )
 }

@@ -3318,15 +3318,26 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
-export type ProductTourStepType = 'element' | 'modal' | 'survey'
+export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
 
-export type ProductTourButtonAction = 'dismiss' | 'link'
+export interface ProductTourBannerConfig {
+    behavior: 'sticky' | 'static'
+    action?: {
+        type: 'none' | 'link' | 'trigger_tour'
+        link?: string
+        tourId?: string
+    }
+}
+
+export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
 
 export interface ProductTourStepButton {
     text: string
     action: ProductTourButtonAction
     /** URL to open when action is 'link' */
     link?: string
+    /** Tour ID to trigger when action is 'trigger_tour' */
+    tourId?: string
 }
 
 export interface ProductTourStepButtons {
@@ -3372,6 +3383,8 @@ export interface ProductTourStep {
     inferenceData?: InferredSelector
     /** Button configuration for tour steps (modals / announcements) */
     buttons?: ProductTourStepButtons
+    /** Banner configuration (only for banner steps) */
+    bannerConfig?: ProductTourBannerConfig
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3834,6 +3847,7 @@ export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
     Monthly = 'monthly',
+    Yearly = 'yearly',
 }
 
 export type ScheduledChangePayload =
