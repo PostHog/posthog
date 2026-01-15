@@ -65,7 +65,7 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
-            - name: Build and push container image
+            - name: Build and push container image (base)
               id: build
               uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
               with:
@@ -73,5 +73,16 @@ jobs:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Build and push container image (notebook)
+              id: build-notebook
+              uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
+              with:
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
