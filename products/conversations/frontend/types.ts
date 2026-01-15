@@ -4,6 +4,7 @@ export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
+export type SidePanelViewState = 'list' | 'ticket' | 'new'
 
 export interface UserBasic {
     id: number
@@ -32,6 +33,7 @@ export interface Ticket {
     last_message_at: string | null
     last_message_text: string | null
     unread_team_count: number
+    unread_customer_count: number
 }
 
 export interface MessageAuthor {
