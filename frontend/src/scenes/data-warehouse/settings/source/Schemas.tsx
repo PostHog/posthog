@@ -161,7 +161,9 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     minAccessLevel={AccessControlLevel.Editor}
                                     userAccessLevel={source?.user_access_level}
                                 >
-                                    <AnchorTime schema={schema} />
+                                    {({ disabledReason }) => (
+                                        <AnchorTime schema={schema} disabledReason={disabledReason} />
+                                    )}
                                 </AccessControlAction>
                             )
                         },
@@ -375,103 +377,117 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 
                             return (
                                 <div className="flex flex-row justify-end">
-                                    <div>
-                                        <More
-                                            overlay={
-                                                <>
-                                                    <AccessControlAction
-                                                        resourceType={AccessControlResourceType.ExternalDataSource}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={source?.user_access_level}
-                                                    >
-                                                        {({ disabledReason }) => (
-                                                            <Tooltip
-                                                                title={
-                                                                    schema.incremental
-                                                                        ? 'Sync incremental data since the last run.'
-                                                                        : 'Sync all data.'
-                                                                }
-                                                            >
-                                                                <LemonButton
-                                                                    type="tertiary"
-                                                                    size="xsmall"
-                                                                    fullWidth
-                                                                    key={`reload-data-warehouse-schema-${schema.id}`}
-                                                                    id="data-warehouse-schema-reload"
-                                                                    onClick={() => {
-                                                                        reloadSchema(schema)
-                                                                    }}
-                                                                    disabledReason={disabledReason}
-                                                                >
-                                                                    Sync now
-                                                                </LemonButton>
-                                                            </Tooltip>
-                                                        )}
-                                                    </AccessControlAction>
-                                                    {schema.incremental && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.ExternalDataSource}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={source?.user_access_level}
+                                    >
+                                        {({ disabledReason }) => (
+                                            <More
+                                                disabledReason={disabledReason}
+                                                overlay={
+                                                    <>
                                                         <AccessControlAction
                                                             resourceType={AccessControlResourceType.ExternalDataSource}
                                                             minAccessLevel={AccessControlLevel.Editor}
                                                             userAccessLevel={source?.user_access_level}
                                                         >
                                                             {({ disabledReason }) => (
-                                                                <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                                <Tooltip
+                                                                    title={
+                                                                        schema.incremental
+                                                                            ? 'Sync incremental data since the last run.'
+                                                                            : 'Sync all data.'
+                                                                    }
+                                                                >
                                                                     <LemonButton
                                                                         type="tertiary"
                                                                         size="xsmall"
                                                                         fullWidth
-                                                                        key={`resync-data-warehouse-schema-${schema.id}`}
-                                                                        id="data-warehouse-schema-resync"
+                                                                        key={`reload-data-warehouse-schema-${schema.id}`}
+                                                                        id="data-warehouse-schema-reload"
                                                                         onClick={() => {
-                                                                            resyncSchema(schema)
+                                                                            reloadSchema(schema)
                                                                         }}
-                                                                        status="danger"
                                                                         disabledReason={disabledReason}
                                                                     >
-                                                                        Delete table and resync
+                                                                        Sync now
                                                                     </LemonButton>
                                                                 </Tooltip>
                                                             )}
                                                         </AccessControlAction>
-                                                    )}
-                                                    {schema.table && (
-                                                        <AccessControlAction
-                                                            resourceType={AccessControlResourceType.ExternalDataSource}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                            userAccessLevel={source?.user_access_level}
-                                                        >
-                                                            <Tooltip
-                                                                title={`Delete this table from PostHog. ${
-                                                                    source?.source_type
-                                                                        ? `This will not delete the data in ${source.source_type}`
-                                                                        : ''
-                                                                }`}
+                                                        {schema.incremental && (
+                                                            <AccessControlAction
+                                                                resourceType={
+                                                                    AccessControlResourceType.ExternalDataSource
+                                                                }
+                                                                minAccessLevel={AccessControlLevel.Editor}
+                                                                userAccessLevel={source?.user_access_level}
                                                             >
-                                                                <LemonButton
-                                                                    status="danger"
-                                                                    id="data-warehouse-schema-delete"
-                                                                    type="tertiary"
-                                                                    fullWidth
-                                                                    size="xsmall"
-                                                                    onClick={() => {
-                                                                        if (
-                                                                            window.confirm(
-                                                                                `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
-                                                                            )
-                                                                        ) {
-                                                                            deleteTable(schema)
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    Delete table from PostHog
-                                                                </LemonButton>
-                                                            </Tooltip>
-                                                        </AccessControlAction>
-                                                    )}
-                                                </>
-                                            }
-                                        />
-                                    </div>
+                                                                {({ disabledReason }) => (
+                                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                                        <LemonButton
+                                                                            type="tertiary"
+                                                                            size="xsmall"
+                                                                            fullWidth
+                                                                            key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                            id="data-warehouse-schema-resync"
+                                                                            onClick={() => {
+                                                                                resyncSchema(schema)
+                                                                            }}
+                                                                            status="danger"
+                                                                            disabledReason={disabledReason}
+                                                                        >
+                                                                            Delete table and resync
+                                                                        </LemonButton>
+                                                                    </Tooltip>
+                                                                )}
+                                                            </AccessControlAction>
+                                                        )}
+                                                        {schema.table && (
+                                                            <AccessControlAction
+                                                                resourceType={
+                                                                    AccessControlResourceType.ExternalDataSource
+                                                                }
+                                                                minAccessLevel={AccessControlLevel.Editor}
+                                                                userAccessLevel={source?.user_access_level}
+                                                            >
+                                                                {({ disabledReason }) => (
+                                                                    <Tooltip
+                                                                        title={`Delete this table from PostHog. ${
+                                                                            source?.source_type
+                                                                                ? `This will not delete the data in ${source.source_type}`
+                                                                                : ''
+                                                                        }`}
+                                                                    >
+                                                                        <LemonButton
+                                                                            status="danger"
+                                                                            id="data-warehouse-schema-delete"
+                                                                            type="tertiary"
+                                                                            fullWidth
+                                                                            size="xsmall"
+                                                                            onClick={() => {
+                                                                                if (
+                                                                                    window.confirm(
+                                                                                        `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                                    )
+                                                                                ) {
+                                                                                    deleteTable(schema)
+                                                                                }
+                                                                            }}
+                                                                            disabledReason={disabledReason}
+                                                                        >
+                                                                            Delete table from PostHog
+                                                                        </LemonButton>
+                                                                    </Tooltip>
+                                                                )}
+                                                            </AccessControlAction>
+                                                        )}
+                                                    </>
+                                                }
+                                            />
+                                        )}
+                                    </AccessControlAction>
                                 </div>
                             )
                         },
@@ -578,7 +594,13 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
     )
 }
 
-const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
+const AnchorTime = ({
+    schema,
+    disabledReason,
+}: {
+    schema: ExternalDataSourceSchema
+    disabledReason: string | null
+}): JSX.Element => {
     const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateSchema } = useActions(dataWarehouseSourceSettingsLogic)
@@ -594,6 +616,10 @@ const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Eleme
         : utcTime
 
     const disabledReasonForInput = useCallback((): string | undefined => {
+        if (disabledReason) {
+            return disabledReason
+        }
+
         if (!schema.should_sync && !isSyncTimeSet) {
             return 'Enable syncing and anchor times to set anchor time'
         }
@@ -615,7 +641,7 @@ const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Eleme
         }
 
         return undefined
-    }, [isSyncTimeSet, schema.should_sync, schema.sync_frequency])
+    }, [disabledReason, isSyncTimeSet, schema.should_sync, schema.sync_frequency])
 
     return (
         <div className="flex">
@@ -645,7 +671,7 @@ const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Eleme
             <LemonSwitch
                 className="ml-2"
                 checked={isSyncTimeSet}
-                disabledReason={!schema.should_sync && 'Enable syncing to set anchor time'}
+                disabledReason={disabledReason || (!schema.should_sync && 'Enable syncing to set anchor time')}
                 onChange={(checked) => {
                     setIsSyncTimeSet(checked)
                     updateSchema({

@@ -1,7 +1,12 @@
 import { LemonTagType } from '@posthog/lemon-ui'
 
 import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSourceSyncSchema } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataJobStatus,
+    ExternalDataSourceSyncSchema,
+    HogFunctionTemplateType,
+} from '~/types'
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
 
@@ -108,3 +113,11 @@ export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
     [ExternalDataJobStatus.BillingLimits]: 'danger',
     [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }
+
+/**
+ * Checks if a template represents a managed data warehouse source.
+ * Managed sources (Stripe, Postgres, etc.) have access control.
+ * Self-managed sources (S3, GCS, Azure, R2) do not have access control.
+ */
+export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean =>
+    template.type === 'source' && !template.id.startsWith('self-managed-')

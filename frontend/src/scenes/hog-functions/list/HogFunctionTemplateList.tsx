@@ -6,6 +6,7 @@ import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { isManagedSourceTemplate } from 'scenes/data-warehouse/utils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -72,9 +73,15 @@ export function HogFunctionTemplateList({
                         key: 'name',
                         dataIndex: 'name',
                         render: (_, template) => {
+                            const hasAccess =
+                                !isManagedSourceTemplate(template) ||
+                                !getAccessControlDisabledReason(
+                                    AccessControlResourceType.ExternalDataSource,
+                                    AccessControlLevel.Editor
+                                )
                             return (
                                 <LemonTableLink
-                                    to={urlForTemplate(template) ?? undefined}
+                                    to={hasAccess ? (urlForTemplate(template) ?? undefined) : undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -90,9 +97,8 @@ export function HogFunctionTemplateList({
                     {
                         width: 0,
                         render: function Render(_, template) {
-                            const isDataWarehouseSource = template.type === 'source'
                             const dataWarehouseSourceAccessDisabledReason =
-                                isDataWarehouseSource &&
+                                isManagedSourceTemplate(template) &&
                                 getAccessControlDisabledReason(
                                     AccessControlResourceType.ExternalDataSource,
                                     AccessControlLevel.Editor

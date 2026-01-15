@@ -12,11 +12,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessDenied } from 'lib/components/AccessDenied'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { StatusTagSetting } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
@@ -33,14 +31,8 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(dataWarehouseSettingsLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
 
-    const hasAccess = userHasAccess(AccessControlResourceType.ExternalDataSource, AccessControlLevel.Viewer)
-
-    if (availableSourcesLoading || !availableSources) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
-    }
-
-    if (!hasAccess) {
-        return <AccessDenied object="data warehouse sources" inline />
     }
 
     return (
@@ -70,7 +62,7 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                         render: (_, source) => (
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
-                                title={availableSources[source.source_type]?.label ?? source.source_type}
+                                title={availableSources?.[source.source_type]?.label ?? source.source_type}
                                 description={source.description}
                             />
                         ),
@@ -159,29 +151,32 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                                                         minAccessLevel={AccessControlLevel.Editor}
                                                         userAccessLevel={source.user_access_level}
                                                     >
-                                                        <LemonButton
-                                                            status="danger"
-                                                            data-attr={`delete-data-warehouse-${source.source_type}`}
-                                                            key={`delete-data-warehouse-${source.source_type}`}
-                                                            onClick={() => {
-                                                                LemonDialog.open({
-                                                                    title: 'Delete data source?',
-                                                                    description:
-                                                                        'Are you sure you want to delete this data source? All related tables will be deleted.',
+                                                        {({ disabledReason }) => (
+                                                            <LemonButton
+                                                                status="danger"
+                                                                data-attr={`delete-data-warehouse-${source.source_type}`}
+                                                                key={`delete-data-warehouse-${source.source_type}`}
+                                                                onClick={() => {
+                                                                    LemonDialog.open({
+                                                                        title: 'Delete data source?',
+                                                                        description:
+                                                                            'Are you sure you want to delete this data source? All related tables will be deleted.',
 
-                                                                    primaryButton: {
-                                                                        children: 'Delete',
-                                                                        status: 'danger',
-                                                                        onClick: () => deleteSource(source),
-                                                                    },
-                                                                    secondaryButton: {
-                                                                        children: 'Cancel',
-                                                                    },
-                                                                })
-                                                            }}
-                                                        >
-                                                            Delete
-                                                        </LemonButton>
+                                                                        primaryButton: {
+                                                                            children: 'Delete',
+                                                                            status: 'danger',
+                                                                            onClick: () => deleteSource(source),
+                                                                        },
+                                                                        secondaryButton: {
+                                                                            children: 'Cancel',
+                                                                        },
+                                                                    })
+                                                                }}
+                                                                disabledReason={disabledReason}
+                                                            >
+                                                                Delete
+                                                            </LemonButton>
+                                                        )}
                                                     </AccessControlAction>
                                                 </>
                                             }
