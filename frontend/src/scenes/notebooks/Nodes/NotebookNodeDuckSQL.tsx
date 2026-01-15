@@ -10,7 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
-import { renderAnsiText } from './utils'
+import { renderAnsiText, sanitizeSvgContent } from './utils'
 
 export type NotebookNodeDuckSQLAttributes = {
     code: string
@@ -52,7 +52,7 @@ const buildMediaSource = (media: PythonExecutionMedia): string | null => {
         return `data:image/jpeg;base64,${media.data}`
     }
     if (media.mimeType === 'image/svg+xml') {
-        return `data:image/svg+xml;utf8,${encodeURIComponent(media.data)}`
+        return `data:image/svg+xml;utf8,${encodeURIComponent(sanitizeSvgContent(media.data))}`
     }
     return null
 }

@@ -12,7 +12,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
-import { renderAnsiText } from './utils'
+import { renderAnsiText, sanitizeSvgContent } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
@@ -158,7 +158,7 @@ const buildMediaSource = (media: PythonExecutionMedia): string | null => {
         return `data:image/jpeg;base64,${media.data}`
     }
     if (media.mimeType === 'image/svg+xml') {
-        return `data:image/svg+xml;utf8,${encodeURIComponent(media.data)}`
+        return `data:image/svg+xml;utf8,${encodeURIComponent(sanitizeSvgContent(media.data))}`
     }
     return null
 }

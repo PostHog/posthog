@@ -1,6 +1,7 @@
 import { ExtendedRegExpMatchArray, InputRule, NodeViewProps, PasteRule } from '@tiptap/core'
 import { NodeType } from '@tiptap/pm/model'
 import clsx from 'clsx'
+import DOMPurify from 'dompurify'
 import posthog from 'posthog-js'
 import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 
@@ -119,6 +120,10 @@ export const renderAnsiText = (value: string): ReactNode => {
     pushSegment(value.slice(lastIndex))
 
     return segments
+}
+
+export const sanitizeSvgContent = (svg: string): string => {
+    return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } })
 }
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
