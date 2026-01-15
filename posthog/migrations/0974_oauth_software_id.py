@@ -14,10 +14,17 @@ class Migration(migrations.Migration):
             name="software_id",
             field=models.CharField(
                 blank=True,
-                db_index=True,
                 help_text="Identifier for the software that registered this client per RFC 7591 (e.g., 'replit', 'claude-code')",
                 max_length=100,
                 null=True,
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="oauthapplication",
+            index=models.Index(
+                condition=models.Q(("software_id__isnull", False)),
+                fields=["software_id"],
+                name="oauth_app_software_id_idx",
             ),
         ),
     ]

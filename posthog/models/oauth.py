@@ -58,6 +58,14 @@ class OAuthApplication(AbstractApplication):
                 name="enforce_supported_grant_types",
             ),
         ]
+        indexes = [
+            # Partial index for software_id - only indexes non-null values for efficient queries
+            models.Index(
+                fields=["software_id"],
+                name="oauth_app_software_id_idx",
+                condition=models.Q(software_id__isnull=False),
+            ),
+        ]
 
     def clean(self):
         super().clean()
@@ -143,11 +151,11 @@ class OAuthApplication(AbstractApplication):
     # Software identification per RFC 7591 - for grouping clients by integration source
     # Examples: "replit", "claude-code", "cursor", "windsurf"
     # Can be provided during DCR or derived from client_name patterns
+    # Note: Partial index defined in Meta.indexes for efficient queries on non-null values
     software_id: models.CharField = models.CharField(
         max_length=100,
         null=True,
         blank=True,
-        db_index=True,
         help_text="Identifier for the software that registered this client per RFC 7591 (e.g., 'replit', 'claude-code')",
     )
 

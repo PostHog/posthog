@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
@@ -358,124 +360,34 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["client_name"], "My Analytics Dashboard")
 
-    def test_software_id_explicit(self):
-        """Explicitly provided software_id should be stored and returned."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "My Custom Client",
-                "redirect_uris": ["https://example.com/callback"],
-                "software_id": "my-custom-integration",
-            },
-            format="json",
-        )
+    @parameterized.expand([
+        ("replit_lowercase", "Replit MCP Client", None, "replit"),
+        ("replit_uppercase", "REPLIT Integration", None, "replit"),
+        ("claude_code", "Claude Code Integration", None, "claude-code"),
+        ("cursor", "Cursor Editor", None, "cursor"),
+        ("windsurf", "Windsurf App", None, "windsurf"),
+        ("vscode", "VS Code Extension", None, "vscode"),
+        ("unknown_client", "Unknown Client", None, None),
+        ("explicit_software_id", "My Custom Client", "my-custom-integration", "my-custom-integration"),
+        ("explicit_overrides_derived", "Replit Custom Build", "replit-enterprise", "replit-enterprise"),
+    ])
+    def test_software_id_derivation(self, _name, client_name, explicit_software_id, expected_software_id):
+        """Test software_id is correctly derived from client_name or explicitly set."""
+        request_data = {
+            "client_name": client_name,
+            "redirect_uris": ["https://example.com/callback"],
+        }
+        if explicit_software_id:
+            request_data["software_id"] = explicit_software_id
+
+        response = self.client.post("/oauth/register/", request_data, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         data = response.json()
-        self.assertEqual(data["software_id"], "my-custom-integration")
+        if expected_software_id:
+            self.assertEqual(data["software_id"], expected_software_id)
+        else:
+            self.assertNotIn("software_id", data)
 
         app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.software_id, "my-custom-integration")
-
-    def test_software_id_derived_from_replit_name(self):
-        """software_id should be derived from client_name containing 'replit'."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "Replit MCP Client",
-                "redirect_uris": ["https://example.com/callback"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["software_id"], "replit")
-
-        app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.software_id, "replit")
-
-    def test_software_id_derived_from_claude_code_name(self):
-        """software_id should be derived from client_name containing 'claude code'."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "Claude Code Integration",
-                "redirect_uris": ["https://example.com/callback"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["software_id"], "claude-code")
-
-        app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.software_id, "claude-code")
-
-    def test_software_id_derived_from_cursor_name(self):
-        """software_id should be derived from client_name containing 'cursor'."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "Cursor Editor",
-                "redirect_uris": ["https://example.com/callback"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["software_id"], "cursor")
-
-    def test_software_id_explicit_overrides_derived(self):
-        """Explicit software_id should take precedence over derived value."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "Replit Custom Build",
-                "redirect_uris": ["https://example.com/callback"],
-                "software_id": "replit-enterprise",
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["software_id"], "replit-enterprise")
-
-        app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertEqual(app.software_id, "replit-enterprise")
-
-    def test_software_id_not_returned_when_unknown(self):
-        """software_id should not be in response if it cannot be determined."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "Unknown Client",
-                "redirect_uris": ["https://example.com/callback"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertNotIn("software_id", data)
-
-        app = OAuthApplication.objects.get(client_id=data["client_id"])
-        self.assertIsNone(app.software_id)
-
-    def test_software_id_case_insensitive_matching(self):
-        """software_id derivation should be case-insensitive."""
-        response = self.client.post(
-            "/oauth/register/",
-            {
-                "client_name": "REPLIT Integration",
-                "redirect_uris": ["https://example.com/callback"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        data = response.json()
-        self.assertEqual(data["software_id"], "replit")
+        self.assertEqual(app.software_id, expected_software_id)
