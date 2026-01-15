@@ -1,4 +1,4 @@
-"""Data models for video segment clustering workflow."""
+"""Data models for video segment clustering."""
 
 from dataclasses import dataclass
 
@@ -9,8 +9,6 @@ from posthog.temporal.ai.video_segment_clustering.constants import DEFAULT_LOOKB
 
 @dataclass
 class ClusteringWorkflowInputs:
-    """Input parameters for the per-team clustering workflow."""
-
     team_id: int
     lookback_hours: int = int(DEFAULT_LOOKBACK_WINDOW.total_seconds() / 3600)
     min_segments: int = MIN_SEGMENTS_FOR_CLUSTERING
@@ -18,8 +16,6 @@ class ClusteringWorkflowInputs:
 
 @dataclass
 class VideoSegmentMetadata:
-    """Lightweight video segment metadata (no embedding)."""
-
     document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
     session_id: str
     start_time: str
@@ -31,8 +27,6 @@ class VideoSegmentMetadata:
 
 @dataclass
 class VideoSegment:
-    """A video segment from document_embeddings (with embedding for clustering)."""
-
     document_id: str  # Format: "{session_id}:{start_time}:{end_time}"
     session_id: str
     start_time: str
@@ -45,8 +39,6 @@ class VideoSegment:
 
 @dataclass
 class FetchSegmentsResult:
-    """Result from fetching segments (lightweight, no embeddings)."""
-
     segments: list[VideoSegmentMetadata]
     latest_timestamp: str | None  # ISO format, for updating watermark
 
@@ -115,8 +107,6 @@ class LabelingResult:
 
 @dataclass
 class TaskCreationResult:
-    """Result from creating/updating Tasks."""
-
     tasks_created: int
     tasks_updated: int
     task_ids: list[str]
@@ -124,16 +114,12 @@ class TaskCreationResult:
 
 @dataclass
 class LinkingResult:
-    """Result from linking segments to Tasks."""
-
     links_created: int
     watermark_updated: bool
 
 
 @dataclass
 class WorkflowResult:
-    """Final result of the clustering workflow."""
-
     team_id: int
     segments_processed: int
     clusters_found: int
@@ -149,8 +135,6 @@ class WorkflowResult:
 
 @dataclass
 class FetchSegmentsActivityInputs:
-    """Input for fetch segments activity."""
-
     team_id: int
     since_timestamp: str | None  # ISO format, None = use clustering state
     lookback_hours: int
@@ -158,8 +142,6 @@ class FetchSegmentsActivityInputs:
 
 @dataclass
 class ClusterSegmentsActivityInputs:
-    """Input for cluster segments activity."""
-
     team_id: int
     document_ids: list[str]
     create_single_segment_clusters_for_noise: bool = True
@@ -167,8 +149,6 @@ class ClusterSegmentsActivityInputs:
 
 @dataclass
 class CreateNoiseClustersActivityInputs:
-    """Input for creating single-segment clusters for noise segments."""
-
     team_id: int
     document_ids: list[str]
     starting_cluster_id: int
@@ -176,8 +156,6 @@ class CreateNoiseClustersActivityInputs:
 
 @dataclass
 class MatchClustersActivityInputs:
-    """Input for match clusters activity."""
-
     team_id: int
     clusters: list[Cluster]
 
@@ -192,8 +170,6 @@ class ClusterForLabeling:
 
 @dataclass
 class GenerateLabelsActivityInputs:
-    """Input for generate labels activity."""
-
     team_id: int
     clusters: list[ClusterForLabeling]
     segments: list[VideoSegmentMetadata]
@@ -201,8 +177,6 @@ class GenerateLabelsActivityInputs:
 
 @dataclass
 class CreateUpdateTasksActivityInputs:
-    """Input for create/update tasks activity."""
-
     team_id: int
     new_clusters: list[Cluster]
     matched_clusters: list[TaskMatch]
@@ -212,8 +186,6 @@ class CreateUpdateTasksActivityInputs:
 
 @dataclass
 class LinkSegmentsActivityInputs:
-    """Input for link segments activity."""
-
     team_id: int
     task_ids: list[str]  # All task IDs (new and existing)
     segments: list[VideoSegmentMetadata]
@@ -224,51 +196,36 @@ class LinkSegmentsActivityInputs:
 
 @dataclass
 class FetchRecentSessionsActivityInputs:
-    """Input for fetching recent sessions for summarization priming."""
-
     team_id: int
     lookback_hours: int
 
 
 @dataclass
 class FetchRecentSessionsResult:
-    """Result from fetching recent sessions."""
-
     session_ids: list[str]
 
 
 @dataclass
 class SummarizeSessionsActivityInputs:
-    """Input for summarizing sessions activity."""
-
     team_id: int
     session_ids: list[str]
 
 
 @dataclass
 class SummarizeSessionsResult:
-    """Result from summarizing sessions."""
-
     sessions_summarized: int
     sessions_failed: int
     sessions_skipped: int
 
 
-# New combined activity inputs/outputs
-
-
 @dataclass
 class PrimeSessionEmbeddingsActivityInputs:
-    """Input for priming session embeddings (combined fetch + summarize)."""
-
     team_id: int
     lookback_hours: int
 
 
 @dataclass
 class PrimeSessionEmbeddingsResult:
-    """Result from priming session embeddings."""
-
     session_ids_found: int
     sessions_summarized: int
     sessions_skipped: int
@@ -277,8 +234,6 @@ class PrimeSessionEmbeddingsResult:
 
 @dataclass
 class PersistTasksActivityInputs:
-    """Input for persisting tasks (combined create/update + link + watermark)."""
-
     team_id: int
     new_clusters: list[Cluster]
     matched_clusters: list[TaskMatch]
@@ -290,8 +245,6 @@ class PersistTasksActivityInputs:
 
 @dataclass
 class PersistTasksResult:
-    """Result from persisting tasks."""
-
     tasks_created: int
     tasks_updated: int
     task_ids: list[str]
