@@ -405,11 +405,18 @@ class CTETableType(BaseTableType):
             elif isinstance(column, PropertyType):
                 # If this property has been resolved to a joined subquery field, look up that field
                 if column.joined_subquery and column.joined_subquery_field_name:
-                    subquery_column = column.joined_subquery.select_query_type.columns.get(
-                        column.joined_subquery_field_name
-                    )
-                    if subquery_column:
-                        return recursively_resolve_column(name, subquery_column)
+                    select_type = column.joined_subquery.select_query_type
+                    if isinstance(select_type, SelectSetQueryType):
+                        for t in select_type.types:
+                            if isinstance(t, SelectQueryType):
+                                subquery_column = t.columns.get(column.joined_subquery_field_name)
+                                if subquery_column:
+                                    return recursively_resolve_column(name, subquery_column)
+                    else:
+                        subquery_column = select_type.columns.get(column.joined_subquery_field_name)
+                        if subquery_column:
+                            return recursively_resolve_column(name, subquery_column)
+
                 # Otherwise, resolve from the raw field_type
                 return recursively_resolve_column(name, column.field_type)
             elif isinstance(column, CallType):

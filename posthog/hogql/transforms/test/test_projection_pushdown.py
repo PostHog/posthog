@@ -421,10 +421,15 @@ class TestProjectionPushdown(BaseTest):
         column_names = {self._col_name(col) for col in cte_query.select}
         assert column_names >= {"event", "distinct_id", "timestamp"}
         # Verify columns have from_asterisk marker
-        assert any(
-            col.from_asterisk if isinstance(col, ast.Field) else getattr(col, "expr", None) and col.expr.from_asterisk
-            for col in cte_query.select
-        )
+
+        from_asterisk_arr = []
+        for col in cte_query.select:
+            if isinstance(col, ast.Field):
+                from_asterisk_arr.append(col.from_asterisk)
+            elif isinstance(col, ast.Alias) and isinstance(col.expr, ast.Field):
+                from_asterisk_arr.append(col.expr.from_asterisk)
+
+        assert any(from_asterisk_arr)
 
         assert optimized.to_hogql() == self.snapshot
 
@@ -519,10 +524,14 @@ class TestProjectionPushdown(BaseTest):
         assert column_names == {"event"}, f"Expected only 'event' but got {column_names}"
 
         # Verify the column has from_asterisk marker
-        assert any(
-            col.from_asterisk if isinstance(col, ast.Field) else getattr(col, "expr", None) and col.expr.from_asterisk
-            for col in cte_query.select
-        )
+        from_asterisk_arr = []
+        for col in cte_query.select:
+            if isinstance(col, ast.Field):
+                from_asterisk_arr.append(col.from_asterisk)
+            elif isinstance(col, ast.Alias) and isinstance(col.expr, ast.Field):
+                from_asterisk_arr.append(col.expr.from_asterisk)
+
+        assert any(from_asterisk_arr)
 
         assert optimized.to_hogql() == self.snapshot
 

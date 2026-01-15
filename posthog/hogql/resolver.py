@@ -366,7 +366,7 @@ class Resolver(CloningVisitor):
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
                 cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
-                node_type = cte_table_type
+                node_type: ast.TableOrSelectType = cte_table_type
                 if table_alias != table_name_alias:
                     # Use CTETableAliasType for aliased CTEs (e.g., FROM my_cte AS alias)
                     node_type = ast.CTETableAliasType(alias=table_alias, cte_table_type=cte_table_type)
@@ -411,15 +411,16 @@ class Resolver(CloningVisitor):
                     if isinstance(database_table, PersonsTable):
                         # Check for inlineable exprs in the join on the persons table
                         database_table = database_table.create_new_table_with_filter(node)
-                    node_table_type = ast.LazyTableType(table=database_table)
+                    node_table_type: ast.BaseTableType = ast.LazyTableType(table=database_table)
 
                 else:
+                    assert isinstance(database_table, ast.Table)
                     node_table_type = ast.TableType(table=database_table)
 
                 # Always add an alias for function call tables. This way `select table.* from table` is replaced with
                 # `select table.* from something() as table`, and not with `select something().* from something()`.
                 if table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
-                    node_type: ast.TableOrSelectType = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
+                    node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
                 else:
                     node_type = node_table_type
 
@@ -432,6 +433,8 @@ class Resolver(CloningVisitor):
 
                 # :TRICKY: Make sure to clone and visit _all_ JoinExpr fields/nodes.
                 node.type = node_type
+                assert node.table is not None
+
                 node.table = cast(ast.Field, clone_expr(node.table))
                 node.table.type = node_table_type
                 if node.table_args is not None:
