@@ -166,8 +166,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'setCompareFilter',
                 'loadPreset',
             ],
+            dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['cancelAllLoading'],
         ],
-        actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['cancelAllLoading']],
     })),
     actions({
         setGraphsTab: (tab: string) => ({ tab }),
