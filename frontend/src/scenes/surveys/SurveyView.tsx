@@ -50,6 +50,7 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 import { SurveyHeadline } from './SurveyHeadline'
@@ -177,8 +178,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         data-attr="edit-survey"
-                                        onClick={guidedEditorEnabled ? undefined : () => editingSurvey(true)}
-                                        to={guidedEditorEnabled ? urls.surveyWizard(id) : undefined}
+                                        onClick={
+                                            guidedEditorEnabled && survey.type === SurveyType.Popover
+                                                ? undefined
+                                                : () => editingSurvey(true)
+                                        }
+                                        to={
+                                            guidedEditorEnabled && survey.type === SurveyType.Popover
+                                                ? urls.surveyWizard(id)
+                                                : undefined
+                                        }
                                         type="secondary"
                                         size="small"
                                     >
