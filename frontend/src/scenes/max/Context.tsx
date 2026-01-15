@@ -8,10 +8,9 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
-import { cn } from 'lib/utils/css-classes'
 
 import { ModeSelector } from './components/ModeSelector'
-import { ContextTagItemData, maxContextLogic } from './maxContextLogic'
+import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -156,64 +155,102 @@ export function ContextSummary({
     )
 }
 
-const CONTEXT_TAG_ICONS: Record<ContextTagItemData['type'], React.ComponentType<{ className?: string }>> = {
-    dashboard: IconDashboard,
-    insight: IconGraph,
-    event: IconEvent,
-    action: IconAction,
-}
-
-export function ContextTags({
-    size = 'default',
-    inline = false,
-}: {
-    size?: 'small' | 'default'
-    inline?: boolean
-}): JSX.Element | null {
-    const { contextTagItems } = useValues(maxContextLogic) as { contextTagItems: ContextTagItemData[] }
+export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { contextInsights, contextDashboards, contextEvents, contextActions, toolContextItems } =
+        useValues(maxContextLogic)
     const { removeContextInsight, removeContextDashboard, removeContextEvent, removeContextAction } =
         useActions(maxContextLogic)
 
-    const removeActions: Record<ContextTagItemData['type'], (id: string | number) => void> = {
-        dashboard: removeContextDashboard,
-        insight: removeContextInsight,
-        event: removeContextEvent,
-        action: removeContextAction,
-    }
+    const allTags = useMemo(() => {
+        const tags: JSX.Element[] = []
 
-    if (contextTagItems.length === 0) {
+        // Collect tool context item names (these have precedence and shouldn't be duplicated)
+        const toolContextNames = new Set<string>()
+        toolContextItems.forEach((item) => {
+            toolContextNames.add(item.text.toLowerCase())
+        })
+
+        // Context items configuration
+        const contextConfigs = [
+            {
+                items: contextDashboards,
+                type: 'dashboard',
+                icon: IconDashboard,
+                removeAction: removeContextDashboard,
+                getName: (item: MaxDashboardContext) => item.name || `Dashboard ${item.id}`,
+            },
+            {
+                items: contextInsights,
+                type: 'insight',
+                icon: IconGraph,
+                removeAction: removeContextInsight,
+                getName: (item: MaxInsightContext) => item.name || `Insight ${item.id}`,
+            },
+            {
+                items: contextEvents,
+                type: 'event',
+                icon: IconEvent,
+                removeAction: removeContextEvent,
+                getName: (item: MaxEventContext) => item.name,
+            },
+            {
+                items: contextActions,
+                type: 'action',
+                icon: IconAction,
+                removeAction: removeContextAction,
+                getName: (item: MaxActionContext) => item.name || `Action ${item.id}`,
+            },
+        ]
+
+        // Generate tags for each context type, skipping items already in tool context
+        contextConfigs.forEach(({ items, type, icon: IconComponent, removeAction, getName }) => {
+            if (items) {
+                items.forEach((item: any) => {
+                    const name = getName(item)
+                    // Skip if this item is already shown in tool context
+                    if (!name || toolContextNames.has(name.toLowerCase())) {
+                        return
+                    }
+                    tags.push(
+                        <Tooltip key={`${type}-${item.id}`} title={name}>
+                            <LemonTag
+                                key={`${type}-${item.id}`}
+                                icon={<IconComponent className="flex-shrink-0" />}
+                                onClose={() => removeAction(item.id)}
+                                closable
+                                closeOnClick
+                                className={clsx(
+                                    'flex items-center text-secondary',
+                                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                                )}
+                            >
+                                <span className="truncate min-w-0 flex-1">{name}</span>
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                })
+            }
+        })
+
+        return tags
+    }, [
+        size,
+        contextDashboards,
+        contextInsights,
+        contextEvents,
+        contextActions,
+        toolContextItems,
+        removeContextDashboard,
+        removeContextInsight,
+        removeContextEvent,
+        removeContextAction,
+    ])
+
+    if (allTags.length === 0) {
         return null
     }
 
-    return (
-        <div
-            className={cn(
-                'flex flex-wrap gap-1 overflow-hidden',
-                inline ? 'inline-flex flex-wrap gap-1 self-start' : 'flex-1 min-w-0'
-            )}
-        >
-            {contextTagItems.map((item: ContextTagItemData) => {
-                const IconComponent = CONTEXT_TAG_ICONS[item.type]
-                const removeAction = removeActions[item.type]
-                return (
-                    <Tooltip key={`${item.type}-${item.id}`} title={item.name}>
-                        <LemonTag
-                            icon={<IconComponent className="flex-shrink-0" />}
-                            onClose={() => removeAction(item.id)}
-                            closable
-                            closeOnClick
-                            className={clsx(
-                                'flex items-center text-secondary',
-                                inline ? 'max-w-none' : size === 'small' ? 'max-w-20' : 'max-w-48'
-                            )}
-                        >
-                            <span className="truncate min-w-0 flex-1">{item.name}</span>
-                        </LemonTag>
-                    </Tooltip>
-                )
-            })}
-        </div>
-    )
+    return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
 }
 
 export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
