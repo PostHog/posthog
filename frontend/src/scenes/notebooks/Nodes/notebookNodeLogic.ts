@@ -36,6 +36,7 @@ import { getUniqueDuckSqlReturnVariable, resolveDuckSqlReturnVariable } from './
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 import {
+    NotebookDataframeResult,
     PythonExecutionResult,
     PythonExecutionVariable,
     PythonKernelExecuteResponse,
@@ -90,7 +91,7 @@ const runPythonCell = async ({
     exportedGlobals,
     updateAttributes,
     setPythonRunLoading,
-}: RunPythonCellParams): Promise<boolean> => {
+}: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
     try {
         const execution = (await api.notebooks.kernelExecute(notebookId, {
@@ -98,18 +99,20 @@ const runPythonCell = async ({
             return_variables: exportedGlobals.length > 0,
         })) as PythonKernelExecuteResponse
 
+        const executionResult = buildPythonExecutionResult(execution, exportedGlobals)
         updateAttributes({
-            pythonExecution: buildPythonExecutionResult(execution, exportedGlobals),
+            pythonExecution: executionResult,
             pythonExecutionCodeHash: hashCodeForString(code),
         })
-        return true
+        return { executed: true, execution: executionResult }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
+        const executionResult = buildPythonExecutionError(message, exportedGlobals)
         updateAttributes({
-            pythonExecution: buildPythonExecutionError(message, exportedGlobals),
+            pythonExecution: executionResult,
             pythonExecutionCodeHash: hashCodeForString(code),
         })
-        return false
+        return { executed: false, execution: executionResult }
     } finally {
         setPythonRunLoading(false)
     }
@@ -121,7 +124,7 @@ const runDuckSqlCell = async ({
     returnVariable,
     updateAttributes,
     setDuckSqlRunLoading,
-}: RunDuckSqlCellParams): Promise<boolean> => {
+}: RunDuckSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setDuckSqlRunLoading(true)
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable)
@@ -131,21 +134,35 @@ const runDuckSqlCell = async ({
             return_variables: true,
         })) as PythonKernelExecuteResponse
 
+        const executionResult = buildPythonExecutionResult(execution, [
+            { name: resolvedReturnVariable, type: 'DataFrame' },
+        ])
         updateAttributes({
-            duckExecution: buildPythonExecutionResult(execution, [{ name: resolvedReturnVariable, type: 'DataFrame' }]),
+            duckExecution: executionResult,
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
         })
-        return true
+        return { executed: true, execution: executionResult }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'
+        const executionResult = buildPythonExecutionError(message, [
+            { name: resolvedReturnVariable, type: 'DataFrame' },
+        ])
         updateAttributes({
-            duckExecution: buildPythonExecutionError(message, [{ name: resolvedReturnVariable, type: 'DataFrame' }]),
+            duckExecution: executionResult,
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
         })
-        return false
+        return { executed: false, execution: executionResult }
     } finally {
         setDuckSqlRunLoading(false)
     }
+}
+
+const findDataframeVariable = (variables?: PythonExecutionVariable[]): string | null => {
+    if (!variables) {
+        return null
+    }
+    const match = variables.find((variable) => variable.type?.toLowerCase() === 'dataframe')
+    return match?.name ?? null
 }
 
 export type NotebookNodeLogicProps = {
@@ -194,6 +211,14 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         runDuckSqlNodeWithMode: (payload: { mode: DuckSqlRunMode }) => payload,
         setDuckSqlRunLoading: (loading: boolean) => ({ loading }),
         setDuckSqlRunQueued: (queued: boolean) => ({ queued }),
+        setDataframeVariableName: (variableName: string | null) => ({ variableName }),
+        setDataframePage: (page: number) => ({ page }),
+        setDataframePageSize: (pageSize: number) => ({ pageSize }),
+        loadDataframePage: (payload: { variableName: string }) => payload,
+        setDataframeResult: (result: NotebookDataframeResult | null) => ({ result }),
+        setDataframeLoading: (loading: boolean) => ({ loading }),
+        setDataframeError: (error: string | null) => ({ error }),
+        resetDataframeResults: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -292,6 +317,47 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setDuckSqlRunQueued: (_, { queued }) => queued,
             },
         ],
+        dataframeVariableName: [
+            null as string | null,
+            {
+                setDataframeVariableName: (_, { variableName }) => variableName,
+            },
+        ],
+        dataframePage: [
+            1,
+            {
+                setDataframePage: (_, { page }) => page,
+                setDataframePageSize: () => 1,
+                resetDataframeResults: () => 1,
+            },
+        ],
+        dataframePageSize: [
+            20,
+            {
+                setDataframePageSize: (_, { pageSize }) => pageSize,
+            },
+        ],
+        dataframeResult: [
+            null as NotebookDataframeResult | null,
+            {
+                setDataframeResult: (_, { result }) => result,
+                resetDataframeResults: () => null,
+            },
+        ],
+        dataframeLoading: [
+            false,
+            {
+                setDataframeLoading: (_, { loading }) => loading,
+                resetDataframeResults: () => false,
+            },
+        ],
+        dataframeError: [
+            null as string | null,
+            {
+                setDataframeError: (_, { error }) => error,
+                resetDataframeResults: () => null,
+            },
+        ],
     })),
 
     selectors({
@@ -350,6 +416,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (duckSqlNodeSummaries, nodeId, nodeAttributes): string =>
                 getUniqueDuckSqlReturnVariable(duckSqlNodeSummaries, nodeId, nodeAttributes.returnVariable ?? ''),
         ],
+        dataframeRowCount: [(s) => [s.dataframeResult], (dataframeResult): number => dataframeResult?.rowCount ?? 0],
         duckSqlTablesUsed: [
             (s) => [s.dependencyGraph, s.nodeId],
             (dependencyGraph, nodeId): string[] => dependencyGraph.nodesById[nodeId]?.uses ?? [],
@@ -617,13 +684,19 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             if (!notebook) {
                 return
             }
-            await runPythonCell({
+            const { executed, execution } = await runPythonCell({
                 notebookId: notebook.short_id,
                 code,
                 exportedGlobals: values.exportedGlobals,
                 updateAttributes: actions.updateAttributes,
                 setPythonRunLoading: actions.setPythonRunLoading,
             })
+            if (!executed) {
+                actions.setDataframeVariableName(null)
+                return
+            }
+            const dataframeVariable = findDataframeVariable(execution?.variables)
+            actions.setDataframeVariableName(dataframeVariable)
         },
 
         runDuckSqlNode: async () => {
@@ -643,13 +716,18 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 values.nodeId,
                 returnVariable
             )
-            await runDuckSqlCell({
+            const { executed, execution } = await runDuckSqlCell({
                 notebookId: notebook.short_id,
                 code,
                 returnVariable: resolvedReturnVariable,
                 updateAttributes: actions.updateAttributes,
                 setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
             })
+            if (!executed || execution?.status !== 'ok') {
+                actions.setDataframeVariableName(null)
+                return
+            }
+            actions.setDataframeVariableName(values.duckSqlReturnVariable)
         },
         runDuckSqlNodeWithMode: async ({ mode }) => {
             if (props.nodeType !== NotebookNodeType.DuckSQL) {
@@ -697,7 +775,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         node.nodeId,
                         nodeAttributes.returnVariable ?? node.returnVariable ?? 'duck_df'
                     )
-                    const executed = await runDuckSqlCell({
+                    const { executed, execution } = await runDuckSqlCell({
                         notebookId: notebook.short_id,
                         code: nodeCode,
                         returnVariable: nodeReturnVariable,
@@ -705,6 +783,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         setDuckSqlRunLoading: nodeLogic.actions.setDuckSqlRunLoading,
                     })
 
+                    if (executed && execution?.status === 'ok') {
+                        nodeLogic.actions.setDataframeVariableName(nodeLogic.values.duckSqlReturnVariable)
+                    } else {
+                        nodeLogic.actions.setDataframeVariableName(null)
+                    }
                     if (!executed) {
                         break
                     }
@@ -754,7 +837,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 for (const { node, nodeLogic } of nodesToRunWithLogic) {
                     nodeLogic.actions.setPythonRunQueued(false)
                     const nodeCode = (nodeLogic.values.nodeAttributes as { code?: string }).code ?? node.code ?? ''
-                    const executed = await runPythonCell({
+                    const { executed, execution } = await runPythonCell({
                         notebookId: notebook.short_id,
                         code: nodeCode,
                         exportedGlobals: nodeLogic.values.exportedGlobals,
@@ -762,12 +845,59 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                         setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
                     })
 
+                    if (executed) {
+                        const dataframeVariable = findDataframeVariable(execution?.variables)
+                        nodeLogic.actions.setDataframeVariableName(dataframeVariable)
+                    } else {
+                        nodeLogic.actions.setDataframeVariableName(null)
+                    }
                     if (!executed) {
                         break
                     }
                 }
             } finally {
                 nodesToRunWithLogic.forEach(({ nodeLogic }) => nodeLogic.actions.setPythonRunQueued(false))
+            }
+        },
+        setDataframeVariableName: ({ variableName }) => {
+            actions.resetDataframeResults()
+            if (variableName) {
+                actions.loadDataframePage({ variableName })
+            }
+        },
+        setDataframePage: () => {
+            if (!values.dataframeVariableName) {
+                return
+            }
+            actions.loadDataframePage({ variableName: values.dataframeVariableName })
+        },
+        setDataframePageSize: () => {
+            if (!values.dataframeVariableName) {
+                return
+            }
+            actions.loadDataframePage({ variableName: values.dataframeVariableName })
+        },
+        loadDataframePage: async ({ variableName }) => {
+            const notebook = values.notebook
+            if (!notebook) {
+                return
+            }
+            actions.setDataframeLoading(true)
+            actions.setDataframeError(null)
+            const offset = (values.dataframePage - 1) * values.dataframePageSize
+            try {
+                const response = await api.notebooks.kernelDataframe(notebook.short_id, {
+                    variable_name: variableName,
+                    offset,
+                    limit: values.dataframePageSize,
+                })
+                actions.setDataframeResult(response)
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Failed to load dataframe results.'
+                actions.setDataframeError(message)
+                actions.setDataframeResult(null)
+            } finally {
+                actions.setDataframeLoading(false)
             }
         },
     })),

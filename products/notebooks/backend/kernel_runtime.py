@@ -132,6 +132,23 @@ class KernelRuntimeSession:
             timeout=timeout,
         )
 
+    def dataframe_page(
+        self,
+        variable_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        return self.service.dataframe_page(
+            self.notebook,
+            self.user,
+            variable_name,
+            offset=offset,
+            limit=limit,
+            timeout=timeout,
+        )
+
 
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
     sandbox_config = SandboxConfig(
@@ -593,6 +610,30 @@ class KernelRuntimeService:
             '        f"CREATE OR REPLACE TABLE {table_identifier} AS SELECT * FROM {temp_identifier}"\n'
             "    )\n"
             "    _duckdb_connection.unregister(temp_name)\n"
+            "\n"
+            "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 20) -> dict[str, Any] | None:\n"
+            "    try:\n"
+            "        import pandas as pd\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "    if value is None:\n"
+            "        return None\n"
+            "    if hasattr(value, 'to_df'):\n"
+            "        value = value.to_df()\n"
+            "    elif hasattr(value, 'to_pandas'):\n"
+            "        value = value.to_pandas()\n"
+            "    if not isinstance(value, pd.DataFrame):\n"
+            "        return None\n"
+            "    total_rows = len(value)\n"
+            "    offset = max(0, min(offset, total_rows))\n"
+            "    limit = max(1, limit)\n"
+            "    page = value.iloc[offset : offset + limit]\n"
+            "    rows = json.loads(page.to_json(orient='records', date_format='iso'))\n"
+            "    return {\n"
+            "        'columns': [str(col) for col in page.columns.tolist()],\n"
+            "        'rows': rows,\n"
+            "        'row_count': total_rows,\n"
+            "    }\n"
         )
 
     def _reuse_kernel_handle_for_backend(
@@ -849,6 +890,48 @@ class KernelRuntimeService:
             completed_at=timezone.now(),
             kernel_runtime=handle.runtime,
         )
+
+    def dataframe_page(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        variable_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        if not variable_name.isidentifier():
+            raise ValueError("Variable name must be a valid identifier.")
+
+        code = (
+            "import json\n"
+            f"_notebook_dataframe_result = notebook_dataframe_page({variable_name}, offset={offset}, limit={limit})\n"
+            "print(json.dumps(_notebook_dataframe_result))\n"
+        )
+        execution = self.execute(
+            notebook,
+            user,
+            code,
+            capture_variables=False,
+            variable_names=[],
+            timeout=timeout,
+        )
+        if execution.status != "ok":
+            raise RuntimeError(execution.stderr or "Failed to fetch dataframe data.")
+
+        output_lines = [line for line in execution.stdout.splitlines() if line.strip()]
+        if not output_lines:
+            raise RuntimeError("No dataframe output returned.")
+        try:
+            payload = json.loads(output_lines[-1])
+        except json.JSONDecodeError as err:
+            raise RuntimeError("Failed to parse dataframe output.") from err
+        if payload is None:
+            raise ValueError("Variable is not a dataframe.")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Unexpected dataframe response.")
+        return payload
 
 
 notebook_kernel_runtime_service = KernelRuntimeService()

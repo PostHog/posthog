@@ -9,6 +9,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
 import { renderAnsiText, sanitizeSvgContent } from './utils'
@@ -84,8 +85,16 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDuckSQLAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, duckSqlReturnVariableUsage } = useValues(nodeLogic)
-    const { navigateToNode } = useActions(nodeLogic)
+    const {
+        dataframePage,
+        dataframePageSize,
+        dataframeLoading,
+        dataframeResult,
+        dataframeVariableName,
+        duckSqlReturnVariableUsage,
+        expanded,
+    } = useValues(nodeLogic)
+    const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
     const lastAutoHeightRef = useRef<number | null>(null)
@@ -160,6 +169,7 @@ const Component = ({
 
     const isSettingsVisible = attributes.showSettings ?? false
     const showReturnVariableRow = expanded || isSettingsVisible
+    const showDataframeTable = !!dataframeVariableName
 
     const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number, title: string): string => {
         const trimmedTitle = title.trim()
@@ -190,8 +200,19 @@ const Component = ({
                             {duckExecution?.stderr ? (
                                 <OutputBlock title="stderr" toneClassName="text-danger" value={duckExecution.stderr} />
                             ) : null}
-                            {hasResult ? (
+                            {hasResult && !showDataframeTable ? (
                                 <OutputBlock title="Result" toneClassName="text-default" value={duckExecution.result} />
+                            ) : null}
+                            {showDataframeTable ? (
+                                <NotebookDataframeTable
+                                    result={dataframeResult}
+                                    loading={dataframeLoading}
+                                    page={dataframePage}
+                                    pageSize={dataframePageSize}
+                                    onNextPage={() => setDataframePage(dataframePage + 1)}
+                                    onPreviousPage={() => setDataframePage(Math.max(1, dataframePage - 1))}
+                                    onPageSizeChange={setDataframePageSize}
+                                />
                             ) : null}
                             {duckExecution?.media?.map((media, index) => (
                                 <MediaBlock key={`duck-sql-media-${index}`} media={media} />

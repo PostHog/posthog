@@ -28,6 +28,12 @@ export type PythonExecutionResult = {
     completedAt?: string
 }
 
+export type NotebookDataframeResult = {
+    columns: string[]
+    rows: Record<string, any>[]
+    rowCount: number
+}
+
 export type PythonKernelVariableResponse = {
     status: 'ok' | 'error'
     data?: Record<string, any>

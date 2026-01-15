@@ -9,6 +9,7 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
@@ -189,8 +190,19 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
-    const { navigateToNode } = useActions(nodeLogic)
+    const {
+        dataframePage,
+        dataframePageSize,
+        dataframeLoading,
+        dataframeResult,
+        dataframeVariableName,
+        displayedGlobals,
+        expanded,
+        exportedGlobals,
+        pythonExecution,
+        usageByVariable,
+    } = useValues(nodeLogic)
+    const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
     const outputRef = useRef<HTMLDivElement | null>(null)
     const footerRef = useRef<HTMLDivElement | null>(null)
 
@@ -234,6 +246,7 @@ const Component = ({
     if (!expanded) {
         return null
     }
+    const showDataframeTable = !!dataframeVariableName
 
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
@@ -251,8 +264,19 @@ const Component = ({
                         {pythonExecution?.stderr ? (
                             <OutputBlock title="stderr" toneClassName="text-danger" value={pythonExecution.stderr} />
                         ) : null}
-                        {hasResult ? (
+                        {hasResult && !showDataframeTable ? (
                             <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
+                        ) : null}
+                        {showDataframeTable ? (
+                            <NotebookDataframeTable
+                                result={dataframeResult}
+                                loading={dataframeLoading}
+                                page={dataframePage}
+                                pageSize={dataframePageSize}
+                                onNextPage={() => setDataframePage(dataframePage + 1)}
+                                onPreviousPage={() => setDataframePage(Math.max(1, dataframePage - 1))}
+                                onPageSizeChange={setDataframePageSize}
+                            />
                         ) : null}
                         {pythonExecution?.media?.map((media, index) => (
                             <MediaBlock key={`python-media-${index}`} media={media} />
