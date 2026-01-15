@@ -211,3 +211,14 @@ pub async fn export_logs_http(
     // Return empty JSON object per OTLP spec
     Ok(Json(json!({})))
 }
+
+/// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
+///
+/// This endpoint supports all preflight requests by returning an empty JSON response.
+/// The actual CORS headers are handled by the CorsLayer middleware in main.rs,
+/// which provides a very permissive policy allowing all origins, methods, and headers
+/// to support various SDK versions and reverse proxy configurations.
+pub async fn options_handler(
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    Ok(Json(json!({})))
+}
