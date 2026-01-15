@@ -28,7 +28,7 @@ import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
-    ONE_FRAME_MS,
+    ONE_SECOND_MS,
     PLAYBACK_SPEEDS,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -148,7 +148,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                     }
                     e.preventDefault()
                     e.altKey && setPause()
-                    seekBackward(e.altKey ? ONE_FRAME_MS : undefined)
+                    seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
             },
@@ -159,7 +159,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                     }
                     e.preventDefault()
                     e.altKey && setPause()
-                    seekForward(e.altKey ? ONE_FRAME_MS : undefined)
+                    seekForward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
             },
