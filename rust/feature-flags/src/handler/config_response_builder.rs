@@ -1,7 +1,9 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, SessionRecordingField},
+        types::{
+            AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, LogsConfig, SessionRecordingField,
+        },
     },
     config::Config,
     site_apps::get_decide_site_apps,
@@ -262,12 +264,27 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     ));
     response.config.is_authenticated = Some(false);
     response.config.capture_dead_clicks = team.capture_dead_clicks;
+
+    let logs_settings = team
+        .logs_settings
+        .as_ref()
+        .map(|s| s.0.clone())
+        .unwrap_or_default();
+
+    response.config.logs = Some(LogsConfig {
+        capture_console_logs: Some(
+            logs_settings
+                .get("capture_console_logs")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ),
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::{ConfigResponse, FlagsResponse, SessionRecordingField},
+        api::types::{ConfigResponse, FlagsResponse, LogsConfig, SessionRecordingField},
         config::{Config, FlexBool, TeamIdCollection},
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
@@ -290,6 +307,7 @@ mod tests {
             autocapture_web_vitals_opt_in: None,
             capture_performance_opt_in: None,
             capture_console_log_opt_in: None,
+            logs_settings: None,
             session_recording_opt_in: false,
             inject_web_apps: None,
             surveys_opt_in: None,
@@ -832,6 +850,58 @@ mod tests {
         assert!(
             !serialized.contains("extra_settings"),
             "Response should not contain extra_settings field"
+        );
+    }
+
+    #[test]
+    fn test_logs_config_enabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.logs_settings = Some(Json(json!({"capture_console_logs": true})));
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(true),
+            })
+        );
+    }
+
+    #[test]
+    fn test_logs_config_disabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.logs_settings = Some(Json(json!({"capture_console_logs": false})));
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
+        );
+    }
+
+    #[test]
+    fn test_logs_config_default() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let team = create_base_team();
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
         );
     }
 }

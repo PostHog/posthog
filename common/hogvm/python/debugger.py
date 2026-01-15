@@ -67,11 +67,11 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
     try:
         match symbol:
             case Operation.STRING:
-                return f"STRING({bytecode[ip+1]})"
+                return f"STRING({bytecode[ip + 1]})"
             case Operation.INTEGER:
-                return f"INTEGER({bytecode[ip+1]})"
+                return f"INTEGER({bytecode[ip + 1]})"
             case Operation.FLOAT:
-                return f"FLOAT({bytecode[ip+1]})"
+                return f"FLOAT({bytecode[ip + 1]})"
             case Operation.TRUE:
                 return "TRUE"
             case Operation.FALSE:
@@ -81,9 +81,9 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.NOT:
                 return f"NOT({stack[-1]})"
             case Operation.AND:
-                return f"AND({', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
+                return f"AND({', '.join(str(stack[-i]) for i in range(bytecode[ip + 1]))})"
             case Operation.OR:
-                return f"OR({', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
+                return f"OR({', '.join(str(stack[-i]) for i in range(bytecode[ip + 1]))})"
             case Operation.PLUS:
                 return f"PLUS({stack[-2]}, {stack[-1]})"
             case Operation.MINUS:
@@ -129,7 +129,7 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.NOT_IN_COHORT:
                 return f"NOT_IN_COHORT({stack[-2]}, {stack[-1]})"
             case Operation.GET_GLOBAL:
-                return f"GET_GLOBAL({', '.join(str(stack[-i]) for i in range(bytecode[ip+1]))})"
+                return f"GET_GLOBAL({', '.join(str(stack[-i]) for i in range(bytecode[ip + 1]))})"
             case Operation.POP:
                 return f"POP({stack[-1]})"
             case Operation.RETURN:
@@ -138,11 +138,11 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
                 else:
                     return "RETURN"
             case Operation.GET_LOCAL:
-                return f"GET_LOCAL({bytecode[ip+1]})"
+                return f"GET_LOCAL({bytecode[ip + 1]})"
             case Operation.SET_LOCAL:
                 return f"SET_LOCAL({bytecode[ip + 1]}, {stack[-1]})"
             case Operation.GET_UPVALUE:
-                return f"GET_UPVALUE({bytecode[ip+1]})"
+                return f"GET_UPVALUE({bytecode[ip + 1]})"
             case Operation.SET_UPVALUE:
                 return f"SET_UPVALUE({bytecode[ip + 1]})"
             case Operation.CLOSE_UPVALUE:
@@ -154,31 +154,29 @@ def print_symbol(symbol: Operation, ip: int, bytecode: list, stack: list, call_s
             case Operation.SET_PROPERTY:
                 return f"SET_PROPERTY({stack[-3]}, {stack[-2]}, {stack[-1]})"
             case Operation.DICT:
-                return f"DICT({bytecode[ip+1]})"
+                return f"DICT({bytecode[ip + 1]})"
             case Operation.ARRAY:
-                return f"ARRAY({bytecode[ip+1]})"
+                return f"ARRAY({bytecode[ip + 1]})"
             case Operation.TUPLE:
-                return f"TUPLE({bytecode[ip+1]})"
+                return f"TUPLE({bytecode[ip + 1]})"
             case Operation.JUMP:
-                return f"JUMP({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]})"
+                return f"JUMP({'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]})"
             case Operation.JUMP_IF_FALSE:
-                return f"JUMP_IF_FALSE({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}, {bool(stack[-1])})"
+                return f"JUMP_IF_FALSE({'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]}, {bool(stack[-1])})"
             case Operation.JUMP_IF_STACK_NOT_NULL:
-                return (
-                    f"JUMP_IF_STACK_NOT_NULL({'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}, {bool(stack[-1])})"
-                )
+                return f"JUMP_IF_STACK_NOT_NULL({'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]}, {bool(stack[-1])})"
             case Operation.DECLARE_FN:
-                return f"DECLARE_FN({bytecode[ip+1]}, args={bytecode[ip+2]}, ops={bytecode[ip+3]})"
+                return f"DECLARE_FN({bytecode[ip + 1]}, args={bytecode[ip + 2]}, ops={bytecode[ip + 3]})"
             case Operation.CALLABLE:
-                return f"CALLABLE({bytecode[ip+1]}, args={bytecode[ip+2]}, upvalues={bytecode[ip+3]}, ops={bytecode[ip+4]})"
+                return f"CALLABLE({bytecode[ip + 1]}, args={bytecode[ip + 2]}, upvalues={bytecode[ip + 3]}, ops={bytecode[ip + 4]})"
             case Operation.CLOSURE:
                 return f"CLOSURE"
             case Operation.CALL_GLOBAL:
-                return f"CALL_GLOBAL({bytecode[ip+1]}, {', '.join(str(stack[-(bytecode[ip+2] - i)]) for i in range(bytecode[ip+2]))})"
+                return f"CALL_GLOBAL({bytecode[ip + 1]}, {', '.join(str(stack[-(bytecode[ip + 2] - i)]) for i in range(bytecode[ip + 2]))})"
             case Operation.CALL_LOCAL:
-                return f"CALL_LOCAL({bytecode[ip+1]} {', '.join(str(stack[-(bytecode[ip+1] - i)]) for i in range(bytecode[ip+1]))})"
+                return f"CALL_LOCAL({bytecode[ip + 1]} {', '.join(str(stack[-(bytecode[ip + 1] - i)]) for i in range(bytecode[ip + 1]))})"
             case Operation.TRY:
-                return f"TRY(+{bytecode[ip+1]})"
+                return f"TRY(+{bytecode[ip + 1]})"
             case Operation.POP_TRY:
                 return "POP_TRY"
             case Operation.THROW:
@@ -195,11 +193,11 @@ def color_bytecode(bytecode: list) -> list:
         symbol = bytecode[ip]
         match symbol:
             case Operation.STRING:
-                add = ["op.STRING", f"string: {bytecode[ip+1]}"]
+                add = ["op.STRING", f"string: {bytecode[ip + 1]}"]
             case Operation.INTEGER:
-                add = ["op.INTEGER", f"integer: {bytecode[ip+1]}"]
+                add = ["op.INTEGER", f"integer: {bytecode[ip + 1]}"]
             case Operation.FLOAT:
-                add = ["op.FLOAT", f"float: {bytecode[ip+1]}"]
+                add = ["op.FLOAT", f"float: {bytecode[ip + 1]}"]
             case Operation.TRUE:
                 add = ["op.TRUE"]
             case Operation.FALSE:
@@ -209,9 +207,9 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.NOT:
                 add = ["op.NOT"]
             case Operation.AND:
-                add = ["op.AND", f"expr count: {bytecode[ip+1]}"]
+                add = ["op.AND", f"expr count: {bytecode[ip + 1]}"]
             case Operation.OR:
-                add = ["op.OR", f"expr count: {bytecode[ip+1]}"]
+                add = ["op.OR", f"expr count: {bytecode[ip + 1]}"]
             case Operation.PLUS:
                 add = ["op.PLUS"]
             case Operation.MINUS:
@@ -257,19 +255,19 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.NOT_IN_COHORT:
                 add = ["op.NOT_IN_COHORT"]
             case Operation.GET_GLOBAL:
-                add = ["op.GET_GLOBAL", f"field count: {bytecode[ip+1]}"]
+                add = ["op.GET_GLOBAL", f"field count: {bytecode[ip + 1]}"]
             case Operation.POP:
                 add = ["op.POP"]
             case Operation.RETURN:
                 add = ["op.RETURN"]
             case Operation.GET_LOCAL:
-                add = ["op.GET_LOCAL", f"index: {bytecode[ip+1]}"]
+                add = ["op.GET_LOCAL", f"index: {bytecode[ip + 1]}"]
             case Operation.SET_LOCAL:
-                add = ["op.SET_LOCAL", f"index: {bytecode[ip+1]}"]
+                add = ["op.SET_LOCAL", f"index: {bytecode[ip + 1]}"]
             case Operation.GET_UPVALUE:
-                add = ["op.GET_UPVALUE", f"index: {bytecode[ip+1]}"]
+                add = ["op.GET_UPVALUE", f"index: {bytecode[ip + 1]}"]
             case Operation.SET_UPVALUE:
-                add = ["op.SET_UPVALUE", f"index: {bytecode[ip+1]}"]
+                add = ["op.SET_UPVALUE", f"index: {bytecode[ip + 1]}"]
             case Operation.CLOSE_UPVALUE:
                 add = ["op.CLOSE_UPVALUE"]
             case Operation.GET_PROPERTY:
@@ -279,26 +277,31 @@ def color_bytecode(bytecode: list) -> list:
             case Operation.SET_PROPERTY:
                 add = ["op.SET_PROPERTY"]
             case Operation.DICT:
-                add = ["op.DICT", f"key count: {bytecode[ip+1]}"]
+                add = ["op.DICT", f"key count: {bytecode[ip + 1]}"]
             case Operation.ARRAY:
-                add = ["op.ARRAY", f"element count: {bytecode[ip+1]}"]
+                add = ["op.ARRAY", f"element count: {bytecode[ip + 1]}"]
             case Operation.TUPLE:
-                add = ["op.TUPLE", f"element count: {bytecode[ip+1]}"]
+                add = ["op.TUPLE", f"element count: {bytecode[ip + 1]}"]
             case Operation.JUMP:
-                add = ["op.JUMP", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
+                add = ["op.JUMP", f"offset: {'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]}"]
             case Operation.JUMP_IF_FALSE:
-                add = ["op.JUMP_IF_FALSE", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
+                add = ["op.JUMP_IF_FALSE", f"offset: {'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]}"]
             case Operation.JUMP_IF_STACK_NOT_NULL:
-                add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip+1] >= 0 else ''}{bytecode[ip+1]}"]
+                add = ["op.JUMP_IF_STACK_NOT_NULL", f"offset: {'+' if bytecode[ip + 1] >= 0 else ''}{bytecode[ip + 1]}"]
             case Operation.DECLARE_FN:
-                add = ["op.DECLARE_FN", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}", f"ops: {bytecode[ip+3]}"]
+                add = [
+                    "op.DECLARE_FN",
+                    f"name: {bytecode[ip + 1]}",
+                    f"args: {bytecode[ip + 2]}",
+                    f"ops: {bytecode[ip + 3]}",
+                ]
             case Operation.CALLABLE:
                 add = [
                     "op.CALLABLE",
-                    f"name: {bytecode[ip+1]}",
-                    f"args: {bytecode[ip+2]}",
-                    f"upvalues: {bytecode[ip+3]}",
-                    f"ops: {bytecode[ip+4]}",
+                    f"name: {bytecode[ip + 1]}",
+                    f"args: {bytecode[ip + 2]}",
+                    f"upvalues: {bytecode[ip + 3]}",
+                    f"ops: {bytecode[ip + 4]}",
                 ]
             case Operation.CLOSURE:
                 upvalue_count = bytecode[ip + 1]
@@ -307,11 +310,11 @@ def color_bytecode(bytecode: list) -> list:
                     add.append(f"is_local({i}): {bytecode[ip + 2 + i * 2]}")
                     add.append(f"index({i}): {bytecode[ip + 2 + i * 2 + 1]}")
             case Operation.CALL_LOCAL:
-                add = ["op.CALL_LOCAL", f"args: {bytecode[ip+1]}"]
+                add = ["op.CALL_LOCAL", f"args: {bytecode[ip + 1]}"]
             case Operation.CALL_GLOBAL:
-                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip+1]}", f"args: {bytecode[ip+2]}"]
+                add = ["op.CALL_GLOBAL", f"name: {bytecode[ip + 1]}", f"args: {bytecode[ip + 2]}"]
             case Operation.TRY:
-                add = ["op.TRY", f"catch: +{bytecode[ip+1]}"]
+                add = ["op.TRY", f"catch: +{bytecode[ip + 1]}"]
             case Operation.POP_TRY:
                 add = ["op.POP_TRY"]
             case Operation.THROW:

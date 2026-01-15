@@ -3202,9 +3202,9 @@ email@example.org,
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(cohort_id), type="cohort").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Cohort."
-        assert (
-            "Special Folder/Cohorts" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        assert "Special Folder/Cohorts" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Cohorts', got '{fs_entry.path}'."
+        )
 
     def test_cohort_delete_restore_logs_activity(self):
         cohort = Cohort.objects.create(

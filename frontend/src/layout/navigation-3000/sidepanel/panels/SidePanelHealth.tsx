@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link, Tooltip } from
 
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { DataHealthIssue, sidePanelHealthLogic } from './sidePanelHealthLogic'
@@ -136,10 +137,45 @@ function getIssueIcon(type: DataHealthIssue['type']): JSX.Element {
     }
 }
 
+function getErrorLabelForMaterializedView(error: string | null): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+
+    if (error.includes('Query returned no results')) {
+        return (
+            <span>
+                Query returned no results for this view. This either means you haven't{' '}
+                <Link to={urls.revenueSettings()} target="_blank" targetBlankIcon={false}>
+                    configured Revenue Analytics
+                </Link>{' '}
+                properly (missing subscription properties) or the{' '}
+                <Link to={urls.dataPipelines('sources')} target="_blank" targetBlankIcon={false}>
+                    underlying source of data
+                </Link>{' '}
+                isn't correctly set-up.
+            </span>
+        )
+    }
+
+    return (
+        <span>
+            Please{' '}
+            <Link to="https://posthog.com/support" target="_blank">
+                contact support
+            </Link>{' '}
+            for help resolving this issue.
+        </span>
+    )
+}
+
 function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
     const typeLabel = getTypeLabel(issue)
     const statusLabel = getStatusLabel(issue.status)
     const statusTagType = getStatusTagType(issue.status)
+
+    // Materialized views don't have a user-accessible page, so we don't link them
+    const showLink = issue.url && issue.type !== 'materialized_view'
 
     return (
         <div className="border rounded p-3 bg-surface-primary">
@@ -147,8 +183,8 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
                 <div className="mt-0.5">{getIssueIcon(issue.type)}</div>
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                        {issue.url ? (
-                            <Link to={issue.url} className="font-semibold truncate">
+                        {showLink ? (
+                            <Link to={issue.url!} className="font-semibold truncate">
                                 {issue.name}
                             </Link>
                         ) : (
@@ -168,6 +204,9 @@ function HealthIssueCard({ issue }: { issue: DataHealthIssue }): JSX.Element {
                         <div className="text-xs text-muted">
                             {statusLabel} {humanFriendlyDetailedTime(issue.failed_at)}
                         </div>
+                    )}
+                    {issue.type === 'materialized_view' && (
+                        <div className="text-xs text-muted mt-2">{getErrorLabelForMaterializedView(issue.error)}</div>
                     )}
                 </div>
             </div>

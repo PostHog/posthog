@@ -6,13 +6,12 @@ import api from 'lib/api'
 import { getRelativeNextPath } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { UseCaseOption, getRecommendedProducts, getSortedUseCases } from 'scenes/onboarding/productRecommendations'
+import { USE_CASE_OPTIONS, UseCaseOption, getRecommendedProducts } from 'scenes/onboarding/productRecommendations'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, UserType } from '~/types'
+import { OnboardingStepKey } from '~/types'
 
 import { availableOnboardingProducts } from '../utils'
 import {
@@ -220,10 +219,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             },
         ],
 
-        useCases: [
-            () => [userLogic.selectors.user],
-            (user: UserType | null) => getSortedUseCases(user?.role_at_organization),
-        ],
+        useCases: [() => [], () => USE_CASE_OPTIONS],
 
         canContinue: [(s) => [s.selectedProducts], (selectedProducts): boolean => selectedProducts.length > 0],
 
