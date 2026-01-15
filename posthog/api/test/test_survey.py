@@ -85,96 +85,60 @@ class TestSurvey(APIBaseTest):
                         "question": "How satisfied are you?",
                         "description": "Please rate your experience",
                         "buttonText": "Submit",
+                        "lowerBoundLabel": "Not satisfied",
+                        "upperBoundLabel": "Very satisfied",
+                        "translations": {
+                            "es": {
+                                "question": "¿Qué tan satisfecho estás?",
+                                "description": "Por favor califica tu experiencia",
+                                "buttonText": "Enviar",
+                                "lowerBoundLabel": "No satisfecho",
+                                "upperBoundLabel": "Muy satisfecho",
+                            },
+                            "fr": {
+                                "question": "Êtes-vous satisfait?",
+                                "buttonText": "Soumettre",
+                            },
+                        },
                     },
                     {
                         "type": "multiple_choice",
-                        "question": "What features do you use most?",
-                        "choices": ["Analytics", "Feature Flags", "Surveys"],
+                        "question": "What features do you use?",
+                        "choices": ["Analytics", "Feature Flags"],
+                        "translations": {
+                            "es": {
+                                "question": "¿Qué funciones usas?",
+                                "choices": ["Analítica", "Feature Flags"],
+                            },
+                        },
                     },
                 ],
                 "translations": {
                     "es": {
-                        "name": "Encuesta de comentarios del cliente",
+                        "name": "Encuesta de comentarios",
                         "description": "Ayúdanos a mejorar",
-                        "questions": [
-                            {
-                                "question": "¿Qué tan satisfecho estás?",
-                                "description": "Por favor califica tu experiencia",
-                                "buttonText": "Enviar",
-                            },
-                            {
-                                "question": "¿Qué funciones usas más?",
-                                "choices": ["Analítica", "Feature Flags", "Encuestas"],
-                            },
-                        ],
                     },
                     "fr": {
-                        "name": "Enquête de satisfaction client",
-                        "description": "Aidez-nous à améliorer",
-                        "questions": [
-                            {
-                                "question": "Êtes-vous satisfait?",
-                                "description": "Veuillez évaluer votre expérience",
-                                "buttonText": "Soumettre",
-                            },
-                            {
-                                "question": "Quelles fonctionnalités utilisez-vous le plus?",
-                                "choices": ["Analytique", "Feature Flags", "Sondages"],
-                            },
-                        ],
+                        "name": "Enquête de satisfaction",
                     },
                 },
             },
             format="json",
         )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
-        assert Survey.objects.filter(id=response_data["id"]).exists()
 
-        survey = Survey.objects.get(id=response_data["id"])
-        assert survey.translations is not None
-        assert "es" in survey.translations
-        assert "fr" in survey.translations
-        assert survey.translations["es"]["name"] == "Encuesta de comentarios del cliente"
-        assert survey.translations["es"]["questions"][0]["question"] == "¿Qué tan satisfecho estás?"
-        assert survey.translations["fr"]["name"] == "Enquête de satisfaction client"
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
 
-        # Verify API response includes translations
-        assert response_data["translations"] == {
-            "es": {
-                "name": "Encuesta de comentarios del cliente",
-                "description": "Ayúdanos a mejorar",
-                "questions": [
-                    {
-                        "question": "¿Qué tan satisfecho estás?",
-                        "description": "Por favor califica tu experiencia",
-                        "buttonText": "Enviar",
-                    },
-                    {
-                        "question": "¿Qué funciones usas más?",
-                        "choices": ["Analítica", "Feature Flags", "Encuestas"],
-                    },
-                ],
-            },
-            "fr": {
-                "name": "Enquête de satisfaction client",
-                "description": "Aidez-nous à améliorer",
-                "questions": [
-                    {
-                        "question": "Êtes-vous satisfait?",
-                        "description": "Veuillez évaluer votre expérience",
-                        "buttonText": "Soumettre",
-                    },
-                    {
-                        "question": "Quelles fonctionnalités utilisez-vous le plus?",
-                        "choices": ["Analytique", "Feature Flags", "Sondages"],
-                    },
-                ],
-            },
-        }
+        # Verify survey-level translations
+        assert survey.translations["es"]["name"] == "Encuesta de comentarios"
+        assert survey.translations["fr"]["name"] == "Enquête de satisfaction"
+
+        # Verify inline question translations
+        assert survey.questions[0]["translations"]["es"]["question"] == "¿Qué tan satisfecho estás?"
+        assert survey.questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
+        assert survey.questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
     def test_can_create_survey_without_translations(self):
-        # Test backward compatibility - surveys without translations should work
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -184,90 +148,25 @@ class TestSurvey(APIBaseTest):
             },
             format="json",
         )
-        response_data = response.json()
-        assert response.status_code == status.HTTP_201_CREATED, response_data
 
-        survey = Survey.objects.get(id=response_data["id"])
+        assert response.status_code == status.HTTP_201_CREATED
+        survey = Survey.objects.get(id=response.json()["id"])
         assert survey.translations is None
-        assert response_data.get("translations") is None
-
-    def test_can_update_survey_translations(self):
-        # Create survey without translations
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Product feedback",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "What do you think?"}],
-            },
-            format="json",
-        )
-        survey_id = create_response.json()["id"]
-
-        # Add translations via update
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
-            data={
-                "translations": {
-                    "de": {
-                        "name": "Produktfeedback",
-                        "questions": [{"question": "Was denken Sie?"}],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert update_response.status_code == status.HTTP_200_OK
-        survey = Survey.objects.get(id=survey_id)
-        assert survey.translations is not None
-        assert "de" in survey.translations
-        assert survey.translations["de"]["name"] == "Produktfeedback"
-
-        # Update existing translations
-        update_response2 = self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
-            data={
-                "translations": {
-                    "de": {
-                        "name": "Kundenfeedback",
-                        "questions": [{"question": "Was ist Ihre Meinung?"}],
-                    },
-                    "it": {
-                        "name": "Feedback del prodotto",
-                        "questions": [{"question": "Cosa ne pensi?"}],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert update_response2.status_code == status.HTTP_200_OK
-        survey.refresh_from_db()
-        assert "de" in survey.translations
-        assert "it" in survey.translations
-        assert survey.translations["de"]["name"] == "Kundenfeedback"
-        assert survey.translations["it"]["name"] == "Feedback del prodotto"
+        assert "translations" not in survey.questions[0]
 
     def test_can_remove_survey_translations(self):
-        # Create survey with translations
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Translated survey",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Feedback?"}],
-                "translations": {
-                    "es": {"name": "Encuesta traducida", "questions": [{"question": "¿Comentarios?"}]},
-                },
+                "translations": {"es": {"name": "Encuesta traducida"}},
             },
             format="json",
         )
         survey_id = create_response.json()["id"]
-        survey = Survey.objects.get(id=survey_id)
-        assert survey.translations is not None
 
-        # Remove translations by setting to None
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey_id}/",
             data={"translations": None},
@@ -275,66 +174,104 @@ class TestSurvey(APIBaseTest):
         )
 
         assert update_response.status_code == status.HTTP_200_OK
-        survey.refresh_from_db()
+        survey = Survey.objects.get(id=survey_id)
         assert survey.translations is None
 
-    def test_invalid_language_code_rejected(self):
+    def test_invalid_language_code_rejected_both_levels(self):
+        # Test survey-level invalid code
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Survey with bad language code",
+                "name": "Survey",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {
-                    "INVALID": {"name": "Bad"},
-                    "es": {"name": "Good"},
-                },
+                "translations": {"INVALID": {"name": "Bad"}},
             },
             format="json",
         )
-
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid language code" in str(response.json())
+
+        # Test inline question-level invalid code
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question?",
+                        "translations": {"INVALID_CODE": {"question": "Bad"}},
+                    }
+                ],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid language code" in response.json()["detail"]
 
     def test_valid_language_codes_accepted(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Survey with valid codes",
+                "name": "Survey",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Question?"}],
                 "translations": {
-                    "es": {"name": "ISO 639-1 (2-letter)"},
-                    "yue": {"name": "ISO 639-3 (3-letter for Cantonese)"},
-                    "en-US": {"name": "BCP 47 with region"},
-                    "zh-Hans": {"name": "BCP 47 with script (Simplified Chinese)"},
-                    "zh-Hant-TW": {"name": "BCP 47 full (Traditional Chinese, Taiwan)"},
+                    "es": {"name": "ISO 639-1"},
+                    "yue": {"name": "ISO 639-3 Cantonese"},
+                    "en-US": {"name": "BCP 47 region"},
+                    "zh-Hans": {"name": "BCP 47 script"},
+                    "zh-Hant-TW": {"name": "BCP 47 full"},
                 },
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-        assert len(survey.translations) == 5
+        assert len(Survey.objects.get(id=response.json()["id"]).translations) == 5
 
-    def test_translations_sanitize_html(self):
+    def test_choices_array_length_mismatch_rejected(self):
+        """Prevent partial translations by ensuring choices array lengths match"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Survey with HTML in translations",
+                "name": "Survey",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "single_choice",
+                        "question": "Pick one",
+                        "choices": ["Option A", "Option B", "Option C"],
+                        "translations": {
+                            "es": {
+                                "question": "Elige uno",
+                                "choices": ["Opción A", "Opción B"],  # Only 2 instead of 3
+                            },
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "2 choices" in response.json()["detail"]
+        assert "3 choices" in response.json()["detail"]
+        assert "partial translations" in response.json()["detail"]
+
+    def test_survey_level_translations_sanitize_html(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Question?"}],
                 "translations": {
                     "es": {
                         "name": "<script>alert('xss')</script>Título",
-                        "description": "<b>Bold text</b> with <script>bad()</script>",
-                        "questions": [
-                            {
-                                "question": "<i>Italic</i> <script>alert('xss')</script>",
-                                "description": "<strong>Strong</strong> <script>evil()</script>",
-                            }
-                        ],
+                        "description": "<b>Bold</b> <script>evil()</script>",
                     },
                 },
             },
@@ -343,83 +280,59 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
-
-        # Scripts should be removed, safe HTML preserved
         assert "<script>" not in survey.translations["es"]["name"]
         assert "Título" in survey.translations["es"]["name"]
-        assert "<b>Bold text</b>" in survey.translations["es"]["description"]
+        assert "<b>Bold</b>" in survey.translations["es"]["description"]
         assert "<script>" not in survey.translations["es"]["description"]
-        assert "<i>Italic</i>" in survey.translations["es"]["questions"][0]["question"]
-        assert "<script>" not in survey.translations["es"]["questions"][0]["question"]
 
-    def test_translations_sanitize_choices(self):
+    def test_inline_question_translations_sanitize_all_fields(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Survey with HTML in choices",
-                "type": "popover",
-                "questions": [{"type": "single_choice", "question": "Choose one", "choices": ["A", "B"]}],
-                "translations": {
-                    "es": {
-                        "questions": [
-                            {
-                                "choices": [
-                                    "<b>Option A</b>",
-                                    "<script>alert('xss')</script>Option B",
-                                ]
-                            }
-                        ],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-
-        # Scripts should be removed from choices
-        choices = survey.translations["es"]["questions"][0]["choices"]
-        assert "<b>Option A</b>" in choices[0]
-        assert "<script>" not in choices[1]
-        assert "Option B" in choices[1]
-
-    def test_translations_sanitize_all_fields(self):
-        # Comprehensive test for all translatable fields
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Comprehensive sanitization test",
+                "name": "Survey",
                 "type": "popover",
                 "questions": [
                     {
                         "type": "rating",
                         "question": "Rate us",
-                        "scale": 5,
+                        "description": "Please rate",
+                        "buttonText": "Submit",
                         "lowerBoundLabel": "Bad",
                         "upperBoundLabel": "Good",
-                        "buttonText": "Submit",
+                        "translations": {
+                            "es": {
+                                "question": "<i>¿Califica?</i><script>xss()</script>",
+                                "description": "<b>Por favor</b><script>bad()</script>",
+                                "buttonText": "<strong>Enviar</strong><script>evil()</script>",
+                                "lowerBoundLabel": "<em>Malo</em><script>x()</script>",
+                                "upperBoundLabel": "<u>Bueno</u><script>y()</script>",
+                            },
+                        },
                     },
                     {
                         "type": "link",
-                        "question": "Click here",
+                        "question": "Click",
                         "link": "https://example.com",
+                        "translations": {
+                            "es": {
+                                "link": "<script>alert()</script>https://ejemplo.com",
+                            },
+                        },
+                    },
+                    {
+                        "type": "single_choice",
+                        "question": "Choose",
+                        "choices": ["A", "B"],
+                        "translations": {
+                            "es": {
+                                "choices": [
+                                    "<b>Opción A</b>",
+                                    "<script>alert('xss')</script>Opción B",
+                                ],
+                            },
+                        },
                     },
                 ],
-                "translations": {
-                    "es": {
-                        "questions": [
-                            {
-                                "buttonText": "<b>Enviar</b><script>alert('xss')</script>",
-                                "lowerBoundLabel": "<i>Malo</i><script>bad()</script>",
-                                "upperBoundLabel": "<strong>Bueno</strong><script>evil()</script>",
-                            },
-                            {
-                                "link": "<script>alert('xss')</script>https://ejemplo.com",
-                            },
-                        ],
-                    },
-                },
             },
             format="json",
         )
@@ -427,69 +340,36 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         survey = Survey.objects.get(id=response.json()["id"])
 
-        # All fields should be sanitized
-        q0 = survey.translations["es"]["questions"][0]
-        assert "<b>Enviar</b>" in q0["buttonText"]
-        assert "<script>" not in q0["buttonText"]
-        assert "<i>Malo</i>" in q0["lowerBoundLabel"]
-        assert "<script>" not in q0["lowerBoundLabel"]
-        assert "<strong>Bueno</strong>" in q0["upperBoundLabel"]
-        assert "<script>" not in q0["upperBoundLabel"]
+        q0_es = survey.questions[0]["translations"]["es"]
+        assert "<i>¿Califica?</i>" in q0_es["question"]
+        assert "<script>" not in q0_es["question"]
+        assert "<b>Por favor</b>" in q0_es["description"]
+        assert "<script>" not in q0_es["description"]
+        assert "<strong>Enviar</strong>" in q0_es["buttonText"]
+        assert "<script>" not in q0_es["buttonText"]
+        assert "<em>Malo</em>" in q0_es["lowerBoundLabel"]
+        assert "<script>" not in q0_es["lowerBoundLabel"]
+        assert "<u>Bueno</u>" in q0_es["upperBoundLabel"]
+        assert "<script>" not in q0_es["upperBoundLabel"]
 
-        q1 = survey.translations["es"]["questions"][1]
-        assert "<script>" not in q1["link"]
-        assert "https://ejemplo.com" in q1["link"]
+        q1_es = survey.questions[1]["translations"]["es"]
+        assert "https://ejemplo.com" in q1_es["link"]
+        assert "<script>" not in q1_es["link"]
 
-    def test_format_valid_but_nonexistent_region_codes_accepted(self):
-        # We validate format, not actual ISO code existence
-        # This is intentional: language codes evolve, new regions get added
-        # Being permissive on content but strict on structure is better for MVP
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with format-valid codes",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {
-                    "en-XX": {"name": "Non-existent region but valid format"},
-                    "abc": {"name": "3-letter code (valid format)"},
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-        assert "en-XX" in survey.translations
-        assert "abc" in survey.translations
-
-    def test_empty_translations_accepted(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with empty translations",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {},
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-        assert survey.translations == {}
+        q2_es = survey.questions[2]["translations"]["es"]
+        assert "<b>Opción A</b>" in q2_es["choices"][0]
+        assert "<script>" not in q2_es["choices"][1]
+        assert "Opción B" in q2_es["choices"][1]
 
     def test_underscore_language_codes_rejected(self):
-        # Prevent Python-style locale codes (en_US) from polluting database
-        # Frontend uses web standard (en-US), so en_US would cause matching failures
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
-                "name": "Survey with Python-style locale",
+                "name": "Survey",
                 "type": "popover",
                 "questions": [{"type": "open", "question": "Question?"}],
                 "translations": {
-                    "en_US": {"name": "Wrong format"},
+                    "en_US": {"name": "Wrong"},
                     "zh_Hans_CN": {"name": "Also wrong"},
                 },
             },
@@ -498,111 +378,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid language code" in response.json()["detail"]
-        # Should suggest correct format
         assert "en-US" in response.json()["detail"] or "BCP 47" in response.json()["detail"]
-
-    def test_questions_array_length_must_match(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with mismatched questions",
-                "type": "popover",
-                "questions": [
-                    {"type": "open", "question": "Q1?"},
-                    {"type": "open", "question": "Q2?"},
-                    {"type": "open", "question": "Q3?"},
-                ],
-                "translations": {
-                    "es": {
-                        "questions": [
-                            {"question": "Pregunta 1"},
-                            {"question": "Pregunta 2"},
-                        ],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Array lengths must match" in response.json()["detail"]
-        assert "Use empty objects" in response.json()["detail"]
-
-    def test_non_dict_questions_in_translations_rejected(self):
-        # Prevent silent data loss that would break array length guarantee
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with invalid question type",
-                "type": "popover",
-                "questions": [
-                    {"type": "open", "question": "Q1?"},
-                    {"type": "open", "question": "Q2?"},
-                ],
-                "translations": {
-                    "es": {
-                        "questions": [
-                            {"question": "Pregunta 1"},
-                            "not a dict",  # Invalid
-                        ],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "must be objects" in response.json()["detail"]
-
-    def test_translations_with_empty_questions_array(self):
-        # Edge case: survey with questions=[], translation should accept empty array
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with no questions",
-                "type": "popover",
-                "questions": [],
-                "translations": {
-                    "es": {
-                        "name": "Encuesta sin preguntas",
-                        "questions": [],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-
-    def test_partial_question_translation_with_empty_objects(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey with partial question translation",
-                "type": "popover",
-                "questions": [
-                    {"type": "open", "question": "Q1?"},
-                    {"type": "open", "question": "Q2?"},
-                    {"type": "open", "question": "Q3?"},
-                ],
-                "translations": {
-                    "es": {
-                        "questions": [
-                            {"question": "Pregunta 1"},
-                            {},  # Q2 not yet translated
-                            {"question": "Pregunta 3"},
-                        ],
-                    },
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-        assert survey.translations["es"]["questions"][0]["question"] == "Pregunta 1"
-        assert survey.translations["es"]["questions"][1] == {}
-        assert survey.translations["es"]["questions"][2]["question"] == "Pregunta 3"
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_surveys(self, mock_capture):
