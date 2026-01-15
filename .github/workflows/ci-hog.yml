@@ -133,12 +133,6 @@ jobs:
                   bin/turbo --filter=@posthog/hogvm build
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
-            - name: Upload test results
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always()
-              with:
-                  name: junit-results-hogvm
-                  path: junit.xml
 
     check-package-version:
         name: Check HogVM TypeScript package version and detect an update
