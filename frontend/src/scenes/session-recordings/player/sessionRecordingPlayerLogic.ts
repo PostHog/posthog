@@ -49,9 +49,11 @@ import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOv
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
+import { setupFeedbackAudioObserver } from './rrweb/audio/feedback-audio-observer'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { isMediaElementPlaying } from './utils/media-utils'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -156,9 +158,6 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
     [SessionPlayerState.SKIP_TO_MATCHING_EVENT]: 'playing',
     [SessionPlayerState.SCRUB]: 'playing',
 }
-
-const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
-    !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
 function removeFromLocalStorageWithPrefix(prefix: string): void {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -1294,53 +1293,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                     clearTimeout(pauseTimeoutId)
                                 }
                             })
-
-                    // Set up MutationObserver to detect new feedback audio elements
-                    cache.disposables.add(() => {
-                        const observer = new MutationObserver((mutations) => {
-                            mutations.forEach((mutation) => {
-                                mutation.addedNodes.forEach((node) => {
-                                    if (node.nodeType === 1) {
-                                        const element = node as Element
-
-                                        // Check if the added element is a feedback audio element
-                                        if (
-                                            element.tagName === 'AUDIO' &&
-                                            element.getAttribute('data-posthog-recording') === 'true'
-                                        ) {
-                                            const audio = element as HTMLAudioElement
-                                            if (!isMediaElementPlaying(audio)) {
-                                                audio.play().catch(() => {})
-                                            }
-                                            return // exit early as we only expect one PostHog audio element per added node
-                                        }
-
-                                        // Also check for any audio elements within the added element - just in case!
-                                        const audioElements = element.querySelectorAll(
-                                            'audio[data-posthog-recording="true"]'
-                                        )
-                                        audioElements.forEach((audioElement) => {
-                                            const audio = audioElement as HTMLAudioElement
-                                            if (!isMediaElementPlaying(audio)) {
-                                                audio.play().catch(() => {})
-                                            }
-                                        })
-                                    }
-                                })
-                            })
-                        })
-
-                        observer.observe(iframeContentWindow.document.body, {
-                            childList: true,
-                            subtree: true,
-                        })
-
-                        return () => {
-                            observer.disconnect()
-                        }
-                    }, 'feedbackAudioObserver')
                         } else {
                             setupErrorHandlers()
+                        }
+
+                        // Set up MutationObserver to detect new feedback audio elements
+                        // This runs regardless of the iframe ready feature flag
+                        if (iframeContentWindow?.document?.body) {
+                            const observer = setupFeedbackAudioObserver(iframeContentWindow.document.body)
+                            iframeCleanups.push(() => {
+                                observer.disconnect()
+                            })
                         }
                     })
 

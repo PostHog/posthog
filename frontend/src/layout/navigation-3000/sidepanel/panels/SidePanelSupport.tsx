@@ -268,8 +268,6 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest, setSendSupportRequestValue } =
         useActions(supportLogic)
