@@ -149,10 +149,5 @@ async function registerSkillResources(server: McpServer, context: Context): Prom
  * Skills are the primary resource type - loaded from skills-mcp-resources.zip
  */
 export async function registerResources(server: McpServer, context: Context): Promise<void> {
-    try {
-        await registerSkillResources(server, context)
-    } catch (error) {
-        console.error('Failed to register skill resources:', error)
-        throw error
-    }
+    await registerSkillResources(server, context)
 }
