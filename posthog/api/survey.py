@@ -478,15 +478,20 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
                 # Validate choices array length matches if present
                 original_choices = raw_question.get("choices")
-                if original_choices and isinstance(original_choices, list):
-                    for lang_code, translation_data in cleaned_translations.items():
-                        if "choices" in translation_data:
-                            translated_choices = translation_data["choices"]
-                            if len(translated_choices) != len(original_choices):
-                                raise serializers.ValidationError(
-                                    f"Question {index}: Translation '{lang_code}' has {len(translated_choices)} choices "
-                                    f"but question has {len(original_choices)} choices. Array lengths must match to avoid partial translations."
-                                )
+                for lang_code, translation_data in cleaned_translations.items():
+                    if "choices" in translation_data:
+                        # Reject choices in translation if original question doesn't have choices
+                        if not original_choices or not isinstance(original_choices, list):
+                            raise serializers.ValidationError(
+                                f"Question {index}: Translation '{lang_code}' has choices field but original question does not have choices"
+                            )
+
+                        translated_choices = translation_data["choices"]
+                        if len(translated_choices) != len(original_choices):
+                            raise serializers.ValidationError(
+                                f"Question {index}: Translation '{lang_code}' has {len(translated_choices)} choices "
+                                f"but question has {len(original_choices)} choices. Array lengths must match to avoid partial translations."
+                            )
 
                 cleaned_question["translations"] = cleaned_translations
 
