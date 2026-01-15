@@ -376,10 +376,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 # Index-based mapping only works if lengths match
                 # For updates, check instance; for creates, check initial_data
                 main_questions = (
-                    self.initial_data.get("questions")
-                    if self.initial_data.get("questions")
+                    self.initial_data["questions"]
+                    if "questions" in self.initial_data
                     else (self.instance.questions if self.instance else [])
                 )
+
+                # Handle None case (questions field is nullable)
+                if main_questions is None:
+                    main_questions = []
+
                 if len(translation_data["questions"]) != len(main_questions):
                     raise serializers.ValidationError(
                         f"Translation '{lang_code}' has {len(translation_data['questions'])} questions, "
