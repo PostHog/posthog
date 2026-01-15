@@ -1,6 +1,7 @@
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService, get_model_limits
 from llm_gateway.rate_limiting.model_throttles import (
     ProductModelInputTokenThrottle,
@@ -265,3 +266,88 @@ class TestUserThrottles:
 
         key = throttle._get_cache_key(context)
         assert key == "user:42:model:claude-3-5-haiku-20241022:input"
+
+
+class TestTeamRateLimitMultipliers:
+    async def test_cache_key_has_no_suffix_for_default_multiplier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", "{}")
+        get_settings.cache_clear()
+
+        throttle = UserModelInputTokenThrottle(redis=None)
+        user = make_user(user_id=1, team_id=99)
+        context = make_context(user=user, model="claude-3-5-haiku-20241022")
+
+        key = throttle._get_cache_key(context)
+        assert ":tm" not in key
+        assert key == "user:1:model:claude-3-5-haiku-20241022:input"
+        get_settings.cache_clear()
+
+    async def test_cache_key_includes_multiplier_suffix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+
+        throttle = UserModelInputTokenThrottle(redis=None)
+        user = make_user(user_id=1, team_id=2)
+        context = make_context(user=user, model="claude-3-5-haiku-20241022")
+
+        key = throttle._get_cache_key(context)
+        assert key == "user:1:model:claude-3-5-haiku-20241022:input:tm10"
+        get_settings.cache_clear()
+
+    async def test_product_cache_key_includes_multiplier_suffix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+
+        throttle = ProductModelInputTokenThrottle(redis=None)
+        user = make_user(user_id=1, team_id=2)
+        context = make_context(user=user, model="claude-3-5-haiku-20241022", product="wizard")
+
+        key = throttle._get_cache_key(context)
+        assert key == "product:wizard:model:claude-3-5-haiku-20241022:input:tm10"
+        get_settings.cache_clear()
+
+    async def test_team_with_multiplier_gets_higher_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+
+        throttle = UserModelInputTokenThrottle(redis=None)
+        limits = get_model_limits("claude-3-5-haiku-20241022")
+        base_fallback_limit = limits["input_tph"] // 10
+
+        user_with_multiplier = make_user(user_id=1, team_id=2)
+        context = make_context(
+            user=user_with_multiplier,
+            model="claude-3-5-haiku-20241022",
+            input_tokens=base_fallback_limit,
+        )
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is True, "Should allow 2x the base limit with 10x multiplier"
+
+        get_settings.cache_clear()
+
+    async def test_team_without_multiplier_uses_default_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+
+        throttle = UserModelInputTokenThrottle(redis=None)
+        limits = get_model_limits("claude-3-5-haiku-20241022")
+        fallback_limit = limits["input_tph"] // 10
+
+        user_no_multiplier = make_user(user_id=2, team_id=99)
+        context = make_context(
+            user=user_no_multiplier,
+            model="claude-3-5-haiku-20241022",
+            input_tokens=fallback_limit,
+        )
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False, "Should deny after exceeding base limit"
+
+        get_settings.cache_clear()

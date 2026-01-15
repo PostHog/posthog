@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.feature_flag import FeatureFlag
@@ -408,3 +409,83 @@ class TestProductTourInternalTargetingFlag(APIBaseTest):
         assert tour.internal_targeting_flag is not None
         assert tour.internal_targeting_flag.id == flag_id
         assert FeatureFlag.objects.get(id=flag_id).active
+
+    @parameterized.expand(
+        [
+            # (display_frequency, expected_exclusion_key_substrings)
+            ("show_once", ["$product_tour_shown"]),
+            ("until_interacted", ["$product_tour_completed", "$product_tour_dismissed"]),
+            ("always", []),
+            (None, ["$product_tour_completed", "$product_tour_dismissed"]),  # default behavior
+        ]
+    )
+    def test_flag_exclusion_properties_on_create(self, display_frequency, expected_key_substrings):
+        content: dict = {"steps": []}
+        if display_frequency is not None:
+            content["displayFrequency"] = display_frequency
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Display frequency test",
+                "content": content,
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        tour = ProductTour.objects.get(id=response.json()["id"])
+        assert tour.internal_targeting_flag is not None
+
+        properties = tour.internal_targeting_flag.filters.get("groups", [{}])[0].get("properties", [])
+        property_keys = [p.get("key", "") for p in properties]
+
+        if expected_key_substrings:
+            for substring in expected_key_substrings:
+                assert any(substring in key for key in property_keys), f"Expected {substring} in {property_keys}"
+        else:
+            assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"
+
+    @parameterized.expand(
+        [
+            # (initial_frequency, new_frequency, expected_exclusion_key_substrings)
+            ("show_once", "until_interacted", ["$product_tour_completed", "$product_tour_dismissed"]),
+            ("until_interacted", "show_once", ["$product_tour_shown"]),
+            ("show_once", "always", []),
+            ("always", "until_interacted", ["$product_tour_completed", "$product_tour_dismissed"]),
+        ]
+    )
+    def test_flag_exclusion_properties_updated_on_display_frequency_change(
+        self, initial_frequency, new_frequency, expected_key_substrings
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Frequency change test",
+                "content": {"displayFrequency": initial_frequency, "steps": []},
+                "auto_launch": True,
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        tour_id = response.json()["id"]
+        tour = ProductTour.objects.get(id=tour_id)
+
+        # Update displayFrequency
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour_id}/",
+            data={"content": {"displayFrequency": new_frequency, "steps": []}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        assert tour.internal_targeting_flag is not None
+        tour.internal_targeting_flag.refresh_from_db()
+        properties = tour.internal_targeting_flag.filters.get("groups", [{}])[0].get("properties", [])
+        property_keys = [p.get("key", "") for p in properties]
+
+        if expected_key_substrings:
+            for substring in expected_key_substrings:
+                assert any(substring in key for key in property_keys), f"Expected {substring} in {property_keys}"
+        else:
+            assert len(properties) == 0, f"Expected no exclusion properties, got {properties}"

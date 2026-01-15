@@ -1,5 +1,7 @@
+import json
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -38,6 +40,36 @@ class Settings(BaseSettings):
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
     auth_cache_max_size: int = 10000
     auth_cache_ttl: int = 900  # 15 minutes
+
+    team_rate_limit_multipliers: dict[int, int] = {}
+
+    @field_validator("team_rate_limit_multipliers", mode="before")
+    @classmethod
+    def parse_team_multipliers(cls, v: str | dict[int, int] | None) -> dict[int, int]:
+        if v is None or v == "":
+            return {}
+        if isinstance(v, dict):
+            return v
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in team_rate_limit_multipliers: {e}") from e
+
+        if not isinstance(parsed, dict):
+            raise ValueError("team_rate_limit_multipliers must be a JSON object")
+
+        try:
+            result = {int(k): int(val) for k, val in parsed.items()}
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"team_rate_limit_multipliers keys and values must be integers: {e}") from e
+
+        for team_id, multiplier in result.items():
+            if multiplier < 1:
+                raise ValueError(
+                    f"team_rate_limit_multipliers values must be >= 1, got {multiplier} for team {team_id}"
+                )
+
+        return result
 
     model_config = {"env_prefix": "LLM_GATEWAY_"}
 
