@@ -252,7 +252,7 @@ export function WorkflowsTable(): JSX.Element {
         !workflowsLoading && filteredWorkflows.length === 0 && !filters.search && !filters.createdBy && !filters.status
 
     return (
-        <div className="workflows-section">
+        <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             {showProductIntroduction && (
                 <ProductIntroduction
                     productName="Workflow"

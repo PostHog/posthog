@@ -32,6 +32,12 @@ test.describe('Workflows', () => {
         // Wait for the page to load
         await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
 
+        // Wait for workflows table to finish loading
+        await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
+
+        // Wait for any sidebar loading to finish
+        await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
+
         // Take a screenshot of the workflows list page
         await expect(page).toHaveScreenshot('workflows-list.png', {
             fullPage: true,
@@ -41,6 +47,9 @@ test.describe('Workflows', () => {
     test('setup new workflow', async ({ page }) => {
         // Wait for the page to load
         await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
+
+        // Wait for workflows table to finish loading before clicking
+        await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
 
         // Click on the "New Workflow" button
         await page.click('[data-attr="new-workflow"]')
@@ -53,6 +62,9 @@ test.describe('Workflows', () => {
 
         // Wait for the new workflow page to load
         await page.waitForSelector('[data-attr="workflow-editor"]', { timeout: 10000 })
+
+        // Wait for any loading to finish
+        await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
         // Take a screenshot of the new workflow page
         await expect(page).toHaveScreenshot('new-workflow.png', {
