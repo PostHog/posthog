@@ -52,7 +52,7 @@ function HogFlowEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     return (
-        <div ref={reactFlowWrapper} className="flex flex-col grow w-full">
+        <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
             <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
                 className="grow"
                 fitView

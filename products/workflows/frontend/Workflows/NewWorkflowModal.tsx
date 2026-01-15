@@ -4,9 +4,9 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-import { WorkflowTemplateChooser } from './WorkflowTemplateChooser'
 import { newWorkflowLogic } from './newWorkflowLogic'
-import { workflowTemplatesLogic } from './workflowTemplatesLogic'
+import { WorkflowTemplateChooser } from './templates/WorkflowTemplateChooser'
+import { workflowTemplatesLogic } from './templates/workflowTemplatesLogic'
 
 export function NewWorkflowModal(): JSX.Element {
     const { hideNewWorkflowModal } = useActions(newWorkflowLogic)

@@ -5,8 +5,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import type { HogFlowTemplate } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+import type { HogFlowTemplate } from '../hogflows/types'
+import { workflowLogic } from '../workflowLogic'
 import type { workflowTemplateLogicType } from './workflowTemplateLogicType'
 import { workflowTemplatesLogic } from './workflowTemplatesLogic'
 
