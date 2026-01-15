@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -14,6 +14,10 @@ import { Breadcrumb, DataWarehouseSyncInterval, EndpointType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
+
+export interface EndpointSceneLogicProps {
+    tabId: string
+}
 
 export function generateEndpointPayload(endpoint: EndpointType | null): Record<string, any> {
     if (!endpoint) {
@@ -56,11 +60,12 @@ export enum EndpointTab {
 }
 
 export const endpointSceneLogic = kea<endpointSceneLogicType>([
+    props({} as EndpointSceneLogicProps),
     path(['products', 'endpoints', 'frontend', 'endpointSceneLogic']),
     tabAwareScene(),
-    connect(() => ({
-        actions: [endpointLogic, ['loadEndpoint', 'loadEndpointSuccess']],
-        values: [endpointLogic, ['endpoint', 'endpointLoading']],
+    connect((props: EndpointSceneLogicProps) => ({
+        actions: [endpointLogic({ tabId: props.tabId }), ['loadEndpoint', 'loadEndpointSuccess']],
+        values: [endpointLogic({ tabId: props.tabId }), ['endpoint', 'endpointLoading']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
@@ -70,6 +75,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
         setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
+        setEndpointName: (name: string | null) => ({ name }),
     }),
     reducers({
         localQuery: [
@@ -115,6 +121,12 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             {
                 setIsMaterialized: (_, { isMaterialized }) => isMaterialized,
                 loadEndpointSuccess: (_, { endpoint }) => endpoint?.is_materialized ?? null,
+            },
+        ],
+        endpointName: [
+            null as string | null,
+            {
+                setEndpointName: (_, { name }) => name,
             },
         ],
     }),
@@ -198,11 +210,21 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
     })),
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.endpoint(':name')]: ({ name }: { name?: string }) => {
+        [urls.endpoint(':name')]: ({ name }: { name?: string }, _, __, currentLocation, previousLocation) => {
             const { searchParams } = router.values
-            if (name) {
-                actions.loadEndpoint(name)
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+
+            if (name && didPathChange) {
+                const isSameEndpoint = values.endpointName === name
+
+                if (!currentLocation.initial && isSameEndpoint) {
+                    // Already viewing this endpoint, skip reload
+                } else {
+                    actions.setEndpointName(name)
+                    actions.loadEndpoint(name)
+                }
             }
+
             if (searchParams.tab && searchParams.tab !== values.activeTab) {
                 actions.setActiveTab(searchParams.tab as EndpointTab)
             } else if (!searchParams.tab && values.activeTab !== EndpointTab.QUERY) {
