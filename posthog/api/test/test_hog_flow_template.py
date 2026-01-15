@@ -402,11 +402,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert response.status_code == 403
         assert "global workflow templates are stored in code" in response.json()["detail"].lower()
 
-    def test_cannot_delete_file_based_global_template_is_already_tested_above(self):
-        """This test is now redundant as we test file-based template deletion elsewhere"""
-        # See test_cannot_delete_file_based_global_template
-        pass
-
     def test_updating_team_template_to_global_is_blocked(self):
         """Test that updating a team template to global scope is blocked"""
         hog_flow_data = self._create_hog_flow_data()
