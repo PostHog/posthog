@@ -1449,6 +1449,8 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** @default false */
     showValuesOnSeries?: boolean
+    /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
+    breakdownSorting?: string
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {

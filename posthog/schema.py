@@ -14079,6 +14079,9 @@ class FunnelsFilter(BaseModel):
     binCount: int | None = None
     breakdownAttributionType: BreakdownAttributionType | None = BreakdownAttributionType.FIRST_TOUCH
     breakdownAttributionValue: int | None = None
+    breakdownSorting: str | None = Field(
+        default=None, description="Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None

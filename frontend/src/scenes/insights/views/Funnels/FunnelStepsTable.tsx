@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { compare as compareFn } from 'natural-orderby'
+import { useEffect } from 'react'
 
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'
@@ -28,20 +30,29 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
-        funnelDataLogic(insightProps)
-    )
-    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, breakdownSorting, getFunnelsColor, isStepOptional } =
+        useValues(funnelDataLogic(insightProps))
+    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
+    const { searchParams } = useValues(router)
+    const { push } = useActions(router)
+
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    // Sync URL with saved sorting on mount
+    useEffect(() => {
+        if (breakdownSorting && !searchParams.order) {
+            push(window.location.pathname, { ...searchParams, order: breakdownSorting }, window.location.hash)
+        }
+    }, [breakdownSorting])
 
     const allChecked = flattenedBreakdowns?.every(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
@@ -382,35 +393,12 @@ export function FunnelStepsTable(): JSX.Element | null {
             useURLForSorting
             onSort={(newSorting) => {
                 if (!newSorting) {
+                    setBreakdownSorting(undefined)
                     return
                 }
-                // Find the column definition by key
-                const findColumnByKey = (
-                    columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
-                    key: string
-                ): LemonTableColumn<
-                    FlattenedFunnelStepByBreakdown,
-                    keyof FlattenedFunnelStepByBreakdown | undefined
-                > | null => {
-                    for (const group of columns) {
-                        for (const col of group.children) {
-                            if (col.key === key || col.dataIndex === key) {
-                                return col
-                            }
-                        }
-                    }
-                    return null
-                }
-                const column = findColumnByKey(columnsGrouped, newSorting.columnKey)
-                const sorter = column?.sorter
-                if (typeof sorter === 'function') {
-                    const sorted = [...flattenedBreakdowns].sort((a, b) => newSorting.order * sorter(a, b))
-                    setBreakdownSortOrder(
-                        sorted
-                            .flatMap((b) => b.breakdown_value ?? [])
-                            .filter((v): v is string | number => v !== undefined)
-                    )
-                }
+                // Format: 'column_key' or '-column_key' for descending
+                const sortString = newSorting.order === -1 ? `-${newSorting.columnKey}` : String(newSorting.columnKey)
+                setBreakdownSorting(sortString)
             }}
         />
     )
