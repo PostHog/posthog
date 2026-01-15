@@ -257,10 +257,12 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
 
                     await breakpoint(100)
 
-                    // Only pass dateRange if it's an explicit date (not a relative default like "-1h")
-                    // Relative dates start with "-" and are defaults, not user-selected filters
+                    // Only pass dateRange if it's an explicit date (not a relative default like "-1h" or "dStart")
+                    // Relative dates start with "-" or "d" and are defaults, not user-selected filters
                     const hasExplicitDateRange =
-                        values.dateFilter?.dateFrom && !values.dateFilter.dateFrom.startsWith('-')
+                        values.dateFilter?.dateFrom &&
+                        !values.dateFilter.dateFrom.startsWith('-') &&
+                        !values.dateFilter.dateFrom.startsWith('d')
 
                     const query: TracesNeighborsQuery = {
                         kind: NodeKind.TracesNeighborsQuery,
