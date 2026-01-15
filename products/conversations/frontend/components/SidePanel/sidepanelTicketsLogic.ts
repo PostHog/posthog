@@ -90,7 +90,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             } catch (e) {
                 console.error('Failed to load tickets:', e)
                 lemonToast.error('Failed to load tickets. Please try again.')
-                actions.incrementPollingFailures()
             } finally {
                 actions.setTicketsLoading(false)
             }
@@ -131,7 +130,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                             status: response.ticket_status,
                             message_count: 1,
                             created_at: response.created_at,
-                            unread_customer_count: 0,
+                            unread_count: 0,
                             last_message_text: content,
                             last_message_at: response.created_at,
                         })
