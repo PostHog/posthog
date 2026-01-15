@@ -81,7 +81,12 @@ from posthog.session_recordings.utils import (
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import session_recording_v2_object_storage
-from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.storage.session_recording_v2_object_storage import (
+    BlockFetchError,
+    BlockStorage,
+    RecordingApiFetchError,
+    encrypted_block_storage,
+)
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
@@ -1243,24 +1248,37 @@ class SessionRecordingViewSet(
 
         return blocks
 
+    def _should_use_recording_api(self) -> bool:
+        """Check if we should use the Recording API for fetching blocks."""
+        if not settings.RECORDING_API_URL:
+            return False
+
+        return posthoganalytics.feature_enabled(
+            "session-replay-use-recording-api",
+            str(self.team.id),
+            groups={"organization": str(self.team.organization_id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
     async def _fetch_blocks_parallel(
         self,
         blocks: BlockList,
         min_blob_key: int,
         max_blob_key: int,
         recording: SessionRecording,
-        async_storage_client,
+        block_storage: BlockStorage,
         decompress: bool,
     ) -> BlockList:
         async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
             try:
                 block = blocks[block_index]
                 if decompress:
-                    content = await async_storage_client.fetch_block(block.url)
+                    content = await block_storage.fetch_block(block.url, recording.session_id, self.team.id)
                 else:
-                    content = await async_storage_client.fetch_block_bytes(block.url)
+                    content = await block_storage.fetch_block_bytes(block.url, recording.session_id, self.team.id)
                 return block_index, content
-            except BlockFetchError:
+            except (BlockFetchError, RecordingApiFetchError):
                 logger.exception(
                     "Failed to fetch block",
                     recording_id=recording.session_id,
@@ -1296,19 +1314,36 @@ class SessionRecordingViewSet(
     ) -> HttpResponse:
         blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
 
-        async with session_recording_v2_object_storage.async_client() as async_storage:
-            with (
-                timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
-            ):
-                blocks_data = await self._fetch_blocks_parallel(
-                    blocks,
-                    min_blob_key,
-                    max_blob_key,
-                    recording,
-                    async_storage,
-                    decompress=True,
-                )
+        use_recording_api = self._should_use_recording_api()
+
+        if use_recording_api:
+            async with encrypted_block_storage() as block_storage:
+                with (
+                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                ):
+                    blocks_data = await self._fetch_blocks_parallel(
+                        blocks,
+                        min_blob_key,
+                        max_blob_key,
+                        recording,
+                        block_storage,
+                        decompress=True,
+                    )
+        else:
+            async with session_recording_v2_object_storage.async_client() as block_storage:
+                with (
+                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                ):
+                    blocks_data = await self._fetch_blocks_parallel(
+                        blocks,
+                        min_blob_key,
+                        max_blob_key,
+                        recording,
+                        block_storage,
+                        decompress=True,
+                    )
 
         response = HttpResponse(
             content="\n".join(blocks_data),
@@ -1330,19 +1365,36 @@ class SessionRecordingViewSet(
 
         blocks = await self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key)
 
-        async with session_recording_v2_object_storage.async_client() as async_storage:
-            with (
-                timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
-                tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
-            ):
-                blocks_data = await self._fetch_blocks_parallel(
-                    blocks,
-                    min_blob_key,
-                    max_blob_key,
-                    recording,
-                    async_storage,
-                    decompress=False,
-                )
+        use_recording_api = self._should_use_recording_api()
+
+        if use_recording_api:
+            async with encrypted_block_storage() as block_storage:
+                with (
+                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                ):
+                    blocks_data = await self._fetch_blocks_parallel(
+                        blocks,
+                        min_blob_key,
+                        max_blob_key,
+                        recording,
+                        block_storage,
+                        decompress=False,
+                    )
+        else:
+            async with session_recording_v2_object_storage.async_client() as block_storage:
+                with (
+                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                ):
+                    blocks_data = await self._fetch_blocks_parallel(
+                        blocks,
+                        min_blob_key,
+                        max_blob_key,
+                        recording,
+                        block_storage,
+                        decompress=False,
+                    )
 
         payload_chunks = []
         for block in blocks_data:
