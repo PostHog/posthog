@@ -143,4 +143,4 @@ class KafkaBatchProducer:
         else:
             self._logger.debug(f"Successfully flushed {flushed_count} messages")
 
-        return flushed_count - errors
+        return flushed_count - errors  # TODO: handle errors while flushing

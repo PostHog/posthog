@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -32,7 +33,9 @@ class S3BatchWriter:
     def __init__(self, job: ExternalDataJob, logger: FilteringBoundLogger, run_uuid: str | None = None) -> None:
         self._job = job
         self._logger = logger
-        self._run_uuid = run_uuid
+        self._run_uuid = (
+            run_uuid if run_uuid is not None else f"generated-{str(uuid.uuid4())}"
+        )  # in some edge cases the temporal uuid it not available yet
         self._base_folder = self._get_base_folder()
         self._data_folder = f"{self._base_folder}/data"
         self._schema = None

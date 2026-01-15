@@ -75,13 +75,20 @@ class PipelineV3(Generic[ResumableData]):
         self._is_incremental = schema.is_incremental
 
         self._s3_batch_writer = S3BatchWriter(self._job, self._logger, self._job.workflow_run_id)
+
+        sync_type = "full_refresh"
+        if self._schema.is_incremental:
+            sync_type = "incremental"
+        elif self._schema.is_append:
+            sync_type = "append"
+
         self._kafka_producer = KafkaBatchProducer(
             team_id=self._job.team_id,
             job_id=str(self._job.id),
             schema_id=str(self._schema.id),
             source_id=str(self._schema.source_id),
             resource_name=self._resource_name,
-            sync_type=self._schema.sync_type or "full_refresh",
+            sync_type=sync_type,
             run_uuid=self._s3_batch_writer.get_run_uuid(),
             logger=self._logger,
         )
@@ -241,7 +248,7 @@ class PipelineV3(Generic[ResumableData]):
             schema_path=schema_path,
         )
 
-        self._kafka_producer.flush()  # TODO: handle errors while flushing
+        self._kafka_producer.flush()
 
         finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "

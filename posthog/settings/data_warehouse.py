@@ -40,7 +40,6 @@ CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQ
 CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")
 
-# WarpStream kafka settings for data warehouse batch exports (pipeline v3)
 WAREHOUSE_PIPELINES_KAFKA_HOSTS: list[str] = _parse_kafka_hosts(
     os.getenv("WAREHOUSE_PIPELINES_KAFKA_HOSTS", "") or "kafka:9092"
 )

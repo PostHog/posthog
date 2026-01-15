@@ -8,12 +8,13 @@ if TYPE_CHECKING:
 from django.db import close_old_connections
 from django.db.models import Prefetch
 
+import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.feature_flag import FeatureFlag
+from posthog.models import Team
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -166,18 +167,29 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
 def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     try:
-        flag = FeatureFlag.objects.filter(
-            team_id=team_id,
-            key=WAREHOUSE_PIPELINES_V3_FLAG,
-            active=True,
-            deleted=False,
-        ).first()
-
-        if flag is not None:
-            logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
-            return True
-
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        logger.warning(f"Team {team_id} does not exist when checking feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}'")
         return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_PIPELINES_V3_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        if enabled:
+            logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
+        return bool(enabled)
     except Exception as e:
         logger.warning(f"Error checking feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}': {e}")
         return False
