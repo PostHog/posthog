@@ -28,7 +28,7 @@ import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-sche
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
-import { RecordingApi } from './recording/recording-api'
+import { RecordingApi } from './recording-api/recording-api'
 import { SessionRecordingIngester } from './session-recording/consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'

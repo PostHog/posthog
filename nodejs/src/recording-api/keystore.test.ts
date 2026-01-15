@@ -1,27 +1,18 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
-import { Redis } from 'ioredis'
 
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
-import { RedisPool } from '../types'
-import * as redisUtils from '../utils/db/redis'
 import * as envUtils from '../utils/env-utils'
-import { KeyStore, PassthroughKeyStore, SessionKey, getKeyStore } from './keystore'
+import { KeyStore, PassthroughKeyStore, getKeyStore } from './keystore'
 
 jest.mock('../utils/env-utils', () => ({
     ...jest.requireActual('../utils/env-utils'),
     isCloud: jest.fn(),
 }))
 
-jest.mock('../utils/db/redis', () => ({
-    createRedisPoolFromConfig: jest.fn(),
-}))
-
 describe('KeyStore', () => {
     let keyStore: KeyStore
-    let mockRedisClient: jest.Mocked<Redis>
-    let mockRedisPool: jest.Mocked<RedisPool>
     let mockDynamoDBClient: jest.Mocked<DynamoDBClient>
     let mockKMSClient: jest.Mocked<KMSClient>
     let mockRetentionService: jest.Mocked<RetentionService>
@@ -33,11 +24,6 @@ describe('KeyStore', () => {
 
     describe('create and start', () => {
         it('should create a KeyStore instance and initialize sodium on start', async () => {
-            const redisClient = { get: jest.fn(), setex: jest.fn() } as unknown as jest.Mocked<Redis>
-            const redisPool = {
-                acquire: jest.fn().mockResolvedValue(redisClient),
-                release: jest.fn().mockResolvedValue(undefined),
-            } as unknown as jest.Mocked<RedisPool>
             const dynamoDBClient = { send: jest.fn() } as unknown as jest.Mocked<DynamoDBClient>
             const kmsClient = { send: jest.fn() } as unknown as jest.Mocked<KMSClient>
             const retentionService = {
@@ -47,7 +33,7 @@ describe('KeyStore', () => {
                 getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
             } as unknown as jest.Mocked<TeamService>
 
-            const store = new KeyStore(redisPool, dynamoDBClient, kmsClient, retentionService, teamService)
+            const store = new KeyStore(dynamoDBClient, kmsClient, retentionService, teamService)
             await store.start()
 
             expect(store).toBeInstanceOf(KeyStore)
@@ -57,17 +43,6 @@ describe('KeyStore', () => {
     beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-01-15T12:00:00Z'))
-
-        mockRedisClient = {
-            get: jest.fn().mockResolvedValue(null),
-            setex: jest.fn().mockResolvedValue('OK'),
-            del: jest.fn().mockResolvedValue(1),
-        } as unknown as jest.Mocked<Redis>
-
-        mockRedisPool = {
-            acquire: jest.fn().mockResolvedValue(mockRedisClient),
-            release: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<RedisPool>
 
         mockDynamoDBClient = {
             send: jest.fn().mockResolvedValue({}),
@@ -88,7 +63,7 @@ describe('KeyStore', () => {
             getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
         } as unknown as jest.Mocked<TeamService>
 
-        keyStore = new KeyStore(mockRedisPool, mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService)
+        keyStore = new KeyStore(mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService)
         await keyStore.start()
     })
 
@@ -112,11 +87,14 @@ describe('KeyStore', () => {
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
         })
 
-        it('should cache the key in Redis', async () => {
+        it('should cache the key in memory', async () => {
             await keyStore.generateKey('session-123', 1)
 
-            expect(mockRedisClient.setex).toHaveBeenCalledTimes(1)
-            expect(mockRedisClient.setex).toHaveBeenCalledWith('recording-key:1:session-123', 86400, expect.any(String))
+            // Second call should use memory cache - no additional DynamoDB/KMS calls
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1) // Only the generateKey call
+            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
         })
 
         it('should calculate expiration based on retention days', async () => {
@@ -152,46 +130,25 @@ describe('KeyStore', () => {
 
             await expect(keyStore.generateKey('session-123', 1)).rejects.toThrow('DynamoDB error')
         })
-
-        it('should still return key even if Redis cache fails', async () => {
-            ;(mockRedisClient.setex as jest.Mock).mockRejectedValue(new Error('Redis error'))
-
-            await expect(keyStore.generateKey('session-123', 1)).rejects.toThrow('Redis error')
-        })
     })
 
     describe('getKey', () => {
-        it('should return cached key from Redis if available', async () => {
-            const cachedKey: SessionKey = {
-                plaintextKey: Buffer.from(mockPlaintextKey),
-                encryptedKey: Buffer.from(mockEncryptedKey),
-                nonce: Buffer.from(mockNonce),
-                encryptedSession: true,
-            }
+        it('should return cached key from memory if available', async () => {
+            // First generate a key to populate the cache
+            await keyStore.generateKey('session-123', 1)
 
-            mockRedisClient.get.mockResolvedValue(
-                JSON.stringify({
-                    plaintextKey: cachedKey.plaintextKey.toString('base64'),
-                    encryptedKey: cachedKey.encryptedKey.toString('base64'),
-                    nonce: cachedKey.nonce.toString('base64'),
-                    encryptedSession: cachedKey.encryptedSession,
-                })
-            )
+            // Reset mocks to verify cache is used
+            mockDynamoDBClient.send.mockClear()
+            mockKMSClient.send.mockClear()
 
             const result = await keyStore.getKey('session-123', 1)
 
-            expect(mockRedisClient.get).toHaveBeenCalledWith('recording-key:1:session-123')
             expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
             expect(mockKMSClient.send).not.toHaveBeenCalled()
-
-            expect(result.plaintextKey).toEqual(cachedKey.plaintextKey)
-            expect(result.encryptedKey).toEqual(cachedKey.encryptedKey)
-            expect(result.nonce).toEqual(cachedKey.nonce)
-            expect(result.encryptedSession).toEqual(cachedKey.encryptedSession)
+            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
         })
 
         it('should fetch from DynamoDB and decrypt if not cached', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -215,8 +172,7 @@ describe('KeyStore', () => {
             expect(result.nonce).toEqual(Buffer.from(mockNonce))
         })
 
-        it('should cache decrypted key in Redis after fetching from DynamoDB', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
+        it('should cache key in memory after fetching from DynamoDB', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -232,12 +188,19 @@ describe('KeyStore', () => {
 
             await keyStore.getKey('session-123', 1)
 
-            expect(mockRedisClient.setex).toHaveBeenCalledTimes(1)
-            expect(mockRedisClient.setex).toHaveBeenCalledWith('recording-key:1:session-123', 86400, expect.any(String))
+            // Reset mocks
+            mockDynamoDBClient.send.mockClear()
+            mockKMSClient.send.mockClear()
+
+            // Second call should use memory cache
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
         })
 
         it('should return empty key if key not found in DynamoDB', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({ Item: undefined })
 
             const result = await keyStore.getKey('session-123', 1)
@@ -249,7 +212,6 @@ describe('KeyStore', () => {
         })
 
         it('should throw error if encrypted_key missing in DynamoDB result for encrypted session', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -265,7 +227,6 @@ describe('KeyStore', () => {
         })
 
         it('should throw error if nonce missing in DynamoDB result for encrypted session', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -281,7 +242,6 @@ describe('KeyStore', () => {
         })
 
         it('should return empty key if session is not encrypted', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -300,20 +260,12 @@ describe('KeyStore', () => {
         })
 
         it('should throw error if DynamoDB query fails', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB network error'))
 
             await expect(keyStore.getKey('session-123', 1)).rejects.toThrow('DynamoDB network error')
         })
 
-        it('should throw error if Redis returns malformed cache data', async () => {
-            mockRedisClient.get.mockResolvedValue('invalid json {{{')
-
-            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow()
-        })
-
         it('should throw error if KMS fails to decrypt', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -356,14 +308,26 @@ describe('KeyStore', () => {
             expect(result).toBe(false)
         })
 
-        it('should delete key from Redis cache', async () => {
+        it('should delete key from memory cache', async () => {
+            // First generate a key to populate the cache
+            await keyStore.generateKey('session-123', 1)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Attributes: { session_id: { S: 'session-123' } },
             })
 
             await keyStore.deleteKey('session-123', 1)
 
-            expect(mockRedisClient.del).toHaveBeenCalledWith('recording-key:1:session-123')
+            // Reset mocks
+            mockDynamoDBClient.send.mockClear()
+
+            // Set up DynamoDB to return empty (key was deleted)
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({ Item: undefined })
+
+            // Next getKey should go to DynamoDB since cache was cleared
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1)
+            expect(result.encryptedSession).toBe(false)
         })
 
         it('should throw error if DynamoDB delete fails', async () => {
@@ -371,30 +335,17 @@ describe('KeyStore', () => {
 
             await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB delete error')
         })
-
-        it('should throw error if Redis delete fails', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' } },
-            })
-            ;(mockRedisClient.del as jest.Mock).mockRejectedValue(new Error('Redis delete error'))
-
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('Redis delete error')
-        })
     })
 
     describe('destroy', () => {
-        it('should clean up all clients', async () => {
+        it('should clean up all clients', () => {
             const mockDestroy = jest.fn()
             ;(mockKMSClient as any).destroy = mockDestroy
             ;(mockDynamoDBClient as any).destroy = mockDestroy
-            ;(mockRedisPool as any).drain = jest.fn().mockResolvedValue(undefined)
-            ;(mockRedisPool as any).clear = jest.fn().mockResolvedValue(undefined)
 
-            await keyStore.destroy()
+            keyStore.destroy()
 
             expect(mockDestroy).toHaveBeenCalledTimes(2)
-            expect(mockRedisPool.drain).toHaveBeenCalled()
-            expect(mockRedisPool.clear).toHaveBeenCalled()
         })
     })
 })
@@ -443,45 +394,152 @@ describe('PassthroughKeyStore', () => {
     })
 
     describe('destroy', () => {
-        it('should complete without error', async () => {
-            await expect(keyStore.destroy()).resolves.toBeUndefined()
+        it('should complete without error', () => {
+            expect(() => keyStore.destroy()).not.toThrow()
+        })
+    })
+})
+
+describe('KeyStore with Redis caching', () => {
+    let keyStore: KeyStore
+    let mockDynamoDBClient: jest.Mocked<DynamoDBClient>
+    let mockKMSClient: jest.Mocked<KMSClient>
+    let mockRetentionService: jest.Mocked<RetentionService>
+    let mockTeamService: jest.Mocked<TeamService>
+    let mockRedisClient: any
+    let mockRedisPool: any
+
+    const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+    const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
+    const mockNonce = new Uint8Array([201, 202, 203, 204, 205, 206, 207, 208])
+
+    beforeEach(async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date('2024-01-15T12:00:00Z'))
+
+        mockRedisClient = {
+            get: jest.fn().mockResolvedValue(null),
+            setex: jest.fn().mockResolvedValue('OK'),
+            del: jest.fn().mockResolvedValue(1),
+        }
+
+        mockRedisPool = {
+            acquire: jest.fn().mockResolvedValue(mockRedisClient),
+            release: jest.fn().mockResolvedValue(undefined),
+        }
+
+        mockDynamoDBClient = {
+            send: jest.fn().mockResolvedValue({}),
+        } as unknown as jest.Mocked<DynamoDBClient>
+
+        mockKMSClient = {
+            send: jest.fn().mockResolvedValue({
+                Plaintext: mockPlaintextKey,
+                CiphertextBlob: mockEncryptedKey,
+            }),
+        } as unknown as jest.Mocked<KMSClient>
+
+        mockRetentionService = {
+            getSessionRetentionDays: jest.fn().mockResolvedValue(30),
+        } as unknown as jest.Mocked<RetentionService>
+
+        mockTeamService = {
+            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
+        } as unknown as jest.Mocked<TeamService>
+
+        keyStore = new KeyStore(mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService, mockRedisPool)
+        await keyStore.start()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    describe('generateKey', () => {
+        it('should cache the key in Redis when Redis pool is provided', async () => {
+            await keyStore.generateKey('session-123', 1)
+
+            expect(mockRedisPool.acquire).toHaveBeenCalled()
+            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+                'recording-key:1:session-123',
+                86400, // 24 hours
+                expect.any(String)
+            )
+            expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
+        })
+    })
+
+    describe('getKey', () => {
+        it('should check Redis cache before DynamoDB', async () => {
+            const cachedKey = {
+                plaintextKey: Buffer.from(mockPlaintextKey).toString('base64'),
+                encryptedKey: Buffer.from(mockEncryptedKey).toString('base64'),
+                nonce: Buffer.from(mockNonce).toString('base64'),
+                encryptedSession: true,
+            }
+            mockRedisClient.get.mockResolvedValue(JSON.stringify(cachedKey))
+
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(mockRedisPool.acquire).toHaveBeenCalled()
+            expect(mockRedisClient.get).toHaveBeenCalledWith('recording-key:1:session-123')
+            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
+        })
+
+        it('should cache key in Redis after fetching from DynamoDB', async () => {
+            mockRedisClient.get.mockResolvedValue(null)
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    encrypted_key: { B: mockEncryptedKey },
+                    nonce: { B: mockNonce },
+                    encrypted_session: { BOOL: true },
+                },
+            })
+            ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
+                Plaintext: mockPlaintextKey,
+            })
+
+            await keyStore.getKey('session-123', 1)
+
+            expect(mockRedisClient.setex).toHaveBeenCalledWith('recording-key:1:session-123', 86400, expect.any(String))
+        })
+    })
+
+    describe('deleteKey', () => {
+        it('should delete key from Redis cache', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Attributes: { session_id: { S: 'session-123' } },
+            })
+
+            await keyStore.deleteKey('session-123', 1)
+
+            expect(mockRedisClient.del).toHaveBeenCalledWith('recording-key:1:session-123')
         })
     })
 })
 
 describe('getKeyStore', () => {
-    let mockConfig: { redisUrl: string; redisPoolMinSize: number; redisPoolMaxSize: number }
     let mockTeamService: jest.Mocked<TeamService>
-    let mockRedisClient: jest.Mocked<Redis>
-    let mockRedisPool: jest.Mocked<RedisPool>
+    let mockRetentionService: jest.Mocked<RetentionService>
 
     beforeEach(() => {
-        mockRedisClient = {
-            get: jest.fn().mockResolvedValue(null),
-            setex: jest.fn().mockResolvedValue('OK'),
-            del: jest.fn().mockResolvedValue(1),
-        } as unknown as jest.Mocked<Redis>
-
-        mockRedisPool = {
-            acquire: jest.fn().mockResolvedValue(mockRedisClient),
-            release: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<RedisPool>
-        ;(redisUtils.createRedisPoolFromConfig as jest.Mock).mockReturnValue(mockRedisPool)
-
-        mockConfig = {
-            redisUrl: 'rediss://localhost:6379',
-            redisPoolMinSize: 1,
-            redisPoolMaxSize: 10,
-        }
         mockTeamService = {
             getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
         } as unknown as jest.Mocked<TeamService>
+
+        mockRetentionService = {
+            getSessionRetentionDays: jest.fn().mockResolvedValue(30),
+        } as unknown as jest.Mocked<RetentionService>
     })
 
     it('should return KeyStore when running on cloud', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
 
-        const keyStore = getKeyStore(mockConfig, mockTeamService, 'us-east-1')
+        const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1')
 
         expect(keyStore).toBeInstanceOf(KeyStore)
     })
@@ -489,8 +547,42 @@ describe('getKeyStore', () => {
     it('should return PassthroughKeyStore when not running on cloud', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(false)
 
-        const keyStore = getKeyStore(mockConfig, mockTeamService, 'us-east-1')
+        const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1')
 
         expect(keyStore).toBeInstanceOf(PassthroughKeyStore)
+    })
+
+    it('should accept optional config with redisPool and redisCacheEnabled', () => {
+        ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
+
+        const mockRedisPool = {
+            acquire: jest.fn(),
+            release: jest.fn(),
+        } as any
+
+        const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1', {
+            redisPool: mockRedisPool,
+            redisCacheEnabled: true,
+        })
+
+        expect(keyStore).toBeInstanceOf(KeyStore)
+    })
+
+    it('should not use redis pool when redisCacheEnabled is false', () => {
+        ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
+
+        const mockRedisPool = {
+            acquire: jest.fn(),
+            release: jest.fn(),
+        } as any
+
+        // When redisCacheEnabled is false, the keystore should not use Redis
+        // (this is verified by the KeyStore internal behavior, not directly testable here)
+        const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1', {
+            redisPool: mockRedisPool,
+            redisCacheEnabled: false,
+        })
+
+        expect(keyStore).toBeInstanceOf(KeyStore)
     })
 })

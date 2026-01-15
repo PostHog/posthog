@@ -1273,6 +1273,7 @@ class SessionRecordingViewSet(
         async def fetch_single_block(block_index: int) -> tuple[int, str | bytes | None]:
             try:
                 block = blocks[block_index]
+                content: str | bytes
                 if decompress:
                     content = await block_storage.fetch_block(block.url, recording.session_id, self.team.id)
                 else:

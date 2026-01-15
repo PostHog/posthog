@@ -1,5 +1,6 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
+import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import { Hub } from '../types'
 import { BaseKeyStore } from './keystore'
@@ -22,6 +23,15 @@ jest.mock('./keystore', () => ({
 
 jest.mock('./recording-io', () => ({
     getBlockDecryptor: jest.fn(),
+}))
+
+jest.mock('../utils/db/redis', () => ({
+    createRedisPoolFromConfig: jest.fn().mockReturnValue({
+        acquire: jest.fn(),
+        release: jest.fn(),
+        drain: jest.fn().mockResolvedValue(undefined),
+        clear: jest.fn().mockResolvedValue(undefined),
+    }),
 }))
 
 describe('RecordingApi', () => {
@@ -98,13 +108,10 @@ describe('RecordingApi', () => {
                 forcePathStyle: undefined,
             })
             expect(getKeyStore).toHaveBeenCalledWith(
-                {
-                    redisUrl: 'rediss://localhost:6379',
-                    redisPoolMinSize: 1,
-                    redisPoolMaxSize: 10,
-                },
                 expect.any(TeamService),
-                'us-west-2'
+                expect.any(RetentionService),
+                'us-west-2',
+                { redisPool: expect.anything(), redisCacheEnabled: true }
             )
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
         })

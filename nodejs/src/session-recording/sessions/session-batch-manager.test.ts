@@ -1,5 +1,5 @@
-import { BaseKeyStore } from '../../recording/keystore'
-import { BaseRecordingEncryptor } from '../../recording/recording-io'
+import { BaseKeyStore } from '../../recording-api/keystore'
+import { BaseRecordingEncryptor } from '../../recording-api/recording-io'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'

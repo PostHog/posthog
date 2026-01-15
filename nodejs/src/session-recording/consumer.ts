@@ -6,8 +6,8 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { BaseKeyStore, getKeyStore } from '../recording/keystore'
-import { BaseRecordingEncryptor, getBlockEncryptor } from '../recording/recording-io'
+import { BaseKeyStore, getKeyStore } from '../recording-api/keystore'
+import { BaseRecordingEncryptor, getBlockEncryptor } from '../recording-api/recording-io'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -226,15 +226,7 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        this.keyStore = getKeyStore(
-            {
-                redisUrl: hub.REDIS_URL,
-                redisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                redisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-            },
-            teamService,
-            region
-        )
+        this.keyStore = getKeyStore(teamService, retentionService, region)
         this.encryptor = getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({

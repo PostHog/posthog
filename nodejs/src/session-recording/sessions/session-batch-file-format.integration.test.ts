@@ -26,8 +26,8 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { BaseKeyStore } from '../../recording/keystore'
-import { BaseRecordingEncryptor } from '../../recording/recording-io'
+import { BaseKeyStore } from '../../recording-api/keystore'
+import { BaseRecordingEncryptor } from '../../recording-api/recording-io'
 import { parseJSON } from '../../utils/json-parse'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
