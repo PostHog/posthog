@@ -107,8 +107,10 @@ const TriggerPopover = ({
                                 workflow?.trigger?.filters || {},
                                 workflow?.trigger?.scheduled_at || null
                             )
-                        } else if (workflow?.trigger?.type === 'manual' || workflow?.trigger?.type === 'schedule') {
-                            triggerManualWorkflow(variableValues, workflow?.trigger?.scheduled_at || null)
+                        } else if (workflow?.trigger?.type === 'manual') {
+                            triggerManualWorkflow(variableValues)
+                        } else if (workflow?.trigger?.type === 'schedule') {
+                            triggerManualWorkflow(variableValues, workflow?.trigger?.scheduled_at)
                         }
 
                         setPopoverVisible(false)

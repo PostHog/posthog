@@ -75,9 +75,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
         <div className="flex flex-col w-full bg-surface-primary rounded py-8 items-center text-center">
             <SleepingHog width="100" height="100" className="mb-4" />
             <h2 className="text-xl leading-tight">This job hasn't started yet</h2>
-            <p className="text-sm text-balance text-tertiary">
-                Once the job starts executing, logs will start to appear here.
-            </p>
+            <p className="text-sm text-balance text-tertiary">Once the job starts executing, logs will appear here.</p>
         </div>
     ) : (
         <LogsViewer
@@ -107,7 +105,7 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
     if (batchWorkflowJobsLoading) {
         return (
             <div className="flex justify-center">
-                <Spinner className="text-xl" />
+                <Spinner size="medium" />
             </div>
         )
     }

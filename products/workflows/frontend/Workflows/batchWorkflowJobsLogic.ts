@@ -1,8 +1,10 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { kea, key, path, props, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import type { batchWorkflowJobsLogicType } from './batchWorkflowJobsLogicType'
 import { HogFlowBatchJob } from './hogflows/types'
@@ -43,7 +45,9 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
                 (batchWorkflowJobs || []).filter((job) => job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())),
         ],
     }),
-    afterMount(({ actions }) => {
-        actions.loadBatchWorkflowJobs()
-    }),
+    urlToAction(({ props, actions }) => ({
+        [urls.workflow(props.id, 'logs')]: () => {
+            actions.loadBatchWorkflowJobs()
+        },
+    })),
 ])
