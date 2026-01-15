@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nINSERT INTO cyclotron_jobs\n    (\n        id,\n        team_id,\n        function_id,\n        created,\n        lock_id,\n        last_heartbeat,\n        janitor_touch_count,\n        transition_count,\n        last_transition,\n        queue_name,\n        state,\n        scheduled,\n        priority,\n        batch_job_id,\n        vm_state,\n        metadata,\n        parameters,\n        blob\n    )\nVALUES\n    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12)\n    ",
+  "query": "\nINSERT INTO cyclotron_jobs\n    (\n        id,\n        team_id,\n        function_id,\n        created,\n        lock_id,\n        last_heartbeat,\n        janitor_touch_count,\n        transition_count,\n        last_transition,\n        queue_name,\n        state,\n        scheduled,\n        priority,\n        parent_run_id,\n        vm_state,\n        metadata,\n        parameters,\n        blob\n    )\nVALUES\n    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12)\n    ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -34,5 +34,5 @@
     },
     "nullable": []
   },
-  "hash": "e8fd5435561a312f9d593ca821d478e054e300a63e7d6b82bb141168fd8a4a36"
+  "hash": "0cf1b0b0b21766929e369704f77e496c7033fc03e744d8ee022ff6c2f86156be"
 }

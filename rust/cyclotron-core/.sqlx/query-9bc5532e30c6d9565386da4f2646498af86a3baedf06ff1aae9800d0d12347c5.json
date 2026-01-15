@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nWITH available AS (\n    SELECT\n        id,\n        state\n    FROM cyclotron_jobs\n    WHERE\n        state = 'available'::JobState\n        AND queue_name = $1\n        AND scheduled <= NOW()\n    ORDER BY\n        priority ASC,\n        scheduled ASC\n    LIMIT $2\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE cyclotron_jobs\nSET\n    state = 'running'::JobState,\n    lock_id = $3,\n    last_heartbeat = NOW(),\n    last_transition = NOW(),\n    transition_count = transition_count + 1\nFROM available\nWHERE\n    cyclotron_jobs.id = available.id\nRETURNING\n    cyclotron_jobs.id,\n    team_id,\n    available.state as \"state: JobState\",\n    queue_name,\n    priority,\n    function_id,\n    created,\n    last_transition,\n    scheduled,\n    transition_count,\n    batch_job_id,\n    vm_state,\n    metadata,\n    parameters,\n    blob,\n    lock_id,\n    last_heartbeat,\n    janitor_touch_count\n    ",
+  "query": "\nWITH available AS (\n    SELECT\n        id,\n        state\n    FROM cyclotron_jobs\n    WHERE\n        state = 'available'::JobState\n        AND queue_name = $1\n        AND scheduled <= NOW()\n    ORDER BY\n        priority ASC,\n        scheduled ASC\n    LIMIT $2\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE cyclotron_jobs\nSET\n    state = 'running'::JobState,\n    lock_id = $3,\n    last_heartbeat = NOW(),\n    last_transition = NOW(),\n    transition_count = transition_count + 1\nFROM available\nWHERE\n    cyclotron_jobs.id = available.id\nRETURNING\n    cyclotron_jobs.id,\n    team_id,\n    available.state as \"state: JobState\",\n    queue_name,\n    priority,\n    function_id,\n    created,\n    last_transition,\n    scheduled,\n    transition_count,\n    parent_run_id,\n    NULL::bytea as vm_state,\n    metadata,\n    parameters,\n    blob,\n    lock_id,\n    last_heartbeat,\n    janitor_touch_count\n    ",
   "describe": {
     "columns": [
       {
@@ -68,7 +68,7 @@
       },
       {
         "ordinal": 10,
-        "name": "batch_job_id",
+        "name": "parent_run_id",
         "type_info": "Text"
       },
       {
@@ -126,7 +126,7 @@
       false,
       false,
       true,
-      true,
+      null,
       true,
       true,
       true,
@@ -135,5 +135,5 @@
       false
     ]
   },
-  "hash": "81d05ed85ba874ea85ead04f7a4eef77bdc05f84d0215945fd568f898fee7722"
+  "hash": "9bc5532e30c6d9565386da4f2646498af86a3baedf06ff1aae9800d0d12347c5"
 }
