@@ -131,7 +131,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                             message_count: 1,
                             created_at: response.created_at,
                             unread_count: 0,
-                            last_message_text: content,
+                            last_message: content,
                             last_message_at: response.created_at,
                         })
                         actions.setView('ticket')
