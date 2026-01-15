@@ -137,6 +137,7 @@ class RawQueryLogArchiveTable(Table):
         "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
         "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),
+        "lc_query": StringDatabaseField(name="lc_query", nullable=False),
         "ProfileEvents_OSCPUVirtualTimeMicroseconds": IntegerDatabaseField(
             name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False
         ),

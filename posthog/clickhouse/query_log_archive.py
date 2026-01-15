@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_query__kind LowCardinality(String),
     lc_query__query String,
+    lc_query String,
 
     lc_temporal__workflow_namespace String,
     lc_temporal__workflow_type String,
@@ -337,6 +338,7 @@ SELECT
     if(JSONHas(log_comment, 'query', 'source'),
         JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
+    JSONExtractRaw(log_comment, 'query') as lc_query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
@@ -402,4 +404,11 @@ ALTER TABLE query_log_archive ADD COLUMN IF NOT EXISTS exception_name String ALI
 def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
     return """
     ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
+    """.format(table=table)
+
+
+# V7 - adding lc_query for full raw query JSON
+def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return """
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
     """.format(table=table)
