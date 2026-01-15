@@ -83,7 +83,7 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Run LLM evals
-              run: pytest ee/hogai/eval/ci -vv
+              run: pytest ee/hogai/eval/ci -vv --junitxml=junit.xml
               env:
                   EVAL_MODE: ci
                   EXPORT_EVAL_RESULTS: true

@@ -878,6 +878,7 @@ jobs:
                       --durations=1000 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      --junitxml=junit-core.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -908,6 +909,7 @@ jobs:
                   pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
                       --durations=1000 --durations-min=1.0 \
                       --reruns 2 --reruns-delay 1 \
+                      --junitxml=junit-decide-replica.xml \
                       $PYTEST_ARGS
 
             - name: Run Temporal tests
@@ -925,6 +927,7 @@ jobs:
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
+                      --junitxml=junit-temporal.xml \
                       $PYTEST_ARGS
                   exit_code=$?
                   set -e
@@ -996,7 +999,7 @@ jobs:
               if: always()
               with:
                   name: junit-results-backend-${{ matrix.segment }}-${{ matrix.person-on-events }}-${{ matrix.group }}
-                  path: junit.xml
+                  path: junit-*.xml
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1185,7 +1188,7 @@ jobs:
 
             - name: Run async migrations tests
               run: |
-                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1
+                  pytest -m "async_migrations" --reruns 2 --reruns-delay 1 --junitxml=junit.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
