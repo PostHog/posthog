@@ -81,6 +81,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     selectors({}),
     listeners(({ actions, values }) => ({
         loadTickets: async () => {
+            if (!posthog.conversations) {
+                return
+            }
             actions.setTicketsLoading(true)
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
@@ -95,7 +98,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         loadMessages: async ({ ticketId }) => {
-            if (!ticketId) {
+            if (!ticketId || !posthog.conversations) {
                 return
             }
             actions.setMessagesLoading(true)
@@ -122,7 +125,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         sendMessage: async ({ content, onSuccess }) => {
-            if (!content.trim() || values.messageSending) {
+            if (!content.trim() || values.messageSending || !posthog.conversations) {
                 return
             }
             actions.setMessageSending(true)
@@ -158,6 +161,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         markAsRead: async ({ ticketId }) => {
+            if (!ticketId || !posthog.conversations) {
+                return
+            }
             try {
                 await posthog.conversations.markAsRead(ticketId)
             } catch (e) {
