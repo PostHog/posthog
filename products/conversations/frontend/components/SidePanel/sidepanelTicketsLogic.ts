@@ -116,7 +116,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         sendMessage: async () => {
-            if (!values.message) {
+            if (!values.message.trim() || values.messageSending) {
                 return
             }
             actions.setMessageSending(true)
@@ -134,8 +134,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                             message_count: 1,
                             created_at: response.created_at,
                             unread_customer_count: 0,
-                            last_message_text: response.last_message_text,
-                            last_message_at: response.last_message_at,
+                            last_message_text: values.message,
+                            last_message_at: response.created_at,
                         })
                         actions.setView('ticket')
                     }
