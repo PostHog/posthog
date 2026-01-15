@@ -29,7 +29,6 @@ function QuestionTitle({
     questionIndex,
     totalResponses = 0,
 }: Props & { totalResponses?: number }): JSX.Element {
-    const { isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     return (
         <div className="flex flex-col">
             <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
@@ -59,10 +58,10 @@ function QuestionTitle({
                 <h3 className="text-xl font-bold mb-0">
                     Question {questionIndex + 1}: {question.question}
                 </h3>
-                {question.type === SurveyQuestionType.Open && totalResponses > 5 && !isSurveyAnalysisMaxToolEnabled && (
+                {question.type === SurveyQuestionType.Open && totalResponses > 5 && (
                     <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
                 )}
-                {isSurveyAnalysisMaxToolEnabled && <AnalyzeResponsesButton />}
+                <AnalyzeResponsesButton />
             </div>
         </div>
     )
