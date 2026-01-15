@@ -482,11 +482,12 @@ export interface CreateGroupApi {
  * `vercel` - Vercel
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
  */
-export type Kind7b5EnumApi = (typeof Kind7b5EnumApi)[keyof typeof Kind7b5EnumApi]
+export type Kind9f6EnumApi = (typeof Kind9f6EnumApi)[keyof typeof Kind9f6EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Kind7b5EnumApi = {
+export const Kind9f6EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -510,6 +511,7 @@ export const Kind7b5EnumApi = {
     vercel: 'vercel',
     databricks: 'databricks',
     'azure-blob': 'azure-blob',
+    firebase: 'firebase',
 } as const
 
 /**
@@ -517,7 +519,7 @@ export const Kind7b5EnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: Kind7b5EnumApi
+    kind: Kind9f6EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
