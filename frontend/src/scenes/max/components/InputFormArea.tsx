@@ -105,7 +105,7 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
                                 label: question.title,
                             }
                         })}
-                        className="w-full"
+                        className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3"
                     />
                 </div>
             )}
