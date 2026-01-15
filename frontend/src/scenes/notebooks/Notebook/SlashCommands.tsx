@@ -278,7 +278,16 @@ order by count() desc
         title: 'Python',
         search: 'python',
         icon: <IconPython color="currentColor" />,
-        command: (chain, pos) => chain.insertContentAt(pos, { type: NotebookNodeType.Python, attrs: { code: '' } }),
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Python,
+                attrs: {
+                    code: '',
+                    __init: {
+                        showSettings: true,
+                    },
+                },
+            }),
         featureFlag: FEATURE_FLAGS.NOTEBOOK_PYTHON,
     },
     {
