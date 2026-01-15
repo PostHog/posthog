@@ -394,10 +394,39 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             cleaned_translation = {**translation_data}
 
             # Sanitize all translatable fields
-            for field in ["question", "description", "buttonText", "link", "lowerBoundLabel", "upperBoundLabel"]:
+            for field in ["question", "description", "buttonText", "lowerBoundLabel", "upperBoundLabel"]:
                 if field in translation_data and isinstance(translation_data[field], str):
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
+
+            # Validate and sanitize link field
+            if "link" in translation_data and isinstance(translation_data["link"], str):
+                link = translation_data["link"]
+                parsed_url = urlparse(link)
+
+                # Check for unsupported schemes
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
+                    raise serializers.ValidationError(
+                        f"Question {question_index}: Translation '{lang_code}' link must use one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                    )
+
+                # Validate mailto links
+                if parsed_url.scheme == "mailto":
+                    if not re.match(EMAIL_REGEX, link):
+                        raise serializers.ValidationError(
+                            f"Question {question_index}: Translation '{lang_code}' has invalid mailto link"
+                        )
+                # Validate HTTPS URLs
+                elif parsed_url.scheme == "https":
+                    if not parsed_url.netloc:
+                        raise serializers.ValidationError(
+                            f"Question {question_index}: Translation '{lang_code}' has invalid HTTPS URL"
+                        )
+
+                if nh3.is_html(link):
+                    cleaned_translation["link"] = nh3_clean_with_allow_list(link)
+                else:
+                    cleaned_translation["link"] = link
 
             # Sanitize choices array
             if "choices" in translation_data and isinstance(translation_data["choices"], list):
