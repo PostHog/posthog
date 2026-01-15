@@ -76,6 +76,9 @@ export function loadSkillsManifest(manifest: unknown): SkillsManifest {
         if (!s.file || typeof s.file !== 'string') {
             throw new Error(`Skill "${s.id}" is missing required "file" field`)
         }
+        if (!s.downloadUrl || typeof s.downloadUrl !== 'string') {
+            throw new Error(`Skill "${s.id}" is missing required "downloadUrl" field`)
+        }
     }
 
     return manifest as SkillsManifest
