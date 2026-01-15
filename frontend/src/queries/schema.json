@@ -15536,7 +15536,8 @@
                 "search",
                 "folder",
                 "folder_open",
-                "conversations"
+                "conversations",
+                "toolbar"
             ],
             "type": "string"
         },
