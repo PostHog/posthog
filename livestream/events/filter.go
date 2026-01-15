@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/posthog/posthog/livestream/metrics"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Subscription struct {
@@ -24,6 +25,9 @@ type Subscription struct {
 	// Channels
 	EventChan   chan interface{}
 	ShouldClose *atomic.Bool
+
+	// Stats
+	DroppedEvents *atomic.Uint64
 }
 
 //easyjson:json
@@ -87,6 +91,9 @@ func uuidFromDistinctId(teamId int, distinctId string) string {
 func removeSubscription(subID uint64, subs []Subscription) []Subscription {
 	for i, sub := range subs {
 		if subID == sub.SubID {
+			if dropped := sub.DroppedEvents.Load(); dropped > 0 {
+				log.Printf("Team %d dropped %d events", sub.TeamId, dropped)
+			}
 			metrics.SubTotal.Dec()
 			return slices.Delete(subs, i, i+1)
 		}
@@ -134,7 +141,8 @@ func (c *Filter) Run() {
 						select {
 						case sub.EventChan <- *responseGeoEvent:
 						default:
-							// Don't block
+							sub.DroppedEvents.Add(1)
+							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
 						}
 					}
 				} else {
@@ -145,7 +153,8 @@ func (c *Filter) Run() {
 					select {
 					case sub.EventChan <- *responseEvent:
 					default:
-						// Don't block
+						sub.DroppedEvents.Add(1)
+						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
 					}
 				}
 			}

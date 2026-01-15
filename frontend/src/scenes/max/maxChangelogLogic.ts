@@ -1,7 +1,7 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
 import type { maxChangelogLogicType } from './maxChangelogLogicType'
 
@@ -115,27 +115,12 @@ function clearDismissedFromStorage(): void {
     }
 }
 
-function getInitialState(): {
-    entries: ChangelogEntry[]
-    entriesHash: string | null
-    lastSeenHash: string | null
-    isDismissed: boolean
-    alerts: AlertEntry[]
-} {
-    const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CHANGELOG)
-    const entries = parseChangelogPayload(payload)
-    const entriesHash = entries.length > 0 ? generateEntriesHash(entries) : null
-    const lastSeenHash = getLastSeenHashFromStorage()
-    const isDismissed = entriesHash ? isDismissedInStorage(entriesHash) : true
-
-    const alertsPayload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_ALERTS)
-    const alerts = parseAlertsPayload(alertsPayload)
-
-    return { entries, entriesHash, lastSeenHash, isDismissed, alerts }
-}
-
 export const maxChangelogLogic = kea<maxChangelogLogicType>([
     path(['scenes', 'max', 'maxChangelogLogic']),
+
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
 
     actions({
         openChangelog: true,
@@ -149,51 +134,99 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
         setAlerts: (alerts: AlertEntry[]) => ({ alerts }),
     }),
 
-    reducers(() => {
-        const initial = getInitialState()
+    reducers({
+        // Override entries/alerts for testing - null means use feature flag payload
+        entriesOverride: [
+            null as ChangelogEntry[] | null,
+            {
+                setEntries: (_, { entries }) => entries,
+            },
+        ],
+        alertsOverride: [
+            null as AlertEntry[] | null,
+            {
+                setAlerts: (_, { alerts }) => alerts,
+            },
+        ],
+        isOpen: [
+            false,
+            {
+                openChangelog: () => true,
+                closeChangelog: () => false,
+                dismissChangelog: () => false,
+            },
+        ],
+        lastSeenHash: [
+            getLastSeenHashFromStorage(),
+            {
+                setLastSeenHash: (_, { hash }) => hash,
+            },
+        ],
+        isDismissedOverride: [
+            null as boolean | null,
+            {
+                setIsDismissed: (_, { isDismissed }) => isDismissed,
+                // When entries are set for testing, reset dismissed state
+                setEntries: () => false,
+            },
+        ],
+    }),
 
-        return {
-            entries: [
-                initial.entries,
-                {
-                    setEntries: (_, { entries }) => entries,
-                },
-            ],
-            entriesHash: [
-                initial.entriesHash,
-                {
-                    setEntries: (_, { entries }) => (entries.length > 0 ? generateEntriesHash(entries) : null),
-                },
-            ],
-            alerts: [
-                initial.alerts,
-                {
-                    setAlerts: (_, { alerts }) => alerts,
-                },
-            ],
-            isOpen: [
-                false,
-                {
-                    openChangelog: () => true,
-                    closeChangelog: () => false,
-                    dismissChangelog: () => false,
-                },
-            ],
-            lastSeenHash: [
-                initial.lastSeenHash,
-                {
-                    setLastSeenHash: (_, { hash }) => hash,
-                },
-            ],
-            isDismissed: [
-                initial.isDismissed,
-                {
-                    setIsDismissed: (_, { isDismissed }) => isDismissed,
-                    // When entries are set for testing, reset dismissed state
-                    setEntries: () => false,
-                },
-            ],
-        }
+    selectors({
+        // Derive entries from feature flag payload, with override for testing
+        entries: [
+            (s) => [s.entriesOverride, s.featureFlags],
+            (entriesOverride, featureFlags): ChangelogEntry[] => {
+                if (entriesOverride !== null) {
+                    return entriesOverride
+                }
+                // featureFlags dependency ensures this re-runs when flags load
+                if (!featureFlags) {
+                    return []
+                }
+                const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_CHANGELOG)
+                return parseChangelogPayload(payload)
+            },
+        ],
+        // Derive alerts from feature flag payload, with override for testing
+        alerts: [
+            (s) => [s.alertsOverride, s.featureFlags],
+            (alertsOverride, featureFlags): AlertEntry[] => {
+                if (alertsOverride !== null) {
+                    return alertsOverride
+                }
+                // featureFlags dependency ensures this re-runs when flags load
+                if (!featureFlags) {
+                    return []
+                }
+                const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_ALERTS)
+                return parseAlertsPayload(payload)
+            },
+        ],
+        entriesHash: [
+            (s) => [s.entries],
+            (entries): string | null => (entries.length > 0 ? generateEntriesHash(entries) : null),
+        ],
+        hasEntries: [(s) => [s.entries], (entries): boolean => entries.length > 0],
+        hasAlerts: [(s) => [s.alerts], (alerts): boolean => alerts.length > 0],
+        hasUnread: [
+            (s) => [s.entriesHash, s.lastSeenHash],
+            (entriesHash, lastSeenHash): boolean => !!entriesHash && entriesHash !== lastSeenHash,
+        ],
+        isDismissed: [
+            (s) => [s.isDismissedOverride, s.entriesHash],
+            (isDismissedOverride, entriesHash): boolean => {
+                if (isDismissedOverride !== null) {
+                    return isDismissedOverride
+                }
+                return entriesHash ? isDismissedInStorage(entriesHash) : true
+            },
+        ],
+        isVisible: [
+            (s) => [s.hasEntries, s.hasAlerts, s.isDismissed, s.isOpen],
+            (hasEntries, hasAlerts, isDismissed, isOpen): boolean =>
+                hasAlerts || (hasEntries && (!isDismissed || isOpen)),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -214,18 +247,4 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
             actions.setIsDismissed(false)
         },
     })),
-
-    selectors({
-        hasEntries: [(s) => [s.entries], (entries): boolean => entries.length > 0],
-        hasAlerts: [(s) => [s.alerts], (alerts): boolean => alerts.length > 0],
-        hasUnread: [
-            (s) => [s.entriesHash, s.lastSeenHash],
-            (entriesHash, lastSeenHash): boolean => !!entriesHash && entriesHash !== lastSeenHash,
-        ],
-        isVisible: [
-            (s) => [s.hasEntries, s.hasAlerts, s.isDismissed, s.isOpen],
-            (hasEntries, hasAlerts, isDismissed, isOpen): boolean =>
-                hasAlerts || (hasEntries && (!isDismissed || isOpen)),
-        ],
-    }),
 ])

@@ -15,6 +15,7 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
+    pub logs_settings: Option<Json<serde_json::Value>>,
     #[serde(default)]
     pub session_recording_opt_in: bool, // Not nullable in schema, so needs to be handled in deserialization
     pub inject_web_apps: Option<bool>,

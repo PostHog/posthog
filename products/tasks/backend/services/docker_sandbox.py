@@ -19,13 +19,14 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotCreationError,
 )
 
-from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus
+from .sandbox import ExecutionResult, SandboxConfig, SandboxStatus, SandboxTemplate
 
 logger = logging.getLogger(__name__)
 
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
+NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 
 
 class DockerSandbox:
@@ -67,16 +68,13 @@ class DockerSandbox:
         return None
 
     @staticmethod
-    def _build_base_image_if_needed() -> None:
-        """Build the base sandbox image if it doesn't exist."""
-        result = DockerSandbox._run(["docker", "images", "-q", DEFAULT_IMAGE_NAME])
+    def _build_image_if_needed(image_name: str, dockerfile_path: str) -> None:
+        """Build a sandbox image if it doesn't exist."""
+        result = DockerSandbox._run(["docker", "images", "-q", image_name])
         if result.stdout.strip():
             return
 
-        logger.info(f"Building {DEFAULT_IMAGE_NAME} image (this may take a few minutes)...")
-        dockerfile_path = os.path.join(
-            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
-        )
+        logger.info(f"Building {image_name} image (this may take a few minutes)...")
 
         DockerSandbox._run(
             [
@@ -85,7 +83,7 @@ class DockerSandbox:
                 "-f",
                 dockerfile_path,
                 "-t",
-                DEFAULT_IMAGE_NAME,
+                image_name,
                 str(settings.BASE_DIR),
             ],
             check=True,
@@ -120,16 +118,26 @@ class DockerSandbox:
             )
 
     @staticmethod
-    def _ensure_image_exists() -> str:
+    def _ensure_image_exists(template: SandboxTemplate) -> str:
         """Build the sandbox image, using local agent if LOCAL_AGENT_PACKAGE is set."""
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
+            )
+            DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
+            return NOTEBOOK_IMAGE_NAME
+
         local_agent = DockerSandbox._get_local_agent_package()
+        dockerfile_path = os.path.join(
+            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+        )
 
         if local_agent:
-            DockerSandbox._build_base_image_if_needed()
+            DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
             DockerSandbox._build_local_image(local_agent)
             return "posthog-sandbox-base-local"
 
-        DockerSandbox._build_base_image_if_needed()
+        DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
         return DEFAULT_IMAGE_NAME
 
     @staticmethod
@@ -149,7 +157,7 @@ class DockerSandbox:
             except Exception as e:
                 logger.warning(f"Failed to load snapshot {config.snapshot_id}: {e}")
 
-        return DockerSandbox._ensure_image_exists()
+        return DockerSandbox._ensure_image_exists(config.template)
 
     @staticmethod
     def _transform_url_for_docker(url: str) -> str:

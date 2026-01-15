@@ -159,15 +159,15 @@ class TestRunFunctionErrorHandling:
 
 
 class TestConfirmationFeature:
-    """Test confirmation prompts for destructive commands."""
+    """Test confirmation prompts using prompt: true/string."""
 
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
-    def test_destructive_prompts_user(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
-        """Test command with destructive prompts user."""
+    def test_prompt_true_shows_warning(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test prompt: true shows destructive warning."""
         mock_confirm.return_value = True
 
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+        cmd = DirectCommand("test:dangerous", {"cmd": "rm -rf /", "prompt": True})
 
         cmd._confirm(yes=False)
 
@@ -175,9 +175,21 @@ class TestConfirmationFeature:
 
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
-    def test_destructive_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+    def test_prompt_string_shows_custom_question(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test prompt: string shows custom question."""
+        mock_confirm.return_value = True
+
+        cmd = DirectCommand("test:optional", {"cmd": "echo hi", "prompt": "Run this?"})
+
+        cmd._confirm(yes=False)
+
+        mock_confirm.assert_called_once_with("Run this?", default=False)
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_prompt_skips_with_yes_flag(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
         """Test --yes flag skips confirmation prompt."""
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+        cmd = DirectCommand("test:dangerous", {"cmd": "rm -rf /", "prompt": True})
 
         cmd._confirm(yes=True)
 
@@ -185,8 +197,8 @@ class TestConfirmationFeature:
 
     @patch("click.confirm")
     @patch("hogli.core.command_types._run")
-    def test_no_confirmation_for_normal_commands(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
-        """Test commands without destructive don't prompt."""
+    def test_no_confirmation_without_prompt(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Test commands without prompt don't ask."""
         cmd = DirectCommand("test:safe", {"cmd": "echo hello"})
 
         cmd._confirm(yes=False)
@@ -199,7 +211,7 @@ class TestConfirmationFeature:
         """Test aborting confirmation exits with code 0."""
         mock_confirm.return_value = False
 
-        cmd = DirectCommand("test:destructive", {"cmd": "rm -rf /", "destructive": True})
+        cmd = DirectCommand("test:dangerous", {"cmd": "rm -rf /", "prompt": True})
 
         with pytest.raises(SystemExit) as exc_info:
             cmd._confirm(yes=False)
@@ -216,7 +228,7 @@ class TestConfirmationFeature:
 
         cmd = CompositeCommand(
             "reset",
-            {"steps": ["docker:services:down", "docker:services:up"], "destructive": True},
+            {"steps": ["docker:services:down", "docker:services:up"], "prompt": True},
         )
         cmd._confirmed = True
 
@@ -242,7 +254,7 @@ class TestConfirmationFeature:
 
         cmd = CompositeCommand(
             "reset",
-            {"steps": ["docker:services:down"], "destructive": True},
+            {"steps": ["docker:services:down"], "prompt": True},
         )
         # Simulate user confirming via prompt (not --yes flag)
         confirmed = cmd._confirm(yes=False)
@@ -252,3 +264,110 @@ class TestConfirmationFeature:
 
         # Should pass --yes to child even though user didn't pass --yes flag
         mock_run.assert_called_once_with([bin_hogli, "docker:services:down", "--yes"], env={})
+
+
+class TestPromptStep:
+    """Test prompt steps with conditional execution using hogli: format."""
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_prompt_runs_hogli_when_confirmed(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Prompt guard runs hogli command when user says yes."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+        mock_confirm.return_value = True
+
+        cmd = CompositeCommand(
+            "test",
+            {
+                "steps": [
+                    {
+                        "hogli": "db:restore-schema",
+                        "prompt": "Restore schema?",
+                        "else": "migrations:run",
+                    }
+                ]
+            },
+        )
+        cmd.execute()
+
+        mock_confirm.assert_called_once_with("Restore schema?", default=False)
+        mock_run.assert_called_once_with([bin_hogli, "db:restore-schema"], env={})
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_prompt_runs_else_when_declined(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Prompt guard runs else branch when user says no."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+        mock_confirm.return_value = False
+
+        cmd = CompositeCommand(
+            "test",
+            {
+                "steps": [
+                    {
+                        "hogli": "db:restore-schema",
+                        "prompt": "Restore schema?",
+                        "else": "migrations:run",  # string shorthand
+                    }
+                ]
+            },
+        )
+        cmd.execute()
+
+        mock_confirm.assert_called_once_with("Restore schema?", default=False)
+        mock_run.assert_called_once_with([bin_hogli, "migrations:run"], env={})
+
+    @patch("click.confirm")
+    @patch("hogli.core.command_types._run")
+    def test_prompt_skips_when_declined_without_else(self, mock_run: MagicMock, mock_confirm: MagicMock) -> None:
+        """Prompt guard skips when user says no and no else provided."""
+        mock_confirm.return_value = False
+
+        cmd = CompositeCommand(
+            "test",
+            {"steps": [{"hogli": "optional:thing", "prompt": "Run optional step?"}]},
+        )
+        cmd.execute()
+
+        mock_confirm.assert_called_once()
+        mock_run.assert_not_called()
+
+    @patch("hogli.core.command_types._run")
+    def test_hogli_without_prompt_runs_directly(self, mock_run: MagicMock) -> None:
+        """hogli: without prompt runs the command directly."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+        cmd = CompositeCommand(
+            "test",
+            {"steps": [{"hogli": "migrations:run"}]},
+        )
+        cmd.execute()
+
+        mock_run.assert_called_once_with([bin_hogli, "migrations:run"], env={})
+
+    @patch("hogli.core.command_types._run")
+    def test_string_step_equivalent_to_hogli(self, mock_run: MagicMock) -> None:
+        """String step is equivalent to hogli: step."""
+        from hogli.core.manifest import REPO_ROOT
+
+        bin_hogli = str(REPO_ROOT / "bin" / "hogli")
+
+        # Both should produce identical calls
+        cmd1 = CompositeCommand("test1", {"steps": ["migrations:run"]})
+        cmd2 = CompositeCommand("test2", {"steps": [{"hogli": "migrations:run"}]})
+
+        cmd1.execute()
+        call1 = mock_run.call_args
+
+        mock_run.reset_mock()
+
+        cmd2.execute()
+        call2 = mock_run.call_args
+
+        assert call1 == call2 == (([bin_hogli, "migrations:run"],), {"env": {}})

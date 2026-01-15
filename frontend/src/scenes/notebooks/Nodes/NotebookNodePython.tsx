@@ -1,5 +1,6 @@
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -7,15 +8,19 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
 import { VariableUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { PythonExecutionResult } from './pythonExecution'
+import { renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
     globalsUsed?: string[]
     globalsExportedWithTypes?: { name: string; type: string }[]
     globalsAnalysisHash?: string | null
+    pythonExecution?: PythonExecutionResult | null
+    pythonExecutionCodeHash?: number | null
 }
 
 const VariableUsageOverlay = ({
@@ -37,6 +42,11 @@ const VariableUsageOverlay = ({
     }, {})
     const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
 
+    const usageLabel = (usage: VariableUsage): string => {
+        const trimmedTitle = usage.title.trim()
+        return trimmedTitle ? trimmedTitle : `Python cell ${usage.pythonIndex}`
+    }
+
     return (
         <div className="p-2 text-xs max-w-[320px]">
             <div className="flex items-center justify-between gap-2">
@@ -55,10 +65,10 @@ const VariableUsageOverlay = ({
                                         className="text-muted hover:text-default underline underline-offset-2"
                                         onClick={() => onNavigateToNode(usage.nodeId)}
                                     >
-                                        Python cell {usage.pythonIndex}
+                                        {usageLabel(usage)}
                                     </button>
                                 ) : (
-                                    <div className="text-muted">Python cell {usage.pythonIndex}</div>
+                                    <div className="text-muted">{usageLabel(usage)}</div>
                                 )}
                             </div>
                         ))}
@@ -114,21 +124,72 @@ const VariableDependencyBadge = ({
     )
 }
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+const OutputBlock = ({
+    title,
+    toneClassName,
+    value,
+}: {
+    title: string
+    toneClassName: string
+    value: string
+}): JSX.Element => {
+    const content = useMemo(() => renderAnsiText(value), [value])
+
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted">{title}</div>
+            <pre
+                className={clsx('text-xs font-mono whitespace-pre-wrap mt-1 select-text cursor-text', toneClassName)}
+                contentEditable={false}
+            >
+                {content}
+            </pre>
+        </div>
+    )
+}
+
+const Component = (): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, exportedGlobals, usageByVariable } = useValues(nodeLogic)
+    const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
     const { navigateToNode } = useActions(nodeLogic)
 
     if (!expanded) {
         return null
     }
 
+    const hasExecution =
+        pythonExecution &&
+        (pythonExecution.stdout ||
+            pythonExecution.stderr ||
+            pythonExecution.result ||
+            pythonExecution.traceback?.length ||
+            pythonExecution.variables?.length)
+
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
-            <div className="p-3 overflow-y-auto h-full">
-                <pre className="text-xs font-mono whitespace-pre-wrap">
-                    We should show the execution results for the code here: {attributes.code}
-                </pre>
+            <div className="p-3 overflow-y-auto h-full space-y-3">
+                {hasExecution ? (
+                    <>
+                        {pythonExecution?.stdout ? (
+                            <OutputBlock title="Output" toneClassName="text-default" value={pythonExecution.stdout} />
+                        ) : null}
+                        {pythonExecution?.stderr ? (
+                            <OutputBlock title="stderr" toneClassName="text-danger" value={pythonExecution.stderr} />
+                        ) : null}
+                        {pythonExecution?.result ? (
+                            <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
+                        ) : null}
+                        {pythonExecution?.status === 'error' && pythonExecution.traceback?.length ? (
+                            <OutputBlock
+                                title="Error"
+                                toneClassName="text-danger"
+                                value={pythonExecution.traceback.join('\n')}
+                            />
+                        ) : null}
+                    </>
+                ) : (
+                    <div className="text-xs text-muted font-mono">Run the cell to see execution results.</div>
+                )}
             </div>
             {exportedGlobals.length > 0 ? (
                 <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
@@ -136,7 +197,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePythonAttribute
                         <IconCornerDownRight />
                     </span>
                     <div className="flex flex-wrap gap-1">
-                        {exportedGlobals.map(({ name, type }) => (
+                        {displayedGlobals.map(({ name, type }) => (
                             <VariableDependencyBadge
                                 key={name}
                                 name={name}
@@ -187,6 +248,12 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
             default: [],
         },
         globalsAnalysisHash: {
+            default: null,
+        },
+        pythonExecution: {
+            default: null,
+        },
+        pythonExecutionCodeHash: {
             default: null,
         },
     },

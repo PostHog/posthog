@@ -157,6 +157,10 @@ pub struct ConfigResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surveys: Option<Value>,
 
+    /// Logs product options
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logs: Option<LogsConfig>,
+
     /// Parameters for the toolbar
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub toolbar_params: Option<Value>,
@@ -523,6 +527,12 @@ pub struct SessionRecordingConfig {
 pub enum SessionRecordingField {
     Disabled(bool), // NB: this should only ever be false
     Config(Box<SessionRecordingConfig>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsConfig {
+    pub capture_console_logs: Option<bool>,
 }
 
 impl Default for SessionRecordingField {
