@@ -1,16 +1,16 @@
 import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconEllipsis, IconGlobe, IconPencil, IconPeople, IconPerson, IconPlus, IconTrash } from '@posthog/icons'
+import { IconEllipsis, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCheckbox,
     LemonDialog,
     LemonInput,
     LemonInputSelect,
     LemonModal,
     LemonSelect,
     LemonTable,
+    LemonTabs,
     LemonTag,
     Link,
     Tooltip,
@@ -52,6 +52,7 @@ type AccessControlRow = {
 type RuleModalState =
     | {
           mode: 'add'
+          initialScopeType?: ScopeType
       }
     | {
           mode: 'edit'
@@ -183,7 +184,8 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
     }, [sortedMembers])
 
     const projectResourceLabel = useMemo((): string => {
-        return `${currentTeam?.name ?? 'Project'} (current project)`
+        const projectName = currentTeam?.name ?? 'Untitled'
+        return `Project (${projectName})`
     }, [currentTeam?.name])
 
     const resourcesWithProject = useMemo((): { key: string; label: string }[] => {
@@ -195,26 +197,15 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
         return [{ key: 'project', label: projectResourceLabel }, ...resourceOptions]
     }, [projectResourceLabel, resources])
 
-    const [showDefaultScope, setShowDefaultScope] = useState(true)
+    type AccessControlsTab = 'defaults' | 'roles' | 'members'
+
+    const [activeTab, setActiveTab] = useState<AccessControlsTab>('defaults')
+
     const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([])
     const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([])
     const [selectedResourceKeys, setSelectedResourceKeys] = useState<string[]>([])
     const [selectedRuleLevels, setSelectedRuleLevels] = useState<string[]>([])
     const [searchText, setSearchText] = useState('')
-
-    const scopeFilterCount = useMemo(() => {
-        let count = 0
-        if (!showDefaultScope) {
-            count += 1
-        }
-        if (selectedRoleIds.length > 0) {
-            count += 1
-        }
-        if (selectedMemberIds.length > 0) {
-            count += 1
-        }
-        return count
-    }, [selectedMemberIds.length, selectedRoleIds.length, showDefaultScope])
 
     const [ruleModalState, setRuleModalState] = useState<RuleModalState | null>(null)
 
@@ -416,44 +407,38 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
             .map((level) => ({ key: level, label: humanizeLevel(level as AccessControlLevel) }))
     }, [projectAvailableLevels, resourceAvailableLevels])
 
+    const scopedRows = useMemo((): AccessControlRow[] => {
+        const scopeType: ScopeType =
+            activeTab === 'defaults'
+                ? 'default'
+                : activeTab === 'roles'
+                  ? 'role'
+                  : /* activeTab === 'members' */ 'member'
+
+        let rows = allRows.filter((row) => row.scopeType === scopeType)
+
+        if (scopeType === 'role') {
+            if (!canUseRoles) {
+                return []
+            }
+            if (selectedRoleIds.length > 0) {
+                rows = rows.filter((row) => (row.scopeId ? selectedRoleIds.includes(row.scopeId) : false))
+            }
+        }
+
+        if (scopeType === 'member') {
+            if (selectedMemberIds.length > 0) {
+                rows = rows.filter((row) => (row.scopeId ? selectedMemberIds.includes(row.scopeId) : false))
+            }
+        }
+
+        return rows
+    }, [activeTab, allRows, canUseRoles, selectedMemberIds, selectedRoleIds])
+
     const filteredSortedRows = useMemo((): AccessControlRow[] => {
         const search = searchText.trim().toLowerCase()
 
-        const filtered = allRows.filter((row) => {
-            const isSpecificScopeFiltered = selectedRoleIds.length > 0 || selectedMemberIds.length > 0
-
-            // If a specific role/member is selected, only show rows scoped to those selections.
-            // In this mode, defaults aren't "specific" to anyone, so hide them.
-            if (row.scopeType === 'default') {
-                if (isSpecificScopeFiltered) {
-                    return false
-                }
-                if (!showDefaultScope) {
-                    return false
-                }
-            }
-
-            if (row.scopeType === 'role') {
-                if (!canUseRoles) {
-                    return false
-                }
-                if (isSpecificScopeFiltered && selectedRoleIds.length === 0) {
-                    return false
-                }
-                if (selectedRoleIds.length > 0 && row.scopeId && !selectedRoleIds.includes(row.scopeId)) {
-                    return false
-                }
-            }
-
-            if (row.scopeType === 'member') {
-                if (isSpecificScopeFiltered && selectedMemberIds.length === 0) {
-                    return false
-                }
-                if (selectedMemberIds.length > 0 && row.scopeId && !selectedMemberIds.includes(row.scopeId)) {
-                    return false
-                }
-            }
-
+        const filtered = scopedRows.filter((row) => {
             if (selectedResourceKeys.length > 0 && !selectedResourceKeys.includes(row.resourceKey)) {
                 return false
             }
@@ -477,51 +462,36 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
         })
 
         return [...filtered].sort(sortAccessControlRows)
-    }, [
-        allRows,
-        canUseRoles,
-        searchText,
-        selectedMemberIds,
-        selectedResourceKeys,
-        selectedRoleIds,
-        selectedRuleLevels,
-        showDefaultScope,
-    ])
+    }, [scopedRows, searchText, selectedResourceKeys, selectedRuleLevels])
 
     const canEditAny = !!canEditAccessControls || !!canEditRoleBasedAccessControls
 
-    const columns = useMemo(
-        () => [
-            {
-                title: 'Scope',
-                key: 'scope',
-                render: function RenderScope(_: any, row: AccessControlRow) {
-                    const meta =
-                        row.scopeType === 'default'
-                            ? {
-                                  icon: <IconGlobe className="text-muted size-4" />,
-                                  tooltip: 'Default (applies to everyone)',
-                              }
-                            : row.scopeType === 'role'
-                              ? {
-                                    icon: <IconPeople className="text-muted size-4" />,
-                                    tooltip: 'Role',
-                                }
-                              : {
-                                    icon: <IconPerson className="text-muted size-4" />,
-                                    tooltip: 'Member',
-                                }
+    const columns = useMemo(() => {
+        const optionalScopeColumn =
+            activeTab === 'roles'
+                ? [
+                      {
+                          title: 'Role',
+                          key: 'role',
+                          render: function RenderRole(_: any, row: AccessControlRow) {
+                              return <span>{row.scopeLabel}</span>
+                          },
+                      },
+                  ]
+                : activeTab === 'members'
+                  ? [
+                        {
+                            title: 'Member',
+                            key: 'member',
+                            render: function RenderMember(_: any, row: AccessControlRow) {
+                                return <span>{row.scopeLabel}</span>
+                            },
+                        },
+                    ]
+                  : []
 
-                    return (
-                        <Tooltip title={meta.tooltip}>
-                            <span className="inline-flex items-center gap-2">
-                                {meta.icon}
-                                <span>{row.scopeLabel}</span>
-                            </span>
-                        </Tooltip>
-                    )
-                },
-            },
+        return [
+            ...optionalScopeColumn,
             {
                 title: 'Feature',
                 key: 'resource',
@@ -541,9 +511,14 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
                     return (
                         <div className="flex gap-2 flex-wrap">
                             {rendered.map(({ key, label }) => (
-                                <LemonTag key={key} type="default">
-                                    {label}
-                                </LemonTag>
+                                <Tooltip
+                                    key={key}
+                                    title={describeAccessLevel(key as AccessControlLevel, row.resourceKey)}
+                                >
+                                    <LemonTag type="default" size="medium" className="px-2">
+                                        {label}
+                                    </LemonTag>
+                                </Tooltip>
                             ))}
                         </div>
                     )
@@ -562,7 +537,7 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
                     return (
                         <LemonButtonWithDropdown
                             size="xsmall"
-                            type="secondary"
+                            type="tertiary"
                             icon={<IconEllipsis />}
                             disabledReason={disabledReason}
                             dropdown={{
@@ -600,47 +575,90 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
                     )
                 },
             },
-        ],
-        [canEditAccessControls, canEditRoleBasedAccessControls]
-    )
+        ]
+    }, [activeTab, canEditAccessControls, canEditRoleBasedAccessControls])
 
     return (
         <div className="space-y-4">
             <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                 <div className="space-y-4">
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={setActiveTab}
+                        tabs={[
+                            { key: 'defaults', label: 'Defaults' },
+                            {
+                                key: 'roles',
+                                label: 'Roles',
+                                tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
+                            },
+                            { key: 'members', label: 'Members' },
+                        ]}
+                    />
+
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-2 flex-wrap">
                             <LemonInput
+                                type="search"
                                 className="w-64"
                                 value={searchText}
                                 onChange={setSearchText}
-                                placeholder="Search scope, feature, access…"
+                                placeholder="Search"
+                                size="small"
                             />
 
-                            <LemonButtonWithDropdown
-                                type="secondary"
-                                size="small"
-                                dropdown={{
-                                    actionable: true,
-                                    closeOnClickInside: false,
-                                    placement: 'bottom-start',
-                                    overlay: (
-                                        <ScopeFilterDropdown
-                                            showDefaultScope={showDefaultScope}
-                                            setShowDefaultScope={setShowDefaultScope}
-                                            canUseRoles={canUseRoles}
-                                            roles={roles ?? []}
-                                            selectedRoleIds={selectedRoleIds}
-                                            setSelectedRoleIds={setSelectedRoleIds}
-                                            members={allMembers}
-                                            selectedMemberIds={selectedMemberIds}
-                                            setSelectedMemberIds={setSelectedMemberIds}
-                                        />
-                                    ),
-                                }}
-                            >
-                                Scope{scopeFilterCount ? ` (${scopeFilterCount})` : ''}
-                            </LemonButtonWithDropdown>
+                            {activeTab === 'roles' ? (
+                                <LemonButtonWithDropdown
+                                    type="secondary"
+                                    size="small"
+                                    disabledReason={!canUseRoles ? 'Roles require an upgrade' : undefined}
+                                    dropdown={{
+                                        actionable: true,
+                                        closeOnClickInside: false,
+                                        placement: 'bottom-start',
+                                        overlay: (
+                                            <MultiSelectFilterDropdown
+                                                title="Role"
+                                                placeholder="Filter by roles…"
+                                                values={selectedRoleIds}
+                                                setValues={setSelectedRoleIds}
+                                                options={(roles ?? []).map((role) => ({
+                                                    key: role.id,
+                                                    label: role.name,
+                                                }))}
+                                            />
+                                        ),
+                                    }}
+                                >
+                                    Role{selectedRoleIds.length ? ` (${selectedRoleIds.length})` : ''}
+                                </LemonButtonWithDropdown>
+                            ) : null}
+
+                            {activeTab === 'members' ? (
+                                <LemonButtonWithDropdown
+                                    type="secondary"
+                                    size="small"
+                                    dropdown={{
+                                        actionable: true,
+                                        closeOnClickInside: false,
+                                        placement: 'bottom-start',
+                                        overlay: (
+                                            <MultiSelectFilterDropdown
+                                                title="Member"
+                                                placeholder="Filter by members…"
+                                                values={selectedMemberIds}
+                                                setValues={setSelectedMemberIds}
+                                                options={allMembers.map((member) => ({
+                                                    key: member.id,
+                                                    label: fullName(member.user),
+                                                }))}
+                                            />
+                                        ),
+                                    }}
+                                >
+                                    Member{selectedMemberIds.length ? ` (${selectedMemberIds.length})` : ''}
+                                </LemonButtonWithDropdown>
+                            ) : null}
 
                             <LemonButtonWithDropdown
                                 type="secondary"
@@ -689,8 +707,24 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
                             type="primary"
                             size="small"
                             icon={<IconPlus />}
-                            onClick={() => setRuleModalState({ mode: 'add' })}
-                            disabledReason={!canEditAny ? 'You cannot edit this' : undefined}
+                            onClick={() =>
+                                setRuleModalState({
+                                    mode: 'add',
+                                    initialScopeType:
+                                        activeTab === 'defaults'
+                                            ? 'default'
+                                            : activeTab === 'roles'
+                                              ? 'role'
+                                              : 'member',
+                                })
+                            }
+                            disabledReason={
+                                !canEditAny
+                                    ? 'You cannot edit this'
+                                    : activeTab === 'roles' && !canUseRoles
+                                      ? 'Roles require an upgrade'
+                                      : undefined
+                            }
                         >
                             Add
                         </LemonButton>
@@ -806,103 +840,6 @@ export function ResourcesAccessControls({ projectId }: { projectId: string }): J
     }
 }
 
-function ScopeFilterDropdown(props: {
-    showDefaultScope: boolean
-    setShowDefaultScope: (value: boolean) => void
-    canUseRoles: boolean
-    roles: RoleType[]
-    selectedRoleIds: string[]
-    setSelectedRoleIds: (value: string[]) => void
-    members: OrganizationMemberType[]
-    selectedMemberIds: string[]
-    setSelectedMemberIds: (value: string[]) => void
-}): JSX.Element {
-    const roleOptions = props.roles.map((role) => ({ key: role.id, label: role.name }))
-    const memberOptions = props.members.map((member) => ({ key: member.id, label: fullName(member.user) }))
-
-    return (
-        <div className="w-96 p-3 space-y-4">
-            <div className="space-y-2">
-                <h5 className="mb-0">Scope</h5>
-                <LemonCheckbox
-                    label="Default"
-                    checked={props.showDefaultScope}
-                    onChange={(checked) => props.setShowDefaultScope(!!checked)}
-                />
-            </div>
-
-            <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                    <h5 className="mb-0">Roles</h5>
-                    {props.canUseRoles ? (
-                        <div className="flex items-center gap-2">
-                            <Link
-                                to="#"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    props.setSelectedRoleIds([])
-                                }}
-                            >
-                                Clear
-                            </Link>
-                            <Link
-                                to="#"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    props.setSelectedRoleIds(props.roles.map((r) => r.id))
-                                }}
-                            >
-                                Select all
-                            </Link>
-                        </div>
-                    ) : null}
-                </div>
-                <LemonInputSelect
-                    value={props.selectedRoleIds}
-                    onChange={props.setSelectedRoleIds}
-                    mode="multiple"
-                    placeholder={!props.canUseRoles ? 'Roles require an upgrade' : 'Filter by roles…'}
-                    options={roleOptions}
-                    disabled={!props.canUseRoles}
-                />
-            </div>
-
-            <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                    <h5 className="mb-0">Members</h5>
-                    <div className="flex items-center gap-2">
-                        <Link
-                            to="#"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                props.setSelectedMemberIds([])
-                            }}
-                        >
-                            Clear
-                        </Link>
-                        <Link
-                            to="#"
-                            onClick={(e) => {
-                                e.preventDefault()
-                                props.setSelectedMemberIds(props.members.map((m) => m.id))
-                            }}
-                        >
-                            Select all
-                        </Link>
-                    </div>
-                </div>
-                <LemonInputSelect
-                    value={props.selectedMemberIds}
-                    onChange={props.setSelectedMemberIds}
-                    mode="multiple"
-                    placeholder="Filter by members…"
-                    options={memberOptions}
-                />
-            </div>
-        </div>
-    )
-}
-
 function MultiSelectFilterDropdown(props: {
     title: string
     placeholder: string
@@ -959,7 +896,9 @@ function RuleModal(props: {
     const isEditMode = props.state.mode === 'edit'
     const editingRow = props.state.mode === 'edit' ? props.state.row : null
 
-    const [scopeType, setScopeType] = useState<ScopeType>(editingRow?.scopeType ?? 'default')
+    const initialScopeType = props.state.mode === 'add' ? props.state.initialScopeType : undefined
+
+    const scopeType: ScopeType = editingRow?.scopeType ?? initialScopeType ?? 'default'
     const [scopeId, setScopeId] = useState<string | null>(editingRow?.scopeId ?? null)
     const [resourceKey, setResourceKey] = useState<string>(editingRow?.resourceKey ?? 'project')
     const [level, setLevel] = useState<AccessControlLevel>(
@@ -968,15 +907,6 @@ function RuleModal(props: {
 
     const canEditThisRule =
         resourceKey === 'project' ? props.canEditAccessControls : props.canEditRoleBasedAccessControls
-
-    const scopeOptions = useMemo(() => {
-        const base = [{ value: 'default', label: 'Default' }]
-        if (props.canUseRoles) {
-            base.push({ value: 'role', label: 'Role' })
-        }
-        base.push({ value: 'member', label: 'Member' })
-        return base
-    }, [props.canUseRoles])
 
     const scopeTargetOptions = useMemo(() => {
         if (scopeType === 'role') {
@@ -1019,12 +949,20 @@ function RuleModal(props: {
     }, [availableLevelsForResource, level, props.state.mode])
 
     const isValid = scopeType === 'default' || !!scopeId
+    const scopeTargetNoun = scopeType === 'role' ? 'role' : 'member'
+
+    const addTitle =
+        scopeType === 'default'
+            ? 'Add default rule'
+            : scopeType === 'role'
+              ? 'Add rule for role'
+              : 'Add rule for member'
 
     return (
         <LemonModal
             isOpen={true}
             onClose={props.loading ? undefined : props.close}
-            title={isEditMode ? 'Edit rule' : 'Add rule'}
+            title={isEditMode ? 'Edit rule' : addTitle}
             maxWidth="32rem"
             footer={
                 <div className="flex items-center justify-end gap-2">
@@ -1037,7 +975,7 @@ function RuleModal(props: {
                             !canEditThisRule
                                 ? 'You cannot edit this'
                                 : !isValid
-                                  ? 'Please select a scope target'
+                                  ? `Please select a ${scopeTargetNoun}`
                                   : undefined
                         }
                         loading={props.loading}
@@ -1061,20 +999,6 @@ function RuleModal(props: {
             }
         >
             <div className="space-y-4">
-                <div className="space-y-1">
-                    <h5 className="mb-0">Scope</h5>
-                    <LemonSelect
-                        value={scopeType}
-                        onChange={(value) => {
-                            const next = value as ScopeType
-                            setScopeType(next)
-                            setScopeId(null)
-                        }}
-                        options={scopeOptions}
-                        disabled={isEditMode}
-                    />
-                </div>
-
                 {scopeType !== 'default' ? (
                     <div className="space-y-1">
                         <h5 className="mb-0">{scopeType === 'role' ? 'Role' : 'Member'}</h5>
@@ -1112,6 +1036,36 @@ function RuleModal(props: {
             </div>
         </LemonModal>
     )
+}
+
+function describeAccessLevel(level: AccessControlLevel | null | undefined, resourceKey: string): string {
+    if (level === null || level === undefined || level === AccessControlLevel.None) {
+        return 'No access.'
+    }
+
+    if (resourceKey === 'project') {
+        if (level === AccessControlLevel.Member) {
+            return 'Project member access. Can use the project, but cannot manage project settings.'
+        }
+        if (level === AccessControlLevel.Admin) {
+            return 'Project admin access. Full access, including managing project settings.'
+        }
+        if (level === AccessControlLevel.Viewer) {
+            return 'Read-only access to the project.'
+        }
+    }
+
+    if (level === AccessControlLevel.Viewer) {
+        return 'View-only access. Cannot make changes.'
+    }
+    if (level === AccessControlLevel.Editor) {
+        return 'Edit access. Can create and modify items.'
+    }
+    if (level === AccessControlLevel.Manager) {
+        return 'Manage access. Can configure and manage items.'
+    }
+
+    return `${toSentenceCase(level)} access.`
 }
 
 function humanizeLevel(level: AccessControlLevel | null | undefined): string {

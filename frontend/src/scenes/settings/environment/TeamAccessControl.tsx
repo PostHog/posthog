@@ -9,7 +9,13 @@ export function TeamAccessControl(): JSX.Element {
 
     return (
         <div className="space-y-6">
-            <p>Control access to your project and its resources</p>
+            <div className="space-y-2">
+                <p className="mb-0">
+                    Use access control rules to manage access for this project and its resources. You can set defaults
+                    for everyone, specific roles, or specific members.
+                </p>
+            </div>
+
             {currentTeam?.id ? <ResourcesAccessControls projectId={`${currentTeam.id}`} /> : null}
         </div>
     )
