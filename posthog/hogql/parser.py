@@ -5,10 +5,15 @@ from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeV
 from antlr4.error.ErrorListener import ErrorListener
 from hogql_parser import (
     parse_expr as _parse_expr_cpp,
+    parse_expr_json as _parse_expr_json_cpp,
     parse_full_template_string as _parse_full_template_string_cpp,
+    parse_full_template_string_json as _parse_full_template_string_json_cpp,
     parse_order_expr as _parse_order_expr_cpp,
+    parse_order_expr_json as _parse_order_expr_json_cpp,
     parse_program as _parse_program_cpp,
+    parse_program_json as _parse_program_json_cpp,
     parse_select as _parse_select_cpp,
+    parse_select_json as _parse_select_json_cpp,
 )
 from opentelemetry import trace
 from prometheus_client import Histogram
@@ -64,15 +69,11 @@ RULE_TO_PARSE_FUNCTION: dict[
     },
     # Defer imports until the new version of hogql_parser is built and installed.
     "cpp-json": {
-        "expr": lambda string, start: deserialize_ast(
-            __import__("hogql_parser").parse_expr_json(string, is_internal=start is None)
-        ),
-        "order_expr": lambda string: deserialize_ast(__import__("hogql_parser").parse_order_expr_json(string)),
-        "select": lambda string: deserialize_ast(__import__("hogql_parser").parse_select_json(string)),
-        "full_template_string": lambda string: deserialize_ast(
-            __import__("hogql_parser").parse_full_template_string_json(string)
-        ),
-        "program": lambda string: deserialize_ast(__import__("hogql_parser").parse_program_json(string)),
+        "expr": lambda string, start: deserialize_ast(_parse_expr_json_cpp(string, is_internal=start is None)),
+        "order_expr": lambda string: deserialize_ast(_parse_order_expr_json_cpp(string)),
+        "select": lambda string: deserialize_ast(_parse_select_json_cpp(string)),
+        "full_template_string": lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
+        "program": lambda string: deserialize_ast(_parse_program_json_cpp(string)),
     },
 }
 
