@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -11,11 +10,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/posthog/posthog/livestream/auth"
 	"github.com/posthog/posthog/livestream/events"
-)
-
-const (
-	MaxIncludeProperties  = 100
-	MaxPropertyNameLength = 500
 )
 
 func Index(c echo.Context) error {
@@ -104,14 +98,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			if includeProps != "" {
 				props = strings.Split(includeProps, ",")
 			}
-			if len(props) > MaxIncludeProperties {
-				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Too many properties requested. A maximum of %d properties are allowed.", MaxIncludeProperties))
-			}
-			for _, prop := range props {
-				if len(prop) > MaxPropertyNameLength {
-					return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Property name %s too long. A maximum of %d characters are allowed.", prop, MaxPropertyNameLength))
-				}
-			}
+
 			includeProperties = &props
 		}
 

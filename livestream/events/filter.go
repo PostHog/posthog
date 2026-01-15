@@ -132,7 +132,6 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
@@ -164,7 +163,8 @@ func (c *Filter) Run() {
 					select {
 					case sub.EventChan <- *filteredEvent:
 					default:
-						// Don't block
+						sub.DroppedEvents.Add(1)
+						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
 					}
 				} else {
 					if responseEvent == nil {

@@ -27,9 +27,9 @@ func TestNewFilter(t *testing.T) {
 
 func TestRemoveSubscription(t *testing.T) {
 	subs := []Subscription{
-		{SubID: 1},
-		{SubID: 2},
-		{SubID: 3},
+		{SubID: 1, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 2, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 3, DroppedEvents: &atomic.Uint64{}},
 	}
 
 	result := removeSubscription(2, subs)
@@ -96,13 +96,14 @@ func TestFilterRun(t *testing.T) {
 	// Test subscription
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Token:       "token1",
-		DistinctId:  "user1",
-		EventTypes:  []string{"pageview"},
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Token:         "token1",
+		DistinctId:    "user1",
+		EventTypes:    []string{"pageview"},
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -154,11 +155,12 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	// Test subscription with Geo enabled
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Geo:         true,
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Geo:           true,
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -183,6 +185,109 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")
 	}
+}
+
+func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
+	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
+	inboundChan := make(chan PostHogEvent)
+
+	filter := NewFilter(subChan, unSubChan, inboundChan)
+
+	go filter.Run()
+
+	eventChan1 := make(chan interface{}, 1)
+	sub1 := Subscription{
+		SubID:             1,
+		TeamId:            1,
+		Token:             "token1",
+		EventChan:         eventChan1,
+		ShouldClose:       &atomic.Bool{},
+		DroppedEvents:     &atomic.Uint64{},
+		IncludeProperties: &[]string{"url"},
+	}
+
+	eventChan2 := make(chan interface{}, 1)
+	sub2 := Subscription{
+		SubID:             2,
+		TeamId:            1,
+		Token:             "token1",
+		EventChan:         eventChan2,
+		ShouldClose:       &atomic.Bool{},
+		DroppedEvents:     &atomic.Uint64{},
+		IncludeProperties: &[]string{"url", "$browser"},
+	}
+
+	eventChan3 := make(chan interface{}, 1)
+	sub3 := Subscription{
+		SubID:             3,
+		TeamId:            1,
+		Token:             "token1",
+		EventChan:         eventChan3,
+		ShouldClose:       &atomic.Bool{},
+		DroppedEvents:     &atomic.Uint64{},
+		IncludeProperties: nil,
+	}
+
+	subChan <- sub1
+	subChan <- sub2
+	subChan <- sub3
+
+	time.Sleep(10 * time.Millisecond)
+
+	event := PostHogEvent{
+		Uuid:       "123",
+		Timestamp:  "2026-01-01T00:00:00Z",
+		DistinctId: "user1",
+		Token:      "token1",
+		Event:      "pageview",
+		Properties: map[string]interface{}{
+			"url":          "https://example.com",
+			"$browser":     "Chrome",
+			"$device_type": "Desktop",
+		},
+	}
+	inboundChan <- event
+
+	select {
+	case received := <-eventChan1:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{"url": "https://example.com"}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 1")
+	}
+
+	select {
+	case received := <-eventChan2:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{
+			"url":      "https://example.com",
+			"$browser": "Chrome",
+		}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 2")
+	}
+
+	select {
+	case received := <-eventChan3:
+		responseEvent, ok := received.(ResponsePostHogEvent)
+		require.True(t, ok)
+		assert.Equal(t, map[string]interface{}{
+			"url":          "https://example.com",
+			"$browser":     "Chrome",
+			"$device_type": "Desktop",
+		}, responseEvent.Properties)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for event on subscriber 3")
+	}
+
+	unSubChan <- sub1
+	unSubChan <- sub2
+	unSubChan <- sub3
+	time.Sleep(10 * time.Millisecond)
+	assert.Empty(t, filter.subs)
 }
 
 func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {
