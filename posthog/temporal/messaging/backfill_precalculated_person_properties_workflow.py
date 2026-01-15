@@ -22,6 +22,28 @@ from common.hogvm.python.execute import execute_bytecode
 LOGGER = get_logger(__name__)
 
 
+def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
+    """Parse person properties from ClickHouse, handling both string and dict formats.
+
+    Args:
+        properties_raw: The raw properties value from ClickHouse (can be string, dict, or None)
+        person_id: The person ID for logging purposes
+
+    Returns:
+        A dictionary of person properties (empty dict if parsing fails or non-dict value)
+    """
+    if isinstance(properties_raw, str):
+        try:
+            parsed = json.loads(properties_raw)
+            # Ensure we only return dicts (handles null, numbers, arrays, etc.)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            LOGGER.warning(f"Failed to parse properties for person {person_id}")
+            return {}
+    else:
+        return properties_raw if isinstance(properties_raw, dict) else {}
+
+
 def get_person_properties_backfill_success_metric():
     """Counter for successful person properties backfills."""
     return temporalio.activity.metric_meter().create_counter(
@@ -162,16 +184,7 @@ async def backfill_precalculated_person_properties_activity(
                         batch_count += 1
                         person_id = str(row["person_id"])
 
-                        properties_raw = row.get("properties")
-                        if isinstance(properties_raw, str):
-                            try:
-                                person_properties = json.loads(properties_raw) if properties_raw else {}
-                            except json.JSONDecodeError:
-                                logger.warning(f"Failed to parse properties for person {person_id}: {properties_raw}")
-                                person_properties = {}
-                        else:
-                            person_properties = properties_raw or {}
-
+                        person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
                         for filter_info in inputs.filters:
