@@ -109,7 +109,7 @@ function MultiQuestionFormInput({ form }: MultiQuestionFormInputProps): JSX.Elem
                                 completed: answers[question.id] !== undefined,
                             }
                         })}
-                        className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3"
+                        className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3 -mt-2.5"
                     />
                 </div>
             )}
