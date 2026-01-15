@@ -554,6 +554,26 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "must be objects" in response.json()["detail"]
 
+    def test_translations_with_empty_questions_array(self):
+        # Edge case: survey with questions=[], translation should accept empty array
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with no questions",
+                "type": "popover",
+                "questions": [],
+                "translations": {
+                    "es": {
+                        "name": "Encuesta sin preguntas",
+                        "questions": [],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
     def test_partial_question_translation_with_empty_objects(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
