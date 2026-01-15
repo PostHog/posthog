@@ -36,6 +36,7 @@ export const endpointLogic = kea<endpointLogicType>([
         setSelectedCodeExampleVersion: (version: number | null) => ({ version }),
         setIsUpdateMode: (isUpdateMode: boolean) => ({ isUpdateMode }),
         setSelectedEndpointName: (selectedEndpointName: string | null) => ({ selectedEndpointName }),
+        openCreateFromInsightModal: true,
         setDuplicateEndpoint: (endpoint: EndpointType | null) => ({ endpoint }),
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
@@ -137,6 +138,9 @@ export const endpointLogic = kea<endpointLogicType>([
             actions.loadMaterializationStatus(name)
         }, 2000)
         return {
+            openCreateFromInsightModal: () => {
+                actions.loadEndpoints()
+            },
             createEndpoint: async ({ request }) => {
                 try {
                     if (request.name) {
