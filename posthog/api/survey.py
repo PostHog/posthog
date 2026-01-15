@@ -429,55 +429,19 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             # Validate and sanitize link field
             if "link" in translation_data and isinstance(translation_data["link"], str):
-                link = translation_data["link"]
-                parsed_url = urlparse(link)
-
-                # Check for unsupported schemes
-                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
-                    raise serializers.ValidationError(
-                        f"Question {question_index}: Translation '{lang_code}' link must use one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
-                    )
-
-                # Validate mailto links
-                if parsed_url.scheme == "mailto":
-                    if not re.match(EMAIL_REGEX, link):
-                        raise serializers.ValidationError(
-                            f"Question {question_index}: Translation '{lang_code}' has invalid mailto link"
-                        )
-                # Validate HTTPS URLs
-                elif parsed_url.scheme == "https":
-                    if not parsed_url.netloc:
-                        raise serializers.ValidationError(
-                            f"Question {question_index}: Translation '{lang_code}' has invalid HTTPS URL"
-                        )
-
-                if nh3.is_html(link):
-                    cleaned_translation["link"] = nh3_clean_with_allow_list(link)
-                else:
-                    cleaned_translation["link"] = link
+                cleaned_translation["link"] = self._validate_and_sanitize_link(
+                    translation_data["link"], f"Question {question_index}: Translation '{lang_code}'"
+                )
 
             # Validate and sanitize choices array
             if "choices" in translation_data:
-                choices = translation_data["choices"]
-                if not isinstance(choices, list):
+                if not isinstance(translation_data["choices"], list):
                     raise serializers.ValidationError(
                         f"Question {question_index}: Translation '{lang_code}' field 'choices' must be a list of strings"
                     )
-                cleaned_choices = []
-                for choice in choices:
-                    if not isinstance(choice, str):
-                        raise serializers.ValidationError(
-                            f"Question {question_index}: Translation '{lang_code}' choices must be strings"
-                        )
-                    if not choice.strip():
-                        raise serializers.ValidationError(
-                            f"Question {question_index}: Translation '{lang_code}' choices cannot be empty"
-                        )
-                    if nh3.is_html(choice):
-                        cleaned_choices.append(nh3_clean_with_allow_list(choice))
-                    else:
-                        cleaned_choices.append(choice)
-                cleaned_translation["choices"] = cleaned_choices
+                cleaned_translation["choices"] = self._validate_and_sanitize_choices(
+                    translation_data["choices"], f"Question {question_index}: Translation '{lang_code}'"
+                )
 
             cleaned_translations[lang_code] = cleaned_translation
 

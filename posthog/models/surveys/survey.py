@@ -190,7 +190,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
         Translations: Each question can include inline translations.
         - `translations`: Object mapping language codes to translated fields.
-        - Language codes: ISO 639-1 ("es", "fr") or BCP 47 ("es-MX", "en-US")
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
         - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
         Example with translations:
@@ -278,7 +278,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     # Translations for multi-language support
     # Format: { [languageCode]: { name: string, description: string, ... } }
-    # Language codes: ISO 639-1 ("es", "fr") or BCP 47 ("es-MX", "en-US")
+    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
     translations = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.

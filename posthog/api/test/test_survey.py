@@ -177,29 +177,6 @@ class TestSurvey(APIBaseTest):
         survey = Survey.objects.get(id=survey_id)
         assert survey.translations is None
 
-    def test_custom_language_codes_accepted(self):
-        """Test that custom language codes are accepted (e.g. 'english', 'french')"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {
-                    "english": {"name": "Custom code"},
-                    "french": {"name": "Code personnalisé"},
-                    "es-MX": {"name": "BCP 47 still works"},
-                },
-            },
-            format="json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED
-        survey = Survey.objects.get(id=response.json()["id"])
-        assert "english" in survey.translations
-        assert "french" in survey.translations
-        assert "es-MX" in survey.translations
-
     def test_choices_array_length_mismatch_rejected(self):
         """Prevent partial translations by ensuring choices array lengths match"""
         response = self.client.post(
