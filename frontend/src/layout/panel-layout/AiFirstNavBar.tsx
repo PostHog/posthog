@@ -1,23 +1,19 @@
-import { Combobox } from '@base-ui/react/combobox'
 import { Menu } from '@base-ui/react/menu'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { router } from 'kea-router'
+import { useRef, useState } from 'react'
 
 import {
-    IconApps,
     IconChevronRight,
     IconClock,
     IconDatabase,
-    IconEllipsis,
-    IconMessage,
     IconPeople,
     IconPlusSmall,
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -26,41 +22,26 @@ import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuTrigger,
-} from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { formatConversationDate } from 'scenes/max/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { DashboardsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/DashboardsMenuItems'
-import { ProductAnalyticsMenuItems } from '~/layout/panel-layout/ProjectTree/menus/ProductAnalyticsMenuItems'
-import { SessionReplayMenuItems } from '~/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems'
+import { AppsMenu } from '~/layout/panel-layout/ai-first/AppsMenu'
+import { ConversationsMenu } from '~/layout/panel-layout/ai-first/ConversationsMenu'
+import { RecentConversationsList } from '~/layout/panel-layout/ai-first/RecentConversationsList'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
-import { getTreeItemsProducts } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
-import { ActivityTab, ConversationDetail, ConversationStatus } from '~/types'
+import { ActivityTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { BrowserLikeMenuItems } from './ProjectTree/menus/BrowserLikeMenuItems'
 
 const menuTriggerStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover w-full'
@@ -70,431 +51,6 @@ const menuItemStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover'
 const submenuTriggerStyles =
     'flex items-center gap-2 px-2 py-1.5 rounded-sm text-sm cursor-pointer hover:bg-fill-button-tertiary-hover outline-none data-[highlighted]:bg-fill-button-tertiary-hover data-[popup-open]:bg-fill-button-tertiary-hover'
-
-interface ProductGroup {
-    value: string
-    items: FileSystemImport[]
-}
-
-const CATEGORY_ORDER = ['Analytics', 'Behavior', 'Features', 'Tools', 'Unreleased']
-
-function ProductContextMenu({
-    product,
-    onClick,
-    children,
-}: {
-    product: FileSystemImport
-    onClick: () => void
-    children: React.ReactNode
-}): JSX.Element {
-    const hasSpecialMenu = ['Product analytics', 'Session replay', 'Dashboards'].includes(product.path)
-
-    if (!hasSpecialMenu) {
-        return (
-            <ContextMenu>
-                <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-                <ContextMenuContent loop className="max-w-[250px]">
-                    <ContextMenuGroup>
-                        <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={product.href || '#'} onClick={onClick} />
-                    </ContextMenuGroup>
-                </ContextMenuContent>
-            </ContextMenu>
-        )
-    }
-
-    return (
-        <ContextMenu>
-            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-            <ContextMenuContent loop className="max-w-[250px]">
-                <ContextMenuGroup>
-                    <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={product.href || '#'} onClick={onClick} />
-                </ContextMenuGroup>
-                <ContextMenuGroup className="group/colorful-product-icons colorful-product-icons-true">
-                    {product.path === 'Product analytics' && (
-                        <ProductAnalyticsMenuItems
-                            MenuItem={ContextMenuItem}
-                            MenuGroup={ContextMenuGroup}
-                            onLinkClick={onClick}
-                        />
-                    )}
-                    {product.path === 'Session replay' && <SessionReplayMenuItems onLinkClick={onClick} />}
-                    {product.path === 'Dashboards' && <DashboardsMenuItems onLinkClick={onClick} />}
-                </ContextMenuGroup>
-            </ContextMenuContent>
-        </ContextMenu>
-    )
-}
-
-function AppsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [open, setOpen] = useState(false)
-
-    useAppShortcut({
-        name: 'open-all-apps-menu',
-        keybind: [keyBinds.allApps],
-        intent: 'Open all apps menu',
-        interaction: 'function',
-        callback: () => {
-            setOpen(!open)
-        },
-    })
-
-    const productGroups = useMemo(() => {
-        const allProducts = getTreeItemsProducts()
-        const filteredProducts = allProducts.filter((p) => !p.flag || (featureFlags as Record<string, boolean>)[p.flag])
-
-        const grouped: Record<string, FileSystemImport[]> = {}
-        for (const product of filteredProducts) {
-            const category = product.category || 'Other'
-            if (!grouped[category]) {
-                grouped[category] = []
-            }
-            grouped[category].push(product)
-        }
-
-        const groups: ProductGroup[] = CATEGORY_ORDER.filter((cat) => grouped[cat]).map((cat) => ({
-            value: cat,
-            items: grouped[cat],
-        }))
-
-        return groups
-    }, [featureFlags])
-
-    return (
-        <Combobox.Root
-            open={open}
-            onOpenChange={setOpen}
-            items={productGroups}
-            itemToStringValue={(item: FileSystemImport) => item.path}
-            defaultInputValue=""
-            autoHighlight
-        >
-            <Combobox.Trigger
-                render={
-                    <ButtonPrimitive
-                        iconOnly={isCollapsed}
-                        tooltip={
-                            <>
-                                <span>Apps</span> <RenderKeybind keybind={[keyBinds.allApps]} />
-                            </>
-                        }
-                        tooltipPlacement="right"
-                        menuItem
-                        className={cn('hidden lg:flex', menuTriggerStyles)}
-                        onClick={() => setOpen(!open)}
-                    >
-                        <IconApps className="size-4 text-secondary" />
-                        {!isCollapsed && (
-                            <>
-                                <span className="flex-1 text-left">Apps</span>
-                                <IconChevronRight className="size-3 text-secondary" />
-                            </>
-                        )}
-                    </ButtonPrimitive>
-                }
-            />
-            <Combobox.Portal>
-                <Combobox.Positioner
-                    className="z-[var(--z-popover)]"
-                    side="right"
-                    align="start"
-                    sideOffset={6}
-                    alignOffset={-4}
-                >
-                    <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 max-h-(--available-height)">
-                        <Combobox.Input
-                            placeholder="Search apps"
-                            className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
-                            autoFocus
-                        />
-                        <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
-                            <Combobox.List className="flex flex-col gap-1">
-                                {(group: ProductGroup) => (
-                                    <Combobox.Group
-                                        key={group.value}
-                                        items={group.items}
-                                        className="flex flex-col gap-px"
-                                    >
-                                        <Combobox.GroupLabel className="px-2 py-1 text-xs font-medium text-muted sticky top-0 bg-surface-primary z-10">
-                                            {group.value}
-                                        </Combobox.GroupLabel>
-                                        <Combobox.Collection>
-                                            {(product: FileSystemImport) => (
-                                                <ProductContextMenu
-                                                    key={product.path}
-                                                    product={product}
-                                                    onClick={() => setOpen(false)}
-                                                >
-                                                    <Combobox.Item
-                                                        value={product}
-                                                        className={cn(
-                                                            menuItemStyles,
-                                                            'group/colorful-product-icons colorful-product-icons-true'
-                                                        )}
-                                                        onClick={() => {
-                                                            router.actions.push(product.href || '#')
-                                                            setOpen(false)
-                                                        }}
-                                                    >
-                                                        {iconForType(product.iconType)}
-                                                        <span className="flex-1">{product.path}</span>
-                                                        {product.tags?.includes('beta') && (
-                                                            <LemonTag type="highlight" size="small">
-                                                                BETA
-                                                            </LemonTag>
-                                                        )}
-                                                        {product.tags?.includes('alpha') && (
-                                                            <LemonTag type="completion" size="small">
-                                                                ALPHA
-                                                            </LemonTag>
-                                                        )}
-                                                    </Combobox.Item>
-                                                </ProductContextMenu>
-                                            )}
-                                        </Combobox.Collection>
-                                    </Combobox.Group>
-                                )}
-                            </Combobox.List>
-                            <Combobox.Empty className="px-2 py-4 text-center text-sm text-muted empty:hidden">
-                                No apps found.
-                            </Combobox.Empty>
-                        </ScrollableShadows>
-                    </Combobox.Popup>
-                </Combobox.Positioner>
-            </Combobox.Portal>
-        </Combobox.Root>
-    )
-}
-
-function ConversationContextMenu({
-    conversation,
-    onClick,
-    children,
-}: {
-    conversation: ConversationDetail
-    onClick: () => void
-    children: React.ReactNode
-}): JSX.Element {
-    const conversationUrl = combineUrl(urls.ai(conversation.id), { from: 'history' }).url
-
-    return (
-        <ContextMenu>
-            <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-            <ContextMenuContent loop className="max-w-[250px]">
-                <ContextMenuGroup>
-                    <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={conversationUrl} onClick={onClick} />
-                </ContextMenuGroup>
-            </ContextMenuContent>
-        </ContextMenu>
-    )
-}
-
-interface ConversationGroup {
-    value: string
-    items: ConversationDetail[]
-}
-
-const DATE_GROUP_ORDER = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days', 'Older']
-
-function getDateGroupLabel(dateString: string | null): string {
-    if (!dateString) {
-        return 'Older'
-    }
-
-    const date = new Date(dateString)
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const lastWeek = new Date(today)
-    lastWeek.setDate(lastWeek.getDate() - 7)
-    const lastMonth = new Date(today)
-    lastMonth.setDate(lastMonth.getDate() - 30)
-
-    if (date >= today) {
-        return 'Today'
-    } else if (date >= yesterday) {
-        return 'Yesterday'
-    } else if (date >= lastWeek) {
-        return 'Last 7 days'
-    } else if (date >= lastMonth) {
-        return 'Last 30 days'
-    }
-    return 'Older'
-}
-
-function AllConversationsMenu({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
-    const [open, setOpen] = useState(false)
-    const { conversationHistory, conversationHistoryLoading } = useValues(maxGlobalLogic)
-    const { searchParams } = useValues(router)
-    const currentConversationId = searchParams?.chat
-
-    const [loadingStarted, setLoadingStarted] = useState(false)
-    const [initialLoadComplete, setInitialLoadComplete] = useState(false)
-
-    useEffect(() => {
-        if (conversationHistoryLoading) {
-            setLoadingStarted(true)
-        } else if (loadingStarted && !initialLoadComplete) {
-            setInitialLoadComplete(true)
-        }
-    }, [conversationHistoryLoading, loadingStarted, initialLoadComplete])
-
-    const conversationGroups = useMemo(() => {
-        const grouped: Record<string, ConversationDetail[]> = {}
-
-        for (const conversation of conversationHistory) {
-            const groupLabel = getDateGroupLabel(conversation.updated_at)
-            if (!grouped[groupLabel]) {
-                grouped[groupLabel] = []
-            }
-            grouped[groupLabel].push(conversation)
-        }
-
-        const groups: ConversationGroup[] = DATE_GROUP_ORDER.filter((label) => grouped[label]?.length > 0).map(
-            (label) => ({
-                value: label,
-                items: grouped[label],
-            })
-        )
-
-        return groups
-    }, [conversationHistory])
-
-    useAppShortcut({
-        name: 'open-all-chats',
-        keybind: [keyBinds.allChats],
-        intent: 'Open all chats menu',
-        interaction: 'function',
-        callback: () => {
-            setOpen(!open)
-        },
-    })
-
-    return (
-        <Combobox.Root
-            open={open}
-            onOpenChange={setOpen}
-            items={conversationGroups}
-            itemToStringValue={(item: ConversationDetail) => item.title || ''}
-            defaultInputValue=""
-            autoHighlight
-        >
-            <Combobox.Trigger
-                className={menuTriggerStyles}
-                render={
-                    <ButtonPrimitive
-                        iconOnly={isCollapsed}
-                        tooltip={
-                            <>
-                                <span>All chats</span> <RenderKeybind keybind={[keyBinds.allChats]} />
-                            </>
-                        }
-                        tooltipPlacement="right"
-                        onClick={() => setOpen(!open)}
-                    >
-                        <IconEllipsis className="size-4 text-secondary" />
-                        {!isCollapsed && (
-                            <>
-                                <span className="text-left">All chats</span>
-                                <IconChevronRight className="size-3 text-secondary ml-auto" />
-                            </>
-                        )}
-                    </ButtonPrimitive>
-                }
-            />
-            <Combobox.Portal>
-                <Combobox.Positioner
-                    className="z-[var(--z-popover)]"
-                    side="right"
-                    align="start"
-                    sideOffset={6}
-                    alignOffset={-4}
-                >
-                    <Combobox.Popup className="primitive-menu-content min-w-[300px] flex flex-col p-1 max-h-(--available-height)">
-                        <Combobox.Input
-                            placeholder="Search chats"
-                            className="w-full px-2 py-1.5 text-sm rounded-sm border border-primary bg-surface-primary focus:outline-none focus:ring-1 focus:ring-primary mb-1"
-                            autoFocus
-                        />
-                        {!initialLoadComplete && (
-                            <WrappingLoadingSkeleton fullWidth>
-                                <ButtonPrimitive inert aria-hidden>
-                                    Loading...
-                                </ButtonPrimitive>
-                            </WrappingLoadingSkeleton>
-                        )}
-                        {initialLoadComplete && (
-                            <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" styledScrollbars>
-                                <Combobox.List className="flex flex-col gap-1">
-                                    {(group: ConversationGroup) => (
-                                        <Combobox.Group
-                                            key={group.value}
-                                            items={group.items}
-                                            className="flex flex-col gap-px"
-                                        >
-                                            <Combobox.GroupLabel className="flex px-2 py-1 text-xs font-medium text-muted sticky top-0 bg-surface-primary z-10 justify-between">
-                                                <span className="text-left">{group.value}</span>
-                                                <span className="text-xs text-tertiary/80 shrink-0">Updated at</span>
-                                            </Combobox.GroupLabel>
-                                            <Combobox.Collection>
-                                                {(conversation: ConversationDetail) => (
-                                                    <ConversationContextMenu
-                                                        key={conversation.id}
-                                                        conversation={conversation}
-                                                        onClick={() => setOpen(false)}
-                                                    >
-                                                        <Combobox.Item
-                                                            value={conversation}
-                                                            render={
-                                                                <Link
-                                                                    to={
-                                                                        combineUrl(urls.ai(conversation.id), {
-                                                                            from: 'history',
-                                                                        }).url
-                                                                    }
-                                                                    buttonProps={{
-                                                                        active:
-                                                                            conversation.id === currentConversationId,
-                                                                        menuItem: true,
-                                                                        className: menuItemStyles,
-                                                                    }}
-                                                                    tooltip={conversation.title}
-                                                                    tooltipPlacement="right"
-                                                                    onClick={() => setOpen(false)}
-                                                                >
-                                                                    <span className="flex-1 line-clamp-1">
-                                                                        {conversation.title}
-                                                                    </span>
-                                                                    {conversation.status ===
-                                                                        ConversationStatus.InProgress && (
-                                                                        <Spinner className="h-3 w-3" />
-                                                                    )}
-                                                                    <span className="text-xs text-tertiary/80 shrink-0">
-                                                                        {formatConversationDate(
-                                                                            conversation.updated_at
-                                                                        )}
-                                                                    </span>
-                                                                </Link>
-                                                            }
-                                                        />
-                                                    </ConversationContextMenu>
-                                                )}
-                                            </Combobox.Collection>
-                                        </Combobox.Group>
-                                    )}
-                                </Combobox.List>
-                                <Combobox.Empty className="px-2 py-4 text-center text-sm text-muted empty:hidden">
-                                    No chats found.
-                                </Combobox.Empty>
-                            </ScrollableShadows>
-                        )}
-                    </Combobox.Popup>
-                </Combobox.Positioner>
-            </Combobox.Portal>
-        </Combobox.Root>
-    )
-}
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -509,80 +65,6 @@ const navBarStyles = cva({
         },
     },
 })
-
-const MAX_RECENT_CONVERSATIONS = 5
-
-function RecentConversations({ isCollapsed }: { isCollapsed: boolean }): JSX.Element {
-    const { conversationHistory, conversationHistoryLoading } = useValues(maxGlobalLogic)
-    const { searchParams } = useValues(router)
-    const currentConversationId = searchParams?.chat
-    const recentConversations = conversationHistory.slice(0, MAX_RECENT_CONVERSATIONS)
-
-    const [loadingStarted, setLoadingStarted] = useState(false)
-    const [initialLoadComplete, setInitialLoadComplete] = useState(false)
-
-    useEffect(() => {
-        if (conversationHistoryLoading) {
-            setLoadingStarted(true)
-        } else if (loadingStarted && !initialLoadComplete) {
-            setInitialLoadComplete(true)
-        }
-    }, [conversationHistoryLoading, loadingStarted, initialLoadComplete])
-
-    // Show skeleton until initial load completes
-    if (!initialLoadComplete) {
-        return (
-            <div className="flex flex-col gap-px">
-                {Array.from({ length: MAX_RECENT_CONVERSATIONS }).map((_, i) => (
-                    <WrappingLoadingSkeleton key={`skeleton-${i}`} fullWidth>
-                        <ButtonPrimitive inert aria-hidden>
-                            Loading...
-                        </ButtonPrimitive>
-                    </WrappingLoadingSkeleton>
-                ))}
-            </div>
-        )
-    }
-
-    // After load: show empty state or content
-    if (recentConversations.length === 0) {
-        return (
-            <div className="flex flex-col gap-px">
-                <div className="text-muted text-xs px-2 py-1">No chats yet</div>
-            </div>
-        )
-    }
-
-    return (
-        <div className={cn('flex flex-col gap-px')}>
-            {recentConversations.map((conversation) => {
-                const isActive = conversation.id === currentConversationId
-                return (
-                    <Link
-                        key={conversation.id}
-                        to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
-                        buttonProps={{
-                            active: isActive,
-                            menuItem: true,
-                            // got to fix Link to stop being so powerful
-                            className: '[--radius:4px]',
-                        }}
-                        tooltip={conversation.title}
-                        tooltipPlacement="right"
-                    >
-                        <IconMessage className="size-4 text-secondary opacity-50" />
-                        {!isCollapsed && (
-                            <span className="flex-1 line-clamp-1 text-primary text-sm break-all">
-                                {conversation.title}
-                            </span>
-                        )}
-                        {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
-                    </Link>
-                )
-            })}
-        </div>
-    )
-}
 
 export function AiFirstNavBar(): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -682,8 +164,8 @@ export function AiFirstNavBar(): JSX.Element {
                                             Recent
                                         </Label>
                                         <div className="flex flex-col gap-px">
-                                            <RecentConversations isCollapsed={isLayoutNavCollapsed} />
-                                            <AllConversationsMenu isCollapsed={false} />
+                                            <RecentConversationsList isCollapsed={isLayoutNavCollapsed} />
+                                            <ConversationsMenu isCollapsed={isLayoutNavCollapsed} />
                                         </div>
                                     </div>
 
