@@ -628,7 +628,7 @@ async def execute_summarize_session(
     session_id: str,
     user: User,
     team: Team,
-    model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
+    model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
     video_validation_enabled: bool | Literal["full"] | None = None,
@@ -637,6 +637,10 @@ async def execute_summarize_session(
     Start the direct summarization workflow (no streaming) and return the summary.
     Intended to use as a part of other tools or workflows to get more context on summary, so implemented async.
     """
+    if model_to_use is None:
+        model_to_use = (
+            SESSION_SUMMARIES_SYNC_MODEL if video_validation_enabled != "full" else DEFAULT_VIDEO_UNDERSTANDING_MODEL
+        )
     _, _, _, session_input, workflow_id = _prepare_execution(
         session_id=session_id,
         user=user,

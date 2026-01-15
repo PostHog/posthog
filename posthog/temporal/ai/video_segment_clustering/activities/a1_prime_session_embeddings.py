@@ -20,7 +20,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     PrimeSessionEmbeddingsResult,
 )
 
-from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL, MIN_SESSION_DURATION_FOR_SUMMARY_MS
+from ee.hogai.session_summaries.constants import MIN_SESSION_DURATION_FOR_SUMMARY_MS
 from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +49,7 @@ async def _prime_session_embeddings(inputs: PrimeSessionEmbeddingsActivityInputs
         )
 
     # Step 2: Get first user with access to the team for running summarization (as summarization requires _some_ user)
-    # TODO: In this case, we should pass no user, and summarization should then understand it was "system-initiated"
+    # TODO: We should instead pass no user, in which case summarization should understand this was system-initiated
     system_user = await database_sync_to_async(lambda: team.all_users_with_access().first())()
 
     if not system_user:
@@ -81,9 +81,6 @@ async def _prime_session_embeddings(inputs: PrimeSessionEmbeddingsActivityInputs
                     session_id=session_id,
                     user=system_user,
                     team=team,
-                    model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
-                    extra_summary_context=None,
-                    local_reads_prod=False,
                     video_validation_enabled="full",
                 )
                 for session_id in sessions_to_summarize
@@ -148,7 +145,7 @@ def _fetch_recent_session_ids(team: Team, lookback_hours: int) -> list[str]:
             RecordingPropertyFilter(
                 key="ongoing",
                 operator=PropertyOperator.EXACT,
-                value=0,  # ongoing is UInt8 in ClickHouse (0 = finished, 1 = ongoing)
+                value=0,  # The bool is represented as 0/1 in ClickiHouse
             ),
         ],
     )
