@@ -966,6 +966,17 @@
             }
         }
 
+        // Extract additional survey event parameters from URL parameters
+        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', 'auto_submit'];
+        const surveyEventProperties = {};
+
+        for (const [key, value] of searchParams.entries()) {
+            // Skip question prefill parameters (q1, q2, etc.) and ignored params
+            if (!URL_PARAMS_TO_IGNORE.includes(key) && !key.match(/^q\d+$/)) {
+                surveyEventProperties[key] = value;
+            }
+        }
+
         // Add ui_host if available (for reverse proxy setups)
         if (projectConfig.ui_host) {
             config.ui_host = projectConfig.ui_host;
@@ -979,7 +990,11 @@
                 autoSubmitDelay: 800,
             },
             loaded: (instance) => {
-                instance.surveys["_surveyManager"].renderSurvey(survey, document.getElementById('posthog-survey-container'));
+                instance.surveys["_surveyManager"].renderSurvey(
+                    survey,
+                    document.getElementById('posthog-survey-container'),
+                    surveyEventProperties
+                );
             }
         });
 
