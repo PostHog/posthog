@@ -651,7 +651,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
                 actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
-            // Note: pending approvals loading is handled in the reducer (pendingApprovalsData.setConversation)
         },
         askMax: async ({ prompt, addToThread = true, uiContext }) => {
             // Only process if this thread is the currently active one
@@ -798,6 +797,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setConversation(newConversation)
             actions.updateGlobalConversationCache(newConversation)
 
+            // Fetch the full conversation to get state fields
+            // (those which aren't included in the streaming response)
+            actions.loadConversation(values.conversation.id)
+
             // Must go last. Otherwise, the logic will be unmounted before the lifecycle finishes.
             if (values.activeThreadKey !== values.conversationId && cache.unmount) {
                 cache.unmount()
@@ -805,7 +808,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         loadConversationHistorySuccess: ({ conversationHistory, payload }) => {
-            if (payload?.doNotUpdateCurrentThread || values.autoRun || values.streamingActive) {
+            // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
+            // but it's a string (conversationId) for loadConversation
+            const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
+            if (doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -813,7 +819,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             const conversation = conversationHistory.find((c) => c.id === values.conversationId)
-            if (conversation?.status === ConversationStatus.InProgress) {
+            if (!conversation) {
+                return
+            }
+
+            // Sync conversation data
+            actions.setConversation(conversation)
+
+            if (conversation.status === ConversationStatus.InProgress) {
                 setTimeout(() => {
                     actions.reconnectToStream()
                 }, 0)
