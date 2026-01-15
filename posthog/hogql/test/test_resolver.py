@@ -312,13 +312,14 @@ class TestResolver(BaseTest):
                 WITH cte2 AS (SELECT 2 AS a)
                 SELECT * FROM cte2
                 UNION ALL
+                WITH cte1 AS (SELECT 1 AS a)
                 SELECT * FROM cte1
                     """
         )
 
         self.assertEqual(
             union_printed,
-            "WITH cte1 AS (SELECT 1 AS a), cte2 AS (SELECT 2 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL SELECT a FROM cte2 LIMIT 50000 UNION ALL SELECT a FROM cte1 LIMIT 50000",
+            "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000",
         )
 
     def test_ctes_scalar_subquery(self):

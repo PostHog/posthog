@@ -403,6 +403,14 @@ class CTETableType(BaseTableType):
             elif isinstance(column, FieldTraverserType):
                 fields[name] = FieldTraverser(chain=column.chain)
             elif isinstance(column, PropertyType):
+                # If this property has been resolved to a joined subquery field, look up that field
+                if column.joined_subquery and column.joined_subquery_field_name:
+                    subquery_column = column.joined_subquery.select_query_type.columns.get(
+                        column.joined_subquery_field_name
+                    )
+                    if subquery_column:
+                        return recursively_resolve_column(name, subquery_column)
+                # Otherwise, resolve from the raw field_type
                 return recursively_resolve_column(name, column.field_type)
             elif isinstance(column, CallType):
                 fields[name] = constant_type_to_database_field(name, column.return_type)
