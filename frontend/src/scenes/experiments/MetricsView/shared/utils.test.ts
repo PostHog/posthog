@@ -230,55 +230,41 @@ describe('getMetricColors', () => {
 })
 
 describe('formatPValue', () => {
-    it('returns "—" for null', () => {
-        expect(formatPValue(null)).toBe('—')
+    it.each([
+        [null, '—'],
+        [undefined, '—'],
+    ])('returns "—" for %p', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
     })
 
-    it('returns "—" for undefined', () => {
-        expect(formatPValue(undefined)).toBe('—')
+    it.each([
+        [0, '< 0.001'],
+        [0.0001, '< 0.001'],
+        [0.00001, '< 0.001'],
+        [4.196532010780629e-11, '< 0.001'],
+        [1e-100, '< 0.001'],
+        [Number.MIN_VALUE, '< 0.001'],
+    ])('returns "< 0.001" for very small p-value %p', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
     })
 
-    it('returns "< 0.001" for very small p-values', () => {
-        expect(formatPValue(0.0001)).toBe('< 0.001')
-        expect(formatPValue(0.00001)).toBe('< 0.001')
-        expect(formatPValue(4.196532010780629e-11)).toBe('< 0.001')
-        expect(formatPValue(1e-100)).toBe('< 0.001')
+    it.each([
+        [0.001, '0.0010'],
+        [0.005, '0.0050'],
+        [0.009, '0.0090'],
+        [0.00999, '0.0100'],
+    ])('returns 4 decimal places for p-value %p between 0.001 and 0.01', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
     })
 
-    it('returns 4 decimal places for p-values between 0.001 and 0.01', () => {
-        expect(formatPValue(0.001)).toBe('0.0010')
-        expect(formatPValue(0.005)).toBe('0.0050')
-        expect(formatPValue(0.009)).toBe('0.0090')
-        expect(formatPValue(0.00999)).toBe('0.0100')
-    })
-
-    it('returns 3 decimal places for p-values >= 0.01', () => {
-        expect(formatPValue(0.01)).toBe('0.010')
-        expect(formatPValue(0.05)).toBe('0.050')
-        expect(formatPValue(0.1)).toBe('0.100')
-        expect(formatPValue(0.5)).toBe('0.500')
-        expect(formatPValue(0.999)).toBe('0.999')
-    })
-
-    it('handles edge case of exactly 0.001', () => {
-        expect(formatPValue(0.001)).toBe('0.0010')
-    })
-
-    it('handles edge case of exactly 0.01', () => {
-        expect(formatPValue(0.01)).toBe('0.010')
-    })
-
-    it('handles p-value of 1', () => {
-        expect(formatPValue(1)).toBe('1.000')
-    })
-
-    // Critical test case: p-value of 0 should now be formatted properly
-    it('returns "< 0.001" for p-value of 0', () => {
-        expect(formatPValue(0)).toBe('< 0.001')
-    })
-
-    // Edge case: very close to 0 but not exactly 0
-    it('returns "< 0.001" for Number.MIN_VALUE', () => {
-        expect(formatPValue(Number.MIN_VALUE)).toBe('< 0.001')
+    it.each([
+        [0.01, '0.010'],
+        [0.05, '0.050'],
+        [0.1, '0.100'],
+        [0.5, '0.500'],
+        [0.999, '0.999'],
+        [1, '1.000'],
+    ])('returns 3 decimal places for p-value %p >= 0.01', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
     })
 })
