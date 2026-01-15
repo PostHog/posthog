@@ -12,9 +12,61 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { Breadcrumb, ProductTour, ProductTourContent, ProgressStatus, SurveyPosition } from '~/types'
+import {
+    Breadcrumb,
+    ProductTour,
+    ProductTourButtonAction,
+    ProductTourContent,
+    ProductTourStepButton,
+    ProductTourStepButtons,
+    ProgressStatus,
+    SurveyPosition,
+} from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+
+export const BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'dismiss', label: 'Dismiss' },
+    { value: 'link', label: 'Open link' },
+    { value: 'trigger_tour', label: 'Start tour' },
+]
+
+export const TOUR_BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'next_step', label: 'Next step' },
+    { value: 'previous_step', label: 'Previous step' },
+    ...BUTTON_ACTION_OPTIONS,
+]
+
+export const DEFAULT_PRIMARY_BUTTON: ProductTourStepButton = {
+    text: 'Got it',
+    action: 'dismiss',
+}
+
+export const DEFAULT_SECONDARY_BUTTON: ProductTourStepButton = {
+    text: 'Learn more',
+    action: 'link',
+    link: '',
+}
+
+export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number): ProductTourStepButtons {
+    const isFirstStep = stepIndex === 0
+    const isLastStep = stepIndex === totalSteps - 1
+
+    return {
+        primary: {
+            text: isLastStep ? 'Done' : 'Next',
+            action: isLastStep ? 'dismiss' : 'next_step',
+        },
+        ...(isFirstStep
+            ? {}
+            : {
+                  secondary: {
+                      text: 'Back',
+                      action: 'previous_step',
+                  },
+              }),
+    }
+}
 
 function createDefaultAnnouncementContent(): ProductTourContent {
     return {
@@ -41,6 +93,9 @@ function createDefaultAnnouncementContent(): ProductTourContent {
                             ],
                         },
                     ],
+                },
+                buttons: {
+                    primary: DEFAULT_PRIMARY_BUTTON,
                 },
                 modalPosition: SurveyPosition.MiddleCenter,
             },

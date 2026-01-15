@@ -927,6 +927,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
         ],
+        isPageVisible: [
+            true as boolean,
+            {
+                setPageVisibility: (_, { visible }) => visible,
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         beforeUnmount: () => {
@@ -1118,9 +1124,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.loadExposures(forceRefresh),
                 ])
             } finally {
-                // Always set up auto-refresh if enabled, even if metrics fail to load
-                // This ensures the interval keeps trying to refresh
-                if (values.autoRefresh.enabled && values.experiment?.start_date) {
+                // Only set up auto-refresh if enabled AND page is visible
+                // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                if (values.autoRefresh.enabled && values.experiment?.start_date && values.isPageVisible) {
                     actions.resetAutoRefreshInterval()
                 }
             }
