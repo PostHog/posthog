@@ -1408,16 +1408,17 @@ function FeatureFlagRollout({
                                             </strong>
                                         )}{' '}
                                         if they match one or more release condition groups.
+                                        {multivariateEnabled && (
+                                            <>
+                                                {' '}
+                                                Otherwise, the feature flag will evaluate to{' '}
+                                                <strong>
+                                                    <code>false</code>
+                                                </strong>
+                                                .
+                                            </>
+                                        )}
                                     </div>
-                                    {multivariateEnabled && (
-                                        <div>
-                                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                            <strong>
-                                                <code>false</code>
-                                            </strong>{' '}
-                                            otherwise.
-                                        </div>
-                                    )}
                                 </>
                             )}
                         </div>
