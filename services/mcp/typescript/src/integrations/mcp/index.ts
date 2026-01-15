@@ -27,6 +27,27 @@ import { registerResources } from '@/resources'
 import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 
+// Helper to get the public-facing URL, respecting reverse proxy headers
+// This is needed for local development with ngrok/cloudflared where request.url
+// shows http://localhost but the actual URL is https://...ngrok-free.dev
+function getPublicUrl(request: Request): URL {
+    const url = new URL(request.url)
+
+    // Check for X-Forwarded-Host (ngrok, cloudflared, and most reverse proxies)
+    const forwardedHost = request.headers.get('X-Forwarded-Host')
+    if (forwardedHost) {
+        url.host = forwardedHost
+    }
+
+    // Check for X-Forwarded-Proto (https vs http)
+    const forwardedProto = request.headers.get('X-Forwarded-Proto')
+    if (forwardedProto) {
+        url.protocol = forwardedProto + ':'
+    }
+
+    return url
+}
+
 const INSTRUCTIONS = `
 - You are a helpful assistant that can query PostHog API.
 - If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
@@ -326,7 +347,7 @@ export default {
             // e.g., /.well-known/oauth-protected-resource/mcp → /mcp
             const resourcePath = url.pathname.slice(wellKnownPrefix.length) || '/'
 
-            const resourceUrl = new URL(request.url)
+            const resourceUrl = getPublicUrl(request)
             resourceUrl.pathname = resourcePath
             resourceUrl.search = ''
 
@@ -363,7 +384,7 @@ export default {
             // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
             // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
             const regionParam = url.searchParams.get('region')?.toLowerCase()
-            const metadataUrl = new URL(request.url)
+            const metadataUrl = getPublicUrl(request)
             metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
             metadataUrl.search = ''
             if (regionParam) {
