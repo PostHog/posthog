@@ -60,7 +60,7 @@ export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend
 export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     team_id: z.number(),
-    hog_flow_id: z.string(),
+    hog_flow: z.string(),
     variables: z.record(z.any()),
     status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
     filters: z.any(),
