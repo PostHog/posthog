@@ -109,6 +109,7 @@ USER posthog
 ARG COMMIT_HASH
 RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
+
 # Add in the compiled nodejs & its runtime dependencies from the build stage
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
