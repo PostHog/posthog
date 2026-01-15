@@ -14,9 +14,9 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { LemonMenuItems } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { hashCodeForString } from 'lib/utils'
 
