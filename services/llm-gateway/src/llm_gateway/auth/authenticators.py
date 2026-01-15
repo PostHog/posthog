@@ -120,5 +120,5 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 auth_method=self.auth_type,
                 scopes=scopes,
                 token_expires_at=expires,
-                application_id=row["application_id"],
+                application_id=str(row["application_id"]),
             )
