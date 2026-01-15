@@ -39,6 +39,7 @@ sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
 ffmpeg.pkg-path = "ffmpeg"
 gh = { pkg-path = "gh" }
+protobuf = { pkg-path = "protobuf" } # protoc compiler for gRPC code generation
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
