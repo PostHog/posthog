@@ -10,7 +10,7 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 from .auth import generate_scim_token
 
 PII_FIELDS = {"userName", "displayName", "givenName", "familyName", "value", "display", "formatted"}
-FILTER_QUOTED_VALUE = re.compile(r'"((?:[^"\\]|\\.)*)"')
+FILTER_QUOTED_VALUE = re.compile(r'"([^"\\]*(?:\\.[^"\\]*)*)"')
 
 
 def _looks_like_email(value: str) -> bool:
