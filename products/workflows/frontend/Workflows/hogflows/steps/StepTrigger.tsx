@@ -237,9 +237,10 @@ function StepTriggerConfigurationEvents({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'event' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig, partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
+    const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
     return (
         <>
@@ -253,8 +254,7 @@ function StepTriggerConfigurationEvents({
                     setFilters={(filters) =>
                         setWorkflowActionConfig(action.id, {
                             type: 'event',
-                            filters: filters ?? {},
-                            filter_test_accounts: config.filter_test_accounts,
+                            filters: { ...filters, filter_test_accounts: filterTestAccounts },
                         })
                     }
                     typeKey="workflow-trigger"
@@ -263,9 +263,12 @@ function StepTriggerConfigurationEvents({
             </LemonField.Pure>
 
             <TestAccountFilter
-                filters={{ filter_test_accounts: config.filter_test_accounts }}
+                filters={{ filter_test_accounts: filterTestAccounts }}
                 onChange={({ filter_test_accounts }) =>
-                    partialSetWorkflowActionConfig(action.id, { filter_test_accounts })
+                    setWorkflowActionConfig(action.id, {
+                        type: 'event',
+                        filters: { ...config.filters, filter_test_accounts },
+                    })
                 }
             />
 
