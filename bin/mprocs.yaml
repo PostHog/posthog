@@ -101,6 +101,8 @@ procs:
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
+        env:
+            LLM_GATEWAY_DEBUG: 'true'
 
     mcp:
         shell: 'bin/start-mcp-server'

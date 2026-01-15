@@ -91,7 +91,7 @@ export const notebookLogic = kea<notebookLogicType>([
             }),
             ['comments', 'itemContext'],
             notebookSettingsLogic,
-            ['showTableOfContents'],
+            ['showKernelInfo', 'showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -122,7 +122,7 @@ export const notebookLogic = kea<notebookLogicType>([
         scheduleNotebookRefresh: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
         renameNotebook: (title: string) => ({ title }),
-        setEditingNodeId: (editingNodeId: string | null) => ({ editingNodeId }),
+        setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
         showConflictWarning: true,
         onUpdateEditor: true,
@@ -200,10 +200,29 @@ export const notebookLogic = kea<notebookLogicType>([
                 loadNotebookSuccess: () => false,
             },
         ],
-        editingNodeId: [
-            null as string | null,
+        editingNodeIds: [
+            {} as Record<string, true>,
             {
-                setEditingNodeId: (_, { editingNodeId }) => editingNodeId,
+                setEditingNodeEditing: (state, { nodeId, editing }) => {
+                    if (editing) {
+                        return {
+                            ...state,
+                            [nodeId]: true,
+                        }
+                    }
+                    if (!state[nodeId]) {
+                        return state
+                    }
+                    const { [nodeId]: _, ...rest } = state
+                    return rest
+                },
+                unregisterNodeLogic: (state, { nodeId }) => {
+                    if (!state[nodeId]) {
+                        return state
+                    }
+                    const { [nodeId]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
         nodeLogics: [
@@ -444,10 +463,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 return 'unsaved'
             },
         ],
-        editingNodeLogic: [
-            (s) => [s.editingNodeId, s.nodeLogics],
-            (editingNodeId, nodeLogics) =>
-                Object.values(nodeLogics).find((nodeLogic) => nodeLogic.values.nodeId === editingNodeId),
+        editingNodeLogics: [
+            (s) => [s.editingNodeIds, s.nodeLogics],
+            (editingNodeIds, nodeLogics) =>
+                Object.values(nodeLogics).filter((nodeLogic) => editingNodeIds[nodeLogic.values.nodeId]),
+        ],
+        editingNodeLogicsForLeft: [
+            (s) => [s.editingNodeLogics, s.containerSize],
+            (editingNodeLogics, containerSize) =>
+                containerSize === 'small'
+                    ? []
+                    : editingNodeLogics.filter((nodeLogic) => nodeLogic.values.settingsPlacement !== 'inline'),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -505,29 +531,32 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeLogic, s.showHistory, s.showTableOfContents, s.containerSize],
-            (editingNodeLogic, showHistory, showTableOfContents, containerSize) => {
-                const shouldShowSettings =
-                    !!editingNodeLogic &&
-                    containerSize !== 'small' &&
-                    editingNodeLogic.values.settingsPlacement !== 'inline'
+            (s) => [
+                s.editingNodeLogicsForLeft,
+                s.showHistory,
+                s.showTableOfContents,
+                s.showKernelInfo,
+                s.containerSize,
+            ],
+            (editingNodeLogicsForLeft, showHistory, showTableOfContents, showKernelInfo, containerSize) => {
+                const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
 
-                return showHistory || showTableOfContents || shouldShowSettings
+                return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings
             },
         ],
 
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' ||
-                (shouldBeEditable &&
-                    !previewContent &&
-                    !!notebook?.user_access_level &&
-                    accessLevelSatisfied(
-                        AccessControlResourceType.Notebook,
-                        notebook.user_access_level,
-                        AccessControlLevel.Editor
-                    )),
+                shouldBeEditable &&
+                (mode === 'canvas' ||
+                    (!previewContent &&
+                        !!notebook?.user_access_level &&
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Notebook,
+                            notebook.user_access_level,
+                            AccessControlLevel.Editor
+                        ))),
         ],
 
         insightShortIdsInNotebook: [
@@ -728,8 +757,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 values.editor.scrollToSelection()
             }
         },
-        setEditingNodeId: () => {
-            values.editingNodeLogic?.actions.selectNode()
+        setEditingNodeEditing: ({ nodeId, editing }) => {
+            if (!editing) {
+                return
+            }
+            values.findNodeLogicById(nodeId)?.actions.selectNode(false)
         },
 
         setTextSelection: ({ selection }) => {

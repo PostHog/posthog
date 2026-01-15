@@ -146,7 +146,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.11.66
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -215,7 +215,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             # tests would intermittently fail in GH actions

@@ -3,10 +3,14 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY
 from posthog.models import User
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
 
 
@@ -51,6 +55,50 @@ class TestWebAuthnRegistration(APIBaseTest):
 
         data = response.json()
         self.assertEqual(len(data["excludeCredentials"]), 1)
+
+    def test_registration_begin_disallowed_when_sso_enforced(self):
+        email_domain = self.user.email.split("@", 1)[1]
+
+        self.organization.available_product_features = [
+            {"key": "sso_enforcement", "name": "sso_enforcement"},
+            {"key": "saml", "name": "saml"},
+        ]
+        self.organization.save()
+
+        OrganizationDomain.objects.create(
+            domain=email_domain,
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="saml",
+        )
+
+        response = self.client.post("/api/webauthn/register/begin/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("requires SSO", response.json().get("detail", ""))
+
+    def test_registration_complete_disallowed_when_sso_enforced(self):
+        email_domain = self.user.email.split("@", 1)[1]
+
+        self.organization.available_product_features = [
+            {"key": "sso_enforcement", "name": "sso_enforcement"},
+            {"key": "saml", "name": "saml"},
+        ]
+        self.organization.save()
+
+        OrganizationDomain.objects.create(
+            domain=email_domain,
+            organization=self.organization,
+            verified_at=timezone.now(),
+            sso_enforcement="saml",
+        )
+
+        session = self.client.session
+        session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY] = "dummy"
+        session.save()
+
+        response = self.client.post("/api/webauthn/register/complete/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("requires SSO", response.json().get("detail", ""))
 
     def test_registration_complete_without_challenge_fails(self):
         response = self.client.post("/api/webauthn/register/complete/", {})

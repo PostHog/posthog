@@ -2,6 +2,7 @@ from typing import cast
 
 from django.db.models import Q, QuerySet
 
+import structlog
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import (
@@ -22,9 +23,11 @@ from posthog.models.organization_domain import OrganizationDomain
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
 from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
-from ee.api.scim.utils import detect_identity_provider
+from ee.api.scim.utils import detect_identity_provider, mask_scim_filter, mask_scim_payload
 from ee.models.rbac.role import Role
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
+
+logger = structlog.get_logger(__name__)
 
 SCIM_USER_ATTR_MAP = {
     ("emails", "value", None): "email",
@@ -56,6 +59,31 @@ class SCIMBaseView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
     renderer_classes = [SCIMJSONRenderer, JSONRenderer]
     parser_classes = [SCIMJSONParser, JSONParser]
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+
+        log_data: dict = {
+            "method": request.method,
+            "path": request.path,
+            "idp": detect_identity_provider(request).value,
+            "response_status": response.status_code,
+        }
+
+        if hasattr(request, "auth") and request.auth:
+            organization_domain = cast(OrganizationDomain, request.auth)
+            log_data["organization_domain"] = organization_domain.domain
+
+        if request.method in ("POST", "PUT", "PATCH"):
+            payload = getattr(request, "data", None)
+            if payload:
+                log_data["payload"] = mask_scim_payload(payload)
+        if request.GET.get("filter"):
+            log_data["filter"] = mask_scim_filter(request.GET.get("filter"))
+
+        logger.info("scim_request", **log_data)
+
+        return response
 
     def handle_exception(self, exc):
         if isinstance(exc, drf_exceptions.NotAuthenticated):

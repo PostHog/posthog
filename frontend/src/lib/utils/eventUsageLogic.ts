@@ -437,6 +437,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
+        reportExperimentMetricsRefreshed: (
+            experiment: Experiment,
+            forceRefresh: boolean,
+            context?: {
+                triggered_by: 'manual' | 'auto-refresh'
+                auto_refresh_enabled?: boolean
+                auto_refresh_interval?: number
+            }
+        ) => ({
+            experiment,
+            forceRefresh,
+            context,
+        }),
+        reportExperimentAutoRefreshToggled: (experiment: Experiment, enabled: boolean, interval: number) => ({
+            experiment,
+            enabled,
+            interval,
+        }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
@@ -595,7 +613,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyViewed: (survey: Survey) => ({
             survey,
         }),
-        reportSurveyCreated: (survey: Survey, isDuplicate?: boolean) => ({ survey, isDuplicate }),
+        reportSurveyCreated: (
+            survey: Survey,
+            isDuplicate?: boolean,
+            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template'
+        ) => ({ survey, isDuplicate, creationSource }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
@@ -1136,6 +1158,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 duration,
             })
         },
+        reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
+            posthog.capture('experiment metrics refreshed', {
+                ...getEventPropertiesForExperiment(experiment),
+                force_refresh: forceRefresh,
+                triggered_by: context?.triggered_by || 'manual',
+                auto_refresh_enabled: context?.auto_refresh_enabled,
+                auto_refresh_interval: context?.auto_refresh_interval,
+            })
+        },
+        reportExperimentAutoRefreshToggled: ({ experiment, enabled, interval }) => {
+            posthog.capture('experiment auto refresh toggled', {
+                ...getEventPropertiesForExperiment(experiment),
+                enabled,
+                interval,
+            })
+        },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
             posthog.capture('experiment launched', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1450,7 +1488,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate }) => {
+        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
             const questionsWithShuffledOptions = survey.questions.filter((question) => {
                 return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
             })
@@ -1462,6 +1500,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
+                creation_source: creationSource ?? 'full_editor',
                 linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,

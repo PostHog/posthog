@@ -1,10 +1,15 @@
 import { ExtendedRegExpMatchArray, InputRule, NodeViewProps, PasteRule } from '@tiptap/core'
 import { NodeType } from '@tiptap/pm/model'
+import clsx from 'clsx'
 import posthog from 'posthog-js'
-import { useCallback, useMemo, useRef } from 'react'
+import { type ReactNode, useCallback, useMemo, useRef } from 'react'
 
 import { TTEditor } from 'lib/components/RichContentEditor/types'
-import { tryJsonParse, uuid } from 'lib/utils'
+import { percentage, tryJsonParse, uuid } from 'lib/utils'
+import { formatCurrency } from 'lib/utils/geography/currency'
+
+import { CurrencyCode } from '~/queries/schema/schema-general'
+import { Group } from '~/types'
 
 import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
@@ -12,6 +17,109 @@ export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
 export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
 export const OPTIONAL_PROJECT_NON_CAPTURE_GROUP = '(?:/project/[0-9]*)?'
+
+type AnsiState = {
+    fgClassName?: string
+    isBold?: boolean
+}
+
+const ANSI_FG_CLASSNAMES: Record<number, string> = {
+    30: 'text-muted',
+    31: 'text-red',
+    32: 'text-green',
+    33: 'text-yellow',
+    34: 'text-blue',
+    35: 'text-purple',
+    36: 'text-blue',
+    37: 'text-default',
+    90: 'text-muted',
+    91: 'text-red',
+    92: 'text-green',
+    93: 'text-yellow',
+    94: 'text-blue',
+    95: 'text-purple',
+    96: 'text-blue',
+    97: 'text-default',
+}
+
+const applyAnsiCodes = (codes: number[], state: AnsiState): AnsiState => {
+    let nextState: AnsiState = { ...state }
+
+    for (const code of codes) {
+        if (code === 0) {
+            nextState = {}
+            continue
+        }
+
+        if (code === 1) {
+            nextState.isBold = true
+            continue
+        }
+
+        if (code === 22) {
+            nextState.isBold = false
+            continue
+        }
+
+        if (code === 39) {
+            delete nextState.fgClassName
+            continue
+        }
+
+        const fgClassName = ANSI_FG_CLASSNAMES[code]
+        if (fgClassName) {
+            nextState.fgClassName = fgClassName
+        }
+    }
+
+    return nextState
+}
+
+export const renderAnsiText = (value: string): ReactNode => {
+    if (!value.includes('\u001b[')) {
+        return value
+    }
+
+    const segments: ReactNode[] = []
+    const ansiRegex = /\u001b\[([0-9;]*)m/g
+    let lastIndex = 0
+    let match = ansiRegex.exec(value)
+    let state: AnsiState = {}
+
+    const pushSegment = (text: string): void => {
+        if (!text) {
+            return
+        }
+
+        const className = clsx(state.fgClassName, state.isBold && 'font-semibold')
+        if (className) {
+            segments.push(
+                <span key={`${segments.length}-${lastIndex}`} className={className}>
+                    {text}
+                </span>
+            )
+        } else {
+            segments.push(text)
+        }
+    }
+
+    while (match) {
+        pushSegment(value.slice(lastIndex, match.index))
+        const codes = match[1]
+            ? match[1]
+                  .split(';')
+                  .map((code) => Number.parseInt(code, 10))
+                  .filter((code) => Number.isFinite(code))
+            : [0]
+        state = applyAnsiCodes(codes, state)
+        lastIndex = match.index + match[0].length
+        match = ansiRegex.exec(value)
+    }
+
+    pushSegment(value.slice(lastIndex))
+
+    return segments
+}
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
@@ -193,4 +301,90 @@ export function sortProperties(entries: [string, any][], pinnedProperties: strin
 
         return aKey.localeCompare(bKey)
     })
+}
+
+// Group revenue-related utilities
+
+/**
+ * Represents MRR data with forecasted trend
+ */
+export interface MRRData {
+    mrr: number
+    forecastedMrr: number | null
+    percentageDiff: number | null
+    tooltipText: string | null
+    trendDirection: 'up' | 'down' | 'flat' | null
+}
+
+/**
+ * Calculates MRR data with trend analysis and tooltip text
+ * @param group Group data containing MRR information
+ * @param baseCurrency Currency code for formatting
+ * @returns MRRData object or null if no valid MRR
+ */
+export function calculateMRRData(group: Group, baseCurrency: CurrencyCode): MRRData | null {
+    const mrrValue = group.group_properties.mrr
+    const mrr: number | null = typeof mrrValue === 'number' && !isNaN(mrrValue) ? mrrValue : null
+    const forecastedMrrValue = group.group_properties.forecasted_mrr
+    const forecastedMrr: number | null =
+        typeof forecastedMrrValue === 'number' && !isNaN(forecastedMrrValue) ? forecastedMrrValue : null
+
+    if (mrr === null) {
+        return null
+    }
+
+    const percentageDiff = forecastedMrr === null || mrr === 0 ? null : (forecastedMrr - mrr) / mrr
+
+    let tooltipText: string | null = null
+    let trendDirection: 'up' | 'down' | 'flat' | null = null
+
+    if (percentageDiff !== null && forecastedMrr !== null) {
+        if (percentageDiff > 0) {
+            tooltipText = `${percentage(percentageDiff)} MRR growth forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+            trendDirection = 'up'
+        } else if (percentageDiff < 0) {
+            tooltipText = `${percentage(-percentageDiff)} MRR decrease forecasted to ${formatCurrency(forecastedMrr, baseCurrency)}`
+            trendDirection = 'down'
+        } else {
+            tooltipText = `No MRR change forecasted, flat at ${formatCurrency(mrr, baseCurrency)}`
+            trendDirection = 'flat'
+        }
+    }
+
+    return {
+        mrr,
+        forecastedMrr,
+        percentageDiff,
+        tooltipText,
+        trendDirection,
+    }
+}
+
+/**
+ * Gets paid products with formatted names from group MRR data
+ * @param group Group data containing MRR per product
+ * @returns Array of formatted product names with positive MRR
+ */
+export function getPaidProducts(group: Group): string[] {
+    const mrrPerProduct: Record<string, number> = group.group_properties.mrr_per_product || {}
+
+    return Object.entries(mrrPerProduct)
+        .filter(([, mrr]) => typeof mrr === 'number' && mrr > 0)
+        .map(([product]) =>
+            product
+                .replaceAll('_', ' ')
+                .split(' ')
+                .map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+                .join(' ')
+        )
+}
+
+/**
+ * Extracts customer lifetime value from group properties
+ * @param group Group data containing customer lifetime value
+ * @returns Lifetime value as number or null if invalid/missing
+ */
+export function getLifetimeValue(group: Group): number | null {
+    const value = group.group_properties.customer_lifetime_value
+    return typeof value === 'number' && !isNaN(value) ? value : null
 }
