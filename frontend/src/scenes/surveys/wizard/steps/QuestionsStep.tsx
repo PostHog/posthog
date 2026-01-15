@@ -2,18 +2,291 @@ import { DndContext, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
+import { AnimatePresence, motion } from 'motion/react'
 
-import { IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
-import { SurveyQuestion } from '~/types'
+import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance,
+    SurveyQuestion,
+    SurveyQuestionType,
+} from '~/types'
 
-import { SurveyQuestionLabel } from '../../constants'
+import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { surveyLogic } from '../../surveyLogic'
+import { AddQuestionButton } from '../AddQuestionButton'
+import { QuestionTypeChip } from '../QuestionTypeChip'
 import { surveyWizardLogic } from '../surveyWizardLogic'
+
+const MAX_CHOICES = 10
+
+interface QuestionOptionsProps {
+    question: SurveyQuestion
+    onUpdate: (updates: Partial<SurveyQuestion>) => void
+}
+
+function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Element | null {
+    // Rating question options
+    if (question.type === SurveyQuestionType.Rating) {
+        const ratingQuestion = question as RatingSurveyQuestion
+        const isEmoji = ratingQuestion.display === 'emoji'
+        const scaleOptions = isEmoji ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER
+
+        return (
+            <div className="space-y-2 pt-2 border-t border-border mt-3">
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">Display:</span>
+                        <LemonSelect
+                            size="xsmall"
+                            value={ratingQuestion.display}
+                            options={[
+                                { label: 'Numbers', value: 'number' },
+                                { label: 'Emoji', value: 'emoji' },
+                            ]}
+                            onChange={(val) => {
+                                // Reset to 5-point when switching display type
+                                onUpdate({
+                                    display: val,
+                                    scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                } as Partial<RatingSurveyQuestion>)
+                            }}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">Scale:</span>
+                        <LemonSelect
+                            size="xsmall"
+                            value={ratingQuestion.scale}
+                            options={scaleOptions}
+                            onChange={(val) => onUpdate({ scale: val } as Partial<RatingSurveyQuestion>)}
+                        />
+                    </div>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 flex-1">
+                        <span className="text-xs text-secondary shrink-0">Low:</span>
+                        <LemonInput
+                            size="xsmall"
+                            value={ratingQuestion.lowerBoundLabel || ''}
+                            placeholder="e.g. Unlikely"
+                            onChange={(val) => onUpdate({ lowerBoundLabel: val } as Partial<RatingSurveyQuestion>)}
+                            className="flex-1"
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 flex-1">
+                        <span className="text-xs text-secondary shrink-0">High:</span>
+                        <LemonInput
+                            size="xsmall"
+                            value={ratingQuestion.upperBoundLabel || ''}
+                            placeholder="e.g. Very likely"
+                            onChange={(val) => onUpdate({ upperBoundLabel: val } as Partial<RatingSurveyQuestion>)}
+                            className="flex-1"
+                        />
+                    </div>
+                </div>
+                <LemonCheckbox
+                    label="Submit on select"
+                    checked={!!ratingQuestion.skipSubmitButton}
+                    onChange={(checked) => onUpdate({ skipSubmitButton: checked } as Partial<RatingSurveyQuestion>)}
+                    size="small"
+                />
+            </div>
+        )
+    }
+
+    // Single/Multiple choice question options
+    if (question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice) {
+        const choiceQuestion = question as MultipleSurveyQuestion
+        const choices = choiceQuestion.choices || []
+        const hasOpenChoice = choiceQuestion.hasOpenChoice
+
+        const updateChoice = (choiceIndex: number, value: string): void => {
+            const newChoices = [...choices]
+            newChoices[choiceIndex] = value
+            onUpdate({ choices: newChoices } as Partial<MultipleSurveyQuestion>)
+        }
+
+        const removeChoice = (choiceIndex: number): void => {
+            const newChoices = choices.filter((_, i) => i !== choiceIndex)
+            const isRemovingOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
+            onUpdate({
+                choices: newChoices,
+                ...(isRemovingOpenChoice ? { hasOpenChoice: false } : {}),
+            } as Partial<MultipleSurveyQuestion>)
+        }
+
+        const addChoice = (): void => {
+            if (hasOpenChoice) {
+                // Insert before the open-ended choice
+                const newChoices = [...choices.slice(0, -1), '', choices[choices.length - 1]]
+                onUpdate({ choices: newChoices } as Partial<MultipleSurveyQuestion>)
+            } else {
+                onUpdate({ choices: [...choices, ''] } as Partial<MultipleSurveyQuestion>)
+            }
+        }
+
+        const addOpenEndedChoice = (): void => {
+            onUpdate({
+                choices: [...choices, 'Other'],
+                hasOpenChoice: true,
+                skipSubmitButton: false,
+            } as Partial<MultipleSurveyQuestion>)
+        }
+
+        return (
+            <div className="space-y-2 pt-2 border-t border-border mt-3">
+                <span className="text-xs text-secondary">Choices:</span>
+                <div className="space-y-1.5">
+                    {choices.map((choice, choiceIndex) => {
+                        const isOpenChoice = hasOpenChoice && choiceIndex === choices.length - 1
+                        return (
+                            <div key={choiceIndex} className="flex items-center gap-1.5">
+                                <LemonInput
+                                    size="xsmall"
+                                    value={choice}
+                                    placeholder={isOpenChoice ? 'Other (open-ended)' : `Choice ${choiceIndex + 1}`}
+                                    onChange={(val) => updateChoice(choiceIndex, val)}
+                                    className="flex-1"
+                                    suffix={
+                                        isOpenChoice ? (
+                                            <LemonTag type="highlight" size="small">
+                                                open
+                                            </LemonTag>
+                                        ) : null
+                                    }
+                                />
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={() => removeChoice(choiceIndex)}
+                                    tooltip="Remove choice"
+                                />
+                            </div>
+                        )
+                    })}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                    {choices.length < MAX_CHOICES && (
+                        <LemonButton icon={<IconPlusSmall />} size="xsmall" type="secondary" onClick={addChoice}>
+                            Add choice
+                        </LemonButton>
+                    )}
+                    {!hasOpenChoice && choices.length < MAX_CHOICES && (
+                        <LemonButton
+                            icon={<IconPlusSmall />}
+                            size="xsmall"
+                            type="secondary"
+                            onClick={addOpenEndedChoice}
+                        >
+                            Add "Other"
+                        </LemonButton>
+                    )}
+                    <LemonCheckbox
+                        label="Submit on select"
+                        checked={!!choiceQuestion.skipSubmitButton}
+                        onChange={(checked) =>
+                            onUpdate({ skipSubmitButton: checked } as Partial<MultipleSurveyQuestion>)
+                        }
+                        size="small"
+                        disabledReason={hasOpenChoice ? 'Not available with open-ended choice' : undefined}
+                    />
+                    <LemonCheckbox
+                        label="Shuffle"
+                        checked={!!choiceQuestion.shuffleOptions}
+                        onChange={(checked) => onUpdate({ shuffleOptions: checked } as Partial<MultipleSurveyQuestion>)}
+                        size="small"
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    // Link question options
+    if (question.type === SurveyQuestionType.Link) {
+        return (
+            <div className="space-y-2 pt-2 border-t border-border mt-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-secondary shrink-0">Link URL:</span>
+                    <LemonInput
+                        size="xsmall"
+                        value={(question as any).link || ''}
+                        placeholder="https://example.com"
+                        onChange={(val) => onUpdate({ link: val })}
+                        className="flex-1"
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    // Open text questions have no additional options
+    return null
+}
+
+interface ConfirmationScreenEditorProps {
+    appearance: SurveyAppearance
+    onUpdate: (updates: Partial<SurveyAppearance>) => void
+}
+
+function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEditorProps): JSX.Element {
+    const isEnabled = appearance.displayThankYouMessage ?? true
+
+    return (
+        <div className="border border-border rounded-lg bg-bg-light overflow-hidden">
+            {/* Always visible header with toggle */}
+            <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                <span className="text-sm font-medium">Confirmation screen</span>
+                <LemonSwitch
+                    checked={isEnabled}
+                    onChange={(checked) => onUpdate({ displayThankYouMessage: checked })}
+                />
+            </div>
+
+            {/* Animated expandable content */}
+            <AnimatePresence initial={false}>
+                {isEnabled && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
+                    >
+                        <div className="px-3 pb-3 space-y-2 border-t border-border pt-2.5">
+                            <EditableField
+                                name="confirmation-header"
+                                value={appearance.thankYouMessageHeader || ''}
+                                onSave={(text) => onUpdate({ thankYouMessageHeader: text })}
+                                placeholder="Thank you for your feedback!"
+                                className="font-medium text-sm"
+                                saveOnBlur
+                                clickToEdit
+                                compactIcon
+                            />
+                            <EditableField
+                                name="confirmation-description"
+                                value={appearance.thankYouMessageDescription || ''}
+                                onSave={(text) => onUpdate({ thankYouMessageDescription: text })}
+                                placeholder="Add a description (optional)"
+                                className="text-secondary text-xs"
+                                saveOnBlur
+                                clickToEdit
+                                compactIcon
+                            />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    )
+}
 
 interface SortableQuestionCardProps {
     question: SurveyQuestion
@@ -21,6 +294,7 @@ interface SortableQuestionCardProps {
     canDelete: boolean
     canReorder: boolean
     onUpdate: (index: number, updates: Partial<SurveyQuestion>) => void
+    onChangeType: (index: number, newType: SurveyQuestionType) => void
     onDelete: (index: number) => void
 }
 
@@ -30,6 +304,7 @@ function SortableQuestionCard({
     canDelete,
     canReorder,
     onUpdate,
+    onChangeType,
     onDelete,
 }: SortableQuestionCardProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -40,7 +315,6 @@ function SortableQuestionCard({
         transform: CSS.Transform.toString(transform),
         transition,
         zIndex: isDragging ? 1 : undefined,
-        opacity: isDragging ? 0.9 : 1,
     }
 
     return (
@@ -84,15 +358,15 @@ function SortableQuestionCard({
                         compactIcon
                     />
                     <div className="flex items-center gap-2">
-                        <LemonTag type="muted" size="small">
-                            {SurveyQuestionLabel[question.type]}
-                        </LemonTag>
+                        <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
                         {question.optional && (
                             <LemonTag type="highlight" size="small">
                                 Optional
                             </LemonTag>
                         )}
                     </div>
+
+                    <QuestionOptions question={question} onUpdate={(updates) => onUpdate(index, updates)} />
                 </div>
                 {canDelete && (
                     <LemonButton
@@ -126,6 +400,28 @@ export function QuestionsStep(): JSX.Element {
 
     const deleteQuestion = (index: number): void => {
         const newQuestions = questions.filter((_, i) => i !== index)
+        setSurveyValue('questions', newQuestions)
+    }
+
+    const addQuestion = (type: SurveyQuestionType): void => {
+        const defaultQuestion = defaultSurveyFieldValues[type].questions[0]
+        setSurveyValue('questions', [...questions, defaultQuestion])
+    }
+
+    const changeQuestionType = (index: number, newType: SurveyQuestionType): void => {
+        const currentQuestion = questions[index]
+        if (currentQuestion.type === newType) {
+            return
+        }
+
+        const defaultQuestion = defaultSurveyFieldValues[newType].questions[0]
+        const newQuestions = [...questions]
+        newQuestions[index] = {
+            ...defaultQuestion,
+            question: currentQuestion.question,
+            description: currentQuestion.description,
+            descriptionContentType: currentQuestion.descriptionContentType,
+        } as SurveyQuestion
         setSurveyValue('questions', newQuestions)
     }
 
@@ -165,18 +461,27 @@ export function QuestionsStep(): JSX.Element {
                     <div className="space-y-3">
                         {questions.map((question: SurveyQuestion, index: number) => (
                             <SortableQuestionCard
-                                key={index}
+                                key={index.toString()}
                                 question={question}
                                 index={index}
                                 canDelete={canDelete}
                                 canReorder={canReorder}
                                 onUpdate={updateQuestion}
+                                onChangeType={changeQuestionType}
                                 onDelete={deleteQuestion}
                             />
                         ))}
                     </div>
                 </SortableContext>
             </DndContext>
+
+            <AddQuestionButton onAdd={addQuestion} />
+
+            {/* Confirmation screen editor */}
+            <ConfirmationScreenEditor
+                appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
+                onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
+            />
         </div>
     )
 }

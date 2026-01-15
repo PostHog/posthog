@@ -1,7 +1,8 @@
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { getNextSurveyStep } from 'posthog-js/dist/surveys-preview'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconArrowLeft, IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SurveyQuestionBranchingType } from '~/types'
 
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
@@ -42,7 +44,8 @@ function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
 }
 
 function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
-    const { currentStep, createdSurvey, surveyLaunching, surveySaving, surveyLoading } = useValues(surveyWizardLogic)
+    const { currentStep, createdSurvey, surveyLaunching, surveySaving, surveyLoading, selectedTemplate } =
+        useValues(surveyWizardLogic)
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
@@ -51,8 +54,19 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
+
+    // Reset preview index if it's out of bounds (e.g., when disabling thank you message)
+    useEffect(() => {
+        const maxIndex = survey.appearance?.displayThankYouMessage
+            ? survey.questions.length
+            : survey.questions.length - 1
+        if (previewPageIndex > maxIndex) {
+            setPreviewPageIndex(Math.max(0, maxIndex))
+        }
+    }, [survey.appearance?.displayThankYouMessage, survey.questions.length, previewPageIndex])
 
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {
@@ -143,23 +157,27 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         )
     }
 
-    // Back button destination
+    // Back button destination with template indicator
     const backButton = isEditing ? (
         <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.survey(id)}>
             Survey
         </LemonButton>
     ) : (
-        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
-            Templates
-        </LemonButton>
+        <div className="flex items-center gap-2">
+            <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={() => setStep('template')}>
+                Templates
+            </LemonButton>
+            {selectedTemplate && <span className="text-muted text-sm">· {selectedTemplate.templateType}</span>}
+        </div>
     )
 
     // Shared header for all main steps
     const header = (
-        <div className="flex items-center justify-between">
+        <div className="space-y-4">
             {backButton}
-            <WizardStepper currentStep={currentStep} onStepClick={setStep} />
-            <div className="w-20" />
+            <div className="flex justify-center">
+                <WizardStepper currentStep={currentStep} onStepClick={setStep} />
+            </div>
         </div>
     )
 
@@ -261,7 +279,12 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     {/* Right: Preview */}
                     <div className="lg:col-span-2 hidden lg:block">
                         <div className="sticky top-6">
-                            <div className="flex items-center justify-center p-4 bg-fill-primary rounded-lg min-h-[360px]">
+                            <div
+                                className={clsx(
+                                    'flex items-center justify-center p-4 rounded-lg min-h-[360px] border border-border',
+                                    isDarkModeOn ? 'bg-[#1d1f27]' : 'bg-white'
+                                )}
+                            >
                                 <SurveyAppearancePreview
                                     survey={previewSurvey}
                                     previewPageIndex={previewPageIndex}
@@ -292,21 +315,23 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                         disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
                                     />
                                     <span className="text-muted text-xs min-w-[60px] text-center">
-                                        {previewPageIndex < previewSurvey.questions.length
-                                            ? `${previewPageIndex + 1} / ${previewSurvey.questions.length}`
-                                            : 'Thanks'}
+                                        {`${previewPageIndex + 1} / ${previewSurvey.questions.length + (previewSurvey.appearance?.displayThankYouMessage ? 1 : 0)}`}
                                     </span>
                                     <LemonButton
                                         type="secondary"
                                         size="small"
                                         icon={<IconChevronRight />}
-                                        onClick={() =>
-                                            setPreviewPageIndex(
-                                                Math.min(previewSurvey.questions.length, previewPageIndex + 1)
-                                            )
-                                        }
+                                        onClick={() => {
+                                            const maxIndex = previewSurvey.appearance?.displayThankYouMessage
+                                                ? previewSurvey.questions.length
+                                                : previewSurvey.questions.length - 1
+                                            setPreviewPageIndex(Math.min(maxIndex, previewPageIndex + 1))
+                                        }}
                                         disabledReason={
-                                            previewPageIndex >= previewSurvey.questions.length
+                                            previewPageIndex >=
+                                            (previewSurvey.appearance?.displayThankYouMessage
+                                                ? previewSurvey.questions.length
+                                                : previewSurvey.questions.length - 1)
                                                 ? 'Last screen'
                                                 : undefined
                                         }

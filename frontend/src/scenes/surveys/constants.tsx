@@ -744,21 +744,6 @@ export const surveyThemes: SurveyTheme[] = [
     },
     // Dark themes
     {
-        id: 'midnight',
-        name: 'Midnight',
-        description: 'Dark & sophisticated',
-        appearance: {
-            backgroundColor: '#1a1a2e',
-            textColor: '#eaeaea',
-            borderColor: '#4a4a6a',
-            submitButtonColor: '#6366f1',
-            submitButtonTextColor: '#ffffff',
-            ratingButtonColor: '#2d2d44',
-            ratingButtonActiveColor: '#6366f1',
-            inputBackground: '#252540',
-        },
-    },
-    {
         id: 'carbon',
         name: 'Carbon',
         description: 'Dark & neutral',
@@ -771,6 +756,21 @@ export const surveyThemes: SurveyTheme[] = [
             ratingButtonColor: '#262626',
             ratingButtonActiveColor: '#fafafa',
             inputBackground: '#262626',
+        },
+    },
+    {
+        id: 'midnight',
+        name: 'Midnight',
+        description: 'Dark & sophisticated',
+        appearance: {
+            backgroundColor: '#1a1a2e',
+            textColor: '#eaeaea',
+            borderColor: '#4a4a6a',
+            submitButtonColor: '#6366f1',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#2d2d44',
+            ratingButtonActiveColor: '#6366f1',
+            inputBackground: '#252540',
         },
     },
     {

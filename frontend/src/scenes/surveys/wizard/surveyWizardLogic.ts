@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
-import { SurveyTemplate, defaultSurveyAppearance, defaultSurveyTemplates } from '../constants'
+import { SurveyTemplate, defaultSurveyAppearance, defaultSurveyTemplates, surveyThemes } from '../constants'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
 import type { surveyWizardLogicType } from './surveyWizardLogicType'
@@ -177,7 +177,33 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('description', template.description || '')
             actions.setSurveyValue('type', template.type || SurveyType.Popover)
             actions.setSurveyValue('questions', template.questions)
-            actions.setSurveyValue('appearance', { ...defaultSurveyAppearance, ...template.appearance })
+
+            // Apply Clean theme by default (works well on most sites, and users without
+            // styling access are stuck with the default, so light-friendly is safer)
+            // Only take behavioral (non-color) properties from template appearance
+            const defaultTheme = surveyThemes.find((t) => t.id === 'clean')
+            const themeAppearance = defaultTheme?.appearance || {}
+
+            // Extract only behavioral properties from template (not colors)
+            const templateBehavior = template.appearance
+                ? {
+                      displayThankYouMessage: template.appearance.displayThankYouMessage,
+                      thankYouMessageHeader: template.appearance.thankYouMessageHeader,
+                      position: template.appearance.position,
+                      shuffleQuestions: template.appearance.shuffleQuestions,
+                      surveyPopupDelaySeconds: template.appearance.surveyPopupDelaySeconds,
+                  }
+                : {}
+            // Remove undefined values
+            const cleanTemplateBehavior = Object.fromEntries(
+                Object.entries(templateBehavior).filter(([_, v]) => v !== undefined)
+            )
+
+            actions.setSurveyValue('appearance', {
+                ...defaultSurveyAppearance,
+                ...themeAppearance,
+                ...cleanTemplateBehavior,
+            })
 
             // Set frequency based on template type, but preserve other conditions from template
             const frequencyToDays: Record<string, number | undefined> = {
@@ -267,27 +293,26 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
         },
     })),
 
-    events(({ actions, props, values }) => ({
-        afterMount: () => {
-            if (props.id === 'new') {
-                // Check if survey already has a template selected (from SurveyTemplates page)
-                // Templates set both name AND questions, while default NEW_SURVEY has empty name
-                const hasTemplateSelected = values.survey?.name && values.survey?.questions?.length > 0
-                if (hasTemplateSelected) {
-                    // Skip template step, go directly to questions
-                    actions.setStep('questions')
-                } else {
-                    // Reset wizard and survey state for new survey
-                    actions.resetWizard()
-                    actions.resetSurvey()
-                }
+    afterMount(({ actions, props, values }) => {
+        if (props.id === 'new') {
+            // Check if survey already has a template selected (from SurveyTemplates page)
+            // Templates set both name AND questions, while default NEW_SURVEY has empty name
+            const hasTemplateSelected = values.survey?.name && values.survey?.questions?.length > 0
+            if (hasTemplateSelected) {
+                // Skip template step, go directly to questions
+                actions.setStep('questions')
             } else {
-                // Load existing survey data
-                actions.loadSurvey()
+                // Reset wizard and survey state for new survey
+                actions.resetWizard()
+                actions.resetSurvey()
             }
-        },
-        beforeUnmount: () => {
+        } else {
+            // Load existing survey data
+            actions.loadSurvey()
+        }
+
+        return () => {
             actions.resetWizard()
-        },
-    })),
+        }
+    }),
 ])
