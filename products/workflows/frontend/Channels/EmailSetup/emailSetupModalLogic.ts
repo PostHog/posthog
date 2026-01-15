@@ -124,6 +124,12 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 }))
             },
         ],
+        domain: [
+            (s) => [s.emailSender],
+            (emailSender: EmailSenderFormType): string => {
+                return emailSender.email.includes('@') ? emailSender.email.split('@')[1] : ''
+            },
+        ],
     }),
     listeners(({ props, values, actions }) => ({
         submitEmailSenderSuccess: () => {

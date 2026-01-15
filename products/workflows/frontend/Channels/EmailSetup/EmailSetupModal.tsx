@@ -10,7 +10,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
-    const { integration, integrationLoading, verificationLoading, dnsRecords } = useValues(emailSetupModalLogic(props))
+    const { integration, integrationLoading, verificationLoading, dnsRecords, domain } = useValues(
+        emailSetupModalLogic(props)
+    )
     const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
 
     let modalContent = <></>
@@ -31,17 +33,42 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         </LemonField>
                     </FlaggedFeature>
                     <LemonField name="name" label="Name">
-                        <LemonInput type="text" placeholder="John Doe" disabled={integrationLoading} />
+                        <LemonInput
+                            type="text"
+                            placeholder="John Doe"
+                            disabledReason={
+                                verificationLoading || integrationLoading ? 'Creating sender...' : undefined
+                            }
+                        />
                     </LemonField>
                     <LemonField name="email" label="Email">
-                        <LemonInput type="text" placeholder="example@example.com" disabled={integrationLoading} />
+                        <LemonInput
+                            type="text"
+                            placeholder="example@example.com"
+                            disabledReason={
+                                verificationLoading || integrationLoading ? 'Creating sender...' : undefined
+                            }
+                        />
+                    </LemonField>
+                    <LemonField
+                        name="mail_from_subdomain"
+                        label="MAIL FROM Subdomain"
+                        help="The subdomain used for the MAIL FROM domain. For example, if you enter 'feedback' and your domain is 'yourdomain.com', the MAIL FROM domain will be 'feedback.yourdomain.com'."
+                    >
+                        <LemonInput
+                            type="text"
+                            placeholder="feedback"
+                            suffix={<>{domain || 'yourdomain.com'}</>}
+                            disabledReason={
+                                verificationLoading || integrationLoading ? 'Creating sender...' : undefined
+                            }
+                        />
                     </LemonField>
                     <div className="flex justify-end">
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            disabledReason={integrationLoading ? 'Creating sender...' : undefined}
-                            loading={integrationLoading}
+                            loading={verificationLoading || integrationLoading}
                             onClick={submitEmailSender}
                         >
                             Continue

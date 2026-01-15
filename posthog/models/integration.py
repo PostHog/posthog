@@ -1324,6 +1324,7 @@ class EmailIntegration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
+        mail_from_subdomain: str = config.get("mail_from_subdomain")
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
@@ -1355,6 +1356,7 @@ class EmailIntegration:
                 "config": {
                     "email": email_address,
                     "domain": domain,
+                    "mail_from_subdomain": mail_from_subdomain,
                     "name": name,
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,

@@ -32,9 +32,9 @@ class SESProvider:
             region_name=settings.SES_REGION,
         )
 
-    def create_email_domain(self, domain: str, team_id: int):
+    def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain)
 
         # Create a tenant for the domain if not exists
         tenant_name = f"team-{team_id}"
@@ -54,7 +54,7 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-    def verify_email_domain(self, domain: str, team_id: int):
+    def verify_email_domain(self, domain: str, mail_from_subdomain: str):
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -108,6 +108,36 @@ class SESProvider:
                 "type": "spf",
                 "recordType": "TXT",
                 "recordHostname": "@",
+                "recordValue": "v=spf1 include:amazonses.com ~all",
+                "status": "pending",
+            }
+        )
+
+        # Start/ensure MAIL FROM setup (MX + TXT) ---
+        try:
+            resp = self.ses_client.set_identity_mail_from_domain(
+                Identity=domain,
+                MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                BehaviorOnMXFailure="UseDefaultValue",
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                raise
+
+        dns_records.append(
+            {
+                "type": "mail_from",
+                "recordType": "MX",
+                "recordHostname": f"{mail_from_subdomain}.{domain}",
+                "recordValue": "10 feedback-smtp.us-east-1.amazonses.com",
+                "status": "pending",
+            }
+        )
+        dns_records.append(
+            {
+                "type": "mail_from_spf",
+                "recordType": "TXT",
+                "recordHostname": f"{mail_from_subdomain}.{domain}",
                 "recordValue": "v=spf1 include:amazonses.com ~all",
                 "status": "pending",
             }
