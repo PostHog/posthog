@@ -2,6 +2,12 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 const DURATION_REGEX = /^(\d*\.?\d+)([dhm])$/
 
+const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
+    d: 30,
+    h: 24,
+    m: 60,
+}
+
 export function HogFlowDuration({
     value,
     onChange,
@@ -16,7 +22,13 @@ export function HogFlowDuration({
 
     return (
         <div className="flex gap-2">
-            <LemonInput type="number" value={numberValue} onChange={(v) => onChange(`${v}${unit}`)} />
+            <LemonInput
+                type="number"
+                value={numberValue}
+                min={0}
+                max={MAX_VALUE_FOR_DURATION_UNIT[unit]}
+                onChange={(v) => onChange(`${v}${unit}`)}
+            />
 
             <LemonSelect
                 options={[
