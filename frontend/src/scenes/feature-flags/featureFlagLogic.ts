@@ -87,6 +87,12 @@ export type VariantError = {
     key: string | undefined
 }
 
+export interface DependentFlag {
+    id: number
+    key: string
+    name: string
+}
+
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -1125,6 +1131,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return null
             },
         },
+        dependentFlags: [
+            [] as DependentFlag[],
+            {
+                loadDependentFlags: async () => {
+                    const { currentProjectId } = values
+                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        const response = await api.create(
+                            `api/projects/${currentProjectId}/feature_flags/${props.id}/has_active_dependents/`,
+                            {}
+                        )
+                        return response.dependent_flags || []
+                    }
+                    return []
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
         generateUsageDashboard: async () => {
@@ -1231,6 +1253,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
+            actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
@@ -1616,6 +1639,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
+            actions.loadDependentFlags()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
