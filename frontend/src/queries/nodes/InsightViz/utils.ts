@@ -181,13 +181,43 @@ export const getQueryBasedDashboard = (
     }
 }
 
+const formatValidationErrorDetail = (detail: unknown): string | null => {
+    if (typeof detail === 'string') {
+        return detail.replace('Try ', 'Try\u00A0')
+    }
+
+    if (detail && typeof detail === 'object') {
+        const detailRecord = detail as Record<string, any>
+        const tableName = detailRecord.table_name
+        const columnName = detailRecord.column_name
+
+        if (typeof tableName === 'string' && typeof columnName === 'string') {
+            return `Encountered a null value in ${tableName}.${columnName}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.`
+        }
+
+        if (typeof detailRecord.message === 'string') {
+            return detailRecord.message.replace('Try ', 'Try\u00A0')
+        }
+
+        if (typeof detailRecord.detail === 'string') {
+            return detailRecord.detail.replace('Try ', 'Try\u00A0')
+        }
+
+        const fallbackMessage = Object.values(detailRecord).find((value) => typeof value === 'string')
+        if (typeof fallbackMessage === 'string') {
+            return fallbackMessage.replace('Try ', 'Try\u00A0')
+        }
+    }
+
+    return null
+}
+
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         // We use 512 for query timeouts
         // Async queries put the error message on data.error_message, while synchronous ones use detail
-        return error?.status === 400 || error?.status === 512
-            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
-            : null
+        const detail = error.detail ?? error.data?.error_detail ?? error.data?.error_message
+        return error?.status === 400 || error?.status === 512 ? formatValidationErrorDetail(detail) : null
     }
 
     return null

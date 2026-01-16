@@ -36,6 +36,9 @@ class ExposedCHQueryError(InternalCHQueryError):
         return self.message[start_index:end_index].strip()
 
 
+_THROW_IF_NULL_PATTERN = re.compile(r"Encountered a null value in (?P<full>[^,]+), but a non-null value is required\.")
+
+
 @dataclass
 class ErrorCodeMeta:
     name: str
@@ -137,7 +140,68 @@ class CHQueryErrorIllegalAggregation(ExposedCHQueryError):
     pass
 
 
+class CHQueryErrorFunctionThrowIfValueIsNonZero(ExposedCHQueryError):
+    table_name: str | None
+    column_name: str | None
+    _user_message: str | None
+
+    def __init__(
+        self,
+        message,
+        *,
+        code=None,
+        nested=None,
+        code_name=None,
+        table_name: str | None = None,
+        column_name: str | None = None,
+        user_message: str | None = None,
+    ):
+        super().__init__(message, code=code, nested=nested, code_name=code_name)
+        self.table_name = table_name
+        self.column_name = column_name
+        self._user_message = user_message
+
+    def user_message(self) -> str:
+        if self._user_message is not None:
+            return self._user_message
+        if self.table_name and self.column_name:
+            return (
+                f"Encountered a null value in {self.table_name}.{self.column_name}, but a non-null value is required. "
+                "Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+            )
+        return str(self)
+
+    def detail_payload(self) -> dict[str, str | None]:
+        return {
+            "message": self.user_message(),
+            "table_name": self.table_name,
+            "column_name": self.column_name,
+        }
+
+
 def get_specific_clickhouse_error(meta_name: str, original_message: str, code: int) -> InternalCHQueryError | None:
+    if meta_name == "FUNCTION_THROW_IF_VALUE_IS_NON_ZERO":
+        match = _THROW_IF_NULL_PATTERN.search(original_message)
+        table_name = None
+        column_name = None
+        user_message = None
+        if match:
+            full_ref = match.group("full").strip()
+            if "." in full_ref:
+                table_name, column_name = full_ref.rsplit(".", 1)
+                user_message = (
+                    f"Encountered a null value in {table_name}.{column_name}, but a non-null value is required. "
+                    "Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                )
+        return CHQueryErrorFunctionThrowIfValueIsNonZero(
+            original_message,
+            code=code,
+            code_name="function_throw_if_value_is_non_zero",
+            table_name=table_name,
+            column_name=column_name,
+            user_message=user_message,
+        )
+
     lookup: dict[str, InternalCHQueryError] = {
         # Infrastructure errors - custom messages to hide internals
         "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
@@ -158,6 +222,13 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
         ),
     }
     return lookup.get(meta_name)
+
+
+def get_exposed_error_detail(error: Exception) -> str | dict[str, str | None]:
+    if isinstance(error, CHQueryErrorFunctionThrowIfValueIsNonZero):
+        if error.table_name and error.column_name:
+            return error.detail_payload()
+    return str(error)
 
 
 #

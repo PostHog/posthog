@@ -27222,6 +27222,17 @@
                     "description": "If the query failed, this will be set to true. More information can be found in the error_message field.",
                     "type": "boolean"
                 },
+                "error_detail": {
+                    "anyOf": [
+                        {
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": null
+                },
                 "error_message": {
                     "default": null,
                     "type": ["string", "null"]
