@@ -8,11 +8,9 @@ import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -55,10 +53,7 @@ export function DashboardItems(): JSX.Element {
     const { push } = useActions(router)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const otherDashboards = nameSortedDashboards.filter((nsdb) => nsdb.id !== dashboard?.id)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
-        skip: !featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL],
-    })
+    const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
     const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
         ? null
