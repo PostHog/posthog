@@ -64,7 +64,7 @@ class TaskSerializer(serializers.ModelSerializer):
         return None
 
     def get_reference_count(self, obj) -> int:
-        return obj.references.count()
+        return getattr(obj, "reference_count", 0)
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -281,7 +281,6 @@ class TaskReferenceSerializer(serializers.ModelSerializer):
             "distinct_id",
             "content",
             "distance_to_centroid",
-            "timestamp",
             "created_at",
         ]
         read_only_fields = fields

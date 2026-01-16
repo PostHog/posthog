@@ -218,7 +218,6 @@ class SummarizeSessionsActivityInputs:
 class SummarizeSessionsResult:
     sessions_summarized: int
     sessions_failed: int
-    sessions_skipped: int
 
 
 @dataclass
@@ -231,7 +230,6 @@ class PrimeSessionEmbeddingsActivityInputs:
 class PrimeSessionEmbeddingsResult:
     session_ids_found: int
     sessions_summarized: int
-    sessions_skipped: int
     sessions_failed: int
 
 

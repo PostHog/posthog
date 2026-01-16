@@ -21,7 +21,6 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
-from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
@@ -313,7 +312,6 @@ schedules = [
     create_batch_trace_summarization_schedule,
     create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
-    create_video_segment_clustering_schedule,
     create_ducklake_compaction_schedule,
     create_delete_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,

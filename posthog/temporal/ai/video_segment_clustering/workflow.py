@@ -59,8 +59,7 @@ class VideoSegmentClusteringWorkflow:
             )
 
             workflow.logger.info(
-                f"Priming complete: {priming_result.sessions_summarized} summarized, "
-                f"{priming_result.sessions_skipped} skipped, {priming_result.sessions_failed} failed"
+                f"Priming complete: {priming_result.sessions_summarized} summarized, {priming_result.sessions_failed} failed"
             )
 
             # Activity 2: Fetch segments within lookback window

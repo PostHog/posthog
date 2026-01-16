@@ -4,6 +4,7 @@ import logging
 import traceback
 from typing import cast
 
+from django.db.models import Count
 from django.http import HttpResponse
 from django.utils import timezone
 
@@ -111,6 +112,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Prefetch runs to avoid N+1 queries when fetching latest_run
         qs = qs.prefetch_related("runs")
+        # Annotate reference_count to avoid N+1 queries
+        qs = qs.annotate(reference_count=Count("references"))
 
         return qs
 

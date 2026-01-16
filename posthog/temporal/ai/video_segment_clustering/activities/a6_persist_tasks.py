@@ -8,10 +8,12 @@ from datetime import datetime, timedelta
 from django.utils import timezone as django_timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.temporal.ai.session_summary.activities.a3_analyze_video_segment import _parse_timestamp_to_seconds
+from posthog.temporal.ai.video_segment_clustering.data import count_distinct_persons
 from posthog.temporal.ai.video_segment_clustering.models import PersistTasksActivityInputs, PersistTasksResult
 from posthog.temporal.ai.video_segment_clustering.priority import calculate_priority_score, calculate_task_metrics
 
@@ -102,14 +104,27 @@ async def persist_tasks_activity(inputs: PersistTasksActivityInputs) -> PersistT
             ]
 
             if new_segments:
-                new_metrics = await calculate_task_metrics(team, new_segments)
+                # Get all distinct_ids from existing refs + new segments for accurate user count
+                existing_distinct_ids: list[str] = [
+                    ref
+                    async for ref in TaskReference.objects.filter(task_id=match.task_id).values_list(
+                        "distinct_id", flat=True
+                    )
+                ]
+                all_distinct_ids = existing_distinct_ids + [seg.distinct_id for seg in new_segments]
+                relevant_user_count = await sync_to_async(count_distinct_persons)(team, all_distinct_ids)
 
-                task.relevant_user_count += new_metrics["relevant_user_count"]
-                task.occurrence_count += new_metrics["occurrence_count"]
+                task.relevant_user_count = relevant_user_count
+                task.occurrence_count += len(new_segments)
 
-                if new_metrics["last_occurrence_at"]:
-                    if task.last_occurrence_at is None or new_metrics["last_occurrence_at"] > task.last_occurrence_at:
-                        task.last_occurrence_at = new_metrics["last_occurrence_at"]
+                # Find most recent occurrence from new segments
+                for segment in new_segments:
+                    session_start_time = datetime.fromisoformat(segment.session_start_time.replace("Z", "+00:00"))
+                    segment_start_time = session_start_time + timedelta(
+                        seconds=_parse_timestamp_to_seconds(segment.start_time)
+                    )
+                    if task.last_occurrence_at is None or segment_start_time > task.last_occurrence_at:
+                        task.last_occurrence_at = segment_start_time
 
                 task.priority_score = calculate_priority_score(
                     relevant_user_count=task.relevant_user_count,

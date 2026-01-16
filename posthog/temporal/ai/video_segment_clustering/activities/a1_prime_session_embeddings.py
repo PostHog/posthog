@@ -48,7 +48,6 @@ async def prime_session_embeddings_activity(
         return PrimeSessionEmbeddingsResult(
             session_ids_found=0,
             sessions_summarized=0,
-            sessions_skipped=0,
             sessions_failed=0,
         )
 
@@ -61,8 +60,7 @@ async def prime_session_embeddings_activity(
         return PrimeSessionEmbeddingsResult(
             session_ids_found=len(session_ids),
             sessions_summarized=0,
-            sessions_skipped=len(session_ids),
-            sessions_failed=0,
+            sessions_failed=len(session_ids),
         )
 
     # Check which sessions already have summaries
@@ -72,12 +70,10 @@ async def prime_session_embeddings_activity(
         extra_summary_context=None,
     )
 
-    sessions_summarized = 0
-    sessions_failed = 0
-    sessions_skipped = 0
-
     # Start summarization workflows for sessions without summaries
     sessions_to_summarize = [session_id for session_id in session_ids if not existing_summaries.get(session_id)]
+    sessions_summarized = 0
+    sessions_failed = 0
     if sessions_to_summarize:
         results = await asyncio.gather(
             *[
@@ -101,7 +97,6 @@ async def prime_session_embeddings_activity(
     return PrimeSessionEmbeddingsResult(
         session_ids_found=len(session_ids),
         sessions_summarized=sessions_summarized,
-        sessions_skipped=sessions_skipped,
         sessions_failed=sessions_failed,
     )
 
