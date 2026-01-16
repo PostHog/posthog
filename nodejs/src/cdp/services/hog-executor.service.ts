@@ -533,7 +533,7 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
-                                timeoutMs: fetchOptions?.timeoutMs,
+                                ...(fetchOptions?.timeoutMs ? { timeoutMs: fetchOptions.timeoutMs } : {}),
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
@@ -690,7 +690,12 @@ export class HogExecutorService {
             if (canRetry && result.invocation.state.attempts < this.hub.CDP_FETCH_RETRIES) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
-                result.invocation.queueParameters = params
+                // Filter out undefined timeoutMs to avoid snapshot issues
+                const { timeoutMs, ...restParams } = params
+                result.invocation.queueParameters = {
+                    ...restParams,
+                    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+                }
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 

@@ -496,6 +496,7 @@ posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_hog_function.py:0: error: Value of type "Any | None" is not indexable  [index]
+posthog/models/test/test_push_subscription.py:0: error: No overload variant of "__sub__" of "datetime" matches argument type "None"  [operator]
 posthog/models/test/test_remote_config.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_remote_config.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/models/test/test_remote_config.py:0: error: Value of type "Any | None" is not indexable  [index]
