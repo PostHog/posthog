@@ -6,6 +6,10 @@ build --sandbox_default_allow_network=true
 # Disk cache for faster incremental builds
 build --disk_cache=~/.cache/bazel-disk-cache
 
+# Repository cache for external dependencies (pip packages, etc.)
+# Saves ~3 min on cold start by caching downloaded external repos
+common --repository_cache=~/.cache/bazel-repos
+
 # Django test settings
 test --test_env=DEBUG=1
 

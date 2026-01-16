@@ -201,15 +201,23 @@ jobs:
                   key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
                   restore-keys: bazel-disk-${{ runner.os }}-
 
-            # uv needed for requirements_lock.txt generation in determinator
-            - name: Install uv (for lockfile generation)
+            # Cache external repos (pip packages BUILD files) - saves ~3 min on cold start
+            - name: Cache Bazel repository cache
+              uses: actions/cache@v4
+              with:
+                  path: ~/.cache/bazel-repos
+                  key: bazel-repos-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
+                  restore-keys: bazel-repos-${{ runner.os }}-
+
+            # uv needed for wheel build and requirements_lock.txt generation
+            - name: Install uv
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.9.9
 
-            # Build wheels for sdist-only packages (thrift, zstd, fastuuid use distutils)
-            # These only have sdist on PyPI and need compilation before bazel can use them
+            # Build wheels for sdist-only packages (thrift, zstd, fastuuid)
+            # Needed by bazel test in Phase 3 - built early so cached for later
             - name: Build wheels for sdist-only packages
               run: ./bin/build-bazel-wheels
 
@@ -228,10 +236,10 @@ jobs:
 
                   # Get changed files
                   git fetch origin ${{ github.base_ref }}
+                  CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}..HEAD)
 
-                  # Extract unique product names from changed files (O(1) per product, not per file)
-                  # This handles hundreds of files efficiently by deduplicating early
-                  CHANGED_PRODUCTS=$(git diff --name-only origin/${{ github.base_ref }}..HEAD \
+                  # Extract unique product names from changed files
+                  CHANGED_PRODUCTS=$(echo "$CHANGED_FILES" \
                     | grep '^products/' \
                     | cut -d/ -f2 \
                     | sort -u)
@@ -244,65 +252,41 @@ jobs:
 
                   echo "Changed products: $(echo $CHANGED_PRODUCTS | tr '\n' ' ')"
 
-                  # Check which products are bazelified (only check once per product)
-                  BAZELIFIED_PATTERNS=""
+                  # Build test targets for bazelified products (no expensive bazel query!)
+                  TESTS=""
+                  CONTRACT_CHANGED=false
                   for product in $CHANGED_PRODUCTS; do
                     if [[ -f "products/$product/backend/BUILD.bazel" ]]; then
-                      BAZELIFIED_PATTERNS="$BAZELIFIED_PATTERNS //products/$product/..."
+                      # Add all tests for this product
+                      TESTS="$TESTS //products/$product/..."
+
+                      # Check if :contract changed (public API) - use VCS diff, not bazel query
+                      if echo "$CHANGED_FILES" | grep -q "^products/$product/backend/contract"; then
+                        echo "Contract changed for $product - blast radius check needed"
+                        CONTRACT_CHANGED=true
+                      fi
                     fi
                   done
-                  BAZELIFIED_PATTERNS=$(echo "$BAZELIFIED_PATTERNS" | xargs)  # trim
+                  TESTS=$(echo "$TESTS" | xargs)  # trim
 
-                  if [[ -z "$BAZELIFIED_PATTERNS" ]]; then
+                  if [[ -z "$TESTS" ]]; then
                     echo "No bazelified products changed - running all tests"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                     exit 0
                   fi
 
-                  echo "Bazelified patterns: $BAZELIFIED_PATTERNS"
+                  echo "Tests to run: $TESTS"
+                  echo "tests=$TESTS" >> $GITHUB_OUTPUT
 
-                  # Count bazelified products - if too many, skip expensive query
-                  PATTERN_COUNT=$(echo "$BAZELIFIED_PATTERNS" | wc -w | xargs)
-                  if [[ "$PATTERN_COUNT" -gt 5 ]]; then
-                    echo "Many products changed ($PATTERN_COUNT) - running all tests to avoid expensive query"
-                    echo "run_legacy=true" >> $GITHUB_OUTPUT
-                    echo "tests=//products/..." >> $GITHUB_OUTPUT
-                    exit 0
-                  fi
-
-                  # Generate requirements_lock.txt (needed for any Bazel query)
-                  echo "Generating requirements_lock.txt..."
-                  bazel run //:requirements.update 2>&1 | tail -5
-
-                  # Query affected tests using rdeps (current workspace only!)
-                  echo "::group::bazel query"
-                  echo "Querying affected tests..."
-
-                  # Build set() expression for bazel query
-                  SET_EXPR="set($(echo $BAZELIFIED_PATTERNS | tr ' ' ' '))"
-
-                  if TESTS=$(bazel query "kind(test, rdeps(//products/..., $SET_EXPR))" 2>&1); then
-                    echo "Affected tests:"
-                    echo "$TESTS"
-                    # Convert newlines to spaces for bazel test command
-                    TESTS_ONELINE=$(echo "$TESTS" | tr '\n' ' ')
-                    echo "tests=$TESTS_ONELINE" >> $GITHUB_OUTPUT
-                  else
-                    echo "bazel query failed, running all tests"
-                    echo "$TESTS"
-                    echo "tests=//products/..." >> $GITHUB_OUTPUT
-                  fi
-
-                  # Check legacy impact via marker target
-                  echo "Checking legacy impact..."
-                  if bazel query "rdeps(//ci:legacy_pytest, $SET_EXPR)" 2>&1 | grep -q "legacy_pytest"; then
-                    echo "Product changes affect legacy code - Django will run"
+                  # Legacy impact: if :contract changed, assume blast radius includes legacy
+                  # This avoids expensive bazel query rdeps() which takes 3+ minutes
+                  if [[ "$CONTRACT_CHANGED" == "true" ]]; then
+                    echo "Contract files changed - assuming legacy impact (conservative)"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
-                    echo "No legacy impact - Django can be skipped!"
+                    echo "Only :impl changed - no legacy impact, Django can be skipped!"
                     echo "run_legacy=false" >> $GITHUB_OUTPUT
                   fi
-                  echo "::endgroup::"
 
             # === PHASE 2: Test environment setup (can modify workspace) ===
             - name: Clean up data directories with container permissions
