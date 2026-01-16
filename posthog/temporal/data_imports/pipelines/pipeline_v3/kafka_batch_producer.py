@@ -1,15 +1,18 @@
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 
 from structlog.types import FilteringBoundLogger
 
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_BATCH_EXPORTS
+from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3_batch_writer import BatchWriteResult
 from posthog.utils import SingletonDecorator
+
+SyncTypeLiteral = Literal["full_refresh", "incremental", "append"]
 
 # TODO: Move this to posthog/kafka_client/client.py before rollout
 _WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
@@ -37,7 +40,7 @@ class BatchExportMessage:
     is_final_batch: bool
     total_batches: Optional[int]
     total_rows: Optional[int]
-    sync_type: str
+    sync_type: SyncTypeLiteral
     data_folder: Optional[str]
     schema_path: Optional[str]
     timestamp_ns: int = field(default_factory=time.time_ns)
@@ -52,7 +55,7 @@ class KafkaBatchProducer:
     _schema_id: str
     _source_id: str
     _resource_name: str
-    _sync_type: str
+    _sync_type: SyncTypeLiteral
     _run_uuid: str
     _logger: FilteringBoundLogger
     _producer: Any
@@ -65,7 +68,7 @@ class KafkaBatchProducer:
         schema_id: str,
         source_id: str,
         resource_name: str,
-        sync_type: str,
+        sync_type: SyncTypeLiteral,
         run_uuid: str,
         logger: FilteringBoundLogger,
     ) -> None:
@@ -119,7 +122,7 @@ class KafkaBatchProducer:
         )
 
         future = self._producer.produce(
-            topic=KAFKA_WAREHOUSE_PIPELINES_BATCH_EXPORTS,
+            topic=KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS,
             data=message.to_dict(),
             key=self._get_key(),
         )
@@ -133,8 +136,8 @@ class KafkaBatchProducer:
         for future in self._pending_futures:
             try:
                 future.get(timeout=0)
-            except Exception:
-                self._logger.exception("Error sending Kafka message")
+            except Exception as e:
+                capture_exception(e)
                 errors += 1
 
         flushed_count = len(self._pending_futures)

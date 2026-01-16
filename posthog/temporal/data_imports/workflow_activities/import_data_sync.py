@@ -11,6 +11,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
@@ -166,7 +167,6 @@ def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     except Team.DoesNotExist:
-        logger.warning(f"Team {team_id} does not exist when checking feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}'")
         return False
 
     try:
@@ -188,7 +188,7 @@ def _is_pipeline_v3_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
             logger.debug(f"Feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}' is enabled for team {team_id}")
         return bool(enabled)
     except Exception as e:
-        logger.warning(f"Error checking feature flag '{WAREHOUSE_PIPELINES_V3_FLAG}': {e}")
+        capture_exception(e)
         return False
 
 
