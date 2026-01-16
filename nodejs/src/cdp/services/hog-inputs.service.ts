@@ -215,7 +215,6 @@ export class HogInputsService {
 
         // Batch fetch all subscriptions at once
         const subscriptionIds = Object.values(inputsToLoad)
-        // TODOdin: getManyById doens't exist
         const subscriptions = await this.pushSubscriptionsManager.getManyById(hogFunction.team_id, subscriptionIds)
 
         const returnInputs: Record<string, { value: string | null }> = {}
