@@ -208,6 +208,11 @@ jobs:
                   enable-cache: true
                   version: 0.9.9
 
+            # Build wheels for sdist-only packages (thrift, zstd, fastuuid use distutils)
+            # These only have sdist on PyPI and need compilation before bazel can use them
+            - name: Build wheels for sdist-only packages
+              run: ./bin/build-bazel-wheels
+
             - name: Determine affected tests (diff-as-seed)
               id: determinator
               if: github.event_name == 'pull_request'
