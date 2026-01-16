@@ -63,7 +63,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             - name: Install dependencies
@@ -201,7 +201,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -351,7 +351,7 @@ jobs:
                   fi
 
             - name: Upload snapshot patch
-              if: steps.create-patch.outputs.has-changes == 'true'
+              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.browser }}-${{ matrix.shard }}

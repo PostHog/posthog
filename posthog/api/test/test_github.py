@@ -456,3 +456,81 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertEqual(len(data), 1)
         # Key should NOT be found because user is inactive
         self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_project_secret_api_key_exposed")
+    def test_secret_alert_finds_project_secret_and_sends_email(self, mock_send_email, mock_verify):
+        """Test that a project secret API key is found and email is sent to admins."""
+        mock_verify.return_value = None
+
+        # Set up a secret token on the team
+        token = "phx_test_secret_token_1234567890"
+        self.team.secret_api_token = token
+        self.team.save()
+
+        # Send alert with the token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
+
+        # Verify email task was called
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        self.assertEqual(call_args[0][0], self.team.id)
+        self.assertEqual(call_args[0][1], mask_key_value(token))
+        self.assertIn("https://github.com/test/repo/blob/main/config.py", call_args[0][2])
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_project_secret_api_key_exposed")
+    def test_secret_alert_finds_project_secret_backup_and_sends_email(self, mock_send_email, mock_verify):
+        """Test that a backup project secret API key is also detected."""
+        mock_verify.return_value = None
+
+        # Set up a backup secret token on the team
+        token = "phx_test_backup_secret_token_123"
+        self.team.secret_api_token = "phx_different_primary_token"
+        self.team.secret_api_token_backup = token
+        self.team.save()
+
+        # Send alert with the backup token
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/old_config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        # Verify email task was called
+        mock_send_email.assert_called_once()

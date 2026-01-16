@@ -21,6 +21,7 @@ import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { MaxInstance } from './max/Max'
 
@@ -133,11 +134,12 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <>
+        <div className="contents isolate">
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
             <GlobalShortcuts />
-        </>
+            <ImpersonationNotice />
+        </div>
     )
 }

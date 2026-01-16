@@ -11,6 +11,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
 import { DateRangeFilter } from 'products/logs/frontend/filters/DateRangeFilter'
+import { FilterHistoryDropdown } from 'products/logs/frontend/filters/FilterHistoryDropdown'
 import { LogsDateRangePicker } from 'products/logs/frontend/filters/LogsDateRangePicker/LogsDateRangePicker'
 import { ServiceFilter } from 'products/logs/frontend/filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/filters/SeverityLevelsFilter'
@@ -27,6 +28,7 @@ export const LogsFilters = (): JSX.Element => {
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
+                    <FilterHistoryDropdown />
                 </div>
                 <div className="flex gap-x-1">
                     <LemonButton
