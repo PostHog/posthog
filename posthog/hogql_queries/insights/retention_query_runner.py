@@ -1177,6 +1177,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 )
 
             # Build the retention actors query
+            # nosemgrep: hogql-injection-taint - actor_query is an AST object passed via placeholder
             retention_query = parse_select(
                 """
                     SELECT

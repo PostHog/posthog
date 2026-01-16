@@ -214,6 +214,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
             # order by
             with self.timings.measure("order"):
                 if self.query.orderBy is not None:
+                    # nosemgrep: hogql-injection-taint - parse_order_expr validates and parses as HogQL
                     order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
                 elif "count()" in select_input:
                     order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]

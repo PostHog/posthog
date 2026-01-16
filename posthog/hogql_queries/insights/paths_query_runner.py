@@ -117,6 +117,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         event_hogql: ast.Expr = parse_expr("event")
 
         if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+            # nosemgrep: hogql-injection-taint - pathsHogQLExpression is a custom HogQL expression feature
             event_hogql = parse_expr(self.query.pathsFilter.pathsHogQLExpression)
 
         if self._should_query_event(PAGEVIEW_EVENT):
@@ -536,6 +537,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
                 unit = funnelSourceFilter.funnelWindowIntervalUnit
                 interval_unit = funnel_window_interval_unit_to_sql(unit)  # type: ignore
 
+            # nosemgrep: hogql-injection-taint - interval is int, interval_unit is from validated enum
             return parse_expr(
                 f"arraySplit(x -> if(toDateTime('2018-01-01') + toIntervalSecond(_toInt64(x.3)) < toDateTime('2018-01-01') + INTERVAL {interval} {interval_unit}, 0, 1), paths_tuple)"
             )

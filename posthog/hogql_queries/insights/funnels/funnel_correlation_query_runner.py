@@ -563,8 +563,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         event_names = self.query.funnelCorrelationEventNames
         exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
 
-        # Build AST arrays for safe escaping of user input
-        event_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in event_names])
+        # Build AST array for safe escaping of user input
         exclude_prop_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in exclude_property_names])
 
         if self.support_autocapture_elements():
@@ -584,6 +583,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             array_join_query = f"""
                 arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
             """
+
+        # Build exclude clause only if there are properties to exclude
+        exclude_clause = "AND prop.1 NOT IN {exclude_props}" if exclude_property_names else ""
 
         query = parse_select(
             f"""
@@ -614,7 +616,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
-            AND prop.1 NOT IN {{exclude_prop_names}}
+            {exclude_clause}
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
@@ -646,9 +648,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "funnel_persons_query": funnel_persons_query,
                 "date_from": date_from,
                 "date_to": date_to,
-                "event_names": event_names_ast,
-                "exclude_prop_names": exclude_prop_names_ast,
+                "event_names": ast.Tuple(exprs=[ast.Constant(value=e) for e in event_names]),
                 "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
+                **({"exclude_props": exclude_prop_names_ast} if exclude_property_names else {}),
             },
         )
 

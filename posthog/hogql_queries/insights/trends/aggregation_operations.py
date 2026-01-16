@@ -74,6 +74,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def select_aggregation(self) -> ast.Expr:
         if self.series.math == "hogql" and self.series.math_hogql is not None:
+            # nosemgrep: hogql-injection-taint - math_hogql is a custom HogQL aggregation feature
             return parse_expr(self.series.math_hogql)
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")

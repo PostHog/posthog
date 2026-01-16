@@ -58,6 +58,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         )
         with self.timings.measure("parse_select"):
             if isinstance(self.query, HogQLQuery):
+                # nosemgrep: hogql-injection-taint - HogQL query runner accepts arbitrary HogQL by design
                 parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
             elif isinstance(self.query, HogQLASTQuery):
                 parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))

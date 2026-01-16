@@ -46,6 +46,7 @@ class SparklineQueryRunner(LogsQueryRunner):
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
+        # nosemgrep: hogql-injection-taint - all placeholders are AST objects or from enum lookups
         query = parse_select(
             """
                 SELECT

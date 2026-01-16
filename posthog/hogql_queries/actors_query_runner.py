@@ -349,6 +349,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
                             order_by.append(ast.OrderExpr(expr=order_expr, order="DESC" if is_desc else "ASC"))
                         else:
+                            # nosemgrep: hogql-injection-taint - orderBy is parsed as HogQL and validated
                             order_by.append(parse_order_expr(col, timings=self.timings))
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
@@ -534,6 +535,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 props.append(f"toString(properties.{key})")
             else:
                 props.append(f"toString(properties.`{key}`)")
+        # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 
     @staticmethod

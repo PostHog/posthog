@@ -87,6 +87,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     )
                 )
             else:
+                # nosemgrep: hogql-injection-taint - orderBy is parsed as HogQL and validated
                 order_by.append(parse_order_expr(col, timings=self.timings))
 
         if similarity_order is not None:
