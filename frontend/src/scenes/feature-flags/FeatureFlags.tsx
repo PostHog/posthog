@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -68,9 +69,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
-    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal({
-        currentTeamId: currentTeamId ?? 0,
-    })
+    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal()
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -206,11 +205,33 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                 <LemonButton
                                     status="danger"
                                     onClick={() => {
-                                        openDeleteModal(featureFlag, () => {
+                                        openDeleteModal(featureFlag, (deleteUsageDashboard) => {
+                                            const dashboardId = deleteUsageDashboard
+                                                ? featureFlag.usage_dashboard
+                                                : null
+                                            if (dashboardId) {
+                                                void api.update(
+                                                    `api/environments/${currentTeamId}/dashboards/${dashboardId}`,
+                                                    {
+                                                        deleted: true,
+                                                        delete_insights: true,
+                                                    }
+                                                )
+                                            }
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { name: featureFlag.key, id: featureFlag.id },
-                                                callback: loadFeatureFlags,
+                                                callback: (undo) => {
+                                                    if (undo && dashboardId) {
+                                                        void api.update(
+                                                            `api/environments/${currentTeamId}/dashboards/${dashboardId}`,
+                                                            {
+                                                                deleted: false,
+                                                            }
+                                                        )
+                                                    }
+                                                    loadFeatureFlags()
+                                                },
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
                                             })

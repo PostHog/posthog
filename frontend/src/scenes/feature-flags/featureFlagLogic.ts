@@ -334,7 +334,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlagFilters: (filters: FeatureFlagType['filters'], errors: any) => ({ filters, errors }),
         setActiveTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
-        deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>, deleteUsageDashboard?: boolean) => ({
+            featureFlag,
+            deleteUsageDashboard,
+        }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         resetEncryptedPayload: () => ({}),
@@ -1238,11 +1241,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
             }
         },
-        deleteFeatureFlag: async ({ featureFlag }) => {
+        deleteFeatureFlag: async ({ featureFlag, deleteUsageDashboard }) => {
+            const dashboardId = deleteUsageDashboard ? featureFlag.usage_dashboard : null
+            if (dashboardId) {
+                await api.update(`api/environments/${values.currentTeamId}/dashboards/${dashboardId}`, {
+                    deleted: true,
+                    delete_insights: true,
+                })
+            }
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
                 callback: (undo) => {
+                    if (undo && dashboardId) {
+                        void api.update(`api/environments/${values.currentTeamId}/dashboards/${dashboardId}`, {
+                            deleted: false,
+                        })
+                    }
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))

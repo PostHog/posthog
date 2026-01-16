@@ -164,9 +164,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
-    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal({
-        currentTeamId: currentTeamId ?? 0,
-    })
+    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal()
 
     const handleGetFeedback = (variantKey?: string): void => {
         const hasVariantSurvey = variantKey
@@ -789,8 +787,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    openDeleteModal(featureFlag, () => {
-                                                        deleteFeatureFlag(featureFlag)
+                                                    openDeleteModal(featureFlag, (deleteUsageDashboard) => {
+                                                        deleteFeatureFlag(featureFlag, deleteUsageDashboard)
                                                     })
                                                 }
                                             }}
