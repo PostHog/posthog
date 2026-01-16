@@ -42,6 +42,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Node, NodeKind, ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
@@ -670,6 +671,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
         source: {
             kind: NodeKind.ActorsQuery,
             fixedProperties: properties,
+            select: defaultDataTableColumns(NodeKind.ActorsQuery),
         },
         full: true,
         propertiesViaUrl: false,
