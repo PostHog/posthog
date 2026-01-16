@@ -464,16 +464,19 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         for i in range(num_segments)
     ]
 
-    # Activity 3: Analyze all segments in parallel
-    segment_tasks = [
-        temporalio.workflow.execute_activity(
-            analyze_video_segment_activity,
-            args=(video_inputs, uploaded_video, segment_spec, trace_id),
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=retry_policy,
-        )
-        for segment_spec in segment_specs
-    ]
+    # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
+    semaphore = asyncio.Semaphore(100)
+
+    async def _analyze_segment_with_semaphore(segment_spec: VideoSegmentSpec):
+        async with semaphore:
+            return await temporalio.workflow.execute_activity(
+                analyze_video_segment_activity,
+                args=(video_inputs, uploaded_video, segment_spec, trace_id),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=retry_policy,
+            )
+
+    segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
     segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
     # Flatten results from all segments
