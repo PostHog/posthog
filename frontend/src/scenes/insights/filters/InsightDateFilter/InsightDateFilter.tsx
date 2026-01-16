@@ -29,6 +29,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             dateFrom={dateRange?.date_from ?? '-7d'}
             explicitDate={dateRange?.explicitDate ?? false}
             allowTimePrecision
+            allowFixedRangeWithTime
             disabled={disabled}
             disabledReason={editingDisabledReason}
             onChange={(date_from, date_to, explicit_date) => {
