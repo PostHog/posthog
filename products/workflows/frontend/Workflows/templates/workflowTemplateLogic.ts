@@ -138,7 +138,8 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                     image_url: templateForm.image_url || undefined,
                     scope: templateForm.scope || undefined,
                 }
-                return JSON.stringify(template, null, 2)
+                const { status, ...templateWithoutStatus } = template
+                return JSON.stringify(templateWithoutStatus, null, 2)
             },
         ],
     }),

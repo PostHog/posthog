@@ -1,24 +1,18 @@
 import json
+from pathlib import Path
 from typing import Optional
 
 import structlog
 from rest_framework import serializers
 
-from . import (
-    announce_a_new_feature_template,
-    onboarding_started_but_not_completed_template,
-    trial_started_upgrade_nudge_template,
-    welcome_email_sequence_template,
-)
-
 logger = structlog.get_logger(__name__)
 
-# List of all template modules - update this when adding new templates
-TEMPLATE_MODULES = [
-    announce_a_new_feature_template,
-    onboarding_started_but_not_completed_template,
-    trial_started_upgrade_nudge_template,
-    welcome_email_sequence_template,
+# List of all template JSON files - update this when adding new templates
+TEMPLATE_FILES = [
+    "announce_a_new_feature_template.json",
+    "onboarding_started_but_not_completed_template.json",
+    "trial_started_upgrade_nudge_template.json",
+    "welcome_email_sequence_template.json",
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None
@@ -111,7 +105,7 @@ class SimpleHogFlowTemplateSerializer(serializers.Serializer):
 
 def load_global_templates() -> list[dict]:
     """
-    Load all global workflow templates from imported modules.
+    Load all global workflow templates from JSON files.
     Returns a list of template dictionaries.
     Templates are cached after first load for performance.
     """
@@ -121,16 +115,17 @@ def load_global_templates() -> list[dict]:
         return _TEMPLATE_CACHE
 
     templates = []
+    templates_dir = Path(__file__).parent
 
-    for module in TEMPLATE_MODULES:
+    for template_file in TEMPLATE_FILES:
+        template_path = templates_dir / template_file
         try:
-            if not hasattr(module, "template"):
-                logger.warning(f"Module {module.__name__} does not have a 'template' attribute")
+            if not template_path.exists():
+                logger.warning(f"Template file not found: {template_file}")
                 continue
 
-            template_dict = module.template
-            data_str = template_dict["data"]
-            data = json.loads(data_str) if isinstance(data_str, str) else data_str
+            with open(template_path, encoding="utf-8") as f:
+                data = json.load(f)
 
             # Validate the template using the simplified serializer
             try:
@@ -138,11 +133,13 @@ def load_global_templates() -> list[dict]:
                 if serializer.is_valid():
                     templates.append(data)
                 else:
-                    logger.error(f"Template validation failed for {module.__name__}", errors=serializer.errors)
+                    logger.error(f"Template validation failed for {template_file}", errors=serializer.errors)
             except Exception:
-                logger.exception(f"Failed to validate template from {module.__name__}")
+                logger.exception(f"Failed to validate template from {template_file}")
+        except json.JSONDecodeError:
+            logger.exception(f"Failed to parse JSON from {template_file}")
         except Exception as e:
-            logger.warning(f"Failed to load template from {module.__name__}", error=str(e))
+            logger.warning(f"Failed to load template from {template_file}", error=str(e))
 
     _TEMPLATE_CACHE = templates
     return templates
