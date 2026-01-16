@@ -204,7 +204,7 @@ def _convert_video_segments_to_session_summary(
             )
             if start_event:
                 events_in_range = [start_event]
-            if end_event and end_event != start_event:
+            if end_event and (not start_event or end_event[0] != start_event[0]):  # event[0] is the event_id
                 events_in_range.append(end_event)
 
         # Get first and last events for segment boundaries
