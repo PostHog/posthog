@@ -4,10 +4,13 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_v2"
 QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
+
 SHARDED_QUERY_LOG_ARCHIVE_TABLE = "sharded_query_log_archive"
-QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_old"
-QUERY_LOG_ARCHIVE_DISTRIBUTED_TABLE = "query_log_archive_v2"
+SHARDED_QUERY_LOG_ARCHIVE_MV = "sharded_query_log_archive_mv"
+DIST_QUERY_LOG_ARCHIVE_MV = "dist_query_log_archive_mv"
+SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE = "writable_sharded_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -422,7 +425,7 @@ def SHARDED_QUERY_LOG_ARCHIVE_TABLE_SQL():
 
 def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-        table_name=QUERY_LOG_ARCHIVE_DISTRIBUTED_TABLE,
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
         engine=Distributed(
             data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
             sharding_key="cityHash64(query_id)",
@@ -434,7 +437,7 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL():
 
 def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
     return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-        table_name=QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE,
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
         engine=Distributed(
             data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
             sharding_key="cityHash64(query_id)",
