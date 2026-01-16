@@ -92,12 +92,6 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                         />
                     </div>
                 </div>
-                <LemonCheckbox
-                    label="Submit on select"
-                    checked={!!ratingQuestion.skipSubmitButton}
-                    onChange={(checked) => onUpdate({ skipSubmitButton: checked } as Partial<RatingSurveyQuestion>)}
-                    size="small"
-                />
             </div>
         )
     }
@@ -137,7 +131,6 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
             onUpdate({
                 choices: [...choices, 'Other'],
                 hasOpenChoice: true,
-                skipSubmitButton: false,
             } as Partial<MultipleSurveyQuestion>)
         }
 
@@ -190,15 +183,6 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                             Add "Other"
                         </LemonButton>
                     )}
-                    <LemonCheckbox
-                        label="Submit on select"
-                        checked={!!choiceQuestion.skipSubmitButton}
-                        onChange={(checked) =>
-                            onUpdate({ skipSubmitButton: checked } as Partial<MultipleSurveyQuestion>)
-                        }
-                        size="small"
-                        disabledReason={hasOpenChoice ? 'Not available with open-ended choice' : undefined}
-                    />
                     <LemonCheckbox
                         label="Shuffle"
                         checked={!!choiceQuestion.shuffleOptions}
