@@ -28,7 +28,12 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
+import {
+    buildNotebookDependencyGraph,
+    collectDuckSqlNodes,
+    collectNodeIndices,
+    collectPythonNodes,
+} from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -41,6 +46,7 @@ import {
     TableOfContentData,
 } from '../types'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -90,6 +96,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookKernelInfoLogic({ shortId: props.shortId }),
+            ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
         ],
@@ -512,6 +520,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+        duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
+        dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
             (s) => [s.content],
@@ -528,6 +538,10 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
+        ],
+        duckSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
         ],
 
         isShowingLeftColumn: [
