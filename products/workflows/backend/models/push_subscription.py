@@ -33,7 +33,7 @@ class PushSubscription(UUIDModel):
 
     is_active = models.BooleanField(default=True, db_index=True)
 
-    last_used_at = models.DateTimeField(null=True, blank=True)
+    last_successfully_used_at = models.DateTimeField(null=True, blank=True)
 
     disabled_reason = models.CharField(max_length=128, null=True, blank=True)
 
@@ -115,9 +115,9 @@ class PushSubscription(UUIDModel):
         )
 
     @classmethod
-    def update_last_used_at(cls, subscription_ids: list[str]) -> int:
+    def update_last_successfully_used_at(cls, subscription_ids: list[str]) -> int:
         """
-        Update last_used_at timestamp for the given subscription IDs.
+        Update last_successfully_used_at timestamp for the given subscription IDs.
         Returns the number of subscriptions updated.
         """
         from django.utils import timezone
@@ -125,4 +125,4 @@ class PushSubscription(UUIDModel):
         if not subscription_ids:
             return 0
 
-        return cls.objects.filter(id__in=subscription_ids).update(last_used_at=timezone.now())
+        return cls.objects.filter(id__in=subscription_ids).update(last_successfully_used_at=timezone.now())
