@@ -4555,7 +4555,6 @@ dependencies = [
 dev = [
     { name = "aioresponses" },
     { name = "autoevals" },
-    { name = "black" },
     { name = "boto3-stubs", extra = ["s3"] },
     { name = "braintrust" },
     { name = "braintrust-langchain" },
@@ -4810,7 +4809,6 @@ requires-dist = [
 dev = [
     { name = "aioresponses", specifier = "==0.7.6" },
     { name = "autoevals", specifier = "==0.0.129" },
-    { name = "black", specifier = "~=24.3.0" },
     { name = "boto3-stubs", extras = ["s3"], specifier = "~=1.38.30" },
     { name = "braintrust", specifier = "==0.2.4" },
     { name = "braintrust-langchain", specifier = "==0.0.4" },

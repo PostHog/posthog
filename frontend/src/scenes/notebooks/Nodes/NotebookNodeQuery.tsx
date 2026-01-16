@@ -143,6 +143,7 @@ type NotebookNodeQueryAttributes = {
     query: QuerySchema
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
+    showSettings?: boolean
 }
 
 export const Settings = ({
@@ -274,6 +275,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         isDefaultFilterApplied: {
             default: false,
         },
+        showSettings: {
+            default: false,
+        },
     },
     href: ({ query }) =>
         isSavedInsightNode(query)
@@ -319,9 +323,7 @@ export function buildNodeQueryContent(query: QuerySchema): JSONContent {
         type: NotebookNodeType.Query,
         attrs: {
             query: query,
-            __init: {
-                showSettings: true,
-            },
+            showSettings: true,
         },
     }
 }

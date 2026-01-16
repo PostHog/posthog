@@ -201,7 +201,6 @@ dependencies = [
 dev = [
     "aioresponses==0.7.6",
     "autoevals==0.0.129",
-    "black~=24.3.0",
     "boto3-stubs[s3]~=1.38.30",
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
@@ -271,10 +270,6 @@ required-version = ">=0.7.0"
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
 
-
-[tool.black]
-line-length = 120
-target-version = ['py312']
 
 [tool.isort]
 profile = "black"
