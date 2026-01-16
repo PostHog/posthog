@@ -8,7 +8,7 @@
             "intents": []
         },
         {
-            "path": "Conversations",
+            "path": "Support",
             "category": "Unreleased",
             "iconType": "conversations",
             "type": "conversations",
@@ -132,6 +132,7 @@
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
+        { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": [] },
         {
             "path": "User interviews",
             "category": "Unreleased",
@@ -188,7 +189,7 @@
             "type": null,
             "intents": []
         },
-        { "path": "Conversations", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Support", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",

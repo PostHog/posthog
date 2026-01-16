@@ -831,6 +831,7 @@ const EventContent = React.memo(
                                 {
                                     key: TraceViewMode.Conversation,
                                     label: 'Conversation',
+                                    'data-attr': 'llma-trace-conversation-tab',
                                     content: (
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
@@ -920,6 +921,7 @@ const EventContent = React.memo(
                                 {
                                     key: TraceViewMode.Raw,
                                     label: 'Raw',
+                                    'data-attr': 'llma-trace-raw-tab',
                                     content: (
                                         <div className="p-2">
                                             <JSONViewer src={event} collapsed={2} />
@@ -938,6 +940,7 @@ const EventContent = React.memo(
                                                       </LemonTag>
                                                   </>
                                               ),
+                                              'data-attr': 'llma-trace-summary-tab',
                                               content: (
                                                   <SummaryViewDisplay
                                                       trace={!isLLMEvent(event) ? event : undefined}
@@ -954,6 +957,7 @@ const EventContent = React.memo(
                                           {
                                               key: TraceViewMode.Evals,
                                               label: 'Evaluations',
+                                              'data-attr': 'llma-trace-evals-tab',
                                               content: (
                                                   <EvalsTabContent
                                                       generationEventId={event.id}

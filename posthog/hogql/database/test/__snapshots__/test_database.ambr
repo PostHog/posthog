@@ -2185,6 +2185,54 @@
           "row_count": null,
           "type": "system"
       },
+      "system.ingestion_warnings": {
+          "fields": {
+              "source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "details": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "details",
+                  "id": null,
+                  "name": "details",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.ingestion_warnings",
+          "name": "system.ingestion_warnings",
+          "row_count": null,
+          "type": "system"
+      },
       "system.insights": {
           "fields": {
               "id": {
@@ -4650,6 +4698,54 @@
           },
           "id": "system.cohorts",
           "name": "system.cohorts",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.ingestion_warnings": {
+          "fields": {
+              "source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "details": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "details",
+                  "id": null,
+                  "name": "details",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "timestamp": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "timestamp",
+                  "id": null,
+                  "name": "timestamp",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.ingestion_warnings",
+          "name": "system.ingestion_warnings",
           "row_count": null,
           "type": "system"
       },

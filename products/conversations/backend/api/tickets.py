@@ -105,7 +105,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
     posthog_feature_flag = {
-        "product-conversations": [
+        "product-support": [
             "list",
             "retrieve",
             "create",
@@ -188,13 +188,13 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if date_from:
             parsed = relative_date_parse(date_from, self.team.timezone_info)
             if parsed:
-                queryset = queryset.filter(created_at__gte=parsed)
+                queryset = queryset.filter(updated_at__gte=parsed)
 
         date_to = self.request.query_params.get("date_to")
         if date_to:
             parsed = relative_date_parse(date_to, self.team.timezone_info)
             if parsed:
-                queryset = queryset.filter(created_at__lte=parsed)
+                queryset = queryset.filter(updated_at__lte=parsed)
 
         distinct_id = self.request.query_params.get("distinct_id")
         if distinct_id and len(distinct_id) <= 200:
