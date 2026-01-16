@@ -20,6 +20,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { PushSubscriptionPickerField } from 'lib/integrations/PushSubscriptionPickerField'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
@@ -33,10 +34,7 @@ import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/Em
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
-import {
-    CyclotronJobInputIntegrationField,
-    PushSubscriptionPickerField,
-} from './integrations/CyclotronJobInputIntegrationField'
+import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
