@@ -967,7 +967,7 @@
         }
 
         // Extract additional survey event properties from URL parameters
-        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug', 'auto_submit'];
+        const URL_PARAMS_TO_IGNORE = ['distinct_id', '__posthog_debug__', 'auto_submit'];
         const surveyEventProperties = {};
 
         for (const [key, value] of searchParams.entries()) {
