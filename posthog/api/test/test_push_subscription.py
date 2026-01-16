@@ -1,8 +1,12 @@
 import json
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 from django.test import Client
+
+from rest_framework import status
+
+from posthog.api.push_subscription import PushSubscriptionSerializer
 
 from products.workflows.backend.models.push_subscription import PushPlatform, PushSubscription
 
@@ -259,3 +263,132 @@ class TestPushSubscriptionAPI(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Access-Control-Allow-Origin", response)
+
+
+class TestPushSubscriptionViewSet(APIBaseTest):
+    """Tests for PushSubscriptionViewSet endpoints."""
+
+    def test_viewset_register_success(self):
+        """Test register action creates a new subscription and excludes token."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "android",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("id", data)
+        self.assertEqual(data["distinct_id"], "user-123")
+        self.assertNotIn("token", data)  # Security: token should never be in response
+
+        subscription = PushSubscription.objects.get(
+            team=self.team,
+            distinct_id="user-123",
+            token_hash=PushSubscription._hash_token("fcm-token-abc123"),
+        )
+        self.assertEqual(subscription.token, "fcm-token-abc123")
+
+    def test_viewset_register_invalid_platform(self):
+        """Test register action rejects invalid platform."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "invalid",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid platform", response.json()["error"])
+
+    def test_viewset_register_updates_existing(self):
+        """Test register action updates existing subscription."""
+        subscription = PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+            is_active=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/register/",
+            data={
+                "distinct_id": "user-123",
+                "token": "fcm-token-abc123",
+                "platform": "ios",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertTrue(subscription.is_active)
+        self.assertEqual(subscription.platform, PushPlatform.IOS)
+
+    def test_viewset_unregister_success(self):
+        """Test unregister action deactivates token."""
+        subscription = PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/push_subscriptions/unregister/",
+            data={"token": "fcm-token-abc123"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertFalse(subscription.is_active)
+        self.assertEqual(subscription.disabled_reason, "unregistered")
+
+    def test_viewset_list_safe_excludes_token(self):
+        """Test list_safe action excludes token from response."""
+        PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+            is_active=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/push_subscriptions/list_safe/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("results", data)
+        if data["results"]:
+            self.assertNotIn("token", data["results"][0])  # Security: token must never be exposed
+
+
+class TestPushSubscriptionSerializer(APIBaseTest):
+    """Tests for PushSubscriptionSerializer security."""
+
+    def test_serializer_excludes_token_in_response(self):
+        """Test that serializer never includes token in response data."""
+        subscription = PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+        )
+
+        serializer = PushSubscriptionSerializer(subscription)
+        data = serializer.data
+
+        self.assertNotIn("token", data)  # Security: token must never be exposed
+        self.assertIn("id", data)
+        self.assertIn("distinct_id", data)
