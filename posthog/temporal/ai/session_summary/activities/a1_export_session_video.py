@@ -25,7 +25,6 @@ from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExpo
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     EXPIRES_AFTER_DAYS,
-    MIN_SESSION_DURATION_FOR_SUMMARY_MS,
     MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
 from ee.hogai.session_summaries.session.input_data import get_team
