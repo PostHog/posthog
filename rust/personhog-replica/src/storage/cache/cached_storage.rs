@@ -65,7 +65,10 @@ where
     C: PersonCache,
 {
     pub fn new(inner: Arc<S>, person_cache: Arc<C>) -> Self {
-        Self { inner, person_cache }
+        Self {
+            inner,
+            person_cache,
+        }
     }
 }
 
@@ -103,9 +106,7 @@ where
         team_id: i64,
         uuids: &[Uuid],
     ) -> StorageResult<Vec<Person>> {
-        self.person_cache
-            .get_persons_by_uuids(team_id, uuids)
-            .await
+        self.person_cache.get_persons_by_uuids(team_id, uuids).await
     }
 
     async fn get_person_by_distinct_id(
@@ -506,7 +507,10 @@ mod tests {
         cached.get_person_by_id(1, 1).await.unwrap();
         cached.get_person_by_uuid(1, Uuid::nil()).await.unwrap();
         cached.get_persons_by_ids(1, &[1, 2]).await.unwrap();
-        cached.get_persons_by_uuids(1, &[Uuid::nil()]).await.unwrap();
+        cached
+            .get_persons_by_uuids(1, &[Uuid::nil()])
+            .await
+            .unwrap();
         cached.get_person_by_distinct_id(1, "test").await.unwrap();
         cached
             .get_persons_by_distinct_ids_in_team(1, &["a".to_string()])
