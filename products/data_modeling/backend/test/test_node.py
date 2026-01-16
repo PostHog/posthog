@@ -94,3 +94,35 @@ class TestNodeNameSync(BaseTest):
             )
 
         self.assertEqual(str(context.exception), "Node without a saved_query must have a name")
+
+    def test_multiple_nodes_can_share_saved_query_across_different_dags(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="shared_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node1 = Node.objects.create(
+            team=self.team,
+            dag_id="dag_one",
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+        node2 = Node.objects.create(
+            team=self.team,
+            dag_id="dag_two",
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+
+        self.assertEqual(node1.saved_query_id, node2.saved_query_id)
+        self.assertEqual(node1.name, "shared_view")
+        self.assertEqual(node2.name, "shared_view")
+
+        saved_query.name = "renamed_view"
+        saved_query.save()
+
+        node1.refresh_from_db()
+        node2.refresh_from_db()
+        self.assertEqual(node1.name, "renamed_view")
+        self.assertEqual(node2.name, "renamed_view")
