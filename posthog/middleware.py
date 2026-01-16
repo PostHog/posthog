@@ -538,6 +538,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_token",
                     value=request.user.team.api_token,
@@ -549,6 +550,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
                     value=request.user.team.name.encode("utf-8").decode("latin-1"),
@@ -560,6 +562,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                     samesite=default_cookie_options["samesite"],
                 )
 
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_current_instance",
                     value=SITE_URL,
@@ -574,6 +577,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
             if login_method:
+                # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
                 response.set_cookie(
                     key="ph_last_login_method",
                     value=login_method,
@@ -913,6 +917,9 @@ class ImpersonationReadOnlyMiddleware:
         if self._is_path_allowlisted(request.path):
             return self.get_response(request)
 
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
         return JsonResponse(
             {
                 "type": "authentication_error",
@@ -930,6 +937,24 @@ class ImpersonationReadOnlyMiddleware:
             elif path.startswith(allowed_path):
                 return True
         return False
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 IMPERSONATION_BLOCKED_PATHS: list[str] = [

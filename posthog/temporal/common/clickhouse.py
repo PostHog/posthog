@@ -741,14 +741,13 @@ class ClickHouseClient:
         buffer = b""
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             async for chunk in response.content.iter_any():
-                lines = chunk.split(line_separator)
-
-                yield json.loads(buffer + lines[0])
-
-                buffer = lines.pop(-1)
-
-                for line in lines[1:]:
-                    yield json.loads(line)
+                buffer += chunk
+                while line_separator in buffer:
+                    line, buffer = buffer.split(line_separator, 1)
+                    if line.strip():
+                        yield json.loads(line)
+            if buffer.strip():
+                yield json.loads(buffer)
 
     def stream_query_as_arrow(
         self,

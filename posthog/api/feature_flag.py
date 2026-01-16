@@ -775,7 +775,7 @@ class FeatureFlagSerializer(
         # Check for cycles using DFS
         def has_cycle(flag_key, path):
             if flag_key in path:
-                cycle_path = path[path.index(flag_key) :] + [flag_key]
+                cycle_path = [*path[path.index(flag_key) :], flag_key]
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 
@@ -1027,6 +1027,7 @@ class FeatureFlagSerializer(
     def _find_dependent_flags(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all active flags that depend on the given flag."""
         return list(
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
             FeatureFlag.objects.filter(team=flag_to_check.team, deleted=False, active=True)
             .exclude(id=flag_to_check.id)
             .extra(
@@ -1105,9 +1106,11 @@ class FeatureFlagSerializer(
                 "properties": [
                     {
                         **prop,
-                        "key": f"$feature_enrollment/{validated_key}"
-                        if prop.get("key", "").startswith("$feature_enrollment/")
-                        else prop["key"],
+                        "key": (
+                            f"$feature_enrollment/{validated_key}"
+                            if prop.get("key", "").startswith("$feature_enrollment/")
+                            else prop["key"]
+                        ),
                     }
                     for prop in group.get("properties", [])
                 ],
@@ -1391,27 +1394,30 @@ class FeatureFlagViewSet(
                 if filters[key] == "STALE":
                     # Get flags that are at least 30 days old and active
                     # This is an approximation - the serializer will compute the exact status
+                    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
                     queryset = queryset.filter(active=True, created_at__lt=thirty_days_ago()).extra(
                         # This needs to be in sync with the implementation in `FeatureFlagStatusChecker`, flag_status.py
+                        # Note: Must use fully qualified table name (posthog_featureflag.filters) to avoid
+                        # ambiguity when Django joins other tables that also have a 'filters' column (e.g. Experiment)
                         where=[
                             """
                             (
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
-                                    AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NULL OR jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'multivariate'->'variants') AS variant
                                         WHERE variant->>'rollout_percentage' = '100'
                                     )
                                     AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                     )
@@ -1420,14 +1426,14 @@ class FeatureFlagViewSet(
                                 -- Multivariate that has a condition that overrides with a specific variant and the rollout_percentage is 100
                                 (
                                     EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        SELECT 1 FROM jsonb_array_elements(posthog_featureflag.filters->'groups') AS elem
                                         WHERE elem->>'rollout_percentage' = '100'
                                         AND (elem->'properties')::text = '[]'::text
                                         AND elem->'variant' IS NOT NULL
                                     )
-                                    AND (filters->'multivariate' IS NOT NULL AND jsonb_array_length(filters->'multivariate'->'variants') > 0)
+                                    AND (posthog_featureflag.filters->>'multivariate' IS NOT NULL AND jsonb_array_length(posthog_featureflag.filters->'multivariate'->'variants') > 0)
                                 )
-                                OR (filters IS NULL OR filters = '{}'::jsonb)
+                                OR (posthog_featureflag.filters IS NULL OR posthog_featureflag.filters = '{}'::jsonb)
                             )
                             """
                         ]
@@ -1725,38 +1731,50 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """Check if this flag has other active flags that depend on it."""
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    def dependent_flags(self, request: request.Request, **kwargs):
+        """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-
-        # Use the serializer class method to find dependent flags
         serializer = self.serializer_class()
         dependent_flags = serializer._find_dependent_flags(feature_flag)
+        return Response(
+            [
+                {
+                    "id": flag.id,
+                    "key": flag.key,
+                    "name": flag.name or flag.key,
+                }
+                for flag in dependent_flags
+            ],
+            status=200,
+        )
 
-        has_dependents = len(dependent_flags) > 0
-
-        if not has_dependents:
-            return Response({"has_active_dependents": False, "dependent_flags": []}, status=200)
-
-        dependent_flag_data = [
-            {
-                "id": flag.id,
-                "key": flag.key,
-                "name": flag.name or flag.key,
-            }
-            for flag in dependent_flags
-        ]
-
+    @action(methods=["POST"], detail=True)
+    def has_active_dependents(self, request: request.Request, **kwargs):
+        """
+        Deprecated: Use GET /dependent_flags instead.
+        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
+        """
+        response = self.dependent_flags(request, **kwargs)
+        dependent_flags = response.data
+        TOMBSTONE_COUNTER.labels(
+            namespace="feature_flags",
+            operation="has_active_dependents",
+            component="api",
+        ).inc()
         return Response(
             {
-                "has_active_dependents": True,
-                "dependent_flags": dependent_flag_data,
+                "has_active_dependents": len(dependent_flags) > 0,
+                "dependent_flags": dependent_flags,
                 "warning": (
-                    f"This feature flag is used by {len(dependent_flags)} other active "
-                    f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                    f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                    f"to evaluate this condition as false."
+                    (
+                        f"This feature flag is used by {len(dependent_flags)} other active "
+                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
+                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
+                        f"to evaluate this condition as false."
+                    )
+                    if dependent_flags
+                    else None
                 ),
             },
             status=200,

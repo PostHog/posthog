@@ -29,13 +29,8 @@ export const zendeskPersonTicketsQuery = ({
     orderBy,
     orderDirection,
 }: ZendeskPersonTicketsQueryProps): DataTableNode => {
-    const conditions: string[] = ['1=1']
-    if (status && status !== 'all') {
-        conditions.push(`status = '${status}'`)
-    }
-    if (priority && priority !== 'all') {
-        conditions.push(`priority = '${priority}'`)
-    }
+    const statusFilter = status || 'all'
+    const priorityFilter = priority || 'all'
 
     return {
         kind: NodeKind.DataTableNode,
@@ -56,11 +51,12 @@ export const zendeskPersonTicketsQuery = ({
                 tickets as (
                     select *
                     from zendesk_tickets
+                    where (${statusFilter} = 'all' OR status = ${statusFilter})
+                      AND (${priorityFilter} = 'all' OR priority = ${priorityFilter})
                 )
             select tickets.id, url, subject, status, priority, created_at, updated_at
             from tickets
             inner join zendesk_user on zendesk_user.id = tickets.requester_id
-            where ${hogql.raw(conditions.join(' AND '))}
             order by tickets.${hogql.identifier(orderBy || 'updated_at')} ${hogql.identifier(orderDirection || 'asc')}
             limit 500
             `,
@@ -83,13 +79,8 @@ export const zendeskGroupTicketsQuery = ({
     orderBy,
     orderDirection,
 }: ZendeskGroupTicketsQueryProps): DataTableNode => {
-    const conditions: string[] = [`o.external_id = '${groupKey}'`]
-    if (status && status !== 'all') {
-        conditions.push(`status = '${status}'`)
-    }
-    if (priority && priority !== 'all') {
-        conditions.push(`priority = '${priority}'`)
-    }
+    const statusFilter = status || 'all'
+    const priorityFilter = priority || 'all'
 
     return {
         kind: NodeKind.DataTableNode,
@@ -99,7 +90,9 @@ export const zendeskGroupTicketsQuery = ({
             select t.id, t.url, t.subject, t.status, t.priority, t.created_at as created_at, t.updated_at as updated_at
             from zendesk_organizations o
             inner join zendesk_tickets t on o.id = t.organization_id
-            where ${hogql.raw(conditions.join(' AND '))}
+            where o.external_id = ${groupKey}
+              AND (${statusFilter} = 'all' OR t.status = ${statusFilter})
+              AND (${priorityFilter} = 'all' OR t.priority = ${priorityFilter})
             order by t.${hogql.identifier(orderBy || 'updated_at')} ${hogql.identifier(orderDirection || 'asc')}
             limit 500
             `,

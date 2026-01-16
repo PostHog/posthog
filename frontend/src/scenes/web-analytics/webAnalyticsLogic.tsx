@@ -103,6 +103,13 @@ import {
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
 } from './common'
+import {
+    PROPERTY_HOST,
+    WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES,
+    WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES,
+    convertCurrentURLFilter,
+    hasURLSearchParams,
+} from './constants'
 import { webAnalyticsHealthLogic } from './health'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
@@ -168,6 +175,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         ],
     })),
     actions({
+        removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
         setDeviceTab: (tab: string) => ({ tab }),
@@ -461,6 +469,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
                 )
             },
+        ],
+        incompatibleFilters: [
+            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (
+                rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+                preAggregatedEnabled: boolean
+            ): WebAnalyticsPropertyFilters => {
+                if (!preAggregatedEnabled) {
+                    return []
+                }
+
+                return rawWebAnalyticsFilters.filter((filter) => {
+                    if (hasURLSearchParams(filter)) {
+                        return true
+                    }
+
+                    if (filter.type === PropertyFilterType.Event) {
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_EVENT_PROPERTIES.includes(filter.key)
+                    } else if (filter.type === PropertyFilterType.Session) {
+                        return !WEB_ANALYTICS_PRE_AGGREGATED_ALLOWED_SESSION_PROPERTIES.includes(filter.key)
+                    } else if (filter.type === PropertyFilterType.Person) {
+                        return true
+                    }
+                    return false
+                })
+            },
+        ],
+        hasIncompatibleFilters: [
+            (s) => [s.incompatibleFilters],
+            (incompatibleFilters: WebAnalyticsPropertyFilters) => incompatibleFilters.length > 0,
         ],
         breadcrumbs: [
             () => [],
@@ -826,6 +864,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     custom_name: 'Sessions',
                 }
 
+                const sessionDurationSeries: EventsNode = {
+                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
+                    kind: NodeKind.EventsNode,
+                    math: PropertyMathType.Average,
+                    math_property: '$session_duration',
+                    math_property_type: 'session_properties',
+                    name: 'Session duration',
+                    custom_name: 'Average session duration',
+                }
+
+                const bounceRateSeries: EventsNode = {
+                    event: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE] ? '$screen' : '$pageview',
+                    kind: NodeKind.EventsNode,
+                    math: PropertyMathType.Average,
+                    math_property: '$is_bounce',
+                    math_property_type: 'session_properties',
+                    name: 'Bounce rate',
+                    custom_name: 'Average bounce rate',
+                }
+
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
@@ -1127,6 +1185,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
+                                    : null,
+                                !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SESSION_PROPERTY_CHARTS]
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.SESSION_DURATION,
+                                          'Average session duration',
+                                          'Session duration',
+                                          [sessionDurationSeries]
+                                      )
+                                    : null,
+                                !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SESSION_PROPERTY_CHARTS]
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.BOUNCE_RATE,
+                                          'Average bounce rate',
+                                          'Bounce rate',
+                                          [bounceRateSeries],
+                                          {
+                                              aggregationAxisFormat: 'percentage_scaled',
+                                          }
+                                      )
                                     : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
@@ -2264,7 +2341,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             conversionGoal: WebAnalyticsConversionGoal | null
         ): void => {
             if (conversionGoal) {
-                if (tab === GraphsTab.PAGE_VIEWS || tab === GraphsTab.NUM_SESSION) {
+                if (
+                    tab === GraphsTab.PAGE_VIEWS ||
+                    tab === GraphsTab.NUM_SESSION ||
+                    tab === GraphsTab.SESSION_DURATION ||
+                    tab === GraphsTab.BOUNCE_RATE
+                ) {
                     actions.setGraphsTab(GraphsTab.UNIQUE_USERS)
                 }
             } else {
@@ -2303,6 +2385,37 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     filter_type: 'percentile',
                     total_filter_count: values.webAnalyticsFilters.length,
                 })
+            },
+            removeIncompatibleFilters: () => {
+                let compatibleFilters = values.rawWebAnalyticsFilters.filter(
+                    (filter) =>
+                        !values.incompatibleFilters.some(
+                            (incompatible) =>
+                                incompatible.key === filter.key &&
+                                incompatible.value === filter.value &&
+                                incompatible.operator === filter.operator &&
+                                incompatible.type === filter.type
+                        )
+                )
+
+                const convertedFilters: WebAnalyticsPropertyFilters = []
+                for (const filter of compatibleFilters) {
+                    const converted = convertCurrentURLFilter(filter)
+                    if (converted) {
+                        convertedFilters.push(...converted)
+                    } else {
+                        convertedFilters.push(filter)
+                    }
+                }
+
+                const hostFilters = convertedFilters.filter((f) => f.key === PROPERTY_HOST)
+                if (hostFilters.length > 1) {
+                    const dedupedFilters = convertedFilters.filter((f) => f.key !== PROPERTY_HOST)
+                    dedupedFilters.push(hostFilters[0])
+                    actions.setWebAnalyticsFilters(dedupedFilters)
+                } else {
+                    actions.setWebAnalyticsFilters(convertedFilters)
+                }
             },
             setProductTab: ({ tab }) => {
                 if (tab === ProductTab.HEALTH) {

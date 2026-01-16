@@ -589,6 +589,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'prompts'
                 } else if (sceneKey === 'llmAnalyticsSettings') {
                     return 'settings'
+                } else if (sceneKey === 'llmAnalyticsClusters') {
+                    return 'clusters'
                 }
 
                 return 'dashboard'

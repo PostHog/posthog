@@ -8,6 +8,7 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
@@ -76,6 +77,7 @@ export function VirtualizedLogsList({
         setFocused,
         setCursorToLogId,
     } = useActions(logsViewerLogic)
+    const { openLogDetails } = useActions(logDetailsModalLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -163,11 +165,17 @@ export function VirtualizedLogsList({
         }
     }
 
+    const handleLogRowClick = (log: ParsedLogMessage, index: number): void => {
+        openLogDetails(log)
+        if (!disableCursor) {
+            userSetCursorIndex(index)
+        }
+    }
+
     const createRowRenderer = useCallback(
         (rowWidth?: number) =>
             ({ index, key, style, parent }: ListRowProps): JSX.Element => {
                 const log = dataSource[index]
-                const isExpanded = !!expandedLogIds[log.uuid]
 
                 return (
                     <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
@@ -181,7 +189,7 @@ export function VirtualizedLogsList({
                                     log={log}
                                     logIndex={index}
                                     isAtCursor={!disableCursor && index === cursorIndex}
-                                    isExpanded={isExpanded}
+                                    isExpanded={!!expandedLogIds[log.uuid]}
                                     pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
@@ -189,7 +197,7 @@ export function VirtualizedLogsList({
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
                                     onToggleExpand={() => toggleExpandLog(log.uuid)}
-                                    onSetCursor={disableCursor ? undefined : () => userSetCursorIndex(index)}
+                                    onClick={() => handleLogRowClick(log, index)}
                                     rowWidth={rowWidth}
                                     attributeColumns={attributeColumns}
                                     attributeColumnWidths={attributeColumnWidths}
@@ -221,6 +229,7 @@ export function VirtualizedLogsList({
             tzLabelFormat,
             togglePinLog,
             toggleExpandLog,
+            openLogDetails,
             userSetCursorIndex,
             attributeColumns,
             attributeColumnWidths,

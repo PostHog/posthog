@@ -179,6 +179,20 @@ export function percentage(
     })
 }
 
+/**
+ * Formats the percentage difference between two values for display.
+ * Returns null if the result would be NaN or Infinity (e.g., division by zero).
+ */
+export function formatPercentageDiff(current: number, previous: number): string | null {
+    const diff = (current - previous) / previous
+
+    if (!Number.isFinite(diff)) {
+        return null
+    }
+
+    return diff >= 0 ? `(+${(diff * 100).toFixed(1)}%)` : `(-${(-diff * 100).toFixed(1)}%)`
+}
+
 export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Partial<CSSProperties>> = {
     control: (base) => ({
         ...base,
@@ -263,6 +277,15 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+    semver_eq: '= equals (semver)',
+    semver_neq: '≠ not equal (semver)',
+    semver_gt: '> greater than (semver)',
+    semver_gte: '≥ greater than or equal (semver)',
+    semver_lt: '< less than (semver)',
+    semver_lte: '≤ less than or equal (semver)',
+    semver_tilde: '~ tilde range (semver)',
+    semver_caret: '^ caret range (semver)',
+    semver_wildcard: '* wildcard (semver)',
 }
 
 export const stringArrayOperatorMap: Record<string, string> = {
@@ -329,6 +352,18 @@ export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const semverOperatorMap: Record<string, string> = {
+    semver_eq: '= equals (semver)',
+    semver_neq: '≠ not equal (semver)',
+    semver_gt: '> greater than (semver)',
+    semver_gte: '≥ greater than or equal (semver)',
+    semver_lt: '< less than (semver)',
+    semver_lte: '≤ less than or equal (semver)',
+    semver_tilde: '~ tilde range (semver)',
+    semver_caret: '^ caret range (semver)',
+    semver_wildcard: '* wildcard (semver)',
+}
+
 export const assigneeOperatorMap: Record<string, string> = {
     exact: '= is',
     is_not: '≠ is not',
@@ -339,7 +374,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
-    ...stringOperatorMap,
+    ...semverOperatorMap,
     ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
@@ -349,6 +384,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...cohortOperatorMap,
     ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
+    ...stringOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -364,6 +400,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Flag: featureFlagOperatorMap,
     Assignee: assigneeOperatorMap,
     StringArray: stringArrayOperatorMap,
+    Semver: semverOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -392,6 +429,20 @@ export function isOperatorCohort(operator: PropertyOperator): boolean {
 
 export function isOperatorRegex(operator: PropertyOperator): boolean {
     return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
+}
+
+export function isOperatorSemver(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.SemverEq,
+        PropertyOperator.SemverNeq,
+        PropertyOperator.SemverGt,
+        PropertyOperator.SemverGte,
+        PropertyOperator.SemverLt,
+        PropertyOperator.SemverLte,
+        PropertyOperator.SemverTilde,
+        PropertyOperator.SemverCaret,
+        PropertyOperator.SemverWildcard,
+    ].includes(operator)
 }
 
 export function isOperatorRange(operator: PropertyOperator): boolean {
@@ -537,6 +588,79 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
             })
         }
     })
+}
+
+export interface RetryOptions {
+    /** Maximum number of attempts before giving up. Defaults to 3. */
+    maxAttempts?: number
+    /** Initial delay in milliseconds before the first retry. Defaults to 1000. */
+    initialDelayMs?: number
+    /** Multiplier applied to delay after each failed attempt. Defaults to 1.5. */
+    backoffMultiplier?: number
+    /** AbortSignal to cancel retries. If aborted, throws AbortError immediately. */
+    signal?: AbortSignal
+    /**
+     * Predicate to determine if an error should trigger a retry.
+     * Return true to retry, false to throw immediately.
+     * Defaults to retrying all errors except AbortError.
+     *
+     * @example
+     * // Only retry network errors and 5xx server errors
+     * shouldRetry: (error) => {
+     *     if (error instanceof Error && 'status' in error) {
+     *         const status = (error as any).status
+     *         return status >= 500 || status === 0 // 0 = network error
+     *     }
+     *     return true // retry unknown errors
+     * }
+     */
+    shouldRetry?: (error: unknown) => boolean
+}
+
+/**
+ * Retries a function with exponential backoff on failure.
+ *
+ * @param fn - The async function to retry
+ * @param options - Configuration options for retry behavior
+ * @returns The result of the function if successful
+ * @throws The last error encountered if all attempts fail, or AbortError if cancelled
+ *
+ * @example
+ * const data = await retryWithBackoff(() => api.fetchData(), {
+ *     maxAttempts: 3,
+ *     initialDelayMs: 1000,
+ *     backoffMultiplier: 1.5
+ * })
+ * // Delays: 1000ms after 1st failure, 1500ms after 2nd failure
+ */
+export async function retryWithBackoff<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
+    const { maxAttempts = 3, initialDelayMs = 1000, backoffMultiplier = 1.5, signal, shouldRetry } = options
+
+    if (signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError')
+    }
+
+    const attempts = Math.max(maxAttempts, 1)
+
+    let lastError: unknown
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+            return await fn()
+        } catch (e) {
+            if (e instanceof DOMException && e.name === 'AbortError') {
+                throw e
+            }
+            lastError = e
+            const isLastAttempt = attempt >= attempts - 1
+            const canRetry = shouldRetry ? shouldRetry(e) : true
+            if (isLastAttempt || !canRetry) {
+                throw e
+            }
+            const delayMs = initialDelayMs * Math.pow(backoffMultiplier, attempt)
+            await delay(delayMs, signal)
+        }
+    }
+    throw lastError
 }
 
 export function clearDOMTextSelection(): void {

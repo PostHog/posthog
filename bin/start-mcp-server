@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/../services/mcp/typescript"
+
+if [ ! -f .dev.vars ]; then
+    cp .dev.vars.example .dev.vars
+fi
+
+pnpm install --frozen-lockfile
+
+exec pnpm run dev

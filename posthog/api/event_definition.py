@@ -233,7 +233,8 @@ class EventDefinitionViewSet(
 
         if excluded_properties:
             excluded_list = list(set(orjson.loads(excluded_properties)))
-            search_query = search_query + f" AND NOT name = ANY(ARRAY{excluded_list})"
+            search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
+            params["excluded_list"] = excluded_list
 
         sql = create_event_definitions_sql(
             event_type,

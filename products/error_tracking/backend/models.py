@@ -378,6 +378,7 @@ def update_error_tracking_issue_fingerprints(
     team_id: int, issue_id: str, fingerprints: list[str]
 ) -> list[ErrorTrackingIssueFingerprintV2]:
     return list(
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via params list)
         ErrorTrackingIssueFingerprintV2.objects.raw(
             """
                 UPDATE posthog_errortrackingissuefingerprintv2

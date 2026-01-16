@@ -23,6 +23,7 @@ import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
+import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
 import { StatsMethodModal } from './StatsMethodModal'
 import { StatusTag } from './components'
@@ -81,9 +82,11 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
+        shippedVariantKey,
         featureFlags,
+        autoRefresh,
     } = useValues(experimentLogic)
-    const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
+    const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const {
         openEditConclusionModal,
         openDescriptionModal,
@@ -94,6 +97,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const useNewCalculator = featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_CALCULATOR] === 'test'
+    const useNewReloadAction = featureFlags[FEATURE_FLAGS.EXPERIMENTS_RELOAD_ACTION] === 'test'
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
 
     useEffect(() => {
@@ -129,7 +133,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                 <StatusTag status={status} />
                                 {isSingleVariantShipped && (
                                     <Tooltip
-                                        title={`Variant "${experiment.feature_flag?.filters.multivariate?.variants?.find((v) => v.rollout_percentage === 100)?.key}" has been rolled out to 100% of users`}
+                                        title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}
                                     >
                                         <LemonTag type="completion" className="cursor-default">
                                             <b className="uppercase">100% rollout</b>
@@ -269,11 +273,39 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             onClick={openRunningTimeConfigModal}
                                         />
                                     )}
-                                    <ExperimentLastRefresh
-                                        isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                        lastRefresh={lastRefresh}
-                                        onClick={() => refreshExperimentResults(true)}
-                                    />
+                                    {useNewReloadAction ? (
+                                        <ExperimentReloadAction
+                                            isRefreshing={
+                                                primaryMetricsResultsLoading || secondaryMetricsResultsLoading
+                                            }
+                                            lastRefresh={lastRefresh}
+                                            onClick={() => {
+                                                // Track manual refresh click
+                                                reportExperimentMetricsRefreshed(experiment, true, {
+                                                    triggered_by: 'manual',
+                                                    auto_refresh_enabled: autoRefresh.enabled,
+                                                    auto_refresh_interval: autoRefresh.interval,
+                                                })
+                                                refreshExperimentResults(true)
+                                            }}
+                                        />
+                                    ) : (
+                                        <ExperimentLastRefresh
+                                            isRefreshing={
+                                                primaryMetricsResultsLoading || secondaryMetricsResultsLoading
+                                            }
+                                            lastRefresh={lastRefresh}
+                                            onClick={() => {
+                                                // Track manual refresh click (old UI)
+                                                reportExperimentMetricsRefreshed(experiment, true, {
+                                                    triggered_by: 'manual',
+                                                    auto_refresh_enabled: false,
+                                                    auto_refresh_interval: 0,
+                                                })
+                                                refreshExperimentResults(true)
+                                            }}
+                                        />
+                                    )}
                                 </>
                             )}
                             <div className="flex flex-col">

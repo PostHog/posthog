@@ -22,5 +22,8 @@ defs = dagster.Definitions(
         persons_new_backfill.persons_new_backfill_job,
         persons_without_distinct_ids_cleanup.persons_without_distinct_ids_cleanup_job,
     ],
+    sensors=[
+        person_property_reconciliation.person_property_reconciliation_scheduler,
+    ],
     resources=resources,
 )

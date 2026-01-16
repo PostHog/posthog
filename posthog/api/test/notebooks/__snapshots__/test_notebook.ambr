@@ -105,6 +105,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
@@ -118,6 +119,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -323,6 +325,9 @@
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
          "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -354,6 +359,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
@@ -367,6 +373,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -496,7 +503,10 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -516,7 +526,10 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -557,6 +570,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
@@ -570,6 +584,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -676,6 +691,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
@@ -689,6 +705,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -913,6 +930,7 @@
          "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."session_recording_encryption",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."survey_config",
@@ -926,6 +944,7 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",

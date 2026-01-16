@@ -233,10 +233,10 @@ export enum SurveyTemplateType {
     NPS = 'Net promoter score (NPS)',
     CSAT = 'Customer satisfaction score (CSAT)',
     CES = 'Customer effort score (CES)',
-    CCR = 'Customer churn rate (CCR)',
+    CCR = 'Exit survey',
     PMF = 'Product-market fit (PMF)',
-    ErrorTracking = 'Capture exceptions',
-    TrafficAttribution = 'Traffic attribution',
+    ErrorTracking = 'Error feedback',
+    TrafficAttribution = 'How did you find us?',
     FeatureRequest = 'Feature request',
     OnboardingFeedback = 'Onboarding feedback',
     BetaFeedback = 'Beta feedback',
@@ -327,7 +327,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Get an industry-recognized benchmark.',
+        description: 'Measure customer loyalty with the 0-10 recommend scale.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -344,12 +344,12 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             },
             {
                 type: SurveyQuestionType.SingleChoice,
-                question: 'How would you feel if you could no longer our product?',
+                question: 'How would you feel if you could no longer use our product?',
                 choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
                 skipSubmitButton: true,
             },
         ],
-        description: "40% 'very disappointed' signals product-market fit.",
+        description: 'Discover how essential your product is to users.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -376,7 +376,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Works best after a checkout or support flow.',
+        description: 'Measure satisfaction with a specific experience.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -397,7 +397,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         appearance: {
             thankYouMessageHeader: 'Looking forward to chatting with you!',
         },
-        description: 'Send users straight to your calendar.',
+        description: 'Recruit users for in-depth conversations.',
         tagType: 'completion',
         category: 'Business',
     },
@@ -417,7 +417,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 skipSubmitButton: true,
             },
         ],
-        description: 'Works well with churn surveys.',
+        description: 'Measure how easy it was to complete a task.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -445,7 +445,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Find out if it was something you said.',
+        description: 'Understand why users are canceling.',
         tagType: 'completion',
         category: 'Business',
         appearance: defaultSurveyAppearance,
@@ -474,7 +474,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Find out where your traffic is coming from.',
+        description: 'Learn which channels bring users to your product.',
         tagType: 'completion',
         category: 'Business',
         appearance: defaultSurveyAppearance,
@@ -496,7 +496,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             actions: null,
             events: { repeatedActivation: true, values: [{ name: '$exception' }] },
         },
-        description: 'Ask users for context when they hit an exception.',
+        description: 'Get user context when errors occur to debug faster.',
         tagType: 'default',
         category: 'General',
         appearance: {
@@ -686,3 +686,106 @@ export enum SURVEY_CREATED_SOURCE {
 export enum SURVEY_FORM_INPUT_IDS {
     WAIT_PERIOD_INPUT = 'survey-wait-period-input',
 }
+
+// Survey appearance themes for the wizard
+export interface SurveyTheme {
+    id: string
+    name: string
+    description: string
+    appearance: Partial<SurveyAppearance>
+}
+
+export const surveyThemes: SurveyTheme[] = [
+    // Light themes
+    {
+        id: 'clean',
+        name: 'Clean',
+        description: 'Light & professional',
+        appearance: {
+            backgroundColor: '#ffffff',
+            textColor: '#1d1f27',
+            borderColor: '#e5e7eb',
+            submitButtonColor: '#1d1f27',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#f3f4f6',
+            ratingButtonActiveColor: '#1d1f27',
+            inputBackground: '#f9fafb',
+        },
+    },
+    {
+        id: 'ocean',
+        name: 'Ocean',
+        description: 'Cool & calming',
+        appearance: {
+            backgroundColor: '#f0f9ff',
+            textColor: '#0c4a6e',
+            borderColor: '#bae6fd',
+            submitButtonColor: '#0284c7',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#e0f2fe',
+            ratingButtonActiveColor: '#0284c7',
+            inputBackground: '#ffffff',
+        },
+    },
+    {
+        id: 'sunset',
+        name: 'Sunset',
+        description: 'Warm & energetic',
+        appearance: {
+            backgroundColor: '#fffbf5',
+            textColor: '#7c2d12',
+            borderColor: '#fed7aa',
+            submitButtonColor: '#ea580c',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#ffedd5',
+            ratingButtonActiveColor: '#ea580c',
+            inputBackground: '#ffffff',
+        },
+    },
+    // Dark themes
+    {
+        id: 'midnight',
+        name: 'Midnight',
+        description: 'Dark & sophisticated',
+        appearance: {
+            backgroundColor: '#1a1a2e',
+            textColor: '#eaeaea',
+            borderColor: '#4a4a6a',
+            submitButtonColor: '#6366f1',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#2d2d44',
+            ratingButtonActiveColor: '#6366f1',
+            inputBackground: '#252540',
+        },
+    },
+    {
+        id: 'carbon',
+        name: 'Carbon',
+        description: 'Dark & neutral',
+        appearance: {
+            backgroundColor: '#171717',
+            textColor: '#fafafa',
+            borderColor: '#404040',
+            submitButtonColor: '#fafafa',
+            submitButtonTextColor: '#171717',
+            ratingButtonColor: '#262626',
+            ratingButtonActiveColor: '#fafafa',
+            inputBackground: '#262626',
+        },
+    },
+    {
+        id: 'noir',
+        name: 'Noir',
+        description: 'Pure black & white',
+        appearance: {
+            backgroundColor: '#000000',
+            textColor: '#ffffff',
+            borderColor: '#333333',
+            submitButtonColor: '#ffffff',
+            submitButtonTextColor: '#000000',
+            ratingButtonColor: '#1a1a1a',
+            ratingButtonActiveColor: '#ffffff',
+            inputBackground: '#1a1a1a',
+        },
+    },
+]

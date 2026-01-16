@@ -44,6 +44,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
+        key: 'organization_integration',
+        objectName: 'Organization integration',
+        objectPlural: 'organization integrations',
+        disabledWhenProjectScoped: true,
+    },
+    {
         key: 'organization_member',
         objectName: 'Organization member',
         objectPlural: 'organization members',
@@ -141,7 +147,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.map(({ key }) =>
+        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
             ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment'].includes(key)
                 ? `${key}:write`
                 : `${key}:read`

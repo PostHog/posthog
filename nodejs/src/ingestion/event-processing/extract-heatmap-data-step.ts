@@ -23,12 +23,6 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
         input: TInput
     ): Promise<PipelineResult<ExtractHeatmapDataStepResult<TInput>>> {
         const { preparedEvent } = input
-
-        // Early return if there's no heatmap data to process
-        if (!preparedEvent.properties?.['$heatmap_data']) {
-            return Promise.resolve(ok({ ...input, preparedEvent }))
-        }
-
         const { eventUuid } = preparedEvent
         const acks: Promise<void>[] = []
         const warnings: PipelineWarning[] = []

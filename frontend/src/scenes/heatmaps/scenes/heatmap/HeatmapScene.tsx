@@ -30,6 +30,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         type,
         displayUrl,
         widthOverride,
+        heightOverride,
         screenshotUrl,
         generatingScreenshot,
         screenshotLoaded,
@@ -195,7 +196,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 ) : null}
                             </div>
                         ) : (
-                            <div className="relative min-h-screen">
+                            <div
+                                className="relative"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ height: heightOverride }}
+                            >
                                 <HeatmapCanvas
                                     positioning="absolute"
                                     widthOverride={desiredNumericWidth ?? undefined}
@@ -203,9 +208,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                 />
                                 <iframe
                                     id="heatmap-iframe"
-                                    className="min-h-screen bg-white rounded-b-lg"
+                                    className="bg-white rounded-b-lg"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: '100%' }}
+                                    style={{ width: '100%', height: heightOverride }}
                                     src={displayUrl || ''}
                                     onLoad={onIframeLoad}
                                     // these two sandbox values are necessary so that the site and toolbar can run

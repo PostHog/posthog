@@ -13,6 +13,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+import numpy as np
 from pydantic.dataclasses import dataclass
 
 from posthog.schema import (
@@ -44,7 +45,7 @@ class PageViewProperties:
     pathname: str
     timestamp: str
     scroll: float = 0
-    duration: float = 0
+    duration: float | None = 0
 
 
 class FloatAwareTestCase(unittest.TestCase):
@@ -77,35 +78,30 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
     QUERY_TIMESTAMP = "2025-01-29"
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
-        # Tracks the per-person average for each path
-        per_path_user_avgs = defaultdict[Any, list](list)
+        per_path_durations: defaultdict[Any, list] = defaultdict(list)
+        total_view_counts: defaultdict[Any, int] = defaultdict(int)
+        per_path_user_count: defaultdict[Any, set] = defaultdict(set)
 
-        # Track total count of all pageviews per path
-        total_view_counts = defaultdict[Any, int](int)
-
-        for person in groups_of_pageviews:
-            # per-user totals for this group
-            person_totals = defaultdict[Any, dict[str, int | float]](lambda: {"count": 0, "duration_sum": 0.0})
-
-            # accumulate totals
+        for person_idx, person in enumerate(groups_of_pageviews):
             for page_view in person:
-                entry = person_totals[page_view.pathname]
-                entry["count"] += 1
-                entry["duration_sum"] += page_view.duration
-
+                per_path_durations[page_view.pathname].append(page_view.duration)
                 total_view_counts[page_view.pathname] += 1
+                per_path_user_count[page_view.pathname].add(person_idx)
 
-            # convert this user's totals to per-path user avg
-            for path, vals in person_totals.items():
-                user_avg = vals["duration_sum"] / vals["count"]
-                per_path_user_avgs[path].append(user_avg)
+        def calculate_p90(values: list[float | None]) -> float | None:
+            filtered_values = [v for v in values if v is not None]
+
+            if len(filtered_values) == 0:
+                return None
+
+            return float(np.percentile(filtered_values, 90))
 
         results = {}
-        for path, user_avgs in per_path_user_avgs.items():
+        for path, durations in per_path_durations.items():
             results[path] = {
-                "user_count": len(user_avgs),  # number of users who visited a path
-                "view_count": total_view_counts[path],  # all pageviews on a path
-                "avg_duration": sum(user_avgs) / len(user_avgs),  # avg across only the users who visited that
+                "user_count": len(per_path_user_count[path]),
+                "view_count": total_view_counts[path],
+                "p90_duration": calculate_p90(durations),
             }
 
         return results
@@ -2047,7 +2043,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/a",  # breakdown (page / path)
                     (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
                     (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
-                    (stats["/a"]["avg_duration"], 0),  # (avg_time_on_page_this_month, avg_time_on_page_last_month)
+                    (stats["/a"]["p90_duration"], 0),  # (p90_time_on_page_this_month, p90_time_on_page_last_month)
                     (0, 0),
                     1 / len(results),  # ui fill fraction
                     "",
@@ -2091,7 +2087,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/a",
                     (stats["/a"]["user_count"], 0),
                     (stats["/a"]["view_count"], 0),
-                    (stats["/a"]["avg_duration"], 0),
+                    (stats["/a"]["p90_duration"], 0),
                     (0, 0),
                     1 / len(results),
                     "",
@@ -2143,7 +2139,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/a",
                     (stats["/a"]["user_count"], 0),
                     (stats["/a"]["view_count"], 0),
-                    (stats["/a"]["avg_duration"], 0),
+                    (stats["/a"]["p90_duration"], 0),
                     (0, 0),
                     1 / len(results),
                     "",
@@ -2152,7 +2148,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/b",
                     (stats["/a"]["user_count"], 0),
                     (stats["/b"]["view_count"], 0),
-                    (stats["/b"]["avg_duration"], 0),
+                    (stats["/b"]["p90_duration"], 0),
                     (0, 0),
                     1 / len(results),
                     "",
@@ -2161,7 +2157,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/c",
                     (stats["/a"]["user_count"], 0),
                     (stats["/c"]["view_count"], 0),
-                    (stats["/c"]["avg_duration"], 0),
+                    (stats["/c"]["p90_duration"], 0),
                     (0, 0),
                     1 / len(results),
                     "",
@@ -2199,7 +2195,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
                     "/a",
                     (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
                     (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
-                    (m2_stats["/a"]["avg_duration"], m1_stats["/a"]["avg_duration"]),
+                    (m2_stats["/a"]["p90_duration"], m1_stats["/a"]["p90_duration"]),
                     (1, 1),
                     1 / len(results),
                     "",
@@ -2208,19 +2204,55 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             results,
         )
 
-    def test_calculate_pageview_statsistics_averages_per_person(self):
+    def test_time_on_page_caps_at_24_hours(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=100000),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        capped_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=86400),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+        stats = self._calculate_pageview_statistics([capped_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_calculate_pageview_statistics_p90_single_session(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=15),
         ]
 
-        # Total average should be the average of all P1's page views on the page
         stats = self._calculate_pageview_statistics([p1_page_views])
-        actual = (30 + 15) / 2
 
-        self.assertEqual(actual, stats["/a"]["avg_duration"])
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 28.5, places=2)
 
-    def test_calculate_pageview_statsistics_only_averages_across_visted_users(self):
+    def test_calculate_pageview_statistics_p90_multiple_sessions(self):
         p1_page_views = [
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=25),
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=40),
@@ -2236,10 +2268,63 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=28),
         ]
 
-        # Total average should not include p2's view since they never visited the path
         stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
-        avg_p1 = (25 + 40) / 2
-        avg_p3 = (17 + 28) / 2
-        actual = (avg_p1 + avg_p3) / 2
 
-        self.assertEqual(actual, stats["/a"]["avg_duration"])
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+
+    def test_calculate_pageview_statistics_excludes_null_durations(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        self.assertAlmostEqual(stats["/start"]["p90_duration"], 76.0, places=2)
+
+    def test_null_prev_pageview_duration_excluded_from_p90(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        start_result = next(r for r in results if r[0] == "/start")
+        self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)

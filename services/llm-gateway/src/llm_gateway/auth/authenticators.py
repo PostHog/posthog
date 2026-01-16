@@ -92,7 +92,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             row = await conn.fetchrow(
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
-                       u.current_team_id, oat.application_id
+                       oat.application_id, u.current_team_id
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
@@ -120,4 +120,5 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 auth_method=self.auth_type,
                 scopes=scopes,
                 token_expires_at=expires,
+                application_id=str(row["application_id"]),
             )

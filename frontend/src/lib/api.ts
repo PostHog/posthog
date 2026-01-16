@@ -309,6 +309,13 @@ export class ApiError extends Error {
     }
 }
 
+export class RateLimitError extends Error {
+    constructor(public retryAfterSeconds: number) {
+        super('Rate limit exceeded')
+        this.name = 'RateLimitError'
+    }
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -641,11 +648,6 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
-    // # Feed
-    public feed(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('feed')
-    }
-
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -767,10 +769,6 @@ export class ApiRequest {
 
     public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
-    }
-
-    public cohortsDuplicate(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('duplicate_as_static_cohort')
     }
 
     public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1392,6 +1390,11 @@ export class ApiRequest {
 
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
+    }
+
+    // # Organization Integrations
+    public organizationIntegrations(): ApiRequest {
+        return this.organizations().current().addPathComponent('integrations')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -2338,12 +2341,6 @@ const api = {
         },
     },
 
-    feed: {
-        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
-            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
-        },
-    },
-
     logs: {
         async query({
             query,
@@ -2650,9 +2647,6 @@ const api = {
                 .cohortsDetail(cohortId)
                 .withQueryString(filterParams)
                 .update({ data: cohortData })
-        },
-        async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
-            return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
@@ -3752,6 +3746,46 @@ const api = {
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()
         },
+        async kernelExecute(
+            notebookId: NotebookType['short_id'],
+            data: { code: string; return_variables?: boolean; timeout?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelDataframe(
+            notebookId: NotebookType['short_id'],
+            params: { variable_name: string; offset?: number; limit?: number; timeout?: number }
+        ): Promise<{ columns: string[]; rows: Record<string, any>[]; rowCount: number }> {
+            const response = await new ApiRequest()
+                .notebook(notebookId)
+                .withAction('kernel/dataframe')
+                .withQueryString(params)
+                .get()
+
+            return {
+                columns: response.columns ?? [],
+                rows: response.rows ?? [],
+                rowCount: response.row_count ?? 0,
+            }
+        },
+        async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()
+        },
+        async kernelStop(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/stop').create()
+        },
+        async kernelRestart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/restart').create()
+        },
+        async kernelConfig(
+            notebookId: NotebookType['short_id'],
+            data: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }
+        ): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/config').create({ data })
+        },
+        async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
+            return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
     },
 
     sessionGroupSummaries: {
@@ -4159,6 +4193,12 @@ const api = {
         async revertMaterialization(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('revert_materialization').create()
         },
+        async resumeSchedules(viewIds: DataWarehouseSavedQuery['id'][]): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQueries()
+                .withAction('resume_schedules')
+                .create({ data: { view_ids: viewIds } })
+        },
         async ancestors(viewId: DataWarehouseSavedQuery['id'], level?: number): Promise<Record<string, string[]>> {
             return await new ApiRequest()
                 .dataWarehouseSavedQuery(viewId)
@@ -4527,6 +4567,12 @@ const api = {
         },
     },
 
+    organizationIntegrations: {
+        async list(): Promise<PaginatedResponse<IntegrationType>> {
+            return await new ApiRequest().organizationIntegrations().get()
+        },
+    },
+
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
@@ -4856,6 +4902,7 @@ const api = {
                 conversation?: string | null
                 trace_id: string
                 agent_mode?: AgentMode | null
+                resume_payload?: { action: 'approve' | 'reject'; proposal_id: string; feedback?: string } | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
@@ -5148,6 +5195,10 @@ const api = {
                   signal?: AbortSignal
               }
     ): Promise<void> {
+        const abortController = new AbortController()
+        // If an external signal is provided, forward its abort to our controller
+        signal?.addEventListener('abort', () => abortController.abort())
+
         await fetchEventSource(url, {
             method,
             headers: {
@@ -5157,7 +5208,32 @@ const api = {
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
-            signal,
+            signal: abortController.signal,
+            onopen: async (response) => {
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After')
+                    if (retryAfter) {
+                        onError(new RateLimitError(parseInt(retryAfter, 10)))
+                        abortController.abort()
+                    }
+                } else if (!response.ok) {
+                    let errorData: any = {}
+                    try {
+                        errorData = await response.json()
+                    } catch {
+                        // If JSON parsing fails, leave errorData empty
+                    }
+                    onError(
+                        new ApiError(
+                            errorData.error || `Request failed with status ${response.status}`,
+                            response.status,
+                            response.headers,
+                            errorData
+                        )
+                    )
+                    abortController.abort()
+                }
+            },
             onmessage: onMessage,
             onerror: onError,
             // By default fetch-event-source stops connection when document is no longer focused, but that is not how
@@ -5308,8 +5384,14 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
         const data = await getJSONOrNull(response)
 
-        if (response.status >= 400 && data && typeof data.error === 'string') {
-            throw new ApiError(data.error, response.status, response.headers, data)
+        if (response.status >= 400 && data) {
+            if (typeof data.error === 'string') {
+                throw new ApiError(data.error, response.status, response.headers, data)
+            }
+
+            if (typeof data.detail === 'string') {
+                throw new ApiError(data.detail, response.status, response.headers, data)
+            }
         }
 
         throw new ApiError('Non-OK response', response.status, response.headers, data)

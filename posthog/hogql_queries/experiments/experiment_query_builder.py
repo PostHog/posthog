@@ -101,7 +101,7 @@ class ExperimentQueryBuilder:
 
     def _get_breakdown_aliases(self) -> list[str]:
         """Returns list of breakdown aliases: ['breakdown_value_1', 'breakdown_value_2', ...]"""
-        return [f"breakdown_value_{i+1}" for i in range(len(self.breakdowns))]
+        return [f"breakdown_value_{i + 1}" for i in range(len(self.breakdowns))]
 
     def _build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """
@@ -127,7 +127,7 @@ class ExperimentQueryBuilder:
                     "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 },
             )
-            alias = f"breakdown_value_{i+1}"
+            alias = f"breakdown_value_{i + 1}"
             result.append((alias, expr))
 
         return result

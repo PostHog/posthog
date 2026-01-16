@@ -114,7 +114,7 @@ def search_entities(
     entity_map: dict[str, EntityConfig],
 ) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = {key: None for key in entity_map}
+    counts: dict[str, int | None] = dict.fromkeys(entity_map)
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -168,6 +168,7 @@ def class_queryset(
         qs = qs.filter(**filters)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
     # entity id

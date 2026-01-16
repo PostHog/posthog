@@ -37,16 +37,22 @@
     </script>
 {% endif %}
 <script nonce="{{ request.csp_nonce }}" id='posthog-app-user-preload'>
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
     window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
-    // Inject the expected location of JS bundle,
-    // use to allow the location of the bundle to be set at runtime,
-    // e.g. for PostHog Cloud we serve the frontend JS from a CDN
+    {# Inject the expected location of JS bundle, #}
+    {# use to allow the location of the bundle to be set at runtime, #}
+    {# e.g. for PostHog Cloud we serve the frontend JS from a CDN #}
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
     window.JS_URL = "{{ js_url|default:"" }}";
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag (yesno filter produces literal strings) #}
     window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
     window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
     window.APP_STATE_LOGGING_SAMPLE_RATE = {{  js_app_state_logging_sample_rate|default:"0" }};
 </script>
 
 {% if debug and not e2e_testing %}
+    {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe (dev-only, trusted Vite output) #}
     {{ vite_dev_scripts|safe }}
 {% endif %}
