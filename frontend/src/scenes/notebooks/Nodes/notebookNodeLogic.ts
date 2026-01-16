@@ -154,6 +154,37 @@ const getDependencyNodesForRun = (
     return dependencyGraph.nodes.filter((node) => nodeIds.has(node.nodeId))
 }
 
+const getDependencyEntriesWithLogic = ({
+    dependencyGraph,
+    nodeId,
+    direction,
+    notebookLogic,
+}: {
+    dependencyGraph: NotebookDependencyGraph
+    nodeId: string
+    direction: DependencyRunDirection
+    notebookLogic: BuiltLogic<notebookLogicType>
+}): { node: NotebookDependencyNode; nodeLogic: BuiltLogic<notebookNodeLogicType> }[] => {
+    const nodesToRun = getDependencyNodesForRun(dependencyGraph, nodeId, direction)
+    if (nodesToRun.length === 0) {
+        return []
+    }
+
+    return nodesToRun
+        .map((node) => ({
+            node,
+            nodeLogic: notebookLogic.values.findNodeLogicById(node.nodeId),
+        }))
+        .filter(
+            (
+                entry
+            ): entry is {
+                node: (typeof nodesToRun)[number]
+                nodeLogic: BuiltLogic<notebookNodeLogicType>
+            } => !!entry.nodeLogic
+        )
+}
+
 const isPythonExecutionFresh = (nodeLogic: BuiltLogic<notebookNodeLogicType>, code: string): boolean => {
     const { pythonExecutionCodeHash, pythonExecution, pythonExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(code)
@@ -203,12 +234,14 @@ const runDependencyNodes = async ({
     mode,
     duckSqlNodeSummaries,
     currentNodeId,
+    skipDataframeVariableUpdateForNodeId,
 }: {
     entries: { node: NotebookDependencyNode; nodeLogic: BuiltLogic<notebookNodeLogicType> }[]
     notebookId: string
     mode: PythonRunMode | DuckSqlRunMode
     duckSqlNodeSummaries: DuckSqlNodeSummary[]
     currentNodeId: string
+    skipDataframeVariableUpdateForNodeId?: string
 }): Promise<void> => {
     entries.forEach(({ node, nodeLogic }) => setDependencyNodeQueued(nodeLogic, node.nodeType, true))
 
@@ -282,7 +315,14 @@ const runDependencyNodes = async ({
                 const isSuccess = executed && execution?.status === 'ok'
                 if (isSuccess) {
                     const previewResult = parseDataframePreview(execution?.result)
-                    nodeLogic.actions.setDataframeVariableName(nodeLogic.values.duckSqlReturnVariable, previewResult)
+                    const shouldUpdateDataframeVariable =
+                        node.nodeId !== skipDataframeVariableUpdateForNodeId || !nodeLogic.values.dataframeVariableName
+                    if (shouldUpdateDataframeVariable) {
+                        nodeLogic.actions.setDataframeVariableName(
+                            nodeLogic.values.duckSqlReturnVariable,
+                            previewResult
+                        )
+                    }
                 } else {
                     nodeLogic.actions.setDataframeVariableName(null)
                 }
@@ -1034,25 +1074,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
 
             const direction: DependencyRunDirection = mode === 'cell_downstream' ? 'downstream' : 'upstream'
-            const nodesToRun = getDependencyNodesForRun(values.dependencyGraph, values.nodeId, direction)
-            if (nodesToRun.length === 0) {
+            const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                dependencyGraph: values.dependencyGraph,
+                nodeId: values.nodeId,
+                direction,
+                notebookLogic: values.notebookLogic,
+            })
+            if (nodesToRunWithLogic.length === 0) {
                 await actions.runDuckSqlNode()
                 return
             }
-
-            const nodesToRunWithLogic = nodesToRun
-                .map((node) => ({
-                    node,
-                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
-                }))
-                .filter(
-                    (
-                        entry
-                    ): entry is {
-                        node: (typeof nodesToRun)[number]
-                        nodeLogic: BuiltLogic<notebookNodeLogicType>
-                    } => !!entry.nodeLogic
-                )
 
             await runDependencyNodes({
                 entries: nodesToRunWithLogic,
@@ -1078,25 +1109,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             }
 
             const direction: DependencyRunDirection = mode === 'cell_downstream' ? 'downstream' : 'upstream'
-            const nodesToRun = getDependencyNodesForRun(values.dependencyGraph, values.nodeId, direction)
-            if (nodesToRun.length === 0) {
+            const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                dependencyGraph: values.dependencyGraph,
+                nodeId: values.nodeId,
+                direction,
+                notebookLogic: values.notebookLogic,
+            })
+            if (nodesToRunWithLogic.length === 0) {
                 await actions.runPythonNode({ code: (values.nodeAttributes as { code?: string }).code ?? '' })
                 return
             }
-
-            const nodesToRunWithLogic = nodesToRun
-                .map((node) => ({
-                    node,
-                    nodeLogic: values.notebookLogic.values.findNodeLogicById(node.nodeId),
-                }))
-                .filter(
-                    (
-                        entry
-                    ): entry is {
-                        node: (typeof nodesToRun)[number]
-                        nodeLogic: BuiltLogic<notebookNodeLogicType>
-                    } => !!entry.nodeLogic
-                )
 
             await runDependencyNodes({
                 entries: nodesToRunWithLogic,
@@ -1132,6 +1154,33 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const notebook = values.notebook
             if (!notebook) {
                 return
+            }
+            const nodeLogic = values.notebookLogic.values.findNodeLogicById(values.nodeId)
+            if (
+                props.nodeType === NotebookNodeType.DuckSQL &&
+                nodeLogic &&
+                !isDuckSqlExecutionFresh(
+                    nodeLogic,
+                    (values.nodeAttributes as { code?: string }).code ?? '',
+                    values.duckSqlReturnVariable
+                )
+            ) {
+                const nodesToRunWithLogic = getDependencyEntriesWithLogic({
+                    dependencyGraph: values.dependencyGraph,
+                    nodeId: values.nodeId,
+                    direction: 'upstream',
+                    notebookLogic: values.notebookLogic,
+                })
+                if (nodesToRunWithLogic.length > 0) {
+                    await runDependencyNodes({
+                        entries: nodesToRunWithLogic,
+                        notebookId: notebook.short_id,
+                        mode: 'cell_upstream',
+                        duckSqlNodeSummaries: values.duckSqlNodeSummaries,
+                        currentNodeId: values.nodeId,
+                        skipDataframeVariableUpdateForNodeId: values.nodeId,
+                    })
+                }
             }
             actions.setDataframeLoading(true)
             actions.setDataframeError(null)
