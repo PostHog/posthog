@@ -1,18 +1,17 @@
 import structlog
 import posthoganalytics
 from celery import shared_task
+
+from posthog.exceptions_capture import capture_exception
+from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
+from posthog.tasks.utils import CeleryQueue
+
 from playwright.sync_api import (
     Page,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
-
-from posthog.exceptions_capture import capture_exception
-from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
-from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
-from posthog.security.url_validation import is_url_allowed, should_block_url
-from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
-from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -108,127 +107,55 @@ def _block_internal_requests(page: Page) -> None:
     page.route("**/*", lambda route: route.abort() if should_block_url(route.request.url) else route.continue_())
 
 
-def _trigger_lazy_loading(page: Page) -> None:
+def _scroll_page(page: Page) -> None:
     """
-    Trigger lazy-loaded images to load before taking a screenshot.
+    Scroll to bottom and back to top to trigger lazy-loaded content and CSS.
 
-    Many sites use lazy loading (native loading="lazy", Intersection Observer,
-    or libraries like Nitro CDN). This function:
-    1. Scrolls through the page to trigger intersection observers
-    2. Forces common lazy-loading patterns to load immediately
-    3. Waits for images to finish loading
+    Some sites lazy-load CSS, images, or other content as you scroll.
+    Scrolling through the page ensures everything is loaded before screenshot.
+    Uses smooth, human-like scrolling to avoid triggering scroll-based hiding.
     """
     try:
-        # First, scroll through the page to trigger intersection observers
         page.evaluate(
             """
             async () => {
-                const viewportHeight = window.innerHeight;
-                const scrollStep = viewportHeight * 0.8;
-                let lastScrollHeight = 0;
-                let currentScrollHeight = document.body.scrollHeight;
-                let iterations = 0;
-                const maxIterations = 20;
+                // Smooth scroll function (more human-like)
+                const smoothScroll = (target) => {
+                    return new Promise(resolve => {
+                        window.scrollTo({
+                            top: target,
+                            behavior: 'smooth'
+                        });
+                        // Wait for smooth scroll to finish
+                        setTimeout(resolve, 500);
+                    });
+                };
 
-                // Keep scrolling until the page stops growing or max iterations reached
-                while (currentScrollHeight > lastScrollHeight && iterations < maxIterations) {
+                const step = window.innerHeight * 0.7;
+                let maxScroll = document.body.scrollHeight;
+                const maxIterations = 5; // ~3 viewport heights max
+                let iterations = 0;
+
+                // Scroll down slowly (just enough to trigger lazy loading)
+                for (let y = 0; y < maxScroll && iterations < maxIterations; y += step) {
+                    await smoothScroll(y);
+                    await new Promise(r => setTimeout(r, 300));
+                    // Re-measure as images load and page expands
+                    maxScroll = Math.max(maxScroll, document.body.scrollHeight);
                     iterations++;
-                    for (let y = 0; y < currentScrollHeight; y += scrollStep) {
-                        window.scrollTo(0, y);
-                        await new Promise(r => setTimeout(r, 100));
-                    }
-                    lastScrollHeight = currentScrollHeight;
-                    await new Promise(r => setTimeout(r, 200));
-                    currentScrollHeight = document.body.scrollHeight;
                 }
 
-                // Scroll back to top
-                window.scrollTo(0, 0);
+                // Scroll to absolute bottom
+                await smoothScroll(maxScroll);
+                await new Promise(r => setTimeout(r, 500));
+
+                // Scroll back to top slowly
+                await smoothScroll(0);
+                await new Promise(r => setTimeout(r, 500));
             }
             """
         )
         page.wait_for_timeout(500)
-    except Exception:
-        pass
-
-    try:
-        # Force lazy images to load by copying lazy src attributes to actual src
-        page.evaluate(
-            """
-            () => {
-                // Handle native lazy loading
-                document.querySelectorAll('img[loading="lazy"]').forEach(img => {
-                    img.loading = 'eager';
-                });
-
-                // Handle common lazy-loading data attributes
-                const lazyAttrs = ['data-src', 'data-lazy-src', 'nitro-lazy-src', 'data-original'];
-                document.querySelectorAll('img').forEach(img => {
-                    for (const attr of lazyAttrs) {
-                        const lazySrc = img.getAttribute(attr);
-                        if (lazySrc && (!img.getAttribute('src') || img.getAttribute('src') === '')) {
-                            img.src = lazySrc;
-                        }
-                    }
-                });
-
-                // Handle srcset lazy loading
-                const lazySrcsetAttrs = ['data-srcset', 'data-lazy-srcset', 'nitro-lazy-srcset'];
-                document.querySelectorAll('img').forEach(img => {
-                    for (const attr of lazySrcsetAttrs) {
-                        const lazySrcset = img.getAttribute(attr);
-                        if (lazySrcset && (!img.srcset || img.srcset === '')) {
-                            img.srcset = lazySrcset;
-                        }
-                    }
-                });
-
-                // Handle background images with lazy loading
-                document.querySelectorAll('[data-bg], [data-background-image]').forEach(el => {
-                    const bgUrl = el.getAttribute('data-bg') || el.getAttribute('data-background-image');
-                    if (bgUrl && !el.style.backgroundImage) {
-                        el.style.backgroundImage = `url('${bgUrl}')`;
-                    }
-                });
-            }
-            """
-        )
-    except Exception:
-        pass
-
-    try:
-        # Wait for images to finish loading (with timeout)
-        page.evaluate(
-            """
-            async () => {
-                const images = Array.from(document.images);
-                const timeout = 5000;
-                const startTime = Date.now();
-
-                await Promise.all(
-                    images.map(img => {
-                        if (img.complete) return Promise.resolve();
-                        return new Promise(resolve => {
-                            const checkTimeout = () => {
-                                if (Date.now() - startTime > timeout) {
-                                    resolve();
-                                    return;
-                                }
-                                if (img.complete) {
-                                    resolve();
-                                    return;
-                                }
-                                setTimeout(checkTimeout, 100);
-                            };
-                            img.onload = resolve;
-                            img.onerror = resolve;
-                            checkTimeout();
-                        });
-                    })
-                );
-            }
-            """
-        )
     except Exception:
         pass
 
@@ -363,21 +290,11 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
                 _dismiss_cookie_banners(page)
                 page.wait_for_timeout(500)
 
-                # Trigger lazy-loaded images to load before measuring height
-                _trigger_lazy_loading(page)
+                # Scroll to bottom and back to top to trigger lazy-loaded content
+                _scroll_page(page)
 
-                # Measure final height and resize to capture everything
-                total_height = page.evaluate("""() => Math.max(
-                    document.body.scrollHeight,
-                    document.body.offsetHeight,
-                    document.documentElement.clientHeight,
-                    document.documentElement.scrollHeight,
-                    document.documentElement.offsetHeight
-                )""")
-
-                page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
-                page.wait_for_timeout(500)
-
+                # Take full-page screenshot without resizing viewport
+                # (resizing viewport causes elements with vh units to expand)
                 image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
                 snapshot_bytes.append((w, image_data))
 
