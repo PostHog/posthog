@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -62,6 +62,7 @@ const findClosestOptionIndex = (options: number[], value?: number | null): numbe
 export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
     props({} as NotebookKernelInfoLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookKernelInfoLogic', key]),
+    key(({ shortId }) => shortId),
     actions({
         executeKernel: (code) => ({ code }),
         setCode: (code: string) => ({ code }),
@@ -205,6 +206,7 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                     running: { label: 'Running', tone: 'success' },
                     starting: { label: 'Starting', tone: 'warning' },
                     stopped: { label: 'Stopped', tone: 'default' },
+                    timed_out: { label: 'Timed out', tone: 'warning' },
                     discarded: { label: 'Discarded', tone: 'default' },
                     error: { label: 'Error', tone: 'danger' },
                 }

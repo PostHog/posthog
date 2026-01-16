@@ -23,8 +23,8 @@ from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
-    GlobalModelOutputTokenThrottle,
+    ProductModelInputTokenThrottle,
+    ProductModelOutputTokenThrottle,
     UserModelInputTokenThrottle,
     UserModelOutputTokenThrottle,
 )
@@ -132,14 +132,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.token_counter = TokenCounter()
 
     output_throttles = [
-        GlobalModelOutputTokenThrottle(redis=app.state.redis),
+        ProductModelOutputTokenThrottle(redis=app.state.redis),
         UserModelOutputTokenThrottle(redis=app.state.redis),
     ]
     app.state.output_throttles = output_throttles
 
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            GlobalModelInputTokenThrottle(redis=app.state.redis),
+            ProductModelInputTokenThrottle(redis=app.state.redis),
             UserModelInputTokenThrottle(redis=app.state.redis),
             *output_throttles,
         ]

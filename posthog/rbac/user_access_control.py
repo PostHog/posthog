@@ -50,15 +50,16 @@ ACCESS_CONTROL_LEVELS_RESOURCE: tuple[AccessControlLevelResource, ...] = get_arg
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
-    "feature_flag",
     "dashboard",
-    "insight",
-    "notebook",
-    "session_recording",
-    "revenue_analytics",
-    "survey",
     "experiment",
     "experiment_saved_metric",
+    "external_data_source",
+    "feature_flag",
+    "insight",
+    "notebook",
+    "revenue_analytics",
+    "session_recording",
+    "survey",
     "web_analytics",
     "activity_log",
     "logs",
@@ -67,6 +68,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
+    "external_data_schema": "external_data_source",
 }
 
 
@@ -105,6 +107,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     # Handle special cases
     if resource == "organization":
         return "organization"  # singular
+    if resource == "external_data_source":
+        return "data warehouse sources"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -168,6 +172,10 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "externaldatasource":
+        return "external_data_source"
+    if name == "externaldataschema":
+        return "external_data_schema"
 
     if name not in API_SCOPE_OBJECTS:
         return None
