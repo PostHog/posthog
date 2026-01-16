@@ -123,28 +123,64 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType } = useValues(surveyLogic)
+    const { survey, descriptionContentType, editingLanguage } = useValues(surveyLogic)
     const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
         useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
     const handleQuestionValueChange = (key: string, val: string): void => {
-        const updatedQuestion = survey.questions.map((question, idx) => {
-            if (index === idx) {
-                return {
-                    ...question,
-                    [key]: val,
+        if (
+            editingLanguage &&
+            ['question', 'description', 'buttonText', 'choices', 'link', 'lowerBoundLabel', 'upperBoundLabel'].includes(
+                key
+            )
+        ) {
+            const updatedQuestion = survey.questions.map((q, idx) => {
+                if (index === idx) {
+                    const currentTranslations = q.translations || {}
+                    const currentLangTrans = currentTranslations[editingLanguage] || {}
+                    return {
+                        ...q,
+                        translations: {
+                            ...currentTranslations,
+                            [editingLanguage]: {
+                                ...currentLangTrans,
+                                [key]: val,
+                            },
+                        },
+                    }
                 }
-            }
-            return question
-        })
-        setSurveyValue('questions', updatedQuestion)
+                return q
+            })
+            setSurveyValue('questions', updatedQuestion)
+        } else {
+            const updatedQuestion = survey.questions.map((question, idx) => {
+                if (index === idx) {
+                    return {
+                        ...question,
+                        [key]: val,
+                    }
+                }
+                return question
+            })
+            setSurveyValue('questions', updatedQuestion)
+        }
     }
 
     const handleTabChange = (key: string): void => {
         handleQuestionValueChange('descriptionContentType', key)
     }
+
+    const getFieldName = (key: string): string =>
+        editingLanguage === null ? key : `translations.${editingLanguage}.${key}`
+
+    const displayQuestion = editingLanguage
+        ? {
+              ...question,
+              ...question.translations?.[editingLanguage],
+          }
+        : question
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
     const shouldShowNpsCheckbox =
@@ -233,10 +269,10 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         ]}
                     />
                 </LemonField>
-                <LemonField name="question" label="Label">
-                    <LemonInput data-attr={`survey-question-label-${index}`} value={question.question} />
+                <LemonField name={getFieldName('question')} label="Label">
+                    <LemonInput data-attr={`survey-question-label-${index}`} value={displayQuestion.question || ''} />
                 </LemonField>
-                <LemonField name="description" label="Description (optional)">
+                <LemonField name={getFieldName('description')} label="Description (optional)">
                     {({ value, onChange }) => (
                         <HTMLEditor
                             value={value}
@@ -255,8 +291,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
-                        <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
+                    <LemonField
+                        name={getFieldName('link')}
+                        label="Link"
+                        info="Only https:// or mailto: links are supported."
+                    >
+                        <LemonInput value={displayQuestion.link || ''} placeholder="https://posthog.com" />
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Rating && (
