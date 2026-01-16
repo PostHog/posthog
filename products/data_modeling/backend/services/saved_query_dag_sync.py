@@ -57,8 +57,9 @@ def resolve_dependency_to_node(
         )
         # get or create node
         node_type = NodeType.MAT_VIEW if saved_query.is_materialized else NodeType.VIEW
-        node, _ = Node.objects.get_or_create(
-            team=team, dag_id=dag_id, name=dependency_name, saved_query=saved_query, type=node_type
+        node, created = Node.objects.get_or_create(
+            team=team, dag_id=dag_id, saved_query=saved_query, 
+            defaults={"name": dependency_name, "type": node_type}
         )
         return node
     except DataWarehouseSavedQuery.DoesNotExist:
