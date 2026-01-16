@@ -158,6 +158,14 @@ class SESProvider:
         except ClientError:
             dkim_status = "Unknown"
 
+        try:
+            mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])
+            mail_from_status = (
+                mail_from_attrs["MailFromDomainAttributes"].get(domain, {}).get("MailFromDomainStatus", "Unknown")
+            )
+        except ClientError:
+            mail_from_status = "Unknown"
+
         # Normalize overall status
         if verification_status == "Success" and dkim_status == "Success":
             overall = "success"
@@ -177,8 +185,10 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "dkim":
                     r["status"] = "success"
-
-        # If MAIL FROM attrs said Success earlier, MX already marked verified
+        if mail_from_status == "Success":
+            for r in dns_records:
+                if r["type"] == "mail_from":
+                    r["status"] = "success"
 
         return {
             "status": overall,
