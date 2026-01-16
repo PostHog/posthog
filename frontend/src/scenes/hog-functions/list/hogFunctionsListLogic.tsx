@@ -3,7 +3,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -92,7 +92,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
             },
         ],
     })),
-    loaders(({ values, actions, props }) => ({
+    loaders(({ values, props }) => ({
         hogFunctions: [
             [] as HogFunctionType[],
             {
@@ -110,25 +110,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                 },
                 saveHogFunctionOrder: async ({ newOrders }) => {
                     return await api.hogFunctions.rearrange(newOrders)
-                },
-                deleteHogFunction: async ({ hogFunction }) => {
-                    await deleteWithUndo({
-                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
-                        object: {
-                            id: hogFunction.id,
-                            name: hogFunction.name,
-                        },
-                        callback: (undo) => {
-                            if (undo) {
-                                actions.loadHogFunctions()
-                                refreshTreeItem('hog_function/', hogFunction.id)
-                            } else {
-                                deleteFromTree('hog_function/', hogFunction.id)
-                            }
-                        },
-                    })
-
-                    return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
                     const { hogFunctions } = values
@@ -206,7 +187,37 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        deleteHogFunction: ({ hogFunction }) => {
+            LemonDialog.open({
+                title: 'Delete destination?',
+                description: `Are you sure you want to delete "${hogFunction.name}"? This action cannot be undone.`,
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        await deleteWithUndo({
+                            endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                            object: {
+                                id: hogFunction.id,
+                                name: hogFunction.name,
+                            },
+                            callback: (undo) => {
+                                if (undo) {
+                                    actions.loadHogFunctions()
+                                    refreshTreeItem('hog_function/', hogFunction.id)
+                                } else {
+                                    deleteFromTree('hog_function/', hogFunction.id)
+                                }
+                            },
+                        })
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                },
+            })
+        },
         saveHogFunctionOrderSuccess: () => {
             actions.setReorderModalOpen(false)
             lemonToast.success('Order updated successfully')

@@ -7,7 +7,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
@@ -1375,23 +1375,36 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (!hogFunction) {
                 return
             }
-            await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/hog_functions`,
-                object: {
-                    id: hogFunction.id,
-                    name: hogFunction.name,
-                },
-                callback(undo) {
-                    if (undo) {
+            LemonDialog.open({
+                title: 'Delete destination?',
+                description: `Are you sure you want to delete "${hogFunction.name}"? This action cannot be undone.`,
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        await deleteWithUndo({
+                            endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                            object: {
+                                id: hogFunction.id,
+                                name: hogFunction.name,
+                            },
+                            callback(undo) {
+                                if (undo) {
+                                    router.actions.replace(urls.hogFunction(hogFunction.id))
+                                    refreshTreeItem('hog_function/', hogFunction.id)
+                                } else {
+                                    deleteFromTree('hog_function/', hogFunction.id)
+                                }
+                            },
+                        })
+
                         router.actions.replace(urls.hogFunction(hogFunction.id))
-                        refreshTreeItem('hog_function/', hogFunction.id)
-                    } else {
-                        deleteFromTree('hog_function/', hogFunction.id)
-                    }
+                    },
+                },
+                secondaryButton: {
+                    children: 'Cancel',
                 },
             })
-
-            router.actions.replace(urls.hogFunction(hogFunction.id))
         },
 
         persistForUnload: () => {
