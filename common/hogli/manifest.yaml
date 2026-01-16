@@ -610,7 +610,10 @@ utilities:
             - name: python venvs
               cmd: rm -rf .venv .flox/cache/venv && uv sync --active
             - name: rust builds
-              cmd: cd rust && cargo clean && find . -name 'index.node' -type f -delete
+              cmd: |
+                  cd rust && cargo clean
+                  find . -name 'index.node' -type f -delete
+                  rm -rf ~/.cargo/registry/cache ~/.cargo/registry/index ~/.cargo/.package-cache
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
