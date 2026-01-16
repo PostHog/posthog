@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -65,17 +65,20 @@ export function NotebooksTable(): JSX.Element {
         >,
         {
             render: function Render(_, notebook) {
-                if (notebook.is_template) {
-                    return null
-                }
                 return (
                     <LemonMenu
                         items={[
                             {
+                                label: 'Duplicate',
+                                icon: <IconCopy />,
+                                onClick: () => {
+                                    notebooksModel.actions.duplicateNotebook(notebook.short_id)
+                                },
+                            },
+                            !notebook.is_template && {
                                 label: 'Delete',
                                 icon: <IconTrash />,
                                 status: 'danger',
-
                                 onClick: () => {
                                     notebooksModel.actions.deleteNotebook(notebook.short_id, notebook?.title)
                                 },

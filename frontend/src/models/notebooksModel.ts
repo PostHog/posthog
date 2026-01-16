@@ -76,6 +76,7 @@ export const notebooksModel = kea<notebooksModelType>([
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
+        duplicateNotebook: (shortId: NotebookListItemType['short_id']) => ({ shortId }),
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
     connect(() => ({
@@ -128,6 +129,26 @@ export const notebooksModel = kea<notebooksModelType>([
                     }
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
+                },
+
+                duplicateNotebook: async ({ shortId }) => {
+                    const notebook = await api.notebooks.get(shortId)
+
+                    const duplicatedNotebook = await api.notebooks.create({
+                        title: notebook.title,
+                        content: notebook.content,
+                        text_content: notebook.text_content || '',
+                        _create_in_folder: getLastNewFolder(),
+                    })
+
+                    posthog.capture('notebook duplicated', {
+                        short_id: duplicatedNotebook.short_id,
+                        source_short_id: shortId,
+                    })
+
+                    await openNotebook(duplicatedNotebook.short_id, NotebookTarget.Scene)
+
+                    return [duplicatedNotebook, ...values.notebooks]
                 },
 
                 receiveNotebookUpdate: ({ notebook }) => {
