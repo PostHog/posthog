@@ -784,7 +784,7 @@ jobs:
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
-            
+
             # Cache Qt library packages to reduce network dependency and flakiness
             # Using cache-apt-pkgs-action instead of setup-qt-libs to avoid network issues
             - name: Cache and install Qt libraries
