@@ -395,17 +395,21 @@ def _write_rows_to_jsonl(exported_asset: ExportedAsset, limit: int) -> tuple[str
         jsonl_path = jsonl_tmp.name
         row_count = 0
 
-        for row in _iter_rows(exported_asset, limit):
-            flat_row = dict(renderer.flatten_item(row))
+        try:
+            for row in _iter_rows(exported_asset, limit):
+                flat_row = dict(renderer.flatten_item(row))
 
-            for key in flat_row.keys():
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    all_keys.append(key)
+                for key in flat_row.keys():
+                    if key not in seen_keys:
+                        seen_keys.add(key)
+                        all_keys.append(key)
 
-            json.dump(flat_row, jsonl_tmp, cls=_ExportEncoder)
-            jsonl_tmp.write("\n")
-            row_count += 1
+                json.dump(flat_row, jsonl_tmp, cls=_ExportEncoder)
+                jsonl_tmp.write("\n")
+                row_count += 1
+        except:
+            os.unlink(jsonl_path)
+            raise
 
     # Group columns by their top-level prefix to match expected CSV column ordering
     grouped_keys = OrderedCsvRenderer.group_columns_by_prefix(all_keys)
