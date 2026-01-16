@@ -14,8 +14,4 @@ class Migration(migrations.Migration):
             name="ticket_number",
             field=models.PositiveIntegerField(null=True),
         ),
-        migrations.AddIndex(
-            model_name="ticket",
-            index=models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),
-        ),
     ]
