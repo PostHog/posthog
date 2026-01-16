@@ -445,6 +445,10 @@ class Team(UUIDTClassicModel):
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
+    # DEPRECATED: Use default_evaluation_contexts_enabled instead. Will be removed in a future migration after full rollout.
+    default_evaluation_environments_enabled = models.BooleanField(null=True, blank=True, default=False)
+    # DEPRECATED: Use require_evaluation_contexts instead. Will be removed in a future migration after full rollout.
+    require_evaluation_environment_tags = models.BooleanField(null=True, blank=True, default=False)
     default_evaluation_contexts_enabled = models.BooleanField(
         null=True,
         blank=True,
