@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, Union, cast
 
-from django.conf import settings
 from django.db import DatabaseError, IntegrityError
 from django.db.models import CharField, Expression, F, Func, Q
 from django.db.models.expressions import ExpressionWrapper, RawSQL
@@ -943,7 +942,9 @@ def get_all_feature_flags_with_details(
         feature_flag.ensure_experience_continuity for feature_flag in feature_flags_to_be_evaluated
     )
 
-    is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
+    # LEGACY: This code is only used for cohort creation background tasks
+    # Database is always available in this context (no decide performance concerns)
+    is_database_alive = True
     if not is_database_alive or not flags_have_experience_continuity_enabled:
         return _get_all_feature_flags(
             feature_flags_to_be_evaluated,
@@ -963,7 +964,8 @@ def get_all_feature_flags_with_details(
     writing_hash_key_override = False
     # This is the write-path for experience continuity flags. When a hash_key_override is sent to decide,
     # we want to store it in the database, and then use it in the read-path to get flags with experience continuity enabled.
-    if hash_key_override is not None and not settings.DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES:
+    # LEGACY: Always write hash key overrides in cohort creation context
+    if hash_key_override is not None:
         # First, check if the hash_key_override is already in the database.
         # We don't have to check this in an ideal world, but read replica operations are much more resilient than write operations.
         # So, if an extra query check helps us avoid the write path, it's worth it.

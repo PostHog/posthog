@@ -66,18 +66,6 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
     return get_instance_setting("RATE_LIMIT_ENABLED")
 
 
-def is_decide_rate_limit_enabled() -> bool:
-    """
-    The setting will change way less frequently than it will be called
-    _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
-    """
-    from django.conf import settings
-
-    from posthog.utils import str_to_bool
-
-    return str_to_bool(settings.DECIDE_RATE_LIMIT_ENABLED)
-
-
 path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
 path_by_team_pattern = re.compile(r"^/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"^/api/organizations/(.+?)/")  # .+? is non-greedy match, bit faster here

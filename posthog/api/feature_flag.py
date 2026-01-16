@@ -1737,20 +1737,14 @@ class FeatureFlagViewSet(
             groups=groups,
         )
 
-        if isinstance(result, dict):
-            # A result of a Rust evaluation is a dictionary. Parse it to get the flags data.
-            flags_data = result.get("flags", {})
-            matches = {
-                flag_key: (
-                    flag_data.get("variant")
-                    if flag_data.get("variant") is not None
-                    else flag_data.get("enabled", False)
-                )
-                for flag_key, flag_data in flags_data.items()
-            }
-        else:
-            # A result of a Python evaluation is a tuple. The first element is the matches dictionary.
-            matches = result[0]
+        # Result from Rust service is always a dictionary. Parse it to get the flags data.
+        flags_data = result.get("flags", {})
+        matches = {
+            flag_key: (
+                flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
+            )
+            for flag_key, flag_data in flags_data.items()
+        }
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
@@ -1845,7 +1839,7 @@ class FeatureFlagViewSet(
 
         try:
             # Check if team is quota limited for feature flags
-            if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            if getattr(settings, "DECIDE_FEATURE_FLAG_QUOTA_CHECK", True):
                 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
                 limited_tokens_flags = list_limited_team_attributes(
@@ -2020,35 +2014,22 @@ class FeatureFlagViewSet(
             groups=groups,
         )
 
-        if isinstance(result, dict):
-            # A result of a Rust evaluation is a dictionary with a "flags" key. Parse it to get the flags data.
-            flags_data = result.get("flags", {})
-            flags_with_evaluation_reasons = {}
+        # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
+        flags_data = result.get("flags", {})
+        flags_with_evaluation_reasons = {}
 
-            for flag_key, flag_data in flags_data.items():
-                value = (
-                    flag_data.get("variant")
-                    if flag_data.get("variant") is not None
-                    else flag_data.get("enabled", False)
-                )
+        for flag_key, flag_data in flags_data.items():
+            value = (
+                flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
+            )
 
-                reason_data = flag_data.get("reason", {})
-                flags_with_evaluation_reasons[flag_key] = {
-                    "value": value,
-                    "evaluation": {
-                        "reason": reason_data.get("code", "unknown"),
-                        "condition_index": reason_data.get("condition_index"),
-                    },
-                }
-        else:
-            # Python fallback result is (flags, reasons, payloads, errors)
-            flags, reasons = result[0], result[1]
-            flags_with_evaluation_reasons = {
-                flag_key: {
-                    "value": flags.get(flag_key, False),
-                    "evaluation": reasons[flag_key],
-                }
-                for flag_key in reasons
+            reason_data = flag_data.get("reason", {})
+            flags_with_evaluation_reasons[flag_key] = {
+                "value": value,
+                "evaluation": {
+                    "reason": reason_data.get("code", "unknown"),
+                    "condition_index": reason_data.get("condition_index"),
+                },
             }
 
         disabled_flags = FeatureFlag.objects.filter(
@@ -2170,7 +2151,8 @@ class FeatureFlagViewSet(
             request, feature_flag.filters.get("payloads", {})
         )
 
-        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+        sampling_rate = getattr(settings, "DECIDE_BILLING_SAMPLING_RATE", 1.0)
+        count = int(1 / sampling_rate)
         increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
 
         return Response(decrypted_flag_payloads["true"] or None)
