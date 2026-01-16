@@ -1,4 +1,4 @@
-use personhog_replica::storage::{postgres::PostgresStorage, PersonStorage};
+use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
 use rand::Rng;
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ fn random_person_id() -> i64 {
 /// Test context that manages database connections and provides test data helpers.
 pub struct TestContext {
     pool: Arc<PgPool>,
-    pub storage: Arc<dyn PersonStorage>,
+    pub storage: Arc<dyn FullStorage>,
     pub team_id: i64,
 }
 
@@ -164,7 +164,54 @@ impl TestContext {
         Ok(())
     }
 
+    pub async fn insert_hash_key_override(
+        &self,
+        person_id: i64,
+        feature_flag_key: &str,
+        hash_key: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO posthog_featureflaghashkeyoverride
+            (team_id, person_id, feature_flag_key, hash_key)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT DO NOTHING"#,
+        )
+        .bind(self.team_id)
+        .bind(person_id)
+        .bind(feature_flag_key)
+        .bind(hash_key)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn add_distinct_id_to_person(
+        &self,
+        person_id: i64,
+        distinct_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO posthog_persondistinctid
+            (distinct_id, person_id, team_id, version)
+            VALUES ($1, $2, $3, 0)
+            ON CONFLICT DO NOTHING"#,
+        )
+        .bind(distinct_id)
+        .bind(person_id)
+        .bind(self.team_id)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&*self.pool)
+            .await?;
+
         sqlx::query(
             "DELETE FROM posthog_cohortpeople WHERE person_id IN (SELECT id FROM posthog_person WHERE team_id = $1)",
         )
