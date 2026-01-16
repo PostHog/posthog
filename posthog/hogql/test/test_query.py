@@ -554,6 +554,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
 
+            # Reverse join order (right table column before left table column in ON clause)
+            # is not supported with enable_analyzer=0. See PR #45000.
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query(
+                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$session_id = s.session_id where e.properties.$session_id is not null limit 10",
+                    team=self.team,
+                    pretty=False,
+                )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_join_with_property_not_materialized(self):
         with freeze_time("2020-01-10"):
@@ -589,6 +598,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [("$pageview", "111"), ("$pageview", "111")])
+
+            # Reverse join order (right table column before left table column in ON clause)
+            # is not supported with enable_analyzer=0. See PR #45000.
+            with self.assertRaises(InternalCHQueryError):
+                execute_hogql_query(
+                    "select e.event, s.session_id from session_replay_events s left join events e on e.properties.$$$session_id = s.session_id where e.properties.$$$session_id is not null limit 10",
+                    team=self.team,
+                    pretty=False,
+                )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_lambdas(self):
