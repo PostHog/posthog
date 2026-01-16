@@ -120,6 +120,64 @@ export class PushSubscriptionsManagerService {
         }
     }
 
+    public async getManyById(
+        teamId: number,
+        subscriptionIds: string[]
+    ): Promise<Record<string, PushSubscription | null>> {
+        if (subscriptionIds.length === 0) {
+            return {}
+        }
+
+        const placeholders = subscriptionIds.map((_, idx) => `$${idx + 2}`).join(', ')
+        const queryString = `SELECT
+                id,
+                team_id,
+                distinct_id,
+                token,
+                platform,
+                is_active,
+                last_successfully_used_at,
+                created_at,
+                updated_at
+            FROM workflows_pushsubscription
+            WHERE team_id = $1 AND id IN (${placeholders}) AND is_active = true`
+
+        const params = [teamId, ...subscriptionIds]
+        const rows = (
+            await this.postgres.query<PushSubscriptionRow>(
+                PostgresUse.COMMON_READ,
+                queryString,
+                params,
+                'getManyPushSubscriptionsById'
+            )
+        ).rows
+
+        const result: Record<string, PushSubscription | null> = {}
+
+        for (const id of subscriptionIds) {
+            result[id] = null
+        }
+
+        // Populate found subscriptions
+        for (const row of rows) {
+            const decryptedToken =
+                this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
+            result[row.id] = {
+                id: row.id,
+                team_id: row.team_id,
+                distinct_id: row.distinct_id,
+                token: decryptedToken,
+                platform: row.platform,
+                is_active: row.is_active,
+                last_successfully_used_at: row.last_successfully_used_at,
+                created_at: row.created_at,
+                updated_at: row.updated_at,
+            }
+        }
+
+        return result
+    }
+
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
         const subscriptionArgs = ids.map(fromKey)
 
