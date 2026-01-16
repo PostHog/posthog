@@ -281,8 +281,7 @@ def _build_group_count_query(team: Team, filter: Filter, group_type_index: Group
         elif operator == PropertyOperator.REGEX:
             if isinstance(value, list):
                 raise ValidationError(
-                    "Operator 'regex' does not support list values for $group_key property. "
-                    "Use a single value instead."
+                    "Operator 'regex' does not support list values for $group_key property. Use a single value instead."
                 )
             where_exprs.append(
                 ast.Call(

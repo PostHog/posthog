@@ -233,9 +233,9 @@ class TestBackfillMaterializedColumnClickHouse:
             f"SELECT {mat_column} FROM sharded_events WHERE uuid = %(uuid)s AND team_id = %(team_id)s",
             {"uuid": event_uuid, "team_id": team.id},
         )
-        assert (
-            result_after[0][0] == expected_value
-        ), f"{mat_column} should be {expected_value}, got {result_after[0][0]}"
+        assert result_after[0][0] == expected_value, (
+            f"{mat_column} should be {expected_value}, got {result_after[0][0]}"
+        )
 
     @pytest.mark.parametrize(
         "property_name",

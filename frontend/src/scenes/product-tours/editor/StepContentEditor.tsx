@@ -47,6 +47,8 @@ export interface StepContentEditorProps {
     uploadImage?: (file: File) => Promise<{ url: string; fileName: string }>
     /** Compact mode shows a condensed toolbar with dropdown menus. Useful for narrow containers like the toolbar. */
     compact?: boolean
+    // restrict to only inline styles - no images/videos/etc
+    inlineOnly?: boolean
 }
 
 const DEFAULT_CONTENT: JSONContent = {
@@ -65,6 +67,7 @@ export function StepContentEditor({
     autoFocus = false,
     uploadImage,
     compact = false,
+    inlineOnly = false,
 }: StepContentEditorProps): JSX.Element {
     const dropRef = useRef<HTMLDivElement>(null)
     const [linkUrl, setLinkUrl] = useState('')
@@ -77,33 +80,48 @@ export function StepContentEditor({
     const [customUploading, setCustomUploading] = useState(false)
 
     const editor = useEditor({
-        extensions: [
-            StarterKit.configure({
-                heading: {
-                    levels: [1, 2, 3],
-                },
-                codeBlock: false,
-            }),
-            CodeBlockExtension,
-            Link.configure({
-                openOnClick: false,
-                HTMLAttributes: {
-                    class: 'step-content-link',
-                },
-            }),
-            Image.configure({
-                HTMLAttributes: {
-                    class: 'step-content-image',
-                },
-                allowBase64: true,
-            }),
-            Underline,
-            Placeholder.configure({
-                placeholder,
-            }),
-            EmbedExtension,
-            SlashCommandExtension,
-        ],
+        extensions: inlineOnly
+            ? [
+                  StarterKit.configure({
+                      heading: false,
+                      codeBlock: false,
+                      blockquote: false,
+                      bulletList: false,
+                      orderedList: false,
+                      horizontalRule: false,
+                  }),
+                  Underline,
+                  Placeholder.configure({
+                      placeholder,
+                  }),
+              ]
+            : [
+                  StarterKit.configure({
+                      heading: {
+                          levels: [1, 2, 3],
+                      },
+                      codeBlock: false,
+                  }),
+                  CodeBlockExtension,
+                  Link.configure({
+                      openOnClick: false,
+                      HTMLAttributes: {
+                          class: 'step-content-link',
+                      },
+                  }),
+                  Image.configure({
+                      HTMLAttributes: {
+                          class: 'step-content-image',
+                      },
+                      allowBase64: true,
+                  }),
+                  Underline,
+                  Placeholder.configure({
+                      placeholder,
+                  }),
+                  EmbedExtension,
+                  SlashCommandExtension,
+              ],
         content: content || DEFAULT_CONTENT,
         autofocus: autoFocus,
         onUpdate: ({ editor: e }) => {
@@ -279,47 +297,49 @@ export function StepContentEditor({
                 <LemonButton size="small" icon={<IconTextSize />} sideIcon={null} tooltip="Styles" />
             </LemonMenu>
 
-            <Popover
-                visible={showLinkPopover}
-                onClickOutside={() => setShowLinkPopover(false)}
-                overlay={
-                    <div className="p-2 flex flex-col gap-2 min-w-64">
-                        <LemonInput
-                            size="small"
-                            placeholder="https://..."
-                            value={linkUrl}
-                            onChange={setLinkUrl}
-                            onPressEnter={setLink}
-                            autoFocus
-                            fullWidth
-                        />
-                        <div className="flex gap-2 justify-end">
-                            {hasExistingLink && (
-                                <LemonButton size="small" status="danger" onClick={removeLink}>
-                                    Remove
-                                </LemonButton>
-                            )}
-                            <LemonButton
+            {!inlineOnly && (
+                <Popover
+                    visible={showLinkPopover}
+                    onClickOutside={() => setShowLinkPopover(false)}
+                    overlay={
+                        <div className="p-2 flex flex-col gap-2 min-w-64">
+                            <LemonInput
                                 size="small"
-                                type="primary"
-                                onClick={setLink}
-                                disabledReason={!linkUrl ? 'Enter a URL' : undefined}
-                            >
-                                {hasExistingLink ? 'Update' : 'Set'}
-                            </LemonButton>
+                                placeholder="https://..."
+                                value={linkUrl}
+                                onChange={setLinkUrl}
+                                onPressEnter={setLink}
+                                autoFocus
+                                fullWidth
+                            />
+                            <div className="flex gap-2 justify-end">
+                                {hasExistingLink && (
+                                    <LemonButton size="small" status="danger" onClick={removeLink}>
+                                        Remove
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={setLink}
+                                    disabledReason={!linkUrl ? 'Enter a URL' : undefined}
+                                >
+                                    {hasExistingLink ? 'Update' : 'Set'}
+                                </LemonButton>
+                            </div>
                         </div>
-                    </div>
-                }
-            >
-                <LemonButton
-                    ref={linkButtonRef}
-                    size="small"
-                    active={editor.isActive('link')}
-                    onClick={openLinkPopover}
-                    icon={<IconLink />}
-                    tooltip="Link"
-                />
-            </Popover>
+                    }
+                >
+                    <LemonButton
+                        ref={linkButtonRef}
+                        size="small"
+                        active={editor.isActive('link')}
+                        onClick={openLinkPopover}
+                        icon={<IconLink />}
+                        tooltip="Link"
+                    />
+                </Popover>
+            )}
 
             <LemonMenu
                 items={[
@@ -353,32 +373,35 @@ export function StepContentEditor({
 
     const fullToolbar = (
         <div className="StepContentEditor__format-toolbar">
-            <LemonButton
-                size="small"
-                active={editor.isActive('heading', { level: 1 })}
-                onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                tooltip="Heading 1"
-            >
-                H1
-            </LemonButton>
-            <LemonButton
-                size="small"
-                active={editor.isActive('heading', { level: 2 })}
-                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                tooltip="Heading 2"
-            >
-                H2
-            </LemonButton>
-            <LemonButton
-                size="small"
-                active={editor.isActive('heading', { level: 3 })}
-                onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                tooltip="Heading 3"
-            >
-                H3
-            </LemonButton>
-
-            <LemonDivider vertical className="mx-1 self-stretch" />
+            {!inlineOnly && (
+                <>
+                    <LemonButton
+                        size="small"
+                        active={editor.isActive('heading', { level: 1 })}
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                        tooltip="Heading 1"
+                    >
+                        H1
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        active={editor.isActive('heading', { level: 2 })}
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                        tooltip="Heading 2"
+                    >
+                        H2
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        active={editor.isActive('heading', { level: 3 })}
+                        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                        tooltip="Heading 3"
+                    >
+                        H3
+                    </LemonButton>
+                    <LemonDivider vertical className="mx-1 self-stretch" />
+                </>
+            )}
 
             <LemonButton
                 size="small"
@@ -408,124 +431,132 @@ export function StepContentEditor({
                 icon={<IconCode />}
                 tooltip="Inline code"
             />
-            <Popover
-                visible={showLinkPopover}
-                onClickOutside={() => setShowLinkPopover(false)}
-                overlay={
-                    <div className="p-2 flex flex-col gap-2 min-w-64">
-                        <LemonInput
-                            size="small"
-                            placeholder="https://..."
-                            value={linkUrl}
-                            onChange={setLinkUrl}
-                            onPressEnter={setLink}
-                            autoFocus
-                            fullWidth
-                        />
-                        <div className="flex gap-2 justify-end">
-                            {hasExistingLink && (
-                                <LemonButton size="small" status="danger" onClick={removeLink}>
-                                    Remove
+            {!inlineOnly && (
+                <Popover
+                    visible={showLinkPopover}
+                    onClickOutside={() => setShowLinkPopover(false)}
+                    overlay={
+                        <div className="p-2 flex flex-col gap-2 min-w-64">
+                            <LemonInput
+                                size="small"
+                                placeholder="https://..."
+                                value={linkUrl}
+                                onChange={setLinkUrl}
+                                onPressEnter={setLink}
+                                autoFocus
+                                fullWidth
+                            />
+                            <div className="flex gap-2 justify-end">
+                                {hasExistingLink && (
+                                    <LemonButton size="small" status="danger" onClick={removeLink}>
+                                        Remove
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    onClick={setLink}
+                                    disabledReason={!linkUrl ? 'Enter a URL' : undefined}
+                                >
+                                    {hasExistingLink ? 'Update' : 'Set'}
                                 </LemonButton>
-                            )}
+                            </div>
+                        </div>
+                    }
+                >
+                    <LemonButton
+                        ref={linkButtonRef}
+                        size="small"
+                        active={editor.isActive('link')}
+                        onClick={openLinkPopover}
+                        icon={<IconLink />}
+                        tooltip="Link"
+                    />
+                </Popover>
+            )}
+
+            {!inlineOnly && (
+                <>
+                    <LemonDivider vertical className="mx-1 self-stretch" />
+                    <LemonFileInput
+                        accept="image/*"
+                        multiple={false}
+                        alternativeDropTargetRef={dropRef}
+                        onChange={(files) => void handleFileUpload(files)}
+                        loading={uploading}
+                        showUploadedFiles={false}
+                        callToAction={
                             <LemonButton
                                 size="small"
-                                type="primary"
-                                onClick={setLink}
-                                disabledReason={!linkUrl ? 'Enter a URL' : undefined}
-                            >
-                                {hasExistingLink ? 'Update' : 'Set'}
-                            </LemonButton>
-                        </div>
-                    </div>
-                }
-            >
-                <LemonButton
-                    ref={linkButtonRef}
-                    size="small"
-                    active={editor.isActive('link')}
-                    onClick={openLinkPopover}
-                    icon={<IconLink />}
-                    tooltip="Link"
-                />
-            </Popover>
-
-            <LemonDivider vertical className="mx-1 self-stretch" />
-
-            <LemonFileInput
-                accept="image/*"
-                multiple={false}
-                alternativeDropTargetRef={dropRef}
-                onChange={(files) => void handleFileUpload(files)}
-                loading={uploading}
-                showUploadedFiles={false}
-                callToAction={
+                                icon={uploading ? <Spinner className="text-sm" textColored /> : <IconImage />}
+                                tooltip="Upload image (or drag & drop)"
+                            />
+                        }
+                    />
                     <LemonButton
                         size="small"
-                        icon={uploading ? <Spinner className="text-sm" textColored /> : <IconImage />}
-                        tooltip="Upload image (or drag & drop)"
+                        icon={<IconVideoCamera />}
+                        tooltip="Embed video"
+                        onClick={() => setShowVideoModal(true)}
                     />
-                }
-            />
-            <LemonButton
-                size="small"
-                icon={<IconVideoCamera />}
-                tooltip="Embed video"
-                onClick={() => setShowVideoModal(true)}
-            />
-
-            <span className="text-xs text-muted ml-auto">
-                Type <code>/</code> for commands
-            </span>
+                    <span className="text-xs text-muted ml-auto">
+                        Type <code>/</code> for commands
+                    </span>
+                </>
+            )}
         </div>
     )
 
+    const toolbar = compact ? compactToolbar : fullToolbar
+
     return (
-        <div ref={dropRef} className="StepContentEditor">
-            {compact ? compactToolbar : fullToolbar}
+        <div ref={inlineOnly ? undefined : dropRef} className="StepContentEditor">
+            {toolbar}
 
             <EditorContent editor={editor} className="StepContentEditor__content" />
 
-            <LemonModal
-                isOpen={showVideoModal}
-                onClose={() => {
-                    setShowVideoModal(false)
-                    setVideoUrl('')
-                }}
-                title="Embed video"
-                footer={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                setShowVideoModal(false)
-                                setVideoUrl('')
-                            }}
-                        >
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={insertEmbed}
-                            disabledReason={!videoUrl ? 'Enter a URL' : undefined}
-                        >
-                            Embed
-                        </LemonButton>
-                    </>
-                }
-            >
-                <div className="space-y-2">
-                    <p className="text-muted text-sm">Paste a YouTube, Vimeo, or Loom URL</p>
-                    <LemonInput
-                        placeholder="https://www.youtube.com/watch?v=..."
-                        value={videoUrl}
-                        onChange={setVideoUrl}
-                        onPressEnter={insertEmbed}
-                        autoFocus
-                        fullWidth
-                    />
-                </div>
-            </LemonModal>
+            {!inlineOnly && (
+                <LemonModal
+                    isOpen={showVideoModal}
+                    onClose={() => {
+                        setShowVideoModal(false)
+                        setVideoUrl('')
+                    }}
+                    title="Embed video"
+                    footer={
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    setShowVideoModal(false)
+                                    setVideoUrl('')
+                                }}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={insertEmbed}
+                                disabledReason={!videoUrl ? 'Enter a URL' : undefined}
+                            >
+                                Embed
+                            </LemonButton>
+                        </>
+                    }
+                >
+                    <div className="space-y-2">
+                        <p className="text-muted text-sm">Paste a YouTube, Vimeo, or Loom URL</p>
+                        <LemonInput
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            value={videoUrl}
+                            onChange={setVideoUrl}
+                            onPressEnter={insertEmbed}
+                            autoFocus
+                            fullWidth
+                        />
+                    </div>
+                </LemonModal>
+            )}
         </div>
     )
 }

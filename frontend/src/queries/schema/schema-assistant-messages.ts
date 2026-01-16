@@ -412,6 +412,7 @@ export type AssistantTool =
     | 'task'
     | 'upsert_dashboard'
     | 'manage_memories'
+    | 'create_notebook'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

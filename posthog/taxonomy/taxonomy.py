@@ -907,11 +907,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "system": True,
             "used_for_debug": True,
         },
-        "$cymbal_errors": {
-            "label": "Exception processing errors",
-            "description": "Errors encountered while trying to process exceptions.",
-            "system": True,
-        },
         "$geoip_city_name": {
             "label": "City name",
             "description": "Name of the city matched to this event's IP address.",

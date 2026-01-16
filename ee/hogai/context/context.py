@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import uuid4
 
 from langchain_core.prompts import PromptTemplate
@@ -26,13 +26,15 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
+
+if TYPE_CHECKING:
+    from ee.hogai.artifacts.manager import ArtifactManager
 
 from .prompts import (
     CONTEXT_INITIAL_MODE_PROMPT,
@@ -51,13 +53,15 @@ class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
 
     def __init__(self, team: Team, user: User, config: RunnableConfig | None = None):
+        from ee.hogai.artifacts.manager import ArtifactManager
+
         self._team = team
         self._user = user
         self._config = config or {}
         self._artifact_manager = ArtifactManager(self._team, self._user, self._config)
 
     @cached_property
-    def artifacts(self) -> ArtifactManager:
+    def artifacts(self) -> "ArtifactManager":
         """
         Returns the artifact manager for the team.
 
@@ -381,7 +385,7 @@ class AssistantContextManager(AssistantContextMixin):
                 continue
             tool = await tool_class.create_tool_class(team=self._team, user=self._user, context_manager=self)
             tool_prompt = tool.format_context_prompt_injection(tool_context)
-            contextual_tools_prompt.append(f"<{tool_name}>\n" f"{tool_prompt}\n" f"</{tool_name}>")
+            contextual_tools_prompt.append(f"<{tool_name}>\n{tool_prompt}\n</{tool_name}>")
 
         if contextual_tools_prompt:
             tools = "\n".join(contextual_tools_prompt)

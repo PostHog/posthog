@@ -203,7 +203,14 @@ export function calculateCost(object: any, marked: Set<any> | undefined = undefi
     return COST_PER_UNIT
 }
 
-export function unifyComparisonTypes(left: any, right: any): [any, any] {
+export function unifyComparisonTypes(left: any, right: any, isOrderComparison: boolean = false): [any, any] {
+    // Check for null/undefined only in ordering comparisons (<, >, <=, >=)
+    // Equality comparisons (==, !=) should allow null
+    // This matches Python's behavior where None ordering comparisons raise TypeError
+    if (isOrderComparison && (left === null || left === undefined || right === null || right === undefined)) {
+        throw new HogVMException('Cannot compare null or undefined values')
+    }
+
     if (typeof left === 'number' && typeof right === 'string') {
         return [left, Number(right)]
     }

@@ -62,6 +62,12 @@ procs:
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags
 
+    livestream:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-go-service livestream
+
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \
@@ -95,6 +101,8 @@ procs:
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
+        env:
+            LLM_GATEWAY_DEBUG: 'true'
 
     mcp:
         shell: 'bin/start-mcp-server'

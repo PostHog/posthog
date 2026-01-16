@@ -15,7 +15,6 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconMessage,
-    IconNewspaper,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -388,16 +387,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconHome />,
                             to: urls.projectRoot(),
                         },
-                        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
-                            ? [
-                                  {
-                                      identifier: Scene.Feed,
-                                      label: 'Feed',
-                                      icon: <IconNewspaper />,
-                                      to: urls.feed(),
-                                  },
-                              ]
-                            : []),
                         {
                             identifier: Scene.Dashboards,
                             label: 'Dashboards',
@@ -642,15 +631,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
-                            ? {
-                                  identifier: Scene.Workflows,
-                                  label: 'Workflows',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.workflows(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Workflows,
+                            label: 'Workflows',
+                            icon: <IconDecisionTree />,
+                            to: urls.workflows(),
+                        },
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },

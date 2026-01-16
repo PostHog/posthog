@@ -1,17 +1,18 @@
 use std::time::Duration;
 
-use axum::{routing::get, routing::post, Router};
+use axum::{http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
 use capture_logs::kafka::KafkaSink;
-use capture_logs::service::export_logs_http;
 use capture_logs::service::Service;
+use capture_logs::service::{export_logs_http, options_handler};
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
 
 use health::HealthRegistry;
 use tokio::signal;
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::decompression::RequestDecompressionLayer;
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
@@ -113,12 +114,23 @@ async fn main() {
         .await
         .expect("could not bind http port");
 
+    // Very permissive CORS policy
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
     let http_router = Router::new()
-        .route("/v1/logs", post(export_logs_http))
-        .route("/i/v1/logs", post(export_logs_http))
+        .route("/v1/logs", post(export_logs_http).options(options_handler))
+        .route(
+            "/i/v1/logs",
+            post(export_logs_http).options(options_handler),
+        )
         .with_state(logs_service)
         .layer(axum::middleware::from_fn(track_metrics))
-        .layer(RequestDecompressionLayer::new());
+        .layer(RequestDecompressionLayer::new())
+        .layer(cors);
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

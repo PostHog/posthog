@@ -50,6 +50,7 @@ export function VirtualizedLogsList({
     const {
         tabId,
         pinnedLogs,
+        expandedLogIds,
         cursorIndex,
         recomputeRowHeightsRequest,
         scrollToCursorRequest,
@@ -63,6 +64,7 @@ export function VirtualizedLogsList({
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
+        toggleExpandLog,
         userSetCursorIndex,
         removeAttributeColumn,
         setAttributeColumnWidth,
@@ -187,12 +189,14 @@ export function VirtualizedLogsList({
                                     log={log}
                                     logIndex={index}
                                     isAtCursor={!disableCursor && index === cursorIndex}
+                                    isExpanded={!!expandedLogIds[log.uuid]}
                                     pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
                                     prettifyJson={prettifyJson}
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
+                                    onToggleExpand={() => toggleExpandLog(log.uuid)}
                                     onClick={() => handleLogRowClick(log, index)}
                                     rowWidth={rowWidth}
                                     attributeColumns={attributeColumns}
@@ -215,6 +219,7 @@ export function VirtualizedLogsList({
         [
             dataSource,
             cursorIndex,
+            expandedLogIds,
             pinnedLogs,
             cache,
             showPinnedWithOpacity,
@@ -223,6 +228,7 @@ export function VirtualizedLogsList({
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
+            toggleExpandLog,
             openLogDetails,
             userSetCursorIndex,
             attributeColumns,

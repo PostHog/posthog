@@ -640,7 +640,7 @@ class TestInsightSearchNode(BaseTest):
         assert insight_dict is not None
         summary = await self.node._create_enhanced_insight_summary(insight_dict)
 
-        self.assertIn(f"ID: {self.insight1.id}", summary)
+        self.assertIn(f"ID: {self.insight1.short_id}", summary)
         self.assertIn("Daily Pageviews", summary)
         self.assertIn("Type: TrendsQuery", summary)  # Should detect TrendsQuery type from query
         # Check that query result is not an error (would contain "Query type not supported")
@@ -798,9 +798,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query = viz_message.content.query
         self.assertIsInstance(query, AssistantTrendsQuery)
 
@@ -821,9 +821,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message2.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message2.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query2 = viz_message2.content.query
         self.assertIsInstance(query2, AssistantFunnelsQuery)
 
@@ -871,9 +871,9 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         self.assertIsInstance(viz_message.content.query, AssistantRetentionQuery)
 
     async def test_returns_artifact_with_hogql_query(self):
@@ -909,7 +909,7 @@ class TestInsightSearchNode(BaseTest):
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         self.assertIsInstance(viz_message.content.query, AssistantHogQLQuery)

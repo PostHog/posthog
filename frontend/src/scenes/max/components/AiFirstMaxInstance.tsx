@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { Intro } from '../Intro'
@@ -19,6 +20,7 @@ interface AiFirstMaxInstanceProps {
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
     const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
     const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -27,8 +29,8 @@ export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Elem
     }
 
     return (
-        <div className="flex grow overflow-hidden h-[calc(100vh-var(--scene-layout-header-height))]">
-            <ChatHistoryPanel tabId={tabId} />
+        <div className="flex grow overflow-hidden h-full">
+            {!isAIFirst && <ChatHistoryPanel tabId={tabId} />}
             <BindLogic logic={maxLogic} props={{ tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <ChatArea

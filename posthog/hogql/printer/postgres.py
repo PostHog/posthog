@@ -36,10 +36,10 @@ class PostgresPrinter(HogQLPrinter):
         return f"{node.name}({', '.join(args)})"
 
     def visit_and(self, node):
-        return f"({' AND '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
+        return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
 
     def visit_or(self, node):
-        return f"({' OR '.join([f"({self.visit(expr)})" for expr in node.exprs])})"
+        return f"({' OR '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
 
     def visit_not(self, node):
         return f"(NOT {self.visit(node.expr)})"

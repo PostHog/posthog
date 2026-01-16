@@ -7,7 +7,7 @@ import { IconX } from '@posthog/icons'
 import { LemonButton } from '../LemonButton'
 
 export interface LemonWidgetProps {
-    title: string
+    title: React.ReactNode
     onClose?: () => void
     actions?: React.ReactNode
     children: React.ReactNode
