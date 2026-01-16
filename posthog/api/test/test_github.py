@@ -578,6 +578,16 @@ class TestRelayToEu(TestCase):
 
         self.assertIsNone(result)
 
+    @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
+    @patch("posthog.api.github.get_instance_region")
+    def test_returns_none_when_in_eu_region(self, mock_get_region):
+        """Prevent infinite loop if relay URL accidentally configured in EU."""
+        mock_get_region.return_value = "EU"
+
+        result = relay_to_eu('{"test": "data"}', "kid", "sig")
+
+        self.assertIsNone(result)
+
 
 class TestSecretAlertRelayIntegration(APIBaseTest):
     @patch("posthog.api.github.verify_github_signature")

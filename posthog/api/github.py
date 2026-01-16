@@ -52,6 +52,10 @@ class SignatureVerificationError(Exception):
 
 def relay_to_eu(raw_body: str, kid: str, sig: str) -> list[dict] | None:
     """Relay request to EU. Returns EU results or None on failure."""
+    # Prevent infinite loop if someone accidentally configures relay URL in EU
+    if get_instance_region() == "EU":
+        return None
+
     url = settings.GITHUB_SECRET_ALERT_RELAY_URL
     if not url:
         return None
@@ -286,7 +290,10 @@ class SecretAlert(APIView):
 
             results.append(result)
 
-        # Relay to EU if any false positives (key might exist in EU)
+        # GitHub's secret scanning program only supports a single webhook endpoint, so we
+        # receive all alerts in US and relay to EU synchronously when needed. We only relay
+        # false positives (keys not found locally) since true positives are already handled.
+        # This must complete within GitHub's 30-second timeout, hence EU gets 15s.
         eu_found_hashes: set[str] = set()
         has_false_positives = any(r["label"] == "false_positive" for r in results)
         if has_false_positives:
