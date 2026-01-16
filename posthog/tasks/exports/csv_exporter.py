@@ -346,6 +346,9 @@ def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None
     if resource.get("source"):
         yield from get_from_hogql_query(exported_asset, limit, resource)
     else:
+        # Legacy path for PersonsNode exports (uses API path instead of HogQL source).
+        # PersonsNode was migrated to ActorsQuery in migration 0459, so this path
+        # should rarely be hit in practice.
         yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
 
 
@@ -399,6 +402,11 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
 
 
 def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
+    """Export data to CSV using a two-pass approach for memory efficiency.
+
+    Pass 1: Stream rows to a JSON lines temp file to discover all columns as we go.
+    Pass 2: Write the final CSV with the discovered columns, reading from the JSON lines file.
+    """
     resource = exported_asset.export_context or {}
     user_columns = resource.get("columns", [])
 
@@ -438,6 +446,11 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 
 
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
+    """Export data to Excel using a two-pass approach for memory efficiency.
+
+    Pass 1: Stream rows to a JSON lines temp file to discover all columns as we go.
+    Pass 2: Write the final Excel file with the discovered columns, reading from the JSON lines file.
+    """
     resource = exported_asset.export_context or {}
     user_columns = resource.get("columns", [])
 
