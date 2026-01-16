@@ -54,16 +54,21 @@ function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): Da
     return nextDay
 }
 
+function isValidTimezone(timezone: string): boolean {
+    // Luxon returns an invalid DateTime if the timezone is not recognized
+    return DateTime.utc().setZone(timezone).isValid
+}
+
 export function resolveTimezone(config: Action['config'], person?: CyclotronPerson): string {
+    const fallback = config.fallback_timezone || config.timezone || 'UTC'
+
     if (config.use_person_timezone && person?.properties) {
         const personTimezone = person.properties[GEOIP_TIMEZONE_PROPERTY]
-        if (personTimezone && typeof personTimezone === 'string') {
+        if (personTimezone && typeof personTimezone === 'string' && isValidTimezone(personTimezone)) {
             return personTimezone
         }
-        // Fall back to fallback_timezone if person doesn't have a timezone
-        if (config.fallback_timezone) {
-            return config.fallback_timezone
-        }
+        // Fall back if person doesn't have a timezone or it's invalid
+        return fallback
     }
     // Use the configured timezone or default to UTC
     return config.timezone || 'UTC'

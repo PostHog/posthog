@@ -228,6 +228,16 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             // Falls back to Paris timezone
             expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000+01:00"`)
         })
+
+        it('should fall back when person has invalid timezone', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = 'Europe/Berlin'
+            const person = createPerson({ $geoip_time_zone: 'Invalid/Not_A_Timezone' })
+
+            const result = getWaitUntilTime(action, person)
+            // Falls back to Berlin timezone since person timezone is invalid
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000+01:00"`)
+        })
     })
 
     describe('resolveTimezone', () => {
@@ -274,6 +284,24 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 config: { timezone: 'Europe/Berlin', fallback_timezone: null },
                 person: { $geoip_time_zone: 'America/New_York' },
                 expected: 'Europe/Berlin',
+            },
+            {
+                name: 'falls back when person timezone is invalid',
+                config: { use_person_timezone: true, timezone: 'UTC', fallback_timezone: 'Europe/London' },
+                person: { $geoip_time_zone: 'Invalid/Timezone' },
+                expected: 'Europe/London',
+            },
+            {
+                name: 'falls back to configured timezone when person timezone is invalid and no fallback set',
+                config: { use_person_timezone: true, timezone: 'America/Chicago', fallback_timezone: null },
+                person: { $geoip_time_zone: 'Not_A_Real_Zone' },
+                expected: 'America/Chicago',
+            },
+            {
+                name: 'falls back to UTC when person timezone is invalid and no fallback or timezone set',
+                config: { use_person_timezone: true, timezone: null, fallback_timezone: null },
+                person: { $geoip_time_zone: 'garbage' },
+                expected: 'UTC',
             },
         ])('$name', ({ config, person, expected }) => {
             const fullConfig = {
