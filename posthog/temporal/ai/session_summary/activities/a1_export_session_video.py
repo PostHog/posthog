@@ -58,7 +58,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             existing_duration_s = (
                 existing_asset.export_context.get("duration", 0) if existing_asset.export_context else 0
             )
-            if existing_duration_s * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
+            if existing_duration_s < MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S:
                 logger.warning(
                     f"Session {inputs.session_id} in team {inputs.team_id} is too short ({existing_duration_s * 1000:.0f}ms) to summarize, skipping",
                     extra={
