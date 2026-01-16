@@ -5,7 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 import { IconArrowRight, IconEllipsis, IconExternal } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Command/utils'
+import { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Search/utils'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -32,7 +32,7 @@ import { NoResultsFound } from './NoResultsFound'
 import { ProjectExplorer } from './ProjectExplorer'
 
 // Re-export for backwards compatibility
-export { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Command/utils'
+export { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Search/utils'
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
 export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {

@@ -2,6 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -9,11 +10,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
-import { commandLogic } from './commandLogic'
-import type { commandSearchLogicType } from './commandSearchLogicType'
+import type { searchLogicType } from './searchLogicType'
 
 // Types for command search results
-export interface CommandSearchItem {
+export interface SearchItem {
     id: string
     name: string
     displayName?: string
@@ -26,9 +26,9 @@ export interface CommandSearchItem {
     record?: Record<string, unknown>
 }
 
-export interface CommandCategory {
+export interface SearchCategory {
     key: string
-    items: CommandSearchItem[]
+    items: SearchItem[]
     isLoading: boolean
 }
 
@@ -46,8 +46,8 @@ function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[
     }))
 }
 
-export const commandSearchLogic = kea<commandSearchLogicType>([
-    path(['lib', 'components', 'Command', 'commandSearchLogic']),
+export const searchLogic = kea<searchLogicType>([
+    path(['lib', 'components', 'Search', 'searchLogic']),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], commandLogic, ['isCommandOpen']],
     }),
@@ -224,7 +224,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         ],
         recentItems: [
             (s) => [s.recents],
-            (recents): CommandSearchItem[] => {
+            (recents): SearchItem[] => {
                 return recents.results.map((item) => {
                     const name = splitPath(item.path).pop()
                     return {
@@ -241,8 +241,8 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         ],
         groupItems: [
             (s) => [s.groupSearchResults, s.aggregationLabel],
-            (groupSearchResults, aggregationLabel): CommandSearchItem[] => {
-                const items: CommandSearchItem[] = []
+            (groupSearchResults, aggregationLabel): SearchItem[] => {
+                const items: SearchItem[] = []
                 for (const [groupTypeIndexString, groups] of Object.entries(groupSearchResults)) {
                     const groupTypeIndex = parseInt(groupTypeIndexString, 10) as GroupTypeIndex
                     const noun = aggregationLabel(groupTypeIndex).singular
@@ -270,7 +270,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         ],
         personItems: [
             (s) => [s.personSearchResults],
-            (personSearchResults): CommandSearchItem[] => {
+            (personSearchResults): SearchItem[] => {
                 return personSearchResults
                     .filter((person) => person.uuid) // Skip persons without uuid to avoid invalid URLs
                     .map((person) => {
@@ -295,7 +295,7 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         ],
         playlistItems: [
             (s) => [s.playlistSearchResults],
-            (playlistSearchResults): CommandSearchItem[] => {
+            (playlistSearchResults): SearchItem[] => {
                 return playlistSearchResults.map((item) => {
                     const name = splitPath(item.path).pop()
                     return {
@@ -311,12 +311,12 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
         ],
         unifiedSearchItems: [
             (s) => [s.unifiedSearchResults],
-            (unifiedSearchResults): Record<string, CommandSearchItem[]> => {
+            (unifiedSearchResults): Record<string, SearchItem[]> => {
                 if (!unifiedSearchResults) {
                     return {}
                 }
 
-                const categoryItems: Record<string, CommandSearchItem[]> = {}
+                const categoryItems: Record<string, SearchItem[]> = {}
 
                 for (const result of unifiedSearchResults.results) {
                     const category = result.type
@@ -404,8 +404,8 @@ export const commandSearchLogic = kea<commandSearchLogicType>([
                 playlistSearchResultsLoading,
                 unifiedSearchResultsLoading,
                 search
-            ): CommandCategory[] => {
-                const categories: CommandCategory[] = []
+            ): SearchCategory[] => {
+                const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
                 // Always show recents first
