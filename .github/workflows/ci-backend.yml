@@ -263,9 +263,9 @@ jobs:
                       # Check if :contract changed using forward deps query (fast: ~2s)
                       # This queries deps of the contract target, not reverse deps of the whole repo
                       CONTRACT_TARGET="//products/$product/backend:contract"
-                      if bazel query "//products/$product/backend:contract" &>/dev/null; then
+                      if bazel query --config=ci "//products/$product/backend:contract" &>/dev/null; then
                         echo "Checking contract files for $product..."
-                        CONTRACT_FILES=$(bazel query "kind('source file', deps($CONTRACT_TARGET))" 2>/dev/null \
+                        CONTRACT_FILES=$(bazel query --config=ci "kind('source file', deps($CONTRACT_TARGET))" 2>/dev/null \
                           | sed 's|//products/'"$product"'/backend:||' \
                           | tr '\n' '|' | sed 's/|$//')
 
@@ -344,7 +344,7 @@ jobs:
                   restore-keys: bazel-wheels-
 
             - name: Generate requirements_lock.txt for Bazel
-              run: bazel run //:requirements.update
+              run: bazel run --config=ci //:requirements.update
 
             - name: Pre-build wheels for sdist-only packages
               run: |

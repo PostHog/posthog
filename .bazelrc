@@ -10,11 +10,11 @@ build --disk_cache=~/.cache/bazel-disk-cache
 # Saves ~3 min on cold start by caching downloaded external repos
 common --repository_cache=~/.cache/bazel-repos
 
-# Django test settings
-test --test_env=DEBUG=1
-
 # CI configuration
 # Usage: bazel test --config=ci //...
+# Note: test_env set via common to avoid analysis cache invalidation
+# (otherwise bazel run/query without it, then bazel test with it = cache miss)
+common:ci --test_env=DEBUG=1
 test:ci --test_output=errors
 test:ci --keep_going
 test:ci --verbose_failures
