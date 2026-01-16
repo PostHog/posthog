@@ -3,6 +3,8 @@ Business logic for visual_review.
 
 ORM queries, validation, calculations, business rules.
 Called by api/api.py facade. Do not call from outside this module.
+
+Test change to verify isolated product testing.
 """
 
 from uuid import UUID
