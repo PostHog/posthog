@@ -2883,7 +2883,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 count_modifiers=HogQLQueryModifiers(
                     materializationMode=MaterializationMode.AUTO, propertyGroupsMode=PropertyGroupsMode.OPTIMIZED
                 ),
-                exposures_modifiers=HogQLQueryModifiers(
+                exposure_modifiers=HogQLQueryModifiers(
                     forceClickhouseDataSkippingIndexes=[get_bloom_filter_index_name(mat_flags.name)],
                     materializationMode=MaterializationMode.AUTO,
                     propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
