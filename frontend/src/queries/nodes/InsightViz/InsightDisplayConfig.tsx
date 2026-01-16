@@ -27,6 +27,7 @@ import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLin
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { FunnelStepReferencePicker } from 'scenes/insights/filters/FunnelStepReferencePicker'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
@@ -42,7 +43,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
 import { isValidBreakdown, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, FunnelStepReference } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -72,7 +73,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
-    const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
+    const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel, funnelsFilter } = useValues(
         funnelDataLogic(insightProps)
     )
 
@@ -240,6 +241,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(isFunnels
+            ? [
+                  {
+                      title: 'Conversion rate calculation',
+                      items: [{ label: () => <FunnelStepReferencePicker /> }],
+                  },
+              ]
+            : []),
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
@@ -252,7 +261,12 @@ export function InsightDisplayConfig(): JSX.Element {
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
-        (showMultipleYAxes ? 1 : 0)
+        (showMultipleYAxes ? 1 : 0) +
+        (isFunnels &&
+        funnelsFilter?.funnelStepReference &&
+        funnelsFilter?.funnelStepReference !== FunnelStepReference.total
+            ? 1
+            : 0)
 
     return (
         <div
