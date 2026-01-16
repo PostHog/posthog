@@ -47,7 +47,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 setInitialData: (existingWindow, { buckets }) => {
                     for (const { timestamp, bucket } of buckets) {
-                        existingWindow.addDataPoint(timestamp / 1000, bucket)
+                        existingWindow.extendBucketData(timestamp / 1000, bucket)
                     }
                     return existingWindow
                 },
@@ -57,12 +57,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
+                            const pathname = event.properties?.$pathname
                             const deviceType = event.properties?.$device_type
-                            window.addDataPoint(eventTs, {
+                            const deviceId = event.properties?.$device_id
+
+                            window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: event.event === '$pageview' ? 1 : 0,
-                                devices: new Map([[deviceType, 1]]),
-                                paths: new Map([[event.properties?.$pathname, 1]]),
-                                distinctId: event.distinct_id,
+                                device: deviceId && deviceType ? { deviceId, deviceType } : undefined,
+                                pathname: event.event === '$pageview' ? pathname : undefined,
                             })
                         }
                     }
@@ -279,20 +281,20 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 const loadQueryData = async (
     dateFrom: Date,
     dateTo: Date
-): Promise<[HogQLQueryResponse, TrendsQueryResponse, TrendsQueryResponse]> => {
+): Promise<[HogQLQueryResponse, HogQLQueryResponse, TrendsQueryResponse]> => {
     const usersPageviewsQuery: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
-        query: `SELECT 
-                    toStartOfMinute(timestamp) AS minute_bucket, 
-                    arrayDistinct(groupArray(distinct_id)) AS distinct_users, 
-                    count() as total 
-                FROM events 
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    arrayDistinct(groupArray(distinct_id)) AS distinct_ids,
+                    countIf(event = '$pageview') AS pageviews
+                FROM events
                 WHERE
-                    timestamp >= toDateTime({dateFrom}) AND
-                    timestamp <= toDateTime({dateTo}) 
-                GROUP BY 
-                    minute_bucket 
-                ORDER BY 
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                GROUP BY
+                    minute_bucket
+                ORDER BY
                     minute_bucket ASC`,
         values: {
             dateFrom: dateFrom.toISOString(),
@@ -300,14 +302,21 @@ const loadQueryData = async (
         },
     }
 
-    const deviceQuery: TrendsQuery = {
-        kind: NodeKind.TrendsQuery,
-        interval: 'minute',
-        series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
-        breakdownFilter: { breakdown_type: 'event', breakdown: '$device_type' },
-        dateRange: {
-            date_from: dateFrom.toISOString(),
-            date_to: dateTo.toISOString(),
+    const deviceQuery: HogQLQuery = {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT
+                    toStartOfMinute(timestamp) AS minute_bucket,
+                    ifNull(properties.$device_type, 'Unknown') AS device_type,
+                    arrayDistinct(groupArray(properties.$device_id)) AS device_ids
+                FROM events
+                WHERE
+                    timestamp >= toDateTime({dateFrom})
+                    AND timestamp <= toDateTime({dateTo})
+                GROUP BY minute_bucket, device_type
+                ORDER BY minute_bucket ASC`,
+        values: {
+            dateFrom: dateFrom.toISOString(),
+            dateTo: dateTo.toISOString(),
         },
     }
 
@@ -346,20 +355,20 @@ const addUserDataToBuckets = (
 }
 
 const addDeviceDataToBuckets = (
-    deviceResponse: TrendsQueryResponse,
+    deviceResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
 ): void => {
-    for (const result of deviceResponse.results) {
-        const deviceType = result.breakdown_value || 'Unknown'
+    const results = deviceResponse.results as [string, string, string[]][]
 
-        for (let i = 0; i < result.data.length; i++) {
-            const timestamp = Date.parse(result.action.days[i])
-            const bucket = getOrCreateBucket(bucketMap, timestamp)
+    for (const [timestampStr, deviceType, deviceIds] of results) {
+        const timestamp = Date.parse(timestampStr)
+        const bucket = getOrCreateBucket(bucketMap, timestamp)
 
-            const currentDeviceCount = bucket.devices.get(deviceType) ?? 0
-
-            bucket.devices.set(deviceType, currentDeviceCount + (result.data[i] || 0))
+        const devices = bucket.devices.get(deviceType) ?? new Set<string>()
+        for (const id of deviceIds) {
+            devices.add(id)
         }
+        bucket.devices.set(deviceType, devices)
     }
 }
 
@@ -391,7 +400,7 @@ const getOrCreateBucket = (map: Map<number, SlidingWindowBucket>, timestamp: num
 const createEmptyBucket = (): SlidingWindowBucket => {
     return {
         pageviews: 0,
-        devices: new Map<string, number>(),
+        devices: new Map<string, Set<string>>(),
         paths: new Map<string, number>(),
         uniqueUsers: new Set<string>(),
     }
