@@ -5,7 +5,7 @@
             "category": "Tools",
             "iconType": "data_pipeline",
             "type": "hog_function",
-            "intents": []
+            "intents": ["pipeline_destinations", "pipeline_transformations", "site_apps"]
         },
         {
             "path": "Support",
@@ -107,13 +107,19 @@
             "type": "insight",
             "intents": ["product_analytics"]
         },
-        { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
+        {
+            "path": "Notebooks",
+            "category": "Tools",
+            "iconType": "notebook",
+            "type": "notebook",
+            "intents": ["notebooks"]
+        },
         {
             "path": "Product tours",
             "category": "Behavior",
             "iconType": "product_tour",
             "type": "product_tour",
-            "intents": []
+            "intents": ["product_tours"]
         },
         {
             "path": "Session replay",
@@ -131,8 +137,8 @@
             "intents": ["revenue_analytics"]
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
-        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
-        { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": [] },
+        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": ["tasks"] },
+        { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {
             "path": "User interviews",
             "category": "Unreleased",
