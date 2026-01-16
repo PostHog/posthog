@@ -430,12 +430,19 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         # 3. As a last resort, create a UUID by hashing the value with a table prefix.
                         return parse_expr(
                             f"""tupleElement((
-                                throwIf(isNull(e.{node.id_field}), 'Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'),
+                                throwIf(isNull({{id_field}}), {{exception_message}}),
                                 toUUIDOrDefault(
-                                    e.{node.id_field},
-                                    reinterpretAsUUID(md5(concat('{node.table_name}_', toString(e.{node.id_field}))))
+                                    {{id_field}},
+                                    reinterpretAsUUID(md5(concat('{{table_name_str}}_', toString({{id_field}}))))
                                 )
-                            ), 2)"""
+                            ), 2)""",
+                            placeholders={
+                                "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
+                                "table_name_str": ast.Constant(value=node.table_name),
+                                "exception_message": ast.Constant(
+                                    value=f"Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
+                                ),
+                            },
                         )
                 return ast.Constant(value=None)
             return ast.Field(chain=[self.EVENT_TABLE_ALIAS, field])
