@@ -4,6 +4,7 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipelinesSelfManagedSource'
+import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'scenes/data-warehouse/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -78,17 +79,16 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [(_, props) => props],
             (props): SidePanelSceneContext | null => {
-                const cleanId = props.id.replace('self-managed-', '').replace('managed-', '')
-                const isManagedSource = props.id.startsWith('managed-')
-                return cleanId
+                const id = cleanSourceId(props.id)
+                return id
                     ? {
                           activity_scope: ActivityScope.EXTERNAL_DATA_SOURCE,
-                          activity_item_id: cleanId,
+                          activity_item_id: id,
                           // Only managed sources have access control, self-managed sources do not
-                          ...(isManagedSource
+                          ...(isManagedSourceId(props.id)
                               ? {
                                     access_control_resource: 'external_data_source',
-                                    access_control_resource_id: cleanId,
+                                    access_control_resource_id: id,
                                 }
                               : {}),
                       }
@@ -106,7 +106,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
                 let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
 
-                if (params.id?.startsWith('self-managed-')) {
+                if (params.id && isSelfManagedSourceId(params.id)) {
                     possibleTab = 'configuration' // This only has one tab
                 }
 
@@ -134,31 +134,31 @@ export function DataWarehouseSourceScene(): JSX.Element {
         return <NotFound object="Data warehouse source" />
     }
 
-    const cleanId = id.replace('self-managed-', '').replace('managed-', '')
+    const sourceId = cleanSourceId(id)
 
-    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = id.startsWith('managed-')
+    const tabs: LemonTab<DataWarehouseSourceSceneTab>[] = isManagedSourceId(id)
         ? [
               {
                   label: 'Schemas',
                   key: 'schemas',
-                  content: <Schemas id={cleanId} />,
+                  content: <Schemas id={sourceId} />,
               },
               {
                   label: 'Syncs',
                   key: 'syncs',
-                  content: <Syncs id={cleanId} />,
+                  content: <Syncs id={sourceId} />,
               },
               {
                   label: 'Configuration',
                   key: 'configuration',
-                  content: <SourceConfiguration id={cleanId} />,
+                  content: <SourceConfiguration id={sourceId} />,
               },
           ]
         : [
               {
                   label: 'Configuration',
                   key: 'configuration',
-                  content: <DataPipelinesSelfManagedSource id={cleanId} />,
+                  content: <DataPipelinesSelfManagedSource id={sourceId} />,
               },
           ]
 

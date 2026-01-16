@@ -115,9 +115,26 @@ export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
 }
 
 /**
+ * Checks if a source ID represents a managed source.
+ * Managed sources have IDs prefixed with 'managed-'.
+ */
+export const isManagedSourceId = (id: string): boolean => id.startsWith('managed-')
+
+/**
+ * Checks if a source ID represents a self-managed source.
+ * Self-managed sources have IDs prefixed with 'self-managed-'.
+ */
+export const isSelfManagedSourceId = (id: string): boolean => id.startsWith('self-managed-')
+
+/**
+ * Removes the 'managed-' or 'self-managed-' prefix from a source ID.
+ */
+export const cleanSourceId = (id: string): string => id.replace('self-managed-', '').replace('managed-', '')
+
+/**
  * Checks if a template represents a managed data warehouse source.
  * Managed sources (Stripe, Postgres, etc.) have access control.
  * Self-managed sources (S3, GCS, Azure, R2) do not have access control.
  */
 export const isManagedSourceTemplate = (template: HogFunctionTemplateType): boolean =>
-    template.type === 'source' && !template.id.startsWith('self-managed-')
+    template.type === 'source' && !isSelfManagedSourceId(template.id)
