@@ -18,9 +18,20 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # models.PROTECT prevents deleting a saved query if its referenced by a Node
     saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.PROTECT, null=True, blank=True)
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True)
+    # name of the source table, view, matview, etc.
+    # for nodes with a saved_query, this is automatically synced from saved_query.name
+    name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
     properties = models.JSONField(default=dict)
+
+    def save(self, *args, **kwargs):
+        # always inherit name from saved_query when one exists
+        if self.saved_query is not None:
+            self.name = self.saved_query.name
+        elif not self.name:
+            raise ValueError("Node without a saved_query must have a name")
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "posthog_datamodelingnode"
