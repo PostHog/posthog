@@ -31,6 +31,118 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1
   '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.1
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.10
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.11
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.12
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.13
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.14
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.15
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."deleted",
@@ -89,7 +201,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.1
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.16
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
@@ -141,7 +253,7 @@
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.17
   '''
   SELECT "posthog_externaldatasource"."created_by_id",
          "posthog_externaldatasource"."created_at",
@@ -172,7 +284,7 @@
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.18
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -222,7 +334,7 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.4
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.19
   '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
@@ -240,6 +352,54 @@
   WHERE ("posthog_datawarehousejoin"."team_id" = 99999
          AND NOT ("posthog_datawarehousejoin"."deleted"
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.2
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
+  '''
+# ---
+# name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.4
+  '''
+  SELECT "posthog_datamodelingnode"."created_by_id",
+         "posthog_datamodelingnode"."created_at",
+         "posthog_datamodelingnode"."updated_at",
+         "posthog_datamodelingnode"."id",
+         "posthog_datamodelingnode"."team_id",
+         "posthog_datamodelingnode"."saved_query_id",
+         "posthog_datamodelingnode"."dag_id",
+         "posthog_datamodelingnode"."name",
+         "posthog_datamodelingnode"."type",
+         "posthog_datamodelingnode"."properties"
+  FROM "posthog_datamodelingnode"
+  WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.5
