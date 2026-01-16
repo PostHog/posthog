@@ -1,16 +1,14 @@
 import json
 
-import posthoganalytics
 from django.http import Http404, JsonResponse
 from django.views.decorators.http import require_http_methods
+
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from loginas.views import user_login as loginas_user_login
 
 from posthog.helpers.impersonation import get_original_user_from_session
-from posthog.middleware import (
-    IMPERSONATION_READ_ONLY_SESSION_KEY,
-    is_read_only_impersonation,
-)
+from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, is_read_only_impersonation
 from posthog.models import User
 
 
@@ -53,9 +51,7 @@ def upgrade_impersonation(request):
         reason = ""
 
     if not reason:
-        return JsonResponse(
-            {"error": "A reason is required to upgrade impersonation"}, status=400
-        )
+        return JsonResponse({"error": "A reason is required to upgrade impersonation"}, status=400)
 
     staff_user = get_original_user_from_session(request)
     if not staff_user or not staff_user.is_staff:
