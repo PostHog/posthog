@@ -76,8 +76,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         startKernel: true,
         stopKernel: true,
         restartKernel: true,
-        saveKernelConfig: (config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number }) => ({
+        saveKernelConfig: (
+            config: { cpu_cores?: number; memory_gb?: number; idle_timeout_seconds?: number },
+            nextAction: 'start' | 'restart'
+        ) => ({
             config,
+            nextAction,
         }),
         saveKernelConfigFailure: true,
         clearExecution: true,
@@ -108,6 +112,18 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             {
                 setIdleTimeoutSeconds: (_, { idleTimeoutSeconds }) => idleTimeoutSeconds,
                 setConfigFromKernelInfo: (_, { config }) => config.idleTimeoutSeconds,
+            },
+        ],
+        isEditingConfig: [
+            false,
+            {
+                setCpuIndex: () => true,
+                setMemoryIndex: () => true,
+                setIdleTimeoutSeconds: () => true,
+                setConfigFromKernelInfo: () => false,
+                resetConfigToKernel: () => false,
+                saveKernelConfig: () => false,
+                saveKernelConfigFailure: () => true,
             },
         ],
         actionInFlight: [
@@ -287,17 +303,24 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 actions.loadKernelInfo()
             }
         },
-        saveKernelConfig: async ({ config }) => {
+        saveKernelConfig: async ({ config, nextAction }) => {
             try {
                 await api.notebooks.kernelConfig(props.shortId, config)
             } catch {
                 actions.saveKernelConfigFailure()
                 return
             }
+            if (nextAction === 'start') {
+                actions.startKernel()
+                return
+            }
             actions.restartKernel()
         },
         loadKernelInfoSuccess: ({ kernelInfo }) => {
             if (!kernelInfo) {
+                return
+            }
+            if (values.isEditingConfig && values.hasConfigChanges) {
                 return
             }
             actions.setConfigFromKernelInfo({
