@@ -193,11 +193,22 @@ export function Command(): JSX.Element {
     }, [searchValue, setSearch, isCommandOpen])
 
     // Update filtered items when allItems changes
-    // Server already returns filtered results, only need to filter recents when no search term
+    // Server already returns filtered results for most categories,
+    // but recents need client-side filtering to only show matching items
     useEffect(() => {
         if (searchValue.trim()) {
-            // Server returns filtered results
-            setFilteredItems(allItems)
+            const searchLower = searchValue.toLowerCase()
+            setFilteredItems(
+                allItems.filter((item) => {
+                    if (item.category === 'recents') {
+                        // Filter recents client-side based on search term
+                        const name = (item.displayName || item.name || '').toLowerCase()
+                        return name.includes(searchLower)
+                    }
+                    // Other categories are already filtered by server
+                    return true
+                })
+            )
         } else {
             // No search term - show only recents
             setFilteredItems(allItems.filter((item) => item.category === 'recents'))
