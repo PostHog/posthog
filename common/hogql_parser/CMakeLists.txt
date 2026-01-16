@@ -30,7 +30,7 @@ set(ANTLR4_WITH_STATIC_CRT OFF CACHE BOOL "" FORCE)
 FetchContent_Populate(antlr4)
 FetchContent_Populate(boost)
 
-add_subdirectory(${antlr4_SOURCE_DIR}/runtime/Cpp)
+add_subdirectory(${antlr4_SOURCE_DIR}/runtime/Cpp EXCLUDE_FROM_ALL)
 
 set(BOOST_INCLUDE_DIR ${boost_SOURCE_DIR}/libs/algorithm/include)
 set(ANTLR_INCLUDE_DIR ${antlr4_SOURCE_DIR}/runtime/Cpp/runtime/src/)
@@ -69,19 +69,20 @@ if(EMSCRIPTEN)
             -lembind \
             -s WASM=1 \
             -s MODULARIZE=1 \
+            -s EXPORT_ES6=1 \
             -s EXPORT_NAME='createHogQLParser' \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s ENVIRONMENT='web,node' \
+            -s SINGLE_FILE=1 \
         "
     )
 
-    # Copy outputs to dist/ after build
-    set(DIST_DIR ${PROJECT_SOURCE_DIR}/dist)
-    add_custom_command(TARGET hogql_parser_wasm POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${DIST_DIR}
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:hogql_parser_wasm> ${DIST_DIR}/
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE_DIR:hogql_parser_wasm>/hogql_parser_wasm.wasm ${DIST_DIR}/
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PROJECT_SOURCE_DIR}/index.d.ts ${DIST_DIR}/
-        COMMENT "Copying WASM outputs to dist/"
+    # Install WASM outputs to dist/
+    # Usage: cmake --install build_wasm --prefix .
+    set(CMAKE_INSTALL_PREFIX ${PROJECT_SOURCE_DIR} CACHE PATH "" FORCE)
+    install(TARGETS hogql_parser_wasm RUNTIME DESTINATION dist)
+    install(FILES
+        ${PROJECT_SOURCE_DIR}/index.d.ts
+        ${PROJECT_SOURCE_DIR}/index.cjs
+        DESTINATION dist
     )
 endif()

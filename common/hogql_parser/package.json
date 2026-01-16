@@ -2,16 +2,25 @@
     "name": "@posthog/hogql-parser",
     "version": "0.0.1",
     "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
-    "main": "dist/hogql_parser_wasm.js",
+    "type": "module",
+    "main": "dist/index.cjs",
+    "module": "dist/hogql_parser_wasm.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/hogql_parser_wasm.js",
+            "require": "./dist/index.cjs"
+        }
+    },
     "files": [
         "dist/hogql_parser_wasm.js",
-        "dist/hogql_parser_wasm.wasm",
-        "index.d.ts"
+        "dist/index.cjs",
+        "dist/index.d.ts"
     ],
-    "types": "index.d.ts",
     "scripts": {
-        "build:wasm": "emcmake cmake -S . -B build_wasm && emmake cmake --build build_wasm --config Release",
-        "build:ninja": "emcmake cmake -S . -B build_wasm -G Ninja && emmake cmake --build build_wasm --config Release"
+        "build": "emcmake cmake -S . -B build_wasm && emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
+        "build:ninja": "emcmake cmake -S . -B build_wasm -G Ninja && emmake cmake --build build_wasm --config Release && cmake --install build_wasm"
     },
     "keywords": [
         "hogql",
