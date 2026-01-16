@@ -245,6 +245,7 @@
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries",
+         "posthog_survey"."translations",
          "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
