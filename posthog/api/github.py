@@ -11,7 +11,6 @@ import posthoganalytics
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from prometheus_client import Counter
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser
@@ -36,15 +35,6 @@ logger = structlog.get_logger(__name__)
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
-
-PERSONAL_API_KEY_LEAKED_COUNTER = Counter(
-    "github_secrets_scanning_personal_api_key_leaked",
-    "Number of valid Personal API Keys identified by GitHub secrets scanning",
-)
-PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
-    "github_secrets_scanning_project_secret_api_key_leaked",
-    "Number of valid Project Secret API Keys identified by GitHub secrets scanning",
-)
 
 # GitHub sends swapped type names - these constants clarify the mismatch
 GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
@@ -264,11 +254,8 @@ class SecretAlert(APIView):
                     result["label"] = "true_positive"
                     more_info = f"This key was detected by GitHub at {item['url']}."
 
-                    # roll key
                     key, _ = key_lookup
                     old_mask_value = key.mask_value
-
-                    PERSONAL_API_KEY_LEAKED_COUNTER.inc()
 
                     serializer = PersonalAPIKeySerializer(instance=key)
                     serializer.roll(key)
@@ -279,8 +266,6 @@ class SecretAlert(APIView):
                     team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                     local_found = True
                     result["label"] = "true_positive"
-
-                    PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
 
                     more_info = f"This key was detected by GitHub at {item['url']}."
                     send_project_secret_api_key_exposed(team.id, mask_key_value(token), more_info)
