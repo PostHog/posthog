@@ -785,20 +785,13 @@ jobs:
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
             
-            # Cache apt packages to reduce network dependency and flakiness
-            - name: Cache Qt library packages
-              id: cache-qt-libs
-              uses: actions/cache@v4
+            # Cache Qt library packages to reduce network dependency and flakiness
+            # Using cache-apt-pkgs-action instead of setup-qt-libs to avoid network issues
+            - name: Cache and install Qt libraries
+              uses: awalsh128/cache-apt-pkgs-action@latest
               with:
-                  path: |
-                      /var/cache/apt/archives
-                      /var/lib/apt/lists
-                  key: qt-libs-${{ runner.os }}-${{ hashFiles('.github/workflows/ci-backend.yml') }}
-                  restore-keys: |
-                      qt-libs-${{ runner.os }}-
-            
-            - name: Setup Qt libraries
-              uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
+                  packages: libegl1 libdbus-1-3 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 x11-utils libxcb-cursor0 libopengl0
+                  version: 1.0
 
             - name: Install plugin_transpiler
               shell: bash
