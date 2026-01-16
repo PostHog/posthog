@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from django.db import IntegrityError
+
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
@@ -139,7 +141,7 @@ class TestNodeNameSync(BaseTest):
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             Node.objects.create(
                 team=self.team,
                 dag_id="dag_one",
