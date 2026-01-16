@@ -29,11 +29,13 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { useDeleteFeatureFlagModal } from 'scenes/feature-flags/featureFlagDeleteUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -61,10 +63,14 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFla
 // Component for feature flag row actions that needs to use hooks
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const flagLogic = featureFlagsLogic({})
     const { updateFeatureFlag, loadFeatureFlags } = useActions(flagLogic)
 
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
+    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal({
+        currentTeamId: currentTeamId ?? 0,
+    })
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -200,28 +206,14 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                 <LemonButton
                                     status="danger"
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete feature flag?',
-                                            description: `Are you sure you want to delete "${featureFlag.key}"?`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                        object: { name: featureFlag.key, id: featureFlag.id },
-                                                        callback: loadFeatureFlags,
-                                                    }).catch((e) => {
-                                                        lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
-                                                    })
-                                                },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openDeleteModal(featureFlag, () => {
+                                            void deleteWithUndo({
+                                                endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                callback: loadFeatureFlags,
+                                            }).catch((e) => {
+                                                lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                            })
                                         })
                                     }}
                                     disabledReason={
@@ -250,6 +242,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 isOpen={isQuickSurveyModalOpen}
                 onCancel={() => setIsQuickSurveyModalOpen(false)}
             />
+            {DeleteFeatureFlagModal}
         </>
     )
 }

@@ -109,6 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
+import { useDeleteFeatureFlagModal } from './featureFlagDeleteUtils'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -162,6 +163,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
+
+    const { DeleteFeatureFlagModal, openDeleteModal } = useDeleteFeatureFlagModal({
+        currentTeamId: currentTeamId ?? 0,
+    })
 
     const handleGetFeedback = (variantKey?: string): void => {
         const hasVariantSurvey = variantKey
@@ -784,17 +789,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 if (featureFlag.deleted) {
                                                     restoreFeatureFlag(featureFlag)
                                                 } else {
-                                                    LemonDialog.open({
-                                                        title: 'Delete feature flag',
-                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
-                                                        primaryButton: {
-                                                            children: 'Delete',
-                                                            status: 'danger',
-                                                            onClick: () => deleteFeatureFlag(featureFlag),
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
+                                                    openDeleteModal(featureFlag, () => {
+                                                        deleteFeatureFlag(featureFlag)
                                                     })
                                                 }
                                             }}
@@ -881,6 +877,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     setQuickSurveyVariantKey(null)
                 }}
             />
+            {DeleteFeatureFlagModal}
         </>
     )
 }
