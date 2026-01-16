@@ -13,9 +13,13 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_replica::config::Config;
+use personhog_replica::config::{Config, PersonCacheBackend};
 use personhog_replica::service::PersonHogReplicaService;
-use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
+use personhog_replica::storage::{
+    cache::{CachedStorage, NoopPersonCache},
+    postgres::PostgresStorage,
+    FullStorage,
+};
 
 common_alloc::used!();
 
@@ -35,7 +39,8 @@ async fn shutdown_signal() {
 }
 
 async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
-    match config.storage_backend.as_str() {
+    // Create the underlying storage backend
+    let postgres_storage = match config.storage_backend.as_str() {
         "postgres" => {
             let pool_config = PoolConfig {
                 min_connections: config.min_pg_connections,
@@ -56,6 +61,15 @@ async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
         }
+    };
+
+    // Create the person cache layer based on configuration
+    match config.person_cache() {
+        PersonCacheBackend::None => {
+            tracing::info!("Person cache: disabled (passthrough)");
+            let person_cache = Arc::new(NoopPersonCache::new(postgres_storage.clone()));
+            Arc::new(CachedStorage::new(postgres_storage, person_cache))
+        } // Future: PersonCacheBackend::Redis => { ... }
     }
 }
 
@@ -82,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Storage backend: {}", config.storage_backend);
+    tracing::info!("Person cache backend: {}", config.person_cache_backend);
 
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;
