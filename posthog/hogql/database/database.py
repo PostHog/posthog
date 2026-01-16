@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Prefetch, Q
 
 import structlog
-import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -14,7 +13,6 @@ from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
@@ -131,8 +129,6 @@ from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -156,7 +152,6 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
-    | DatabaseSchemaManagedViewTable
     | DatabaseSchemaEndpointTable
 )
 
@@ -353,7 +348,6 @@ class Database(BaseModel):
         include_only: set[str] | None = None,
     ) -> dict[str, DatabaseSchemaTable]:
         from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -523,18 +517,6 @@ class Database(BaseModel):
             fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
             fields_dict = {field.name: field for field in fields}
 
-            if isinstance(view, RevenueAnalyticsBaseView):
-                tables[view_name] = DatabaseSchemaManagedViewTable(
-                    fields=fields_dict,
-                    id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
-                    name=view.name,
-                    kind=view.DATABASE_SCHEMA_TABLE_KIND,
-                    source_id=view.source_id,
-                    query=HogQLQuery(query=view.query),
-                )
-
-                continue
-
             saved_query = views_dict.get(view_name)
 
             if not saved_query:
@@ -601,25 +583,6 @@ class Database(BaseModel):
             # Set team_id for the create_hogql_database tracing span
             span = trace.get_current_span()
             span.set_attribute("team_id", team.pk)
-
-        with timings.measure("feature_flags"):
-            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-                "managed-viewsets",
-                str(team.uuid),
-                groups={
-                    "organization": str(team.organization_id),
-                    "project": str(team.id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization_id),
-                    },
-                    "project": {
-                        "id": str(team.id),
-                    },
-                },
-                send_feature_flag_events=False,
-            )
 
         with timings.measure("database"):
             database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
@@ -741,8 +704,6 @@ class Database(BaseModel):
                     .order_by("name")
                     .select_related("table", "table__credential", "managed_viewset")
                 )
-                if not is_managed_viewset_enabled:
-                    queryset = queryset.filter(managed_viewset__isnull=True)
 
                 saved_queries = list(queryset)
 
@@ -775,26 +736,6 @@ class Database(BaseModel):
                         )
             except Exception as e:
                 capture_exception(e)
-
-        with timings.measure("revenue_analytics_views"):
-            revenue_views: list[RevenueAnalyticsBaseView] = []
-            try:
-                if not is_managed_viewset_enabled:
-                    revenue_views = list(build_all_revenue_analytics_views(team, timings))
-            except Exception as e:
-                capture_exception(e)
-
-            # Each view will have a name similar to `stripe.<prefix>.<table_name>`
-            # We want to create a nested table group where `stripe` is the parent,
-            # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
-            # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
-            # but still allowing the bare `stripe.prefix.table_name` string access
-            for view in revenue_views:
-                try:
-                    views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
-                except Exception as e:
-                    capture_exception(e)
-                    continue
 
         with timings.measure("data_warehouse_tables"):
 

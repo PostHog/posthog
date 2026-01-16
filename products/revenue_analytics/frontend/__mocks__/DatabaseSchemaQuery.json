@@ -3441,7 +3441,7 @@
                 "values": null,
                 "variables": null
             },
-            "type": "managed_view"
+            "type": "managed_viewset"
         },
         "stripe.production.customer_revenue_view": {
             "fields": {
@@ -3509,7 +3509,7 @@
                 "values": null,
                 "variables": null
             },
-            "type": "managed_view"
+            "type": "managed_viewset"
         }
     },
     "joins": [

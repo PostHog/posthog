@@ -11022,42 +11022,9 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
-        "DatabaseSchemaManagedViewTable": {
-            "additionalProperties": false,
-            "properties": {
-                "fields": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/DatabaseSchemaField"
-                    },
-                    "type": "object"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "kind": {
-                    "$ref": "#/definitions/DatabaseSchemaManagedViewTableKind"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "query": {
-                    "$ref": "#/definitions/HogQLQuery"
-                },
-                "row_count": {
-                    "type": "number"
-                },
-                "source_id": {
-                    "type": "string"
-                },
-                "type": {
-                    "const": "managed_view",
-                    "type": "string"
-                }
-            },
-            "required": ["fields", "id", "kind", "name", "query", "type"],
-            "type": "object"
-        },
         "DatabaseSchemaManagedViewTableKind": {
+            "deprecated": true,
+            "description": "Kept around while we finish our migration away from these",
             "enum": [
                 "revenue_analytics_charge",
                 "revenue_analytics_customer",
@@ -11261,9 +11228,6 @@
                     "$ref": "#/definitions/DatabaseSchemaViewTable"
                 },
                 {
-                    "$ref": "#/definitions/DatabaseSchemaManagedViewTable"
-                },
-                {
                     "$ref": "#/definitions/DatabaseSchemaBatchExportTable"
                 },
                 {
@@ -11300,16 +11264,7 @@
             "type": "object"
         },
         "DatabaseSchemaTableType": {
-            "enum": [
-                "posthog",
-                "system",
-                "data_warehouse",
-                "view",
-                "batch_export",
-                "materialized_view",
-                "managed_view",
-                "endpoint"
-            ],
+            "enum": ["posthog", "system", "data_warehouse", "view", "batch_export", "materialized_view", "endpoint"],
             "type": "string"
         },
         "DatabaseSchemaViewTable": {

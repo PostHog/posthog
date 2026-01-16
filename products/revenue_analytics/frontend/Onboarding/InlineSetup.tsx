@@ -5,8 +5,6 @@ import { useState } from 'react'
 import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
@@ -42,13 +40,11 @@ const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['St
 
 export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, enabledDataWarehouseSources, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportRevenueAnalyticsDataSourceConnected, reportRevenueAnalyticsOnboardingCompleted } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
 
-    const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
     const isViewsetEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
 
     const hasEvents = events.length > 0
@@ -63,9 +59,6 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
     const [showEventModal, setShowEventModal] = useState(false)
-
-    // If FF is enabled and viewset is not enabled, show the viewset enablement step
-    const shouldShowViewsetStep = managedViewsetsEnabled && !isViewsetEnabled
 
     const revenueSources: RevenueSource[] = REVENUE_SOURCE_TYPES.map((source_type) => ({
         id: source_type,
@@ -104,7 +97,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
     return (
         <div className="space-y-6">
             {/* Step 1: Enable Managed Viewset (only if FF is enabled and viewset is not enabled) */}
-            {shouldShowViewsetStep ? (
+            {!isViewsetEnabled ? (
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3 mb-4">
@@ -141,11 +134,9 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                    {managedViewsetsEnabled && (
-                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
-                                            2
-                                        </div>
-                                    )}
+                                    <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-primary-3000 font-bold text-lg">
+                                        2
+                                    </div>
                                     <div>
                                         <h3 className="text-lg font-semibold mb-1">Configure Revenue Sources</h3>
                                         <p className="text-sm text-muted-alt">

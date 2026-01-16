@@ -3529,7 +3529,6 @@ export type DatabaseSchemaTableType =
     | 'view'
     | 'batch_export'
     | 'materialized_view'
-    | 'managed_view'
     | 'endpoint'
 
 export interface DatabaseSchemaTableCommon {
@@ -3545,6 +3544,10 @@ export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
 }
 
+/** Kept around while we finish our migration away from these
+ *
+ * @deprecated
+ */
 export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_CHARGE = 'revenue_analytics_charge',
     REVENUE_ANALYTICS_CUSTOMER = 'revenue_analytics_customer',
@@ -3558,13 +3561,6 @@ export enum DataWarehouseSavedQueryOrigin {
     DATA_WAREHOUSE = 'data_warehouse',
     ENDPOINT = 'endpoint',
     MANAGED_VIEWSET = 'managed_viewset',
-}
-
-export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
-    query: HogQLQuery
-    type: 'managed_view'
-    kind: DatabaseSchemaManagedViewTableKind
-    source_id?: string
 }
 
 export interface DatabaseSchemaEndpointTable extends DatabaseSchemaTableCommon {
@@ -3605,7 +3601,6 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
-    | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
     | DatabaseSchemaEndpointTable

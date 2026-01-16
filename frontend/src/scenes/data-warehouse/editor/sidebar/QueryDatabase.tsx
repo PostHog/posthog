@@ -207,101 +207,91 @@ export const QueryDatabase = (): JSX.Element => {
                         ? item.id.replace('search-view-', '')
                         : item.id.replace('view-', '')
 
-                    // Check if this is a saved query (has last_run_at) vs managed view
-                    const isSavedQuery = item.record?.isSavedQuery || false
                     const isManagedViewsetQuery = item.record?.view.managed_viewset_kind !== null
 
                     return (
                         <DropdownMenuGroup>
-                            {isSavedQuery && (
-                                <>
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    sceneLogic.actions.newTab(urls.sqlEditor(undefined, item.record?.view.id))
+                                }}
+                            >
+                                <ButtonPrimitive
+                                    menuItem
+                                    tooltipInteractive
+                                    tooltipPlacement="right"
+                                    disabled={isManagedViewsetQuery}
+                                    tooltip={
+                                        isManagedViewsetQuery ? (
+                                            <>
+                                                Managed viewset views cannot be edited directly. You can enable/disable
+                                                these views in the{' '}
+                                                <Link to={urls.dataWarehouseManagedViewsets()}>Managed Viewsets</Link>{' '}
+                                                section.
+                                            </>
+                                        ) : undefined
+                                    }
+                                >
+                                    Edit view definition
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    selectSourceTable(item.name)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            {item.record?.view?.is_materialized && (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        runDataWarehouseSavedQuery(viewId)
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={{
+                                            'Materialization is already running':
+                                                item.record?.view?.status === 'Running',
                                         }}
                                     >
-                                        <ButtonPrimitive
-                                            menuItem
-                                            tooltipInteractive
-                                            tooltipPlacement="right"
-                                            disabled={isManagedViewsetQuery}
-                                            tooltip={
-                                                isManagedViewsetQuery ? (
-                                                    <>
-                                                        Managed viewset views cannot be edited directly. You can
-                                                        enable/disable these views in the{' '}
-                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
-                                                            Managed Viewsets
-                                                        </Link>{' '}
-                                                        section.
-                                                    </>
-                                                ) : undefined
-                                            }
-                                        >
-                                            Edit view definition
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            selectSourceTable(item.name)
-                                        }}
-                                    >
-                                        <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                    {item.record?.view?.is_materialized && (
-                                        <DropdownMenuItem
-                                            asChild
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                runDataWarehouseSavedQuery(viewId)
-                                            }}
-                                        >
-                                            <ButtonPrimitive
-                                                menuItem
-                                                disabledReasons={{
-                                                    'Materialization is already running':
-                                                        item.record?.view?.status === 'Running',
-                                                }}
-                                            >
-                                                Sync now
-                                            </ButtonPrimitive>
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            deleteDataWarehouseSavedQuery(viewId)
-                                        }}
-                                    >
-                                        <ButtonPrimitive
-                                            menuItem
-                                            tooltipInteractive
-                                            tooltipPlacement="right"
-                                            disabled={isManagedViewsetQuery}
-                                            tooltip={
-                                                isManagedViewsetQuery ? (
-                                                    <>
-                                                        Managed viewset views cannot be individually deleted. You can
-                                                        choose to delete all views in the managed viewset from the{' '}
-                                                        <Link to={urls.dataWarehouseManagedViewsets()}>
-                                                            Managed Viewsets
-                                                        </Link>{' '}
-                                                        page.
-                                                    </>
-                                                ) : undefined
-                                            }
-                                        >
-                                            Delete
-                                        </ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                </>
+                                        Sync now
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
                             )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteDataWarehouseSavedQuery(viewId)
+                                }}
+                            >
+                                <ButtonPrimitive
+                                    menuItem
+                                    tooltipInteractive
+                                    tooltipPlacement="right"
+                                    disabled={isManagedViewsetQuery}
+                                    tooltip={
+                                        isManagedViewsetQuery ? (
+                                            <>
+                                                Managed viewset views cannot be individually deleted. You can choose to
+                                                delete all views in the managed viewset from the{' '}
+                                                <Link to={urls.dataWarehouseManagedViewsets()}>Managed Viewsets</Link>{' '}
+                                                page.
+                                            </>
+                                        ) : undefined
+                                    }
+                                >
+                                    Delete
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

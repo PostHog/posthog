@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import models, transaction
 
 import structlog
@@ -106,7 +107,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.sync_frequency_interval = timedelta(hours=12)
 
                 saved_query.save()
-                saved_query.schedule_materialization()
+
+                # Materializing the view during tests isn't needed and makes it much slower
+                if not settings.TEST:
+                    saved_query.schedule_materialization()
 
                 if created:
                     views_created += 1
@@ -155,7 +159,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                     views_deleted += 1
                 except Exception as e:
                     logger.warning(
-                        "failed_to_delete_managed_view",
+                        "failed_to_delete_managed_viewset_view",
                         team_id=self.team_id,
                         view_name=view.name,
                         error=str(e),

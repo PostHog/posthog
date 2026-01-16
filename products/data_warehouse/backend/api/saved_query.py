@@ -8,7 +8,6 @@ from django.db.models import OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -473,28 +472,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
-
-        # Detect whether we should include managed views in the queryset
-        is_managed_viewset_enabled = posthoganalytics.feature_enabled(
-            "managed-viewsets",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                },
-                "project": {
-                    "id": str(self.team.id),
-                },
-            },
-            send_feature_flag_events=False,
-        )
-
-        if not is_managed_viewset_enabled:
-            base_queryset = base_queryset.filter(managed_viewset__isnull=True)
 
         # Only annotate with latest activity ID for list operations, not for single object retrieves
         # This avoids the annotation when we're getting a single object for update/create/etc.

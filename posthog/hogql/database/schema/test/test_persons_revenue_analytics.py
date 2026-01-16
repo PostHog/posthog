@@ -7,9 +7,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    assert_time_is_frozen,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -185,39 +185,21 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.save()
 
-    def create_managed_viewsets(self):
+    def _update_join(self, source_table_key: str):
+        self.join.source_table_key = source_table_key
+        self.join.save()
+
+    def _create_managed_viewsets(self):
+        # In test mode, viewsets depend on current time, so assert we're always inside a freeze_time context
+        assert_time_is_frozen()
+
         self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
         )
         self.viewset.sync_views()
 
     def test_get_revenue_for_events(self):
-        self.setup_events()
-
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-                currencyAwareDecimal=True,
-            )
-        ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
-
         with freeze_time(self.QUERY_TIMESTAMP):
-            response = execute_hogql_query(
-                parse_select(
-                    "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
-                    placeholders={"id": ast.Constant(value=self.person_id)},
-                ),
-                self.team,
-            )
-
-            self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
-
-    def test_get_revenue_for_events_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
             self.setup_events()
 
             self.team.revenue_analytics_config.events = [
@@ -230,35 +212,35 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             ]
             self.team.revenue_analytics_config.save()
             self.team.save()
-            self.create_managed_viewsets()
+            self._create_managed_viewsets()  # Recreate them knowing we have this new event
 
-            with freeze_time(self.QUERY_TIMESTAMP):
-                response = execute_hogql_query(
-                    parse_select(
-                        "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
-                        placeholders={"id": ast.Constant(value=self.person_id)},
-                    ),
-                    self.team,
-                )
+            response = execute_hogql_query(
+                parse_select(
+                    "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
+                    placeholders={"id": ast.Constant(value=self.person_id)},
+                ),
+                self.team,
+            )
 
-                self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
+            self.assertEqual(response.results[0], (Decimal("350.42"), Decimal("350.42")))
 
     def test_get_revenue_for_schema_source_for_id_join(self):
-        self.setup_schema_sources()
-        self.join.source_table_key = "id"
-        self.join.save()
-
-        # These are the 6 IDs inside the CSV files, plus an extra dummy/empty one
-        distinct_id_to_person_id: dict[str, str] = {}
-        for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
-            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
+        self.setup_schema_sources()  # Must be outside freeze_time because of s3fs
 
         with freeze_time(self.QUERY_TIMESTAMP):
-            queries = [
-                "SELECT id, revenue_analytics.revenue from persons order by id asc",
-                "SELECT id, $virt_revenue from persons order by id asc",
-            ]
+            self._update_join(source_table_key="id")
+            self._create_managed_viewsets()
+
+            # These are the 6 IDs inside the CSV files, plus an extra dummy/empty one
+            distinct_id_to_person_id: dict[str, str] = {}
+            for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
+                person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                distinct_id_to_person_id[distinct_id] = person.uuid
+
+                queries = [
+                    "SELECT id, revenue_analytics.revenue from persons order by id asc",
+                    "SELECT id, $virt_revenue from persons order by id asc",
+                ]
 
             for query in queries:
                 response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
@@ -276,63 +258,27 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                     ],
                 )
 
-    def test_get_revenue_for_schema_source_for_id_join_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            self.setup_schema_sources()
+    def test_get_revenue_for_schema_source_for_email_join(self):
+        self.setup_schema_sources()  # Must be outside freeze_time because of s3fs
 
-            self.join.source_table_key = "id"
-            self.join.save()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            self._update_join(source_table_key="email")
+            self._create_managed_viewsets()
 
-            self.create_managed_viewsets()
-
-            # These are the 6 IDs inside the CSV files, plus an extra dummy/empty one
+            # These are the 6 IDs inside the CSV files, and we have an extra empty one
             distinct_id_to_person_id: dict[str, str] = {}
-            for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6", "dummy"]:
+            for distinct_id in [
+                "john.doe@example.com",  # cus_1
+                "jane.doe@example.com",  # cus_2
+                "john.smith@example.com",  # cus_3
+                "jane.smith@example.com",  # cus_4
+                "john.doejr@example.com",  # cus_5
+                "john.doejrjr@example.com",  # cus_6
+                "zdummy",
+            ]:
                 person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
                 distinct_id_to_person_id[distinct_id] = person.uuid
 
-            with freeze_time(self.QUERY_TIMESTAMP):
-                queries = [
-                    "SELECT id, revenue_analytics.revenue from persons order by id asc",
-                    "SELECT id, $virt_revenue from persons order by id asc",
-                ]
-
-                for query in queries:
-                    response = execute_hogql_query(parse_select(query), self.team, modifiers=self.MODIFIERS)
-
-                    self.assertEqual(
-                        response.results,
-                        [
-                            (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553")),
-                            (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452")),
-                            (distinct_id_to_person_id["cus_3"], Decimal("4161.34422")),
-                            (distinct_id_to_person_id["cus_4"], Decimal("254.12345")),
-                            (distinct_id_to_person_id["cus_5"], Decimal("1494.0562")),
-                            (distinct_id_to_person_id["cus_6"], Decimal("2796.37014")),
-                            (distinct_id_to_person_id["dummy"], None),
-                        ],
-                    )
-
-    def test_get_revenue_for_schema_source_for_email_join(self):
-        self.setup_schema_sources()
-        self.join.source_table_key = "email"
-        self.join.save()
-
-        # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        distinct_id_to_person_id: dict[str, str] = {}
-        for distinct_id in [
-            "john.doe@example.com",  # cus_1
-            "jane.doe@example.com",  # cus_2
-            "john.smith@example.com",  # cus_3
-            "jane.smith@example.com",  # cus_4
-            "john.doejr@example.com",  # cus_5
-            "john.doejrjr@example.com",  # cus_6
-            "zdummy",
-        ]:
-            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
-
-        with freeze_time(self.QUERY_TIMESTAMP):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue FROM persons ORDER BY id ASC"),
                 self.team,
@@ -365,25 +311,25 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_get_revenue_for_schema_source_for_metadata_join(self):
-        self.setup_schema_sources()
-        self.join.source_table_key = "JSONExtractString(metadata, 'id')"
-        self.join.save()
-
-        # These are the 6 IDs inside the CSV files, and we have an extra empty one
-        distinct_id_to_person_id: dict[str, str] = {}
-        for distinct_id in [
-            "cus_1_metadata",
-            "cus_2_metadata",
-            "cus_3_metadata",
-            "cus_4_metadata",
-            "cus_5_metadata",
-            "cus_6_metadata",
-            "dummy",
-        ]:
-            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
-
+        self.setup_schema_sources()  # Must be outside freeze_time because of s3fs
         with freeze_time(self.QUERY_TIMESTAMP):
+            self._update_join(source_table_key="JSONExtractString(metadata, 'id')")
+            self._create_managed_viewsets()
+
+            # These are the 6 IDs inside the CSV files, and we have an extra empty one
+            distinct_id_to_person_id: dict[str, str] = {}
+            for distinct_id in [
+                "cus_1_metadata",
+                "cus_2_metadata",
+                "cus_3_metadata",
+                "cus_4_metadata",
+                "cus_5_metadata",
+                "cus_6_metadata",
+                "dummy",
+            ]:
+                person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                distinct_id_to_person_id[distinct_id] = person.uuid
+
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
                 self.team,
@@ -404,19 +350,20 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids(self):
-        self.setup_schema_sources()
-        self.join.source_table_key = "email"
-        self.join.save()
-
-        # Person has several distinct IDs, but only one of them can be matched from the customer table
-        multiple_distinct_ids_person = _create_person(
-            team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"]
-        )
-
-        # Dummy person without revenue
-        dummy_person = _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
+        self.setup_schema_sources()  # Must be outside freeze_time because of s3fs
 
         with freeze_time(self.QUERY_TIMESTAMP):
+            self._update_join(source_table_key="email")
+            self._create_managed_viewsets()
+
+            # Person has several distinct IDs, but only one of them can be matched from the customer table
+            multiple_distinct_ids_person = _create_person(
+                team_id=self.team.pk, distinct_ids=["distinct_1", "john.doe@example.com"]
+            )
+
+            # Dummy person without revenue
+            dummy_person = _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
+
             response = execute_hogql_query(
                 parse_select("SELECT id, $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
@@ -440,17 +387,18 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(Decimal("283.8496260553"),), (None,)])
 
     def test_query_revenue_analytics_table_sources(self):
-        self.setup_schema_sources()
-        self.join.source_table_key = "id"
-        self.join.save()
-
-        # Create persons matching customer IDs from the stripe data
-        distinct_id_to_person_id: dict[str, str] = {}
-        for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
-            person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
+        self.setup_schema_sources()  # Must be outside freeze_time because of s3fs
 
         with freeze_time(self.QUERY_TIMESTAMP):
+            self._update_join(source_table_key="id")
+            self._create_managed_viewsets()
+
+            # Create persons matching customer IDs from the stripe data
+            distinct_id_to_person_id: dict[str, str] = {}
+            for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
+                person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                distinct_id_to_person_id[distinct_id] = person.uuid
+
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -471,72 +419,8 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-    def test_query_revenue_analytics_table_sources_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            self.setup_schema_sources()
-            self.join.source_table_key = "id"
-            self.join.save()
-            self.create_managed_viewsets()
-
-            # Create persons matching customer IDs from the stripe data
-            distinct_id_to_person_id: dict[str, str] = {}
-            for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
-                person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-                distinct_id_to_person_id[distinct_id] = person.uuid
-
-            with freeze_time(self.QUERY_TIMESTAMP):
-                results = execute_hogql_query(
-                    parse_select(
-                        "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
-                    ),
-                    self.team,
-                    modifiers=self.MODIFIERS,
-                )
-
-                self.assertEqual(
-                    results.results,
-                    [
-                        (distinct_id_to_person_id["cus_2"], Decimal("482.2158673452"), Decimal("16.3052916666")),
-                        (distinct_id_to_person_id["cus_1"], Decimal("283.8496260553"), Decimal("4.1397346665")),
-                        (distinct_id_to_person_id["cus_3"], Decimal("4161.34422"), 0),
-                        (distinct_id_to_person_id["cus_6"], Decimal("2796.37014"), 0),
-                        (distinct_id_to_person_id["cus_5"], Decimal("1494.0562"), 0),
-                        (distinct_id_to_person_id["cus_4"], Decimal("254.12345"), 0),
-                    ],
-                )
-
     def test_query_revenue_analytics_table_events(self):
-        self.setup_events_with_subscriptions()
-
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-                currencyAwareDecimal=True,
-                subscriptionProperty=self.SUBSCRIPTION_PROPERTY,
-                subscriptionDropoffMode=SubscriptionDropoffMode.AFTER_DROPOFF_PERIOD,  # Better default for tests
-            )
-        ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
-
         with freeze_time(self.QUERY_TIMESTAMP):
-            results = execute_hogql_query(
-                parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
-                self.team,
-                modifiers=self.MODIFIERS,
-            )
-
-            # MRR is calculated from recurring events (those with subscription_id)
-            # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
-            self.assertEqual(
-                results.results,
-                [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
-            )
-
-    def test_query_revenue_analytics_table_events_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
             self.setup_events_with_subscriptions()
 
             self.team.revenue_analytics_config.events = [
@@ -552,40 +436,38 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             self.team.revenue_analytics_config.save()
             self.team.save()
 
-            with freeze_time(self.QUERY_TIMESTAMP):
-                self.create_managed_viewsets()  # Make sure this runs inside the freeze_time context
+            self._create_managed_viewsets()
 
-                results = execute_hogql_query(
-                    parse_select(
-                        "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"
-                    ),
-                    self.team,
-                    modifiers=self.MODIFIERS,
-                )
+            results = execute_hogql_query(
+                parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                self.team,
+                modifiers=self.MODIFIERS,
+            )
 
-                # MRR is calculated from recurring events (those with subscription_id)
-                self.assertEqual(
-                    results.results,
-                    [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
-                )
+            # MRR is calculated from recurring events (those with subscription_id)
+            self.assertEqual(
+                results.results,
+                [(self.person_id, Decimal("350.84"), Decimal("250.42"))],
+            )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
     def test_virtual_property_in_trend(self, mode):
-        self.setup_events()
-
-        self.team.revenue_analytics_config.events = [
-            RevenueAnalyticsEventItem(
-                eventName=self.PURCHASE_EVENT_NAME,
-                revenueProperty=self.REVENUE_PROPERTY,
-                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-                currencyAwareDecimal=True,
-            )
-        ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
-
-        # Breaking down by revenue doesnt make any sense, but this is just proving it works
         with freeze_time(self.QUERY_TIMESTAMP):
+            self.setup_events()
+
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(
+                    eventName=self.PURCHASE_EVENT_NAME,
+                    revenueProperty=self.REVENUE_PROPERTY,
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                    currencyAwareDecimal=True,
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self.team.save()
+            self._create_managed_viewsets()  # Recreate them knowing we have this new event
+
+            # Breaking down by revenue doesnt make any sense, but this is just proving it works
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -600,38 +482,3 @@ class TestPersonsRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             results = tqr.calculate().results
 
         assert results[0]["breakdown_value"] == ["350.42"]
-
-    @parameterized.expand([e.value for e in PersonsOnEventsMode])
-    def test_virtual_property_in_trend_with_managed_viewsets_ff(self, mode):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            self.setup_events()
-
-            self.team.revenue_analytics_config.events = [
-                RevenueAnalyticsEventItem(
-                    eventName=self.PURCHASE_EVENT_NAME,
-                    revenueProperty=self.REVENUE_PROPERTY,
-                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
-                    currencyAwareDecimal=True,
-                )
-            ]
-            self.team.revenue_analytics_config.save()
-            self.team.save()
-
-            self.create_managed_viewsets()
-
-            # Breaking down by revenue doesnt make any sense, but this is just proving it works
-            with freeze_time(self.QUERY_TIMESTAMP):
-                query = TrendsQuery(
-                    **{
-                        "kind": "TrendsQuery",
-                        "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
-                        "trendsFilter": {},
-                        "breakdownFilter": {"breakdowns": [{"property": "$virt_revenue", "type": "person"}]},
-                    },
-                    dateRange=DateRange(date_from="all", date_to=None),
-                    modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
-                )
-                tqr = TrendsQueryRunner(team=self.team, query=query)
-                results = tqr.calculate().results
-
-            assert results[0]["breakdown_value"] == ["350.42"]

@@ -311,13 +311,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
     def revenue_subqueries(schema: RevenueAnalyticsSchema, database: Database) -> Iterable[RevenueAnalyticsBaseView]:
         for view_name in database.get_view_names():
             if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
-                # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
-                # Once the `managed-viewsets` feature flag is fully rolled out we can remove the first check
-                # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset
+                # To be extra sure we aren't including user-defined queries we assert they're managed by the Revenue Analytics managed viewset
                 table = database.get_table(view_name)
-                if isinstance(table, RevenueAnalyticsBaseView):
-                    yield table
-                elif (
+                if (
                     isinstance(table, SavedQuery)
                     and table.metadata.get("managed_viewset_kind") == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
                 ):
