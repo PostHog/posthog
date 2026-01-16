@@ -457,25 +457,23 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                             distinctId: update.distinct_id,
                         }))
                     } catch (error) {
+                        logger.error('Failed to update person after max retries', {
+                            error,
+                            cacheKey,
+                            teamId: update.team_id,
+                            personId: update.id,
+                            distinctId: update.distinct_id,
+                            errorMessage: error instanceof Error ? error.message : String(error),
+                            errorStack: error instanceof Error ? error.stack : undefined,
+                        })
+
+                        personWriteMethodAttemptCounter.inc({
+                            db_write_mode: this.options.dbWriteMode,
+                            method: this.options.dbWriteMode,
+                            outcome: 'error',
+                        })
                         return this.handleIndividualUpdateError(error, update)
                     }
-                }).catch((error) => {
-                    logger.error('Failed to update person after max retries', {
-                        error,
-                        cacheKey,
-                        teamId: update.team_id,
-                        personId: update.id,
-                        distinctId: update.distinct_id,
-                        errorMessage: error instanceof Error ? error.message : String(error),
-                        errorStack: error instanceof Error ? error.stack : undefined,
-                    })
-
-                    personWriteMethodAttemptCounter.inc({
-                        db_write_mode: this.options.dbWriteMode,
-                        method: this.options.dbWriteMode,
-                        outcome: 'error',
-                    })
-                    throw error
                 })
             )
         )
