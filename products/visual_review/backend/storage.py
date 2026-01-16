@@ -24,7 +24,10 @@ class ArtifactStorage:
         self.project_id = project_id
 
     def _key(self, content_hash: str) -> str:
-        return f"{self.FOLDER}/{self.project_id}/{content_hash}"
+        # Hash sharding: use first 2 chars as prefix for better S3 partitioning
+        # Spreads load across 256 prefixes, improves listing performance at scale
+        prefix = content_hash[:2]
+        return f"{self.FOLDER}/{self.project_id}/{prefix}/{content_hash}"
 
     def get_presigned_upload_url(self, content_hash: str) -> dict[str, Any] | None:
         if not settings.OBJECT_STORAGE_ENABLED:
