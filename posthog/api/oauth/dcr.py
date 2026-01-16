@@ -45,8 +45,9 @@ def validate_client_name(value: str) -> None:
             raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
-# Known partner patterns for deriving partner_id from client_name
-# Format: (pattern_substring, partner_id)
+# Known partner patterns for deriving software_id from client_name
+# Format: (pattern, software_id) - patterns use word boundary matching to avoid false positives
+# e.g., "cline" won't match "decline", "roo" won't match "kangaroo"
 KNOWN_PARTNER_PATTERNS: list[tuple[str, str]] = [
     ("replit", "replit"),
     ("claude code", "claude-code"),
@@ -61,18 +62,25 @@ KNOWN_PARTNER_PATTERNS: list[tuple[str, str]] = [
     ("cline", "cline"),
     ("continue", "continue"),
     ("cody", "cody"),
-    ("roo", "roo"),
     ("roocode", "roo"),
+    ("roo", "roo"),
 ]
 
 
+def _matches_word_boundary(text: str, pattern: str) -> bool:
+    """Check if pattern matches at word boundaries in text."""
+    import re
+
+    return bool(re.search(rf"\b{re.escape(pattern)}\b", text))
+
+
 def derive_software_id_from_name(client_name: str | None) -> str | None:
-    """Derive software_id from client_name by matching known patterns."""
+    """Derive software_id from client_name by matching known patterns at word boundaries."""
     if not client_name:
         return None
     lower_name = client_name.lower()
     for pattern, software_id in KNOWN_PARTNER_PATTERNS:
-        if pattern in lower_name:
+        if _matches_word_boundary(lower_name, pattern):
             return software_id
     return None
 
@@ -132,10 +140,17 @@ class DCRRequestSerializer(serializers.Serializer):
         help_text="How the client authenticates at the token endpoint (only 'none' supported for public clients)",
     )
     # Software identification per RFC 7591 for grouping clients by integration source
+    # Only alphanumeric characters and hyphens allowed to prevent injection attacks
     software_id = serializers.CharField(
         max_length=100,
         required=False,
         help_text="Identifier for the software registering this client per RFC 7591 (e.g., 'replit', 'claude-code')",
+        validators=[
+            RegexValidator(
+                regex=r"^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$",
+                message="software_id must contain only alphanumeric characters and hyphens, and cannot start or end with a hyphen",
+            )
+        ],
     )
 
 

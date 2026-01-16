@@ -370,6 +370,11 @@ class TestDynamicClientRegistration(APIBaseTest):
         ("unknown_client", "Unknown Client", None, None),
         ("explicit_software_id", "My Custom Client", "my-custom-integration", "my-custom-integration"),
         ("explicit_overrides_derived", "Replit Custom Build", "replit-enterprise", "replit-enterprise"),
+        # False positive tests - these should NOT match due to word boundary matching
+        ("decline_not_cline", "Decline App", None, None),
+        ("kangaroo_not_roo", "Kangaroo Client", None, None),
+        ("excursor_not_cursor", "Excursor Tool", None, None),
+        ("discontinued_not_continue", "Discontinued Service", None, None),
     ])
     def test_software_id_derivation(self, _name, client_name, explicit_software_id, expected_software_id):
         """Test software_id is correctly derived from client_name or explicitly set."""
@@ -391,3 +396,25 @@ class TestDynamicClientRegistration(APIBaseTest):
 
         app = OAuthApplication.objects.get(client_id=data["client_id"])
         self.assertEqual(app.software_id, expected_software_id)
+
+    @parameterized.expand([
+        ("empty_string", ""),
+        ("only_whitespace", "   "),
+        ("special_chars", "my@app!"),
+        ("starts_with_hyphen", "-myapp"),
+        ("ends_with_hyphen", "myapp-"),
+        ("contains_spaces", "my app"),
+        ("unicode", "myäpp"),
+    ])
+    def test_software_id_validation_rejects_invalid(self, _name, invalid_software_id):
+        """Test that invalid software_id values are rejected."""
+        response = self.client.post(
+            "/oauth/register/",
+            {
+                "redirect_uris": ["https://example.com/callback"],
+                "software_id": invalid_software_id,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_client_metadata")
