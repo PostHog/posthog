@@ -55,6 +55,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
             "created_at": ANY,
             "created_by": ANY,
+            "updated_at": ANY,
             "pinned_at": None,
             "deleted": False,
             "creation_context": None,
