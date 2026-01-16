@@ -1,5 +1,6 @@
 use envconfig::Envconfig;
 use std::net::SocketAddr;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Person cache backend options.
@@ -10,11 +11,13 @@ pub enum PersonCacheBackend {
     // Future: Redis, etc.
 }
 
-impl PersonCacheBackend {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for PersonCacheBackend {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "none" | "disabled" | "passthrough" => Some(Self::None),
-            _ => None,
+            "none" | "disabled" | "passthrough" => Ok(Self::None),
+            _ => Err(format!("Unknown person cache backend: {s}")),
         }
     }
 }
@@ -81,11 +84,8 @@ impl Config {
     /// Parse the person cache backend configuration.
     /// Panics if the configured value is not recognized.
     pub fn person_cache(&self) -> PersonCacheBackend {
-        PersonCacheBackend::from_str(&self.person_cache_backend).unwrap_or_else(|| {
-            panic!(
-                "Unknown person cache backend: {}. Supported: none",
-                self.person_cache_backend
-            )
-        })
+        self.person_cache_backend
+            .parse()
+            .unwrap_or_else(|e: String| panic!("{}", e))
     }
 }
