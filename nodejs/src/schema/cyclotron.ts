@@ -65,6 +65,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
     headers: z.record(z.string()).optional(),
+    timeoutMs: z.number().optional(),
 })
 
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
