@@ -118,7 +118,7 @@ Your task is to consolidate these into meaningful semantic segments and provide 
 1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
 2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
 3. Have a **combined description** that synthesizes the details from the original segments
-4. Detect if the user experienced **failures** (errors, things not working), **confusion** (backtracking, hesitation, repeated attempts), or **abandonment** (starting something but not finishing)
+4. Detect if the user experienced **exceptions** (errors, things not working - classify as "blocking" if it stopped their progress, "non-blocking" if they could continue), **confusion** (backtracking, hesitation, repeated attempts), or **abandonment** (starting something but not finishing)
 5. Determine if the segment was **successful** (user achieved their apparent goal)
 
 Raw segments:
@@ -136,7 +136,9 @@ Rules:
 - Time ranges must not overlap and should cover the full session
 - Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
 - Keep descriptions concise but complete
-- Set failure_detected=true if you see error messages, failed actions, or things not working as expected
+- Set exception="blocking" if errors prevented the user from completing their intended action
+- Set exception="non-blocking" if errors occurred but the user could continue or work around them
+- Set exception=null if no errors or failures were observed
 - Set confusion_detected=true if the user backtracks, hesitates, or makes repeated attempts at the same thing
 - Set abandonment_detected=true if the user starts a flow but doesn't complete it
 - Set success=false for segments where the user's apparent goal wasn't achieved

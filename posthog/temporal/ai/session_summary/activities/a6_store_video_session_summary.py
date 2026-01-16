@@ -245,10 +245,12 @@ def _convert_video_segments_to_session_summary(
                     "events_count": events_count,
                     "events_percentage": min(1.0, events_percentage),
                     "key_action_count": 1,  # One key action per video segment
-                    "failure_count": 1 if segment.failure_detected else 0,
+                    "failure_count": 1
+                    if (segment.exception or segment.confusion_detected or segment.abandonment_detected)
+                    else 0,
                     "abandonment_count": 1 if segment.abandonment_detected else 0,
                     "confusion_count": 1 if segment.confusion_detected else 0,
-                    "exception_count": 0,  # Exceptions require code-level detection, not video analysis
+                    "exception_count": 1 if segment.exception else 0,
                 },
             }
         )
@@ -288,7 +290,7 @@ def _convert_video_segments_to_session_summary(
                 "description": segment.description,
                 "abandonment": segment.abandonment_detected,
                 "confusion": segment.confusion_detected,
-                "exception": None,
+                "exception": segment.exception,
                 "event_id": representative_event_id,
                 "timestamp": event_timestamp,
                 "milliseconds_since_start": ms_since_start or 0,
@@ -306,7 +308,7 @@ def _convert_video_segments_to_session_summary(
                 "description": segment.description,
                 "abandonment": segment.abandonment_detected,
                 "confusion": segment.confusion_detected,
-                "exception": None,
+                "exception": segment.exception,
                 "event_id": f"vid_{idx:04d}",
                 "timestamp": segment.start_time,
                 "milliseconds_since_start": start_ms,

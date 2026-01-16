@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -79,7 +79,10 @@ class ConsolidatedVideoSegment(BaseModel):
     end_time: str = Field(description="Format: MM:SS or HH:MM:SS")
     description: str = Field(description="Combined/refined description of what happened")
     success: bool = Field(default=True, description="Whether the segment appears successful")
-    failure_detected: bool = Field(default=False, description="User encountered errors/failures")
+    exception: Literal["blocking", "non-blocking"] | None = Field(
+        default=None,
+        description="Type of failure: 'blocking' if it stopped user progress, 'non-blocking' if user could continue",
+    )
     confusion_detected: bool = Field(default=False, description="User appeared confused (backtracking, hesitation)")
     abandonment_detected: bool = Field(default=False, description="User abandoned a flow")
 
