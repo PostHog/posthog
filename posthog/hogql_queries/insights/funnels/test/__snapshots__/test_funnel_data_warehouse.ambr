@@ -30,7 +30,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('{table_name_str}_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -114,7 +114,7 @@
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview'))), ifNull(equals(step_0, 1), 0))
               UNION ALL SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                                accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('{table_name_str}_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
+                               tupleElement(tuple(throwIf(isNull(e.uuid), 'Encountered a null value in posthog_test_test_table_1.uuid, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.uuid, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.uuid), ''))))))), 2) AS uuid,
                                NULL AS `$session_id`,
                                NULL AS `$window_id`,
                                0 AS step_0,
@@ -174,7 +174,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('{table_name_str}_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id), 'Encountered a null value in posthog_test_test_table_1.id, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -234,7 +234,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('{table_name_str}_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(1, 1, 0) AS step_0,
@@ -294,7 +294,7 @@
         FROM
           (SELECT toTimeZone(e.created, 'UTC') AS timestamp,
                   accurateCastOrNull(e.user_id, 'UUID') AS aggregation_target,
-                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('{table_name_str}_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
+                  tupleElement(tuple(throwIf(isNull(e.id_with_nulls), 'Encountered a null value in posthog_test_test_table_1.id_with_nulls, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'), toUUIDOrDefault(e.id_with_nulls, reinterpretAsUUID(hex(MD5(concat('posthog_test_test_table_1_', ifNull(toString(e.id_with_nulls), ''))))))), 2) AS uuid,
                   NULL AS `$session_id`,
                   NULL AS `$window_id`,
                   if(isNotNull(e.id_with_nulls), 1, 0) AS step_0,
