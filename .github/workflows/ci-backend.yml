@@ -202,7 +202,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: cargo
 
             - name: Cache Rust dependencies
@@ -411,14 +411,13 @@ jobs:
 
             - name: Dump migrated schema
               if: github.event_name == 'push'
-              env:
-                  PGPASSWORD: posthog
               run: |
                   set -e
                   set -o pipefail
                   # Dump schema + django_migrations data so Django knows which migrations are applied
-                  (pg_dump --schema-only --clean -h localhost -U posthog posthog && \
-                   pg_dump --data-only --table=django_migrations -h localhost -U posthog posthog) | gzip > schema.sql.gz
+                  # Run pg_dump inside container to ensure version match (host has pg_dump 16, container has 15)
+                  (docker compose -f docker-compose.dev.yml exec -T db pg_dump --schema-only --clean -U posthog posthog && \
+                   docker compose -f docker-compose.dev.yml exec -T db pg_dump --data-only --table=django_migrations -U posthog posthog) | gzip > schema.sql.gz
                   # Verify the dump is valid
                   gunzip -t schema.sql.gz
 
@@ -452,7 +451,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -491,7 +490,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.12']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -542,121 +541,121 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.12.129'
                       python-version: '3.12.12'
                       concurrency: 10
                       group: 10
@@ -752,7 +751,7 @@ jobs:
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: cargo
 
             - name: Cache Rust dependencies
@@ -778,7 +777,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
@@ -944,7 +943,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.11.66' }}
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.12.129' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -1104,7 +1103,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -1146,7 +1145,7 @@ jobs:
             - name: Install Rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: cargo
 
             - name: Cache Rust dependencies

@@ -363,7 +363,7 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "property_type is required" in response.json()["error"]
+        assert "Property has no type defined" in response.json()["error"]
 
     def test_assign_slot_duration_type(self):
         """Test error when trying to materialize Duration property."""
