@@ -20,6 +20,8 @@ GROUP_SUMMARIES_MIN_SESSIONS = 5
 SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
 # Minimum session duration to have any event survive the cutoff filter (must be > 2x cutoff)
 MIN_SESSION_DURATION_FOR_SUMMARY_MS = 2 * SESSION_EVENTS_REPLAY_CUTOFF_MS + 1
+# Minimum session duration for video-based summarization, where we don't need (or want) to cut off anything
+MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S = 15
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs

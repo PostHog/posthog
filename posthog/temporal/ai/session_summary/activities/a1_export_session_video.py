@@ -26,6 +26,7 @@ from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     EXPIRES_AFTER_DAYS,
     MIN_SESSION_DURATION_FOR_SUMMARY_MS,
+    MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S,
 )
 from ee.hogai.session_summaries.session.input_data import get_team
 
@@ -87,10 +88,10 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
             raise ValueError(msg)
         session_duration = metadata["duration"]  # duration is in seconds
 
-        # Check if session is too short for summarization - note: this is different from the video duration, but probs close enough
-        if session_duration * 1000 < MIN_SESSION_DURATION_FOR_SUMMARY_MS:
+        # Check if session is too short for summarization
+        if session_duration < MIN_SESSION_DURATION_FOR_VIDEO_SUMMARY_S:
             logger.warning(
-                f"Session {inputs.session_id} in team {inputs.team_id} is too short ({session_duration * 1000:.0f}ms) to summarize, skipping",
+                f"Session {inputs.session_id} in team {inputs.team_id} is too short ({session_duration:.2f}s) to summarize, skipping",
                 extra={"session_id": inputs.session_id, "team_id": inputs.team_id, "signals_type": "session-summaries"},
             )
             return None
