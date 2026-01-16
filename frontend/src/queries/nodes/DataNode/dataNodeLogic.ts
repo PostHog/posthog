@@ -1182,6 +1182,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCountQuery: () => {
             actions.loadFilteredCount()
         },
+        queryId: () => {
+            actions.loadTotalCount()
+            actions.loadFilteredCount()
+        },
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
