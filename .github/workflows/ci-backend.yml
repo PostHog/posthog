@@ -252,7 +252,7 @@ jobs:
 
                   echo "Changed products: $(echo $CHANGED_PRODUCTS | tr '\n' ' ')"
 
-                  # Build test targets for bazelified products (no expensive bazel query!)
+                  # Build test targets and check contract changes for each bazelified product
                   TESTS=""
                   CONTRACT_CHANGED=false
                   for product in $CHANGED_PRODUCTS; do
@@ -260,10 +260,19 @@ jobs:
                       # Add all tests for this product
                       TESTS="$TESTS //products/$product/..."
 
-                      # Check if :contract changed (public API) - use VCS diff, not bazel query
-                      if echo "$CHANGED_FILES" | grep -q "^products/$product/backend/contract"; then
-                        echo "Contract changed for $product - blast radius check needed"
-                        CONTRACT_CHANGED=true
+                      # Check if :contract changed using forward deps query (fast: ~2s)
+                      # This queries deps of the contract target, not reverse deps of the whole repo
+                      CONTRACT_TARGET="//products/$product/backend:contract"
+                      if bazel query "//products/$product/backend:contract" &>/dev/null; then
+                        echo "Checking contract files for $product..."
+                        CONTRACT_FILES=$(bazel query "kind('source file', deps($CONTRACT_TARGET))" 2>/dev/null \
+                          | sed 's|//products/'"$product"'/backend:||' \
+                          | tr '\n' '|' | sed 's/|$//')
+
+                        if [[ -n "$CONTRACT_FILES" ]] && echo "$CHANGED_FILES" | grep -qE "^products/$product/backend/($CONTRACT_FILES)"; then
+                          echo "Contract changed for $product - blast radius includes legacy"
+                          CONTRACT_CHANGED=true
+                        fi
                       fi
                     fi
                   done
@@ -278,10 +287,8 @@ jobs:
                   echo "Tests to run: $TESTS"
                   echo "tests=$TESTS" >> $GITHUB_OUTPUT
 
-                  # Legacy impact: if :contract changed, assume blast radius includes legacy
-                  # This avoids expensive bazel query rdeps() which takes 3+ minutes
+                  # Legacy impact decision
                   if [[ "$CONTRACT_CHANGED" == "true" ]]; then
-                    echo "Contract files changed - assuming legacy impact (conservative)"
                     echo "run_legacy=true" >> $GITHUB_OUTPUT
                   else
                     echo "Only :impl changed - no legacy impact, Django can be skipped!"
