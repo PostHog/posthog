@@ -8,8 +8,10 @@ from products.workflows.backend.models.push_subscription import PushPlatform, Pu
 class TestPushSubscription(BaseTest):
     def setUp(self):
         super().setUp()
-        self.team = self.organization.teams.first()
-        assert self.team is not None
+        team = self.organization.teams.first()
+        if not team:
+            raise ValueError("Test requires a team")
+        self.team = team
 
     def test_create_push_subscription(self):
         subscription = PushSubscription.objects.create(
