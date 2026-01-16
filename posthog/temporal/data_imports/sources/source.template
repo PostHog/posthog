@@ -32,7 +32,7 @@
 #       source will appear in frontend dropdowns and menus.
 # 14. TODO: phew! you're done. just delete these TODOs before you PR
 
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -65,7 +65,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
         )
 
     def validate_credentials(
-        self, config: Config, team_id: int
+        self, config: Config, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
         return (
             True,

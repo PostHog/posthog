@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconExternal, IconPlus } from '@posthog/icons'
 import {
@@ -26,6 +27,24 @@ import { HogFlowAction } from '../types'
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const { selectedNode, workflow, categories, categoriesLoading } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setMode } = useActions(hogFlowEditorLogic)
+
+    /**
+     * Tricky: Since resultPath is stored inside an object, we need separate state to manage
+     * its value to prevent cursor jumping while typing. Updating the parent object causes
+     * a re-render due to the new object reference being set on each keystroke.
+     */
+    const [outputResultPath, setOutputResultPath] = useState(selectedNode?.data.output_variable?.result_path || '')
+    useEffect(() => {
+        if (selectedNode?.data.output_variable?.key) {
+            setWorkflowAction(selectedNode.data.id, {
+                ...selectedNode.data,
+                output_variable: {
+                    ...selectedNode.data.output_variable,
+                    result_path: outputResultPath ?? null,
+                },
+            } as HogFlowAction)
+        }
+    }, [outputResultPath])
 
     const Step = useHogFlowStep(selectedNode?.data)
 
@@ -128,22 +147,20 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             </LemonField.Pure>
                                             <LemonField.Pure
                                                 label="Result path (optional)"
-                                                info="Specify a path within the step result to store. For example, to store the user ID from a response, use 'response.user.id'. To store the entire result, leave this blank."
+                                                info="Specify a path within the step result to store. For example, to store a user ID from a webhook response, you might use 'body.results[0].id'. To store the entire result, leave this blank."
+                                                className="w-full"
                                             >
                                                 <LemonInput
+                                                    disabledReason={
+                                                        !action.output_variable?.key
+                                                            ? 'Select a variable above to enable setting a result path.'
+                                                            : undefined
+                                                    }
                                                     type="text"
                                                     prefix={<span>result.</span>}
-                                                    value={action.output_variable?.result_path || ''}
-                                                    onChange={(value) =>
-                                                        setWorkflowAction(action.id, {
-                                                            ...action,
-                                                            output_variable: {
-                                                                key: action.output_variable?.key || '',
-                                                                result_path: value || null,
-                                                            },
-                                                        })
-                                                    }
-                                                    placeholder="response.user.id"
+                                                    value={outputResultPath}
+                                                    onChange={(value) => setOutputResultPath(value)}
+                                                    placeholder="body.results[0].id"
                                                 />
                                             </LemonField.Pure>
                                             <LemonButton

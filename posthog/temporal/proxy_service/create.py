@@ -3,6 +3,7 @@ import math
 import uuid
 import random
 import typing as t
+import asyncio
 import datetime as dt
 import ipaddress
 from dataclasses import asdict, dataclass
@@ -28,6 +29,13 @@ from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    CustomHostnameSSLStatus,
+    create_custom_hostname,
+    create_worker_route,
+    get_custom_hostname_by_domain,
+)
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     RecordDeletedException,
@@ -36,6 +44,7 @@ from posthog.temporal.proxy_service.common import (
     get_grpc_client,
     record_exists,
     update_record,
+    use_cloudflare_proxy,
     use_gateway_api,
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
@@ -229,6 +238,117 @@ async def wait_for_certificate(inputs: WaitForCertificateInputs):
 
 
 @dataclass
+class CreateCloudflareProxyInputs:
+    """Inputs for Cloudflare proxy creation activities."""
+
+    organization_id: uuid.UUID
+    proxy_record_id: uuid.UUID
+    domain: str
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "organization_id": self.organization_id,
+            "proxy_record_id": self.proxy_record_id,
+            "domain": self.domain,
+        }
+
+
+@activity.defn
+async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs):
+    """Activity that creates a Custom Hostname in Cloudflare for SaaS."""
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
+    logger.info(
+        "Creating Cloudflare Custom Hostname for domain %s",
+        inputs.domain,
+    )
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
+
+    try:
+        result = await asyncio.to_thread(create_custom_hostname, inputs.domain)
+        logger.info(
+            "Created Cloudflare Custom Hostname %s for domain %s with status %s",
+            result.id,
+            inputs.domain,
+            result.status.value,
+        )
+    except CloudflareAPIError as e:
+        if any(err.get("code") == 1406 for err in e.errors):
+            # Custom hostname already exists
+            logger.info("Cloudflare Custom Hostname already exists for domain %s", inputs.domain)
+            return
+        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+
+@activity.defn
+async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
+    """Activity that creates a Worker Route in Cloudflare for the domain."""
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
+    logger.info(
+        "Creating Cloudflare Worker Route for domain %s",
+        inputs.domain,
+    )
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise RecordDeletedException("proxy record was deleted while creating Cloudflare Worker Route")
+
+    try:
+        result = await asyncio.to_thread(create_worker_route, inputs.domain)
+        logger.info(
+            "Created Cloudflare Worker Route %s with pattern %s",
+            result.id,
+            result.pattern,
+        )
+    except CloudflareAPIError as e:
+        if any(err.get("code") == 10020 for err in e.errors):
+            # Route already exists
+            logger.info("Cloudflare Worker Route already exists for domain %s", inputs.domain)
+            return
+        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+
+
+@activity.defn
+async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
+    """Activity that waits for Cloudflare to provision the SSL certificate."""
+    logger = LOGGER.bind(organization_id=inputs.organization_id)
+    logger.info(
+        "Waiting for Cloudflare certificate for domain %s",
+        inputs.domain,
+    )
+
+    if not await record_exists(inputs.proxy_record_id):
+        raise RecordDeletedException("proxy record was deleted while waiting for Cloudflare certificate")
+
+    try:
+        hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
+
+        if hostname_info is None:
+            raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
+
+        if hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE:
+            logger.info("Cloudflare certificate is active for domain %s", inputs.domain)
+            return
+
+        logger.info(
+            "Cloudflare certificate status for domain %s: %s",
+            inputs.domain,
+            hostname_info.ssl.status.value,
+        )
+
+        # Certificate not ready yet, raise to retry
+        raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
+
+    except CloudflareAPIError as e:
+        raise NonRetriableException(f"Cloudflare API error: {e}") from e
+    except ApplicationError:
+        raise
+    except Exception as e:
+        raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
+
+
+@dataclass
 class ScheduleMonitorJobInputs:
     organization_id: uuid.UUID
     proxy_record_id: uuid.UUID
@@ -371,37 +491,88 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Call proxy provisioner to create the HTTProxy and Certificate resources
-            await temporalio.workflow.execute_activity(
-                create_managed_proxy,
-                inputs,
-                schedule_to_close_timeout=dt.timedelta(minutes=5),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_attempts=5,
-                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
-                ),
-            )
-
-            # Waits for the certificate to be provisioned and for the proxy to be live
-            await temporalio.workflow.execute_activity(
-                wait_for_certificate,
-                WaitForCertificateInputs(
+            # Branch based on whether to use Cloudflare or the legacy proxy provisioner
+            if use_cloudflare_proxy():
+                # Cloudflare for SaaS path: Create Custom Hostname and Worker Route
+                cloudflare_inputs = CreateCloudflareProxyInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,
                     domain=inputs.domain,
-                ),
-                schedule_to_close_timeout=dt.timedelta(minutes=15),
-                start_to_close_timeout=dt.timedelta(seconds=5),
-                retry_policy=temporalio.common.RetryPolicy(
-                    backoff_coefficient=1.1,
-                    initial_interval=dt.timedelta(seconds=1),
-                    maximum_interval=dt.timedelta(seconds=10),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
-                ),
-            )
+                )
+
+                # Create Custom Hostname in Cloudflare
+                await temporalio.workflow.execute_activity(
+                    create_cloudflare_custom_hostname,
+                    cloudflare_inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=5,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+
+                # Create Worker Route in Cloudflare
+                await temporalio.workflow.execute_activity(
+                    create_cloudflare_worker_route,
+                    cloudflare_inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=5,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+
+                # Wait for Cloudflare certificate to be active
+                await temporalio.workflow.execute_activity(
+                    wait_for_cloudflare_certificate,
+                    cloudflare_inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    start_to_close_timeout=dt.timedelta(seconds=10),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        backoff_coefficient=1.1,
+                        initial_interval=dt.timedelta(seconds=5),
+                        maximum_interval=dt.timedelta(seconds=30),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+            else:
+                # Legacy path: Use proxy provisioner gRPC service
+                # Call proxy provisioner to create the HTTPProxy and Certificate resources
+                await temporalio.workflow.execute_activity(
+                    create_managed_proxy,
+                    inputs,
+                    schedule_to_close_timeout=dt.timedelta(minutes=5),
+                    start_to_close_timeout=dt.timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=5,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
+
+                # Waits for the certificate to be provisioned and for the proxy to be live
+                await temporalio.workflow.execute_activity(
+                    wait_for_certificate,
+                    WaitForCertificateInputs(
+                        organization_id=inputs.organization_id,
+                        proxy_record_id=inputs.proxy_record_id,
+                        domain=inputs.domain,
+                    ),
+                    schedule_to_close_timeout=dt.timedelta(minutes=15),
+                    start_to_close_timeout=dt.timedelta(seconds=5),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        backoff_coefficient=1.1,
+                        initial_interval=dt.timedelta(seconds=1),
+                        maximum_interval=dt.timedelta(seconds=10),
+                        maximum_attempts=0,
+                        non_retryable_error_types=["NonRetriableException", "RecordDeletedException"],
+                    ),
+                )
 
             # Everything's created and ready to go, update to VALID
             await temporalio.workflow.execute_activity(

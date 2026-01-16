@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconCursorClick, IconMegaphone } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -14,7 +15,13 @@ import { urls } from 'scenes/urls'
 
 import { ProductTour, ProgressStatus } from '~/types'
 
-import { ProductToursTabs, getProductTourStatus, isProductTourRunning, productToursLogic } from '../productToursLogic'
+import {
+    ProductToursTabs,
+    getProductTourStatus,
+    isAnnouncement,
+    isProductTourRunning,
+    productToursLogic,
+} from '../productToursLogic'
 
 function ProductTourStatusTag({ tour }: { tour: ProductTour }): JSX.Element {
     const status = getProductTourStatus(tour)
@@ -67,14 +74,25 @@ export function ProductToursTable(): JSX.Element {
                         title: 'Name',
                         render: function RenderName(_, tour) {
                             return (
-                                <LemonTableLink to={urls.productTour(tour.id)} title={stringWithWBR(tour.name, 17)} />
+                                <div className="flex gap-2 items-center justify-start">
+                                    <LemonTag
+                                        type="option"
+                                        icon={isAnnouncement(tour) ? <IconMegaphone /> : <IconCursorClick />}
+                                    >
+                                        {isAnnouncement(tour) ? 'Announcement' : 'Tour'}
+                                    </LemonTag>
+                                    <LemonTableLink
+                                        to={urls.productTour(tour.id)}
+                                        title={stringWithWBR(tour.name, 17)}
+                                    />
+                                </div>
                             )
                         },
                     },
                     {
                         title: 'Steps',
                         render: function RenderSteps(_, tour) {
-                            return tour.content?.steps?.length ?? 0
+                            return isAnnouncement(tour) ? '-' : (tour.content?.steps?.length ?? 0)
                         },
                     },
                     ...(tab === ProductToursTabs.Active
@@ -108,11 +126,6 @@ export function ProductToursTable(): JSX.Element {
                                             {!tour.start_date && (
                                                 <LemonButton
                                                     fullWidth
-                                                    disabledReason={
-                                                        !tour.content?.conditions?.url
-                                                            ? 'Set a URL pattern before launching'
-                                                            : undefined
-                                                    }
                                                     onClick={() => {
                                                         LemonDialog.open({
                                                             title: 'Launch this product tour?',

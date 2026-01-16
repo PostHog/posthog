@@ -121,6 +121,17 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
             })
+            it('should send identical Source and ReturnPath args in', async () => {
+                // This test is important for spam classification - ReturnPath MUST match Source
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email: 'test@posthog.com' },
+                })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(sendEmailSpy).toHaveBeenCalled()
+                expect(sendEmailSpy.mock.calls[0][0].Source).toBe('"Test User" <test@posthog.com>')
+                expect(sendEmailSpy.mock.calls[0][0].ReturnPath).toBe('test@posthog.com')
+            })
             it('should allow a valid email integration and domain', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, email: 'test@posthog.com' },
@@ -136,6 +147,7 @@ describe('EmailService', () => {
                 expect(sendEmailSpy).toHaveBeenCalled()
                 expect(sendEmailSpy.mock.calls[0][0]).toMatchObject({
                     Source: '"Test User" <test@posthog.com>',
+                    ReturnPath: 'test@posthog.com',
                     Destination: {
                         ToAddresses: ['"Test User" <test@example.com>'],
                     },
@@ -279,7 +291,8 @@ describe('EmailService', () => {
                       "Data": "Test Subject",
                     },
                   },
-                  "Source": ""Test User" <test@posthog-test.com>",
+                  "ReturnPath": "test@posthog-test.com",
+                  "Source": "\"Test User\" <test@posthog-test.com>",
                   "Tags": [
                     {
                       "Name": "ph_id",

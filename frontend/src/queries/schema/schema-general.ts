@@ -2851,7 +2851,6 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
-    | 'feed'
     | 'home'
     | 'apps'
     | 'live'
@@ -2860,6 +2859,7 @@ export type FileSystemIconType =
     | 'folder'
     | 'folder_open'
     | 'conversations'
+    | 'toolbar'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -5197,6 +5197,7 @@ export enum ProductIntentContext {
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
+    LOGS_SET_FILTERS = 'logs_set_filters',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

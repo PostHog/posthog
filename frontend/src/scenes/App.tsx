@@ -134,8 +134,7 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        // the isolate class is important for the base-ui floating elements
-        <div className="isolate">
+        <div className="contents isolate">
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />

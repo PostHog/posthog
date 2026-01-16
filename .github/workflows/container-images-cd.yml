@@ -122,13 +122,13 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes in plugins directory
-              id: check_changes_plugins
+            - name: Check for changes in nodejs directory or Dockerfiles
+              id: check_changes_nodejs
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^nodejs/' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^nodejs/|^Dockerfile$|^Dockerfile\.node$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
-              if: steps.check_changes_plugins.outputs.changed == 'true'
+              if: steps.check_changes_nodejs.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -284,7 +284,7 @@ jobs:
                   echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Install uv for dependency analysis
-              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker

@@ -18,15 +18,19 @@ export const LogsSetupPrompt = ({
     children: React.ReactNode
     className?: string
 }): JSX.Element => {
-    const { hasLogs, hasLogsLoading } = useValues(logsIngestionLogic)
+    const { hasLogs, teamHasLogsLoading, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    if (hasLogsLoading || !currentTeam) {
+    if ((teamHasLogsLoading && hasLogs === undefined) || !currentTeam) {
         return (
             <div className="flex justify-center">
                 <Spinner />
             </div>
         )
+    }
+
+    if (teamHasLogsCheckFailed || hasLogs === undefined) {
+        return <>{children}</>
     }
 
     if (!hasLogs) {

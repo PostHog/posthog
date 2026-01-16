@@ -60,7 +60,9 @@ const Component = ({
         let title = 'Query'
 
         if (query.kind === NodeKind.DataTableNode) {
-            if (query.source.kind) {
+            if (query.source.kind === 'HogQLQuery') {
+                title = 'SQL'
+            } else if (query.source.kind) {
                 title = query.source.kind.replace('Node', '').replace('Query', '')
             } else {
                 title = 'Data exploration'
@@ -280,6 +282,7 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
               ? urls.insightNew({ query })
               : undefined,
     Settings,
+    settingsPlacement: 'inline',
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {

@@ -18,6 +18,7 @@ import nh3
 import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -25,6 +26,8 @@ from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+
+from posthog.schema import ProductKey
 
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
@@ -132,6 +135,22 @@ SurveyStats = TypedDict(
 )
 
 
+def get_survey_conditions_with_actions(
+    survey: "Survey", action_serializer_class: type[serializers.Serializer] | None = None
+) -> dict | None:
+    if action_serializer_class is None:
+        action_serializer_class = ActionSerializer
+    conditions = survey.conditions
+    actions = survey.actions.all()
+    if len(actions) > 0:
+        if conditions is None:
+            conditions = {}
+        else:
+            conditions = dict(conditions)
+        conditions["actions"] = {"values": action_serializer_class(actions, many=True).data}
+    return conditions
+
+
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -201,13 +220,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
         read_only_fields = ["id", "created_at", "created_by"]
 
     def get_conditions(self, survey: Survey):
-        actions = survey.actions.all()
-        if len(actions) > 0:
-            # actionNames can change between when the survey is created and when its retrieved.
-            # update the actionNames in the response from the real names of the actions as defined
-            # in data management.
-            survey.conditions["actions"] = {"values": ActionSerializer(actions, many=True).data}
-        return survey.conditions
+        return get_survey_conditions_with_actions(survey)
 
 
 class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
@@ -268,6 +281,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["conditions"] = get_survey_conditions_with_actions(instance)
+        return data
+
     def validate_appearance(self, value):
         if value is None:
             return value
@@ -311,29 +329,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
-
-        actions = value.get("actions", None)
-
-        if actions is None:
-            return value
-
-        values = actions.get("values", None)
-        if values is None or len(values) == 0:
-            return value
-
-        action_ids = [value.get("id") for value in values if isinstance(value, dict) and "id" in value]
-
-        if len(action_ids) == 0:
-            return value
-
-        project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
-
-        for project_action in project_actions:
-            for step in project_action.steps:
-                if step.properties is not None and len(step.properties) > 0:
-                    raise serializers.ValidationError(
-                        "Survey cannot be activated by an Action with property filters defined on it."
-                    )
 
         return value
 
@@ -899,6 +894,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
+@extend_schema(tags=[ProductKey.SURVEYS])
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
@@ -1928,16 +1924,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_conditions(self, survey: Survey):
-        actions = survey.actions.all()
-        if len(actions) > 0:
-            # action names can change between when the survey is created and when its retrieved.
-            # update the actionNames in the response from the real names of the actions as defined
-            # in data management.
-            if survey.conditions is None:
-                survey.conditions = {}
-
-            survey.conditions["actions"] = {"values": SurveyAPIActionSerializer(actions, many=True).data}
-        return survey.conditions
+        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
 
 
 def get_surveys_opt_in(team: Team) -> bool:

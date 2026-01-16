@@ -802,14 +802,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
         assert plugin_source.error is None
-        assert (
-            plugin_source.transpiled
-            == (
-                '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
-                'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-                "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
-                "; return exports; }"
-            )
+        assert plugin_source.transpiled == (
+            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
+            'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+            "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
+            "; return exports; }"
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 

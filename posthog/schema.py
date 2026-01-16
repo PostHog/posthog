@@ -70,6 +70,13 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class ApprovalDecisionStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    AUTO_REJECTED = "auto_rejected"
+
+
 class ArtifactContentType(StrEnum):
     VISUALIZATION = "visualization"
     NOTEBOOK = "notebook"
@@ -137,6 +144,7 @@ class AssistantEventType(StrEnum):
     CONVERSATION = "conversation"
     NOTEBOOK = "notebook"
     UPDATE = "update"
+    APPROVAL = "approval"
 
 
 class AssistantFormOption(BaseModel):
@@ -324,6 +332,8 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     UPSERT_DASHBOARD = "upsert_dashboard"
+    MANAGE_MEMORIES = "manage_memories"
+    CREATE_NOTEBOOK = "create_notebook"
 
 
 class AssistantToolCall(BaseModel):
@@ -908,6 +918,17 @@ class CustomEventConversionGoal(BaseModel):
         extra="forbid",
     )
     customEventName: str
+
+
+class DangerousOperationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    payload: dict[str, Any]
+    preview: str
+    proposalId: str
+    status: Literal["pending_approval"] = "pending_approval"
+    toolName: str
 
 
 class DataColorToken(StrEnum):
@@ -1646,7 +1667,6 @@ class FileSystemIconType(StrEnum):
     INSIGHT_STICKINESS = "insight/stickiness"
     INSIGHT_HOG = "insight/hog"
     TEAM_ACTIVITY = "team_activity"
-    FEED = "feed"
     HOME = "home"
     APPS = "apps"
     LIVE = "live"
@@ -1655,6 +1675,7 @@ class FileSystemIconType(StrEnum):
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
+    TOOLBAR = "toolbar"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -1987,6 +2008,9 @@ class IntegrationKind(StrEnum):
     DATABRICKS = "databricks"
     TIKTOK_ADS = "tiktok-ads"
     BING_ADS = "bing-ads"
+    VERCEL = "vercel"
+    AZURE_BLOB = "azure-blob"
+    FIREBASE = "firebase"
 
 
 class IntervalType(StrEnum):
@@ -2352,6 +2376,40 @@ class MaxErrorTrackingIssueContext(BaseModel):
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
 
 
+class MaxErrorTrackingIssuePreview(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str | None = Field(..., description="Issue description or exception message")
+    first_seen: str | None = Field(..., description="When the issue was first seen")
+    id: str = Field(..., description="Issue ID")
+    last_seen: str | None = Field(..., description="When the issue was last seen")
+    library: str | None = Field(..., description="Library/runtime that generated the error")
+    name: str | None = Field(..., description="Issue name/title")
+    occurrences: float = Field(..., description="Total number of occurrences")
+    sessions: float = Field(..., description="Number of affected sessions")
+    status: str = Field(..., description="Issue status (active, resolved, etc.)")
+    users: float = Field(..., description="Number of affected users")
+
+
+class MaxErrorTrackingSearchResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str | None = Field(default=None, description="Start of date range")
+    date_to: str | None = Field(default=None, description="End of date range")
+    has_more: bool | None = Field(default=None, description="Whether there are more results available")
+    issues: list[MaxErrorTrackingIssuePreview] | None = Field(
+        default=None, description="Preview of issues found matching the filters"
+    )
+    limit: float | None = Field(default=None, description="Number of results to return")
+    next_cursor: str | None = Field(default=None, description="Cursor for pagination")
+    order_by: str | None = Field(default=None, description="Field to order by")
+    order_direction: str | None = Field(default=None, description="Order direction (ASC or DESC)")
+    search_query: str | None = Field(default=None, description="Free text search query")
+    status: str | None = Field(default=None, description="Issue status filter (active, resolved, etc.)")
+
+
 class MaxEventContext(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2678,6 +2736,7 @@ class ProductIntentContext(StrEnum):
     LLM_ANALYTICS_VIEWED = "llm_analytics_viewed"
     LLM_ANALYTICS_DOCS_VIEWED = "llm_analytics_docs_viewed"
     LOGS_DOCS_VIEWED = "logs_docs_viewed"
+    LOGS_SET_FILTERS = "logs_set_filters"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -2832,6 +2891,15 @@ class PropertyOperator(StrEnum):
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
+    SEMVER_EQ = "semver_eq"
+    SEMVER_NEQ = "semver_neq"
+    SEMVER_GT = "semver_gt"
+    SEMVER_GTE = "semver_gte"
+    SEMVER_LT = "semver_lt"
+    SEMVER_LTE = "semver_lte"
+    SEMVER_TILDE = "semver_tilde"
+    SEMVER_CARET = "semver_caret"
+    SEMVER_WILDCARD = "semver_wildcard"
 
 
 class Mark(BaseModel):
@@ -3174,6 +3242,27 @@ class SessionPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["session"] = "session"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class Integration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display_name: str
+    id: float
+    kind: IntegrationKind
+
+
+class SessionRecordingExternalReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    external_url: str
+    id: str
+    integration: Integration
+    issue_id: str
+    metadata: dict[str, str] | None = None
+    title: str
 
 
 class SnapshotSource(StrEnum):
@@ -3848,6 +3937,10 @@ class AlertCondition(BaseModel):
         extra="forbid",
     )
     type: AlertConditionType
+
+
+class ApprovalCardUIStatus(RootModel[ApprovalDecisionStatus | str]):
+    root: ApprovalDecisionStatus | str
 
 
 class AssistantArrayPropertyFilter(BaseModel):
@@ -5765,6 +5858,9 @@ class SessionRecordingType(BaseModel):
     email: str | None = None
     end_time: str = Field(..., description="When the recording ends in ISO format.")
     expiry_time: str | None = Field(default=None, description="When the recording expires, in ISO format.")
+    external_references: list[SessionRecordingExternalReference] | None = Field(
+        default=None, description="External references to third party issues."
+    )
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None

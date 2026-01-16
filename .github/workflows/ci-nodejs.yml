@@ -68,7 +68,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -98,7 +98,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -164,7 +164,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867 # v7.1.6
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
               with:
                   enable-cache: true
                   version: 0.9.9
@@ -172,7 +172,7 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -197,7 +197,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 

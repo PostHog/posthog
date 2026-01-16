@@ -12456,15 +12456,6 @@ export namespace Endpoints {
         }
         responses: { 200: unknown }
     }
-    export type get_Cohorts_duplicate_as_static_cohort_retrieve = {
-        method: 'GET'
-        path: '/api/projects/{project_id}/cohorts/{id}/duplicate_as_static_cohort/'
-        requestFormat: 'json'
-        parameters: {
-            path: { id: number; project_id: string }
-        }
-        responses: { 200: unknown }
-    }
     export type get_Cohorts_persons_retrieve = {
         method: 'GET'
         path: '/api/projects/{project_id}/cohorts/{id}/persons/'
@@ -15924,7 +15915,6 @@ export type EndpointByMethod = {
         '/api/projects/{project_id}/cohorts/': Endpoints.get_Cohorts_list
         '/api/projects/{project_id}/cohorts/{id}/': Endpoints.get_Cohorts_retrieve
         '/api/projects/{project_id}/cohorts/{id}/activity/': Endpoints.get_Cohorts_activity_retrieve_2
-        '/api/projects/{project_id}/cohorts/{id}/duplicate_as_static_cohort/': Endpoints.get_Cohorts_duplicate_as_static_cohort_retrieve
         '/api/projects/{project_id}/cohorts/{id}/persons/': Endpoints.get_Cohorts_persons_retrieve
         '/api/projects/{project_id}/cohorts/activity/': Endpoints.get_Cohorts_activity_retrieve
         '/api/projects/{project_id}/dashboard_templates/': Endpoints.get_Dashboard_templates_list

@@ -41,6 +41,8 @@ CSV_EXPORT_BREAKDOWN_LIMIT_LOW = 64  # The lowest limit we want to go to
 BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres"]
+
 
 class LimitContext(StrEnum):
     QUERY = "query"

@@ -56,6 +56,7 @@ import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { ClustersView } from './clusters/ClustersView'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { EvaluationTemplatesEmptyState } from './evaluations/EvaluationTemplates'
 import {
@@ -826,6 +827,27 @@ export function LLMAnalyticsScene(): JSX.Element {
             content: <LLMAnalyticsDatasetsScene />,
             link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
             'data-attr': 'datasets-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]) {
+        tabs.push({
+            key: 'clusters',
+            label: (
+                <>
+                    Clusters{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <ClustersView />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsClusters(), searchParams).url,
+            'data-attr': 'clusters-tab',
         })
     }
 

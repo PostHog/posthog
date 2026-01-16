@@ -163,6 +163,12 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             return {}
         if not isinstance(value, dict):
             raise serializers.ValidationError("Content must be an object")
+
+        if value.get("type") == "announcement":
+            steps = value.get("steps") or []
+            if len(steps) != 1:
+                raise serializers.ValidationError("Announcements must have exactly 1 step.")
+
         return value
 
     @transaction.atomic

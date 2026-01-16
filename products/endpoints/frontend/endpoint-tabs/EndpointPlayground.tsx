@@ -184,8 +184,10 @@ fetch(url, {
 
 export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { payloadJson, endpointResult, endpointResultLoading } = useValues(endpointSceneLogic({ tabId }))
-    const { setPayloadJson, loadEndpointResult } = useActions(endpointSceneLogic({ tabId }))
+    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading } = useValues(
+        endpointSceneLogic({ tabId })
+    )
+    const { setPayloadJson, setPayloadJsonError, loadEndpointResult } = useActions(endpointSceneLogic({ tabId }))
     const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic({ tabId }))
     const { activeCodeExampleTab, selectedCodeExampleVersion } = useValues(endpointLogic({ tabId }))
 
@@ -197,8 +199,8 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
         let data: any = {}
         try {
             data = payloadJson && payloadJson.trim() !== '' ? JSON.parse(payloadJson) : {}
-        } catch (error) {
-            console.error('Invalid JSON:', error)
+        } catch {
+            setPayloadJsonError('Invalid JSON in request payload')
             return
         }
 
@@ -287,6 +289,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         onChange={(value) => setPayloadJson(value ?? '')}
                         maxHeight={400}
                     />
+                    {payloadJsonError && <LemonField.Pure error={payloadJsonError} />}
 
                     <LemonButton
                         type="primary"

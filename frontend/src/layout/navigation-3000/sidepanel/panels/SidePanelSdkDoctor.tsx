@@ -54,11 +54,11 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/python',
     },
     'posthog-php': {
-        releases: 'https://github.com/PostHog/posthog-php/blob/master/History.md',
+        releases: 'https://github.com/PostHog/posthog-php/releases',
         docs: 'https://posthog.com/docs/libraries/php',
     },
     'posthog-ruby': {
-        releases: 'https://github.com/PostHog/posthog-ruby/blob/main/CHANGELOG.md',
+        releases: 'https://github.com/PostHog/posthog-ruby/releases',
         docs: 'https://posthog.com/docs/libraries/ruby',
     },
     'posthog-go': {
@@ -78,7 +78,7 @@ const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
         docs: 'https://posthog.com/docs/libraries/dotnet',
     },
     'posthog-elixir': {
-        releases: 'https://github.com/PostHog/posthog-elixir/blob/master/CHANGELOG.md',
+        releases: 'https://github.com/PostHog/posthog-elixir/releases',
         docs: 'https://posthog.com/docs/libraries/elixir',
     },
 }

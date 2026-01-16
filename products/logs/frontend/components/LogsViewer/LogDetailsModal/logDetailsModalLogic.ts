@@ -1,13 +1,21 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
-export type LogDetailsTab = 'details' | 'explore-ai'
+export type LogDetailsTab = 'details' | 'explore-ai' | 'comments'
+
+export interface LogDetailsModalProps {
+    tabId: string
+}
 
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
+    props({} as LogDetailsModalProps),
+    key((props) => props.tabId),
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
@@ -15,6 +23,20 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
         setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
+
+    listeners(() => ({
+        setActiveTab: ({ tab }) => {
+            posthog.capture('logs details tab changed', { tab })
+        },
+    })),
+
+    subscriptions(() => ({
+        isLogDetailsOpen: (isLogDetailsOpen: boolean, wasOpen: boolean) => {
+            if (isLogDetailsOpen && !wasOpen) {
+                posthog.capture('logs details opened')
+            }
+        },
+    })),
 
     reducers({
         selectedLog: [
@@ -24,7 +46,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 closeLogDetails: () => null,
             },
         ],
-        isOpen: [
+        isLogDetailsOpen: [
             false,
             {
                 openLogDetails: () => true,

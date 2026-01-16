@@ -114,33 +114,16 @@ class WidgetMessageView(APIView):
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
-            # Find existing ticket by widget_session_id or create new one
-            existing_ticket = Ticket.objects.filter(
-                team=team, widget_session_id=widget_session_id, channel_source="widget"
-            ).first()
-
-            if existing_ticket:
-                ticket = existing_ticket
-                # Update distinct_id if changed (anonymous → identified)
-                if ticket.distinct_id != distinct_id:
-                    ticket.distinct_id = distinct_id
-                if traits:
-                    ticket.anonymous_traits.update(traits)
-                # Increment unread count for team
-                ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
-                ticket.refresh_from_db()
-            else:
-                # Create new ticket (first message is unread for team)
-                ticket = Ticket.objects.create(
-                    team=team,
-                    widget_session_id=widget_session_id,
-                    distinct_id=distinct_id,
-                    channel_source="widget",
-                    status="new",
-                    anonymous_traits=traits,
-                    unread_team_count=1,
-                )
+            # No ticket_id provided - always create a new ticket
+            ticket = Ticket.objects.create(
+                team=team,
+                widget_session_id=widget_session_id,
+                distinct_id=distinct_id,
+                channel_source="widget",
+                status="new",
+                anonymous_traits=traits,
+                unread_team_count=1,
+            )
 
         # Create message
         comment = Comment.objects.create(
