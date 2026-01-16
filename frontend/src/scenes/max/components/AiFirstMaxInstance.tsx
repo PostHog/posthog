@@ -127,6 +127,7 @@ function ChatArea({ threadVisible, conversationId, conversation, onStartNewConve
                         </div>
                     )}
                     <Thread className="p-3" />
+                    <div className="flex-grow" />
                 </>
             )}
 

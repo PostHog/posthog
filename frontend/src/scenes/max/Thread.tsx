@@ -108,27 +108,28 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
+    const { threadGroupedForDisplay, streamingActive, threadLoading, isAiUx } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
-        () => getTicketPromptData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => getTicketPromptData(threadGroupedForDisplay, streamingActive),
+        [threadGroupedForDisplay, streamingActive]
     )
 
     const ticketSummaryData = useMemo(
-        () => getTicketSummaryData(threadGrouped, streamingActive),
-        [threadGrouped, streamingActive]
+        () => getTicketSummaryData(threadGroupedForDisplay, streamingActive),
+        [threadGroupedForDisplay, streamingActive]
     )
 
     return (
         <div
             className={cn(
                 '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
+                isAiUx && 'flex-col-reverse grow-0',
                 className
             )}
         >
-            {conversationLoading && threadGrouped.length === 0 ? (
+            {conversationLoading && threadGroupedForDisplay.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -138,13 +139,13 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="ai" className="opacity-10" />
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
-            ) : threadGrouped.length > 0 ? (
+            ) : threadGroupedForDisplay.length > 0 ? (
                 <>
                     {(() => {
                         // Track the current trace_id as we iterate forward through messages
                         let currentTraceId: string | undefined
 
-                        return threadGrouped.map((message, index) => {
+                        return threadGroupedForDisplay.map((message, index) => {
                             // Update trace_id when we encounter a human message
                             if (message.type === 'human' && 'trace_id' in message && message.trace_id) {
                                 currentTraceId = message.trace_id
@@ -157,7 +158,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
 
                             // Hide old failed attempts - only show the most recent error
                             if (isErrorMessage(message)) {
-                                const hasNewerError = threadGrouped.slice(index + 1).some(isErrorMessage)
+                                const hasNewerError = threadGroupedForDisplay.slice(index + 1).some(isErrorMessage)
                                 if (hasNewerError) {
                                     return null
                                 }
@@ -166,8 +167,8 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             // Hide duplicate human messages from retry pattern: Human → AI Error → Human (duplicate)
                             // This specific pattern only occurs when "Try again" is clicked after a failure
                             if (message.type === 'human' && 'content' in message && index >= 2) {
-                                const prevMessage = threadGrouped[index - 1]
-                                const prevPrevMessage = threadGrouped[index - 2]
+                                const prevMessage = threadGroupedForDisplay[index - 1]
+                                const prevPrevMessage = threadGroupedForDisplay[index - 2]
 
                                 const isRetryPattern =
                                     isErrorMessage(prevMessage) &&
@@ -180,12 +181,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 }
                             }
 
-                            const nextMessage = threadGrouped[index + 1]
+                            const nextMessage = threadGroupedForDisplay[index + 1]
                             const isLastInGroup =
                                 !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
                             // Hiding rating buttons after /feedback and /ticket command outputs
-                            const prevMessage = threadGrouped[index - 1]
+                            const prevMessage = threadGroupedForDisplay[index - 1]
                             const isSlashCommandResponse =
                                 message.type !== 'human' &&
                                 prevMessage?.type === 'human' &&
@@ -209,7 +210,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                             message={message}
                                             nextMessage={nextMessage}
                                             isLastInGroup={isLastInGroup}
-                                            isFinal={index === threadGrouped.length - 1}
+                                            isFinal={index === threadGroupedForDisplay.length - 1}
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
                                     </TraceIdProvider>

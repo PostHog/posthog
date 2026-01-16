@@ -1168,6 +1168,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ? conversation?.type !== ConversationType.DeepResearch
                     : true,
         ],
+
+        isAiUx: [(s) => [s.featureFlags], (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.AI_UX]],
+
+        threadGroupedForDisplay: [
+            (s) => [s.threadGrouped, s.isAiUx],
+            (threadGrouped, isAiUx): ThreadMessage[] => {
+                // Reverse the thread for AI-UX mode so it works with flex-direction: column-reverse
+                return isAiUx ? [...threadGrouped].reverse() : threadGrouped
+            },
+        ],
     }),
 
     afterMount((logic) => {
