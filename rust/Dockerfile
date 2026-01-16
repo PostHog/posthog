@@ -1,5 +1,6 @@
 # Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
-FROM rust:1.91 AS base
+# Use bookworm to match runtime image (debian:bookworm-slim) for consistent OpenSSL 3.0.x
+FROM rust:1.91-bookworm AS base
 RUN cargo install --locked cargo-chef sccache
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
