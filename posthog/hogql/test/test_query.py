@@ -1377,9 +1377,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team)
         self.assertEqual(str(e.exception), "Table function 'numbers' requires at most 2 arguments")
 
-        query = "SELECT number from numbers(2 + 2)"
-        response = execute_hogql_query(query, team=self.team)
-        self.assertEqual(response.results, [(0,), (1,), (2,), (3,)])
+        # Complex subqueries are not supported with `enable_analyzer=0` (see: https://github.com/PostHog/posthog/pull/45000)
+        query = "SELECT number from numbers(2 + ifNull((select 2), 1000))"
+        with self.assertRaises(InternalCHQueryError):
+            execute_hogql_query(query, team=self.team)
 
         query = "SELECT number from numbers(assumeNotNull(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00')), toDateTime('2012-01-14 23:59:59'))))"
         response = execute_hogql_query(query, team=self.team)
