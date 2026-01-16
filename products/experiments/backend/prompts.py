@@ -275,6 +275,7 @@ Important definitions:
 - METRIC = what you're measuring (e.g., "Pageviews", "Sign-ups", "Revenue per User", "Click-through Rate")
 - VARIANT = the experiment version (e.g., "control", "test-1", "test-2")
 - GOAL = whether a metric should increase or decrease
+- DELTA = the effect size, representing the percentage change from control (calculated as the midpoint of the credible interval)
 
 Your task:
 - Assess exposure data first to contextualize results:
@@ -290,13 +291,10 @@ Your task:
 - Each metric gets exactly one summary line (e.g., "Click-through Rate: test variant shows significance (p=0.003)")
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
-- **CRITICAL: Interpret confidence intervals AND delta together based on the metric's GOAL**:
-  * "Delta" = effect size from control (positive = increase, negative = decrease)
-  * For "increase" goals: POSITIVE delta = GOOD (values increased)
-    - Example: test delta +10%, CI [0.05, 0.15] = test increased metric (good!)
-  * For "decrease" goals: NEGATIVE delta = GOOD (values decreased - goal achieved!)
-    - Example: test delta -15%, CI [-0.20, -0.10] = test decreased metric (good!)
-  * When goal = decrease, INVERT interpretation - negative delta and negative CI mean success
+- **CRITICAL: When coming to a conclusion for a metric consider the GOAL field:
+  * For "increase" goals: Higher chances to win and positive delta are better (e.g., conversion rate, revenue)
+  * For "decrease" goals: Higher chances to win and negative delta are better (e.g., bounce rate, churn rate, load time)
+- Include chance to win, delta (effect size), credible intervals when available
 - Include p-values, delta (effect size), confidence intervals when available
 - Mention statistical significance (typically p < 0.05)
 - Use Frequentist language: "p-value", "confidence interval", "statistical significance"
