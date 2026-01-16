@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-prost = "0.13"
+prost = { workspace = true }
 tonic = { workspace = true }
 
 [build-dependencies]
