@@ -52,6 +52,7 @@
     'posthog.tasks.feature_flags.update_team_flags_cache',
     'posthog.tasks.feature_flags.update_team_service_flags_cache',
     'posthog.tasks.heatmap_screenshot.generate_heatmap_screenshot',
+    'posthog.tasks.hog_flows.refresh_affected_hog_flows',
     'posthog.tasks.hog_functions.refresh_affected_hog_functions',
     'posthog.tasks.hog_functions.sync_hog_function_templates_task',
     'posthog.tasks.hypercache_verification.verify_and_fix_flags_cache_task',
