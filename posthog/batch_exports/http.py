@@ -68,8 +68,13 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 logger = structlog.get_logger(__name__)
 
 
-def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetime:
-    """Parse any datetime input as a proper dt.datetime.
+def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
+    """Validate and parse a date/datetime input as a proper dt.datetime.
+
+    If the interval is daily or weekly, we expect the input to be a date string.
+    We then need to convert it to a datetime using the batch export's timezone and offset.
+
+    For all other intervals, we expect the input to be an ISO formatted datetime string.
 
     Args:
         date_input: The datetime input to parse.
@@ -80,21 +85,49 @@ def validate_date_input(date_input: Any, team: Team | None = None) -> dt.datetim
     Returns:
         The parsed dt.datetime.
     """
-    try:
-        # The Right Way (TM) to check this would be by calling isinstance, but that doesn't feel very Pythonic.
-        # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
-        # Read more here: https://github.com/python/mypy/issues/2420.
-        # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input)
-    except (TypeError, ValueError):
-        raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+    if batch_export.interval == "day" or batch_export.interval == "week":
+        try:
+            parsed_date = dt.date.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            # Try to parse as a datetime string so we can give a more helpful error message
+            try:
+                parsed = dt.datetime.fromisoformat(date_input)
+                raise ValidationError(
+                    f"Input {date_input} is not a valid date string for a daily or weekly batch export. "
+                    "Daily or weekly batch export backfills expect a date string, not a datetime string."
+                )
+            except (TypeError, ValueError):
+                pass
+            raise ValidationError(f"Input {date_input} is not a valid ISO formatted date.")
 
-    if parsed.tzinfo is None:
-        raise ValidationError(f"Input {date_input} is naive.")
+        if batch_export.interval == "week":
+            # Validate that the provided date is on the correct day of the week, according to the batch export's day offset
+            # Python's date.isoweekday() returns 1-7 for Monday-Sunday, so we need to convert it to 0-6 for Sunday-Saturday
+            normalized_day = parsed_date.isoweekday() % 7
+            if normalized_day != batch_export.offset_day:
+                # get day of week as string
+                day_of_week = parsed_date.strftime("%A")
+                expected_day_of_week = batch_export.offset_day_name
+                assert expected_day_of_week is not None
+                raise ValidationError(
+                    f"Input {date_input} is not on the correct day of the week for this batch export. "
+                    f"{date_input} is a {day_of_week} but this batch export is configured to run "
+                    f"weekly on {expected_day_of_week}."
+                )
+
+        # If we have an offset hour, add it to the parsed datetime
+        # Also, apply the timezone to the parsed datetime
+        time_of_day = dt.time.min if batch_export.offset_hour is None else dt.time(hour=batch_export.offset_hour)
+        parsed = dt.datetime.combine(parsed_date, time_of_day).replace(tzinfo=batch_export.timezone_info)
 
     else:
-        if team is not None:
-            parsed = parsed.astimezone(team.timezone_info)
+        try:
+            parsed = dt.datetime.fromisoformat(date_input)
+        except (TypeError, ValueError):
+            raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
+
+        if parsed.tzinfo is None:
+            raise ValidationError(f"Input {date_input} is naive.")
 
     return parsed
 
@@ -1072,12 +1105,12 @@ def create_backfill(
     temporal = sync_connect()
 
     if start_at_input is not None:
-        start_at = validate_date_input(start_at_input, team)
+        start_at = validate_date_input(start_at_input, batch_export)
     else:
         start_at = None
 
     if end_at_input is not None:
-        end_at = validate_date_input(end_at_input, team)
+        end_at = validate_date_input(end_at_input, batch_export)
     else:
         end_at = None
 
@@ -1115,9 +1148,10 @@ def create_backfill(
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
 
-    if start_at >= end_at:
+    if start_at == end_at:
+        raise ValidationError("The initial backfill datetime 'start_at' and 'end_at' are the same")
+    if start_at > end_at:
         raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
     if end_at > dt.datetime.now(dt.UTC):
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 

@@ -16,9 +16,26 @@ def create_batch_export(
     destination_data: dict,
     paused: bool,
     timezone: str | None = None,
-    interval_offset: int | None = None,
+    offset_day: int | None = None,
+    offset_hour: int | None = None,
 ) -> BatchExport:
     """Create a BatchExport and its underlying Schedule."""
+
+    # Convert offset_day and offset_hour to interval_offset
+    if interval == "day":
+        if offset_hour is not None:
+            interval_offset = offset_hour * 3600
+        else:
+            interval_offset = None
+    elif interval == "week":
+        if offset_day is not None or offset_hour is not None:
+            day = offset_day if offset_day is not None else 0
+            hour = offset_hour if offset_hour is not None else 0
+            interval_offset = day * 86400 + hour * 3600
+        else:
+            interval_offset = None
+    else:
+        interval_offset = None
 
     destination = BatchExportDestination(**destination_data)
     batch_export = BatchExport(
@@ -46,11 +63,12 @@ async def acreate_batch_export(
     destination_data: dict,
     paused: bool = False,
     timezone: str | None = None,
-    interval_offset: int | None = None,
+    offset_day: int | None = None,
+    offset_hour: int | None = None,
 ) -> BatchExport:
     """Async create a BatchExport and its underlying Schedule."""
     return await sync_to_async(create_batch_export)(
-        team_id, interval, name, destination_data, paused, timezone, interval_offset
+        team_id, interval, name, destination_data, paused, timezone, offset_day, offset_hour
     )
 
 

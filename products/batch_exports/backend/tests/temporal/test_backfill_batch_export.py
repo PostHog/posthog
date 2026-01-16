@@ -90,31 +90,31 @@ async def temporal_schedule_hourly(temporal_client, team):
 
 @pytest.fixture(
     params=[
-        ("day", "UTC", None),
-        ("day", "US/Pacific", None),
-        ("day", "UTC", 3600),  # 1 hour offset
-        ("day", "US/Pacific", 7200),  # 2 hour offset
-        ("day", "Asia/Kathmandu", 10800),  # 3 hour offset
-        ("week", "UTC", None),
-        ("week", "US/Pacific", None),
-        ("week", "UTC", 3600),  # 1 hour offset
-        ("week", "US/Pacific", 7200),  # 2 hour offset
-        ("week", "Europe/Berlin", 108000),  # 3 day and 6 hour offset
-        ("week", "Asia/Kathmandu", 108000),  # 3 day and 6 hour offset
+        ("day", "UTC", None, None),
+        ("day", "US/Pacific", None, None),
+        ("day", "UTC", None, 1),  # 1 hour offset
+        ("day", "US/Pacific", None, 2),  # 2 hour offset
+        ("day", "Asia/Kathmandu", None, 3),  # 3 hour offset
+        ("week", "UTC", None, None),
+        ("week", "US/Pacific", None, None),
+        ("week", "UTC", 0, 1),  # Sunday, 1 hour offset
+        ("week", "US/Pacific", 0, 2),  # Sunday, 2 hour offset
+        ("week", "Europe/Berlin", 3, 6),  # Wednesday, 6 hour offset (3 days + 6 hours = 108000 seconds)
+        ("week", "Asia/Kathmandu", 3, 6),  # Wednesday, 6 hour offset (3 days + 6 hours = 108000 seconds)
     ]
 )
 def schedule_interval_timezone_and_offset(request):
-    """Parametrized fixture for timezone and interval_offset combinations."""
+    """Parametrized fixture for timezone, offset_day, and offset_hour combinations."""
     return request.param
 
 
 @pytest_asyncio.fixture
 async def temporal_schedule_with_tz_and_offset(temporal_client, team, schedule_interval_timezone_and_offset):
     """Manage a test Temporal Schedule with parametrized interval, timezone, and offset."""
-    interval, timezone, interval_offset = schedule_interval_timezone_and_offset
+    interval, timezone, offset_day, offset_hour = schedule_interval_timezone_and_offset
     batch_export = await acreate_batch_export(
         team_id=team.pk,
-        name=f"no-op-export-{interval}-{timezone}-{interval_offset or 0}",
+        name=f"no-op-export-{interval}-{timezone}-{offset_day}-{offset_hour}",
         destination_data={
             "type": "NoOp",
             "config": {},
@@ -122,7 +122,8 @@ async def temporal_schedule_with_tz_and_offset(temporal_client, team, schedule_i
         interval=interval,
         paused=True,
         timezone=timezone,
-        interval_offset=interval_offset,
+        offset_day=offset_day,
+        offset_hour=offset_hour,
     )
 
     handle = temporal_client.get_schedule_handle(str(batch_export.id))
@@ -289,7 +290,7 @@ async def test_get_schedule_frequency_with_tz_and_offset(
 ):
     """Test get_schedule_frequency returns correct frequency for weekly calendar spec."""
     desc = await temporal_schedule_with_tz_and_offset.describe()
-    interval, timezone, interval_offset = schedule_interval_timezone_and_offset
+    interval, _, _, _ = schedule_interval_timezone_and_offset
     if interval == "day":
         expected = 24 * 60 * 60
     elif interval == "week":
