@@ -76,13 +76,22 @@ def resolve_dependency_to_node(
                 warehouse_table = (
                     DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
                 )
-            node, _ = Node.objects.get_or_create(
+            # First try to find by warehouse_table_id
+            node = Node.objects.filter(
                 team=team,
                 dag_id=dag_id,
-                name=dependency_name,
                 type=NodeType.TABLE,
-                properties={"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
-            )
+                properties__warehouse_table_id=str(warehouse_table.id)
+            ).first()
+            if not node:
+                node, _ = Node.objects.get_or_create(
+                    team=team,
+                    dag_id=dag_id,
+                    name=dependency_name,
+                    type=NodeType.TABLE,
+                    defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}}
+                )
+
             return node
     except (DataWarehouseTable.DoesNotExist, QueryError):
         pass
