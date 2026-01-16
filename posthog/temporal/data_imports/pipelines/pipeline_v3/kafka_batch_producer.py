@@ -26,7 +26,7 @@ def _warpstream_kafka_producer() -> _KafkaProducer:
 
 
 @dataclass
-class BatchExportMessage:
+class ExportSignalMessage:
     team_id: int
     job_id: str
     schema_id: str
@@ -95,7 +95,7 @@ class KafkaBatchProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
     ) -> None:
-        message = BatchExportMessage(
+        message = ExportSignalMessage(
             team_id=self._team_id,
             job_id=self._job_id,
             schema_id=self._schema_id,
