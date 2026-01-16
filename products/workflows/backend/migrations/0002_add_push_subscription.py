@@ -40,11 +40,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="pushsubscription",
-            index=models.Index(fields=["team", "distinct_id", "is_active"], name="pushsub_team_distinct_active_idx"),
+            index=models.Index(fields=["team", "distinct_id", "is_active"], name="workflows_p_team_id_98806f_idx"),
         ),
         migrations.AddIndex(
             model_name="pushsubscription",
-            index=models.Index(fields=["team", "token_hash"], name="pushsub_team_token_hash_idx"),
+            index=models.Index(fields=["team", "token_hash"], name="workflows_p_team_id_7c454a_idx"),
         ),
         migrations.AddConstraint(
             model_name="pushsubscription",
