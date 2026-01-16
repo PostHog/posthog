@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { CyclotronPerson } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction } from '../hogflow-utils'
@@ -8,13 +9,14 @@ import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './acti
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+const GEOIP_TIMEZONE_PROPERTY = '$geoip_time_zone'
 
 export class WaitUntilTimeWindowHandler implements ActionHandler {
     execute({
         invocation,
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
-        const nextTime = getWaitUntilTime(action)
+        const nextTime = getWaitUntilTime(action, invocation.globals.person)
         return {
             nextAction: findContinueAction(invocation),
             scheduledAt: nextTime ?? undefined,
@@ -52,10 +54,27 @@ function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): Da
     return nextDay
 }
 
+export function resolveTimezone(config: Action['config'], person?: CyclotronPerson): string {
+    if (config.use_person_timezone && person?.properties) {
+        const personTimezone = person.properties[GEOIP_TIMEZONE_PROPERTY]
+        if (personTimezone && typeof personTimezone === 'string') {
+            return personTimezone
+        }
+        // Fall back to fallback_timezone if person doesn't have a timezone
+        if (config.fallback_timezone) {
+            return config.fallback_timezone
+        }
+    }
+    // Use the configured timezone or default to UTC
+    return config.timezone || 'UTC'
+}
+
 export const getWaitUntilTime = (
-    action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
+    action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>,
+    person?: CyclotronPerson
 ): DateTime | null => {
-    const now = DateTime.utc().setZone(action.config.timezone || 'UTC')
+    const timezone = resolveTimezone(action.config, person)
+    const now = DateTime.utc().setZone(timezone)
     const config = action.config
 
     if (config.time === 'any') {
