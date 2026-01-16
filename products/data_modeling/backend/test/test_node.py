@@ -1,0 +1,97 @@
+import pytest
+from posthog.test.base import BaseTest
+
+from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.services.saved_query_dag_sync import get_dag_id
+from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+
+@pytest.mark.django_db
+class TestNodeNameSync(BaseTest):
+    def test_node_name_syncs_from_saved_query_on_save(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="original_name",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node = Node.objects.create(
+            team=self.team,
+            dag_id=get_dag_id(self.team.id),
+            name="ignored_name",
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+
+        self.assertEqual(node.name, "original_name")
+
+    def test_node_name_cannot_be_overridden_when_saved_query_exists(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="saved_query_name",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node = Node.objects.create(
+            team=self.team,
+            dag_id=get_dag_id(self.team.id),
+            name="saved_query_name",
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+
+        node.name = "attempted_override"
+        node.save()
+
+        node.refresh_from_db()
+        self.assertEqual(node.name, "saved_query_name")
+
+    def test_node_name_updates_when_saved_query_name_changes(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="original_name",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        node = Node.objects.create(
+            team=self.team,
+            dag_id=get_dag_id(self.team.id),
+            name="original_name",
+            saved_query=saved_query,
+            type=NodeType.VIEW,
+        )
+
+        saved_query.name = "updated_name"
+        saved_query.save()
+
+        node.refresh_from_db()
+        self.assertEqual(node.name, "updated_name")
+
+    def test_table_node_name_is_not_affected_by_sync(self):
+        node = Node.objects.create(
+            team=self.team,
+            dag_id=get_dag_id(self.team.id),
+            name="events",
+            saved_query=None,
+            type=NodeType.TABLE,
+        )
+
+        self.assertEqual(node.name, "events")
+
+        node.name = "custom_table_name"
+        node.save()
+
+        node.refresh_from_db()
+        self.assertEqual(node.name, "custom_table_name")
+
+    def test_node_without_saved_query_requires_name(self):
+        with self.assertRaises(ValueError) as context:
+            Node.objects.create(
+                team=self.team,
+                dag_id=get_dag_id(self.team.id),
+                name="",
+                saved_query=None,
+                type=NodeType.TABLE,
+            )
+
+        self.assertEqual(str(context.exception), "Node without a saved_query must have a name")
