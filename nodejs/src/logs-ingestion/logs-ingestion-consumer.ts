@@ -21,6 +21,7 @@ import { LogsIngestionMessage } from './types'
  * - Redis (logs kind)
  * - KafkaProducerWrapper
  * - TeamManager
+ * - QuotaLimiting (for billing quota enforcement)
  */
 export type LogsIngestionConsumerHub = LogsIngestionConsumerConfig &
     Pick<
@@ -33,6 +34,8 @@ export type LogsIngestionConsumerHub = LogsIngestionConsumerConfig &
         | 'KAFKA_CLIENT_RACK'
         // TeamManager
         | 'teamManager'
+        // QuotaLimiting (billing quota enforcement)
+        | 'quotaLimiting'
     >
 
 export type UsageStats = {
@@ -68,12 +71,12 @@ export const logsBytesReceivedCounter = new Counter({
 
 export const logsBytesAllowedCounter = new Counter({
     name: 'logs_ingestion_bytes_allowed_total',
-    help: 'Total uncompressed bytes allowed through rate limiting',
+    help: 'Total uncompressed bytes allowed through quota and rate limiting',
 })
 
 export const logsBytesDroppedCounter = new Counter({
     name: 'logs_ingestion_bytes_dropped_total',
-    help: 'Total uncompressed bytes dropped due to rate limiting',
+    help: 'Total uncompressed bytes dropped due to quota or rate limiting',
 })
 
 export const logsRecordsReceivedCounter = new Counter({
@@ -83,12 +86,12 @@ export const logsRecordsReceivedCounter = new Counter({
 
 export const logsRecordsAllowedCounter = new Counter({
     name: 'logs_ingestion_records_allowed_total',
-    help: 'Total log records allowed through rate limiting',
+    help: 'Total log records allowed through quota and rate limiting',
 })
 
 export const logsRecordsDroppedCounter = new Counter({
     name: 'logs_ingestion_records_dropped_total',
-    help: 'Total log records dropped due to rate limiting',
+    help: 'Total log records dropped due to quota or rate limiting',
 })
 
 export class LogsIngestionConsumer {
@@ -152,19 +155,28 @@ export class LogsIngestionConsumer {
             return { messages: [] }
         }
 
-        const { allowed, usageStats } = await this.filterRateLimitedMessages(messages)
+        this.trackIncomingTraffic(messages)
+
+        const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(messages)
+        const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
+            await this.filterRateLimitedMessages(quotaAllowedMessages)
+
+        const usageStats = this.trackOutgoingTrafficAndBuildUsageStats(rateLimiterAllowedMessages, [
+            ...quotaDroppedMessages,
+            ...rateLimiterDroppedMessages,
+        ])
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: Promise.all([this.produceValidLogMessages(allowed), this.emitUsageMetrics(usageStats)]),
-            messages: allowed,
+            backgroundTask: Promise.all([
+                this.produceValidLogMessages(rateLimiterAllowedMessages),
+                this.emitUsageMetrics(usageStats),
+            ]),
+            messages: rateLimiterAllowedMessages,
         }
     }
 
-    private async filterRateLimitedMessages(
-        messages: LogsIngestionMessage[]
-    ): Promise<{ allowed: LogsIngestionMessage[]; usageStats: UsageStatsByTeam }> {
-        // Track total incoming traffic
+    private trackIncomingTraffic(messages: LogsIngestionMessage[]): void {
         let totalBytesReceived = 0
         let totalRecordsReceived = 0
         for (const message of messages) {
@@ -173,48 +185,89 @@ export class LogsIngestionConsumer {
         }
         logsBytesReceivedCounter.inc(totalBytesReceived)
         logsRecordsReceivedCounter.inc(totalRecordsReceived)
+    }
 
-        // Filter messages using rate limiter service
-        const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
-
-        // Aggregate usage stats by team for app_metrics
+    private trackOutgoingTrafficAndBuildUsageStats(
+        allowedMessages: LogsIngestionMessage[],
+        droppedMessages: LogsIngestionMessage[]
+    ): UsageStatsByTeam {
+        let totalBytesAllowed = 0
+        let totalRecordsAllowed = 0
+        let totalBytesDropped = 0
+        let totalRecordsDropped = 0
         const usageStats: UsageStatsByTeam = new Map()
 
-        // Track allowed metrics
-        let bytesAllowed = 0
-        let recordsAllowed = 0
-        for (const message of allowed) {
+        for (const message of allowedMessages) {
             const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
             stats.bytesReceived += message.bytesUncompressed
             stats.recordsReceived += message.recordCount
             stats.bytesAllowed += message.bytesUncompressed
             stats.recordsAllowed += message.recordCount
             usageStats.set(message.teamId, stats)
-            bytesAllowed += message.bytesUncompressed
-            recordsAllowed += message.recordCount
+
+            totalBytesAllowed += message.bytesUncompressed
+            totalRecordsAllowed += message.recordCount
         }
-        logsBytesAllowedCounter.inc(bytesAllowed)
-        logsRecordsAllowedCounter.inc(recordsAllowed)
 
-        // Track dropped metrics
-        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
+        logsBytesAllowedCounter.inc(totalBytesAllowed)
+        logsRecordsAllowedCounter.inc(totalRecordsAllowed)
 
-        let bytesDropped = 0
-        let recordsDropped = 0
-        for (const message of dropped) {
+        for (const message of droppedMessages) {
             const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
             stats.bytesReceived += message.bytesUncompressed
             stats.recordsReceived += message.recordCount
             stats.bytesDropped += message.bytesUncompressed
             stats.recordsDropped += message.recordCount
             usageStats.set(message.teamId, stats)
-            bytesDropped += message.bytesUncompressed
-            recordsDropped += message.recordCount
-        }
-        logsBytesDroppedCounter.inc(bytesDropped)
-        logsRecordsDroppedCounter.inc(recordsDropped)
 
-        return { allowed, usageStats }
+            totalBytesDropped += message.bytesUncompressed
+            totalRecordsDropped += message.recordCount
+        }
+
+        logsBytesDroppedCounter.inc(totalBytesDropped)
+        logsRecordsDroppedCounter.inc(totalRecordsDropped)
+
+        return usageStats
+    }
+
+    private async filterQuotaLimitedMessages(
+        messages: LogsIngestionMessage[]
+    ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
+        const quotaDroppedMessages: LogsIngestionMessage[] = []
+        const quotaAllowedMessages: LogsIngestionMessage[] = []
+
+        const uniqueTokens = [...new Set(messages.map((m) => m.token))]
+
+        const quotaLimitedTokens = new Set(
+            (
+                await Promise.all(
+                    uniqueTokens.map(async (token) =>
+                        (await this.hub.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_gb_ingested')) ? token : null
+                    )
+                )
+            ).filter((token): token is string => token !== null)
+        )
+
+        for (const message of messages) {
+            if (quotaLimitedTokens.has(message.token)) {
+                quotaDroppedMessages.push(message)
+            } else {
+                quotaAllowedMessages.push(message)
+            }
+        }
+
+        logMessageDroppedCounter.inc({ reason: 'quota_limited' }, quotaDroppedMessages.length)
+
+        return { quotaAllowedMessages, quotaDroppedMessages }
+    }
+
+    private async filterRateLimitedMessages(messages: LogsIngestionMessage[]): Promise<{
+        rateLimiterAllowedMessages: LogsIngestionMessage[]
+        rateLimiterDroppedMessages: LogsIngestionMessage[]
+    }> {
+        const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
+        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
+        return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
