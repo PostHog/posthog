@@ -8,16 +8,16 @@
 #include "HogQLParserBaseVisitor.h"
 
 #include "error.h"
-#include "parser.h"
+#include "parser_python.h"
 #include "string.h"
 
 #define VISIT(RULE) any visit##RULE(HogQLParser::RULE##Context* ctx) override
-#define VISIT_UNSUPPORTED(RULE)                                \
-  VISIT(RULE) {                                                \
+#define VISIT_UNSUPPORTED(RULE)                            \
+  VISIT(RULE) {                                            \
     throw NotImplementedError("Unsupported rule: " #RULE); \
   }
 
-#define HANDLE_HOGQL_ERROR(TYPE, OTHER_CLEANUP)                                                     \
+#define HANDLE_HOGQL_ERROR(TYPE, OTHER_CLEANUP)                                                         \
   (const TYPE& e) {                                                                                     \
     string err_what = e.what();                                                                         \
     PyObject *error_type = NULL, *py_err_args = NULL, *py_err = NULL, *py_start = NULL, *py_end = NULL; \
@@ -50,7 +50,7 @@
   PyObject* ret = build_ast_node(TYPE_NAME, KWARGS_FORMAT, __VA_ARGS__);                                      \
   /* Fortunately we don't need to care about decrementing Py_BuildValue/Py_VaBuildValue args, */              \
   /* so just throw is enough: https://github.com/python/cpython/blob/a254120f/Python/modsupport.c#L147-L148*/ \
-  if (!ret) throw PyInternalError();                                                                      \
+  if (!ret) throw PyInternalError();                                                                          \
   return ret
 
 using namespace std;
@@ -221,9 +221,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   PyObject* visitAsPyObjectFinal(antlr4::tree::ParseTree* tree) {
     try {
       return visitAsPyObject(tree);
-    } catch HANDLE_HOGQL_ERROR(SyntaxError, ) catch HANDLE_HOGQL_ERROR(
-        NotImplementedError,
-    ) catch HANDLE_HOGQL_ERROR(ParsingError, ) catch (const PyInternalError& e) {
+    } catch HANDLE_HOGQL_ERROR(SyntaxError, ) catch HANDLE_HOGQL_ERROR(NotImplementedError, ) catch HANDLE_HOGQL_ERROR(
+        ParsingError,
+    ) catch (const PyInternalError& e) {
       return NULL;
     } catch (const bad_any_cast& e) {
       PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingError");
@@ -334,9 +334,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     throw ParsingError("Declaration must be either a varDecl or a statement");
   }
 
-  VISIT(Expression) {
-    return visit(ctx->columnExpr());
-  }
+  VISIT(Expression) { return visit(ctx->columnExpr()); }
 
   VISIT(VarDecl) {
     string name = visitAsString(ctx->identifier());
@@ -428,8 +426,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return visit(empty_stmt_ctx);
     }
 
-    throw ParsingError("Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, funcStmt, "
-                       "varAssignment, block, exprStmt, or emptyStmt");
+    throw ParsingError(
+        "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
+        "funcStmt, "
+        "varAssignment, block, exprStmt, or emptyStmt"
+    );
   }
 
   VISIT(ExprStmt) {
@@ -707,21 +708,16 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(expr);
       throw;
     }
-    PyObject* ret = second_identifier.empty()
-        ? build_ast_node(
-            "ForInStatement", "{s:O,s:s#,s:N,s:N}",
-            "keyVar", Py_None,
-            "valueVar", first_identifier.data(), first_identifier.size(),
-            "expr", expr,
-            "body", body
-        )
-        : build_ast_node(
-            "ForInStatement", "{s:s#,s:s#,s:N,s:N}",
-            "keyVar", first_identifier.data(), first_identifier.size(),
-            "valueVar", second_identifier.data(), second_identifier.size(),
-            "expr", expr,
-            "body", body
-        );
+    PyObject* ret =
+        second_identifier.empty()
+            ? build_ast_node(
+                  "ForInStatement", "{s:O,s:s#,s:N,s:N}", "keyVar", Py_None, "valueVar", first_identifier.data(),
+                  first_identifier.size(), "expr", expr, "body", body
+              )
+            : build_ast_node(
+                  "ForInStatement", "{s:s#,s:s#,s:N,s:N}", "keyVar", first_identifier.data(), first_identifier.size(),
+                  "valueVar", second_identifier.data(), second_identifier.size(), "expr", expr, "body", body
+              );
     if (!ret) {
       Py_DECREF(expr);
       Py_DECREF(body);
@@ -743,7 +739,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     if (!params) {
-        throw PyInternalError();
+      throw PyInternalError();
     }
 
     PyObject* body;
@@ -754,7 +750,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
 
-    PyObject* ret = build_ast_node("Function", "{s:s#,s:N,s:N}", "name", name.data(), name.size(), "params", params, "body", body);
+    PyObject* ret =
+        build_ast_node("Function", "{s:s#,s:N,s:N}", "name", name.data(), name.size(), "params", params, "body", body);
     if (!ret) {
       Py_DECREF(params);
       Py_DECREF(body);
@@ -763,9 +760,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return ret;
   }
 
-  VISIT(KvPairList) {
-    return visitPyListOfObjects(ctx->kvPair());
-  }
+  VISIT(KvPairList) { return visitPyListOfObjects(ctx->kvPair()); }
 
   VISIT(KvPair) {
     PyObject* k = visitAsPyObject(ctx->expression(0));
@@ -785,13 +780,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return ret;
   }
 
-  VISIT(IdentifierList) {
-    return visitAsVectorOfStrings(ctx->identifier());
-  }
+  VISIT(IdentifierList) { return visitAsVectorOfStrings(ctx->identifier()); }
 
-  VISIT(EmptyStmt) {
-    RETURN_NEW_AST_NODE("ExprStatement", "{s:O}", "expr", Py_None);
-  }
+  VISIT(EmptyStmt) { RETURN_NEW_AST_NODE("ExprStatement", "{s:O}", "expr", Py_None); }
 
   VISIT(Block) {
     PyObject* declarations = PyList_New(0);
@@ -866,29 +857,34 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       for (auto subsequent : ctx->subsequentSelectSetClause()) {
         char* set_operator;
         if (subsequent->UNION() && subsequent->ALL()) {
-            set_operator = "UNION ALL";
+          set_operator = "UNION ALL";
         } else if (subsequent->UNION() && subsequent->DISTINCT()) {
-            set_operator = "UNION DISTINCT";
+          set_operator = "UNION DISTINCT";
         } else if (subsequent->INTERSECT() && subsequent->DISTINCT()) {
-            set_operator = "INTERSECT DISTINCT";
+          set_operator = "INTERSECT DISTINCT";
         } else if (subsequent->INTERSECT()) {
-            set_operator = "INTERSECT";
+          set_operator = "INTERSECT";
         } else if (subsequent->EXCEPT()) {
-            set_operator = "EXCEPT";
+          set_operator = "EXCEPT";
         } else {
-            throw SyntaxError("Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT");
+          throw SyntaxError(
+              "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+          );
         }
         select_query = visitAsPyObject(subsequent->selectStmtWithParens());
-        PyObject* query = build_ast_node("SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator", PyUnicode_FromString(set_operator));
+        PyObject* query = build_ast_node(
+            "SelectSetNode", "{s:N,s:N}", "select_query", select_query, "set_operator",
+            PyUnicode_FromString(set_operator)
+        );
         if (!query) {
           throw PyInternalError();
         }
         PyList_Append(select_queries, query);
       }
     } catch (...) {
-        Py_DECREF(select_queries);
-        Py_DECREF(initial_query);
-        throw;
+      Py_DECREF(select_queries);
+      Py_DECREF(initial_query);
+      throw;
     }
 
     if (PyList_Size(select_queries) == 0) {
@@ -896,7 +892,10 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       return initial_query;
     }
 
-    RETURN_NEW_AST_NODE("SelectSetQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries", select_queries);
+    RETURN_NEW_AST_NODE(
+        "SelectSetQuery", "{s:N, s:N}", "initial_select_query", initial_query, "subsequent_select_queries",
+        select_queries
+    );
   }
 
   VISIT(SelectStmt) {
@@ -1182,10 +1181,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
-    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
-                       "n", n,
-                       "offset_value", offset_value,
-                       "exprs", exprs);
+    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}", "n", n, "offset_value", offset_value, "exprs", exprs);
   }
 
   VISIT(LimitExpr) {
@@ -1196,7 +1192,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     // If no second expression, just return the first
     if (!ctx->columnExpr(1)) {
-      return first; // Return first as is, ownership transferred
+      return first;  // Return first as is, ownership transferred
     }
 
     // We have both limit and offset
@@ -1227,13 +1223,11 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     return result;
   }
 
-  VISIT(OffsetOnlyClause) {
-    return visitAsPyObject(ctx->columnExpr());
-  }
+  VISIT(OffsetOnlyClause) { return visitAsPyObject(ctx->columnExpr()); }
 
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  VISIT_UNSUPPORTED(LimitAndOffsetClause) // We handle this directly in the SelectStmt visitor
+  VISIT_UNSUPPORTED(LimitAndOffsetClause)  // We handle this directly in the SelectStmt visitor
 
   VISIT_UNSUPPORTED(SettingsClause)
 
@@ -1246,20 +1240,20 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!next_join) {                                                                                            \
       Py_DECREF(join1);                                                                                          \
       Py_DECREF(join2);                                                                                          \
-      throw PyInternalError();                                                                               \
+      throw PyInternalError();                                                                                   \
     }                                                                                                            \
     int reached_end_of_chain = Py_IsNone(next_join);                                                             \
     if (reached_end_of_chain == -1) {                                                                            \
       Py_DECREF(join1);                                                                                          \
       Py_DECREF(join2);                                                                                          \
-      throw PyInternalError();                                                                               \
+      throw PyInternalError();                                                                                   \
     }                                                                                                            \
     if (reached_end_of_chain) {                                                                                  \
       int err_indicator = PyObject_SetAttrString(last_join, "next_join", join2);                                 \
       if (err_indicator == -1) {                                                                                 \
         Py_DECREF(join1);                                                                                        \
         Py_DECREF(join2);                                                                                        \
-        throw PyInternalError();                                                                             \
+        throw PyInternalError();                                                                                 \
       }                                                                                                          \
       Py_DECREF(join2);                                                                                          \
       return join1;                                                                                              \
@@ -1781,7 +1775,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   if (is_##VAR##_a_call == -1) {                                                                          \
     Py_DECREF(left);                                                                                      \
     Py_DECREF(right);                                                                                     \
-    throw PyInternalError();                                                                          \
+    throw PyInternalError();                                                                              \
   }                                                                                                       \
   if (is_##VAR##_a_call) {                                                                                \
     PyObject* VAR##_name = PyObject_GetAttrString(VAR, "name");                                           \
@@ -1789,7 +1783,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(left);                                                                                    \
       Py_DECREF(right);                                                                                   \
       Py_DECREF(concat_as_str);                                                                           \
-      throw PyInternalError();                                                                        \
+      throw PyInternalError();                                                                            \
     }                                                                                                     \
     PyObject* VAR##_name_lower = PyObject_CallMethod(VAR##_name, "lower", NULL);                          \
     Py_DECREF(VAR##_name);                                                                                \
@@ -1797,7 +1791,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(left);                                                                                    \
       Py_DECREF(right);                                                                                   \
       Py_DECREF(concat_as_str);                                                                           \
-      throw PyInternalError();                                                                        \
+      throw PyInternalError();                                                                            \
     }                                                                                                     \
     is_##VAR##_a_concat_call = PyObject_RichCompareBool(VAR##_name_lower, concat_as_str, Py_EQ);          \
     Py_DECREF(VAR##_name_lower);                                                                          \
@@ -1805,7 +1799,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(left);                                                                                    \
       Py_DECREF(right);                                                                                   \
       Py_DECREF(concat_as_str);                                                                           \
-      throw PyInternalError();                                                                        \
+      throw PyInternalError();                                                                            \
     }                                                                                                     \
   }
 
@@ -2014,10 +2008,9 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     PyObject* ret = build_ast_node(
-      "Call",
-      "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
-      "name", name.c_str(),
-      "args", constant_count
+        "Call",
+        "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
+        "name", name.c_str(), "args", constant_count
     );
 
     if (!ret) {
@@ -2142,12 +2135,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE(
-        "BetweenExpr",
-        "{s:N,s:N,s:N,s:O}",
-        "expr", expr,
-        "low", low,
-        "high", high,
-        "negated", ctx->NOT() ? Py_True : Py_False
+        "BetweenExpr", "{s:N,s:N,s:N,s:O}", "expr", expr, "low", low, "high", high, "negated",
+        ctx->NOT() ? Py_True : Py_False
     );
   }
 
@@ -2353,8 +2342,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       throw;
     }
     RETURN_NEW_AST_NODE(
-        "WindowFunction", "{s:s#,s:N,s:N,s:N}", "name", identifier.data(), identifier.size(), "exprs", exprs,
-        "args", args, "over_expr", over_expr
+        "WindowFunction", "{s:s#,s:N,s:N,s:N}", "name", identifier.data(), identifier.size(), "exprs", exprs, "args",
+        args, "over_expr", over_expr
     );
   }
 
@@ -2687,101 +2676,116 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     auto attribute_ctxs = ctx->hogqlxTagAttribute();
-    PyObject *attributes = PyList_New(attribute_ctxs.size());
+    PyObject* attributes = PyList_New(attribute_ctxs.size());
     if (!attributes) {
       throw PyInternalError();
     }
     for (size_t i = 0; i < attribute_ctxs.size(); i++) {
-      PyObject *attr_obj;
+      PyObject* attr_obj;
       try {
         attr_obj = visitAsPyObject(attribute_ctxs[i]);
       } catch (...) {
         Py_DECREF(attributes);
         throw;
       }
-      PyList_SET_ITEM(attributes, i, attr_obj); // Steals reference
+      PyList_SET_ITEM(attributes, i, attr_obj);  // Steals reference
     }
 
     /* ── children ───────────────────────────────────────────── */
     std::vector<PyObject*> kept_children;
     for (auto childCtx : ctx->hogqlxChildElement()) {
-        PyObject *child_ast;
-        try { child_ast = visitAsPyObject(childCtx); }
-        catch (...) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw; }
+      PyObject* child_ast;
+      try {
+        child_ast = visitAsPyObject(childCtx);
+      } catch (...) {
+        X_Py_DECREF_ALL(kept_children);
+        Py_DECREF(attributes);
+        throw;
+      }
 
-        /* drop Constant nodes that are only-whitespace *and* contain a line-break */
-        int is_const = is_ast_node_instance(child_ast, "Constant");
-        if (is_const == 1) {
-            PyObject *valueObj = PyObject_GetAttrString(child_ast, "value");
-            if (valueObj && PyUnicode_Check(valueObj)) {
-                Py_ssize_t n = 0; const char *s = PyUnicode_AsUTF8AndSize(valueObj, &n);
-                if (s) {
-                    std::string v(s, n);
-                    bool only_ws     = std::all_of(v.begin(), v.end(),
-                                        [](unsigned char c){ return std::isspace(c); });
-                    bool has_newline = v.find('\n') != std::string::npos ||
-                                       v.find('\r') != std::string::npos;
-                    if (only_ws && has_newline) {           // skip it
-                        Py_DECREF(valueObj);
-                        Py_DECREF(child_ast);
-                        continue;
-                    }
-                }
+      /* drop Constant nodes that are only-whitespace *and* contain a line-break */
+      int is_const = is_ast_node_instance(child_ast, "Constant");
+      if (is_const == 1) {
+        PyObject* valueObj = PyObject_GetAttrString(child_ast, "value");
+        if (valueObj && PyUnicode_Check(valueObj)) {
+          Py_ssize_t n = 0;
+          const char* s = PyUnicode_AsUTF8AndSize(valueObj, &n);
+          if (s) {
+            std::string v(s, n);
+            bool only_ws = std::all_of(v.begin(), v.end(), [](unsigned char c) { return std::isspace(c); });
+            bool has_newline = v.find('\n') != std::string::npos || v.find('\r') != std::string::npos;
+            if (only_ws && has_newline) {  // skip it
+              Py_DECREF(valueObj);
+              Py_DECREF(child_ast);
+              continue;
             }
-            Py_XDECREF(valueObj);
+          }
         }
+        Py_XDECREF(valueObj);
+      }
 
-        kept_children.push_back(child_ast);                 // keep
+      kept_children.push_back(child_ast);  // keep
     }
 
     /* if we have child nodes, validate + attach them as attribute "children" */
     if (!kept_children.empty()) {
-        for (Py_ssize_t i = 0; i < PyList_Size(attributes); ++i) {
-            PyObject *attr = PyList_GetItem(attributes, i);      // borrowed
-            PyObject *name_obj = PyObject_GetAttrString(attr, "name");
-            PyObject *children_str = PyUnicode_FromString("children");
-            int is_children = PyObject_RichCompareBool(name_obj, children_str, Py_EQ);
-            Py_DECREF(children_str); Py_DECREF(name_obj);
-            if (is_children == 1) {
-                X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes);
-                throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
-            }
-            if (is_children == -1) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw PyInternalError();}
+      for (Py_ssize_t i = 0; i < PyList_Size(attributes); ++i) {
+        PyObject* attr = PyList_GetItem(attributes, i);  // borrowed
+        PyObject* name_obj = PyObject_GetAttrString(attr, "name");
+        PyObject* children_str = PyUnicode_FromString("children");
+        int is_children = PyObject_RichCompareBool(name_obj, children_str, Py_EQ);
+        Py_DECREF(children_str);
+        Py_DECREF(name_obj);
+        if (is_children == 1) {
+          X_Py_DECREF_ALL(kept_children);
+          Py_DECREF(attributes);
+          throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
         }
-
-        /* build children list */
-        PyObject *children_list = PyList_New(kept_children.size());
-        if (!children_list) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw PyInternalError(); }
-
-        for (size_t i = 0; i < kept_children.size(); ++i)
-            PyList_SET_ITEM(children_list, i, kept_children[i]);   // steals refs
-
-        PyObject *children_attr = build_ast_node(
-            "HogQLXAttribute", "{s:s#,s:O}", "name", "children", (Py_ssize_t)8, "value", children_list);
-        if (!children_attr) { Py_DECREF(children_list); Py_DECREF(attributes); throw PyInternalError(); }
-
-        if (PyList_Append(attributes, children_attr) == -1) {
-            Py_DECREF(children_attr); Py_DECREF(attributes); throw PyInternalError();
+        if (is_children == -1) {
+          X_Py_DECREF_ALL(kept_children);
+          Py_DECREF(attributes);
+          throw PyInternalError();
         }
-        Py_DECREF(children_attr);        // list now owns it
-    }
+      }
 
-    PyObject *ret = build_ast_node(
-        "HogQLXTag",
-        "{s:s#,s:N}",
-        "kind", opening.data(), (Py_ssize_t)opening.size(),
-        "attributes", attributes
-    );
-    if (!ret) {
+      /* build children list */
+      PyObject* children_list = PyList_New(kept_children.size());
+      if (!children_list) {
+        X_Py_DECREF_ALL(kept_children);
         Py_DECREF(attributes);
         throw PyInternalError();
+      }
+
+      for (size_t i = 0; i < kept_children.size(); ++i)
+        PyList_SET_ITEM(children_list, i, kept_children[i]);  // steals refs
+
+      PyObject* children_attr =
+          build_ast_node("HogQLXAttribute", "{s:s#,s:O}", "name", "children", (Py_ssize_t)8, "value", children_list);
+      if (!children_attr) {
+        Py_DECREF(children_list);
+        Py_DECREF(attributes);
+        throw PyInternalError();
+      }
+
+      if (PyList_Append(attributes, children_attr) == -1) {
+        Py_DECREF(children_attr);
+        Py_DECREF(attributes);
+        throw PyInternalError();
+      }
+      Py_DECREF(children_attr);  // list now owns it
+    }
+
+    PyObject* ret = build_ast_node(
+        "HogQLXTag", "{s:s#,s:N}", "kind", opening.data(), (Py_ssize_t)opening.size(), "attributes", attributes
+    );
+    if (!ret) {
+      Py_DECREF(attributes);
+      throw PyInternalError();
     }
     return ret;
   }
 
-  VISIT(Placeholder) {
-    RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr()));
-  }
+  VISIT(Placeholder) { RETURN_NEW_AST_NODE("Placeholder", "{s:N}", "expr", visitAsPyObject(ctx->columnExpr())); }
 
   VISIT_UNSUPPORTED(EnumValue)
 
@@ -2828,8 +2832,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       // If it's a Field, get `chain` and see if there's exactly one item in it.
       PyObject* chain = PyObject_GetAttrString(expr, "chain");
       if (!chain) {
-          Py_DECREF(expr);
-          throw PyInternalError();
+        Py_DECREF(expr);
+        throw PyInternalError();
       }
 
       if (PyList_Check(chain) && PyList_Size(chain) == 1) {
@@ -2867,8 +2871,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
           }
 
           // Build a Call node: ast.Call(name=<func_name>, args=[<select_node>])
-          PyObject* call_node =
-            build_ast_node("Call", "{s:s#,s:N}", "name", func_name, size, "args", args_list);
+          PyObject* call_node = build_ast_node("Call", "{s:s#,s:N}", "name", func_name, size, "args", args_list);
           Py_DECREF(chain);
           Py_DECREF(expr);
 
@@ -2904,8 +2907,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     PyList_SET_ITEM(args_list, 0, select_node);
 
     // Return ast.ExprCall(expr=expr, args=args_list).
-    PyObject* expr_call_node =
-      build_ast_node("ExprCall", "{s:N,s:N}", "expr", expr, "args", args_list);
+    PyObject* expr_call_node = build_ast_node("ExprCall", "{s:N,s:N}", "expr", expr, "args", args_list);
     if (!expr_call_node) {
       Py_DECREF(expr);
       Py_DECREF(select_node);
@@ -3030,52 +3032,63 @@ parser_state* get_module_state(PyObject* module) {
   return static_cast<parser_state*>(PyModule_GetState(module));
 }
 
+// Include JSON parser methods (depends on get_module_state and HogQLErrorListener)
+#include "parser_json_python.cpp"
+
 // MODULE METHODS
 
-#define METHOD_PARSE_NODE(PASCAL_CASE, CAMEL_CASE, SNAKE_CASE)                                                         \
-  static PyObject* method_parse_##SNAKE_CASE(PyObject* self, PyObject* args, PyObject* kwargs) {                       \
-    parser_state* state = get_module_state(self);                                                                      \
-    const char* str;                                                                                                   \
-    int internal = 0;                                                                                                  \
-    static const char* kwlist[] = {"input", "is_internal", NULL};                                                      \
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|p", (char**)kwlist, &str, &internal)) {                          \
-      return NULL;                                                                                                     \
-    }                                                                                                                  \
-    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536));                                        \
-    auto lexer = new HogQLLexer(input_stream);                                                                         \
-    auto stream = new antlr4::CommonTokenStream(lexer);                                                                \
-    auto parser = new HogQLParser(stream);                                                                             \
-    parser->removeErrorListeners();                                                                                    \
-    auto error_listener = new HogQLErrorListener(str);                                                                 \
-    parser->addErrorListener(error_listener);                                                                          \
-    HogQLParser::PASCAL_CASE##Context* parse_tree;                                                                     \
-    try {                                                                                                              \
-      parse_tree = parser->CAMEL_CASE();                                                                               \
-    } catch HANDLE_HOGQL_ERROR(SyntaxError, delete error_listener; delete parser; delete stream; delete lexer;         \
-                                  delete input_stream;)                                                                \
-    catch (const antlr4::EmptyStackException &e) {                                                                     \
-      delete error_listener; delete parser; delete stream; delete lexer; delete input_stream;                          \
-      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxError");                              \
-      if (error_type) {                                                                                                \
-        PyErr_SetString(error_type, "Unmatched curly bracket");                                                        \
-      }                                                                                                                \
-      return NULL;                                                                                                     \
-    } catch (...) {                                                                                                    \
-      delete error_listener; delete parser; delete stream; delete lexer; delete input_stream;                          \
-      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingError");                             \
-      if (error_type) {                                                                                                \
-        PyErr_SetString(error_type, "Unexpected Antlr exception in C++ parser");                                       \
-      }                                                                                                                \
-      return NULL;                                                                                                     \
-    };                                                                                                                 \
-    HogQLParseTreeConverter converter = HogQLParseTreeConverter(state, internal == 1);                                 \
-    PyObject* result_node = converter.visitAsPyObjectFinal(parse_tree);                                                \
-    delete error_listener;                                                                                             \
-    delete parser;                                                                                                     \
-    delete stream;                                                                                                     \
-    delete lexer;                                                                                                      \
-    delete input_stream;                                                                                               \
-    return result_node;                                                                                                \
+#define METHOD_PARSE_NODE(PASCAL_CASE, CAMEL_CASE, SNAKE_CASE)                                               \
+  static PyObject* method_parse_##SNAKE_CASE(PyObject* self, PyObject* args, PyObject* kwargs) {             \
+    parser_state* state = get_module_state(self);                                                            \
+    const char* str;                                                                                         \
+    int internal = 0;                                                                                        \
+    static const char* kwlist[] = {"input", "is_internal", NULL};                                            \
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "s|p", (char**)kwlist, &str, &internal)) {                \
+      return NULL;                                                                                           \
+    }                                                                                                        \
+    auto input_stream = new antlr4::ANTLRInputStream(str, strnlen(str, 65536));                              \
+    auto lexer = new HogQLLexer(input_stream);                                                               \
+    auto stream = new antlr4::CommonTokenStream(lexer);                                                      \
+    auto parser = new HogQLParser(stream);                                                                   \
+    parser->removeErrorListeners();                                                                          \
+    auto error_listener = new HogQLErrorListener(str);                                                       \
+    parser->addErrorListener(error_listener);                                                                \
+    HogQLParser::PASCAL_CASE##Context* parse_tree;                                                           \
+    try {                                                                                                    \
+      parse_tree = parser->CAMEL_CASE();                                                                     \
+    } catch HANDLE_HOGQL_ERROR(                                                                              \
+        SyntaxError, delete error_listener; delete parser; delete stream; delete lexer; delete input_stream; \
+    ) catch (const antlr4::EmptyStackException& e) {                                                         \
+      delete error_listener;                                                                                 \
+      delete parser;                                                                                         \
+      delete stream;                                                                                         \
+      delete lexer;                                                                                          \
+      delete input_stream;                                                                                   \
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "SyntaxError");                    \
+      if (error_type) {                                                                                      \
+        PyErr_SetString(error_type, "Unmatched curly bracket");                                              \
+      }                                                                                                      \
+      return NULL;                                                                                           \
+    } catch (...) {                                                                                          \
+      delete error_listener;                                                                                 \
+      delete parser;                                                                                         \
+      delete stream;                                                                                         \
+      delete lexer;                                                                                          \
+      delete input_stream;                                                                                   \
+      PyObject* error_type = PyObject_GetAttrString(state->errors_module, "ParsingError");                   \
+      if (error_type) {                                                                                      \
+        PyErr_SetString(error_type, "Unexpected Antlr exception in C++ parser");                             \
+      }                                                                                                      \
+      return NULL;                                                                                           \
+    };                                                                                                       \
+    HogQLParseTreeConverter converter = HogQLParseTreeConverter(state, internal == 1);                       \
+    PyObject* result_node = converter.visitAsPyObjectFinal(parse_tree);                                      \
+    delete error_listener;                                                                                   \
+    delete parser;                                                                                           \
+    delete stream;                                                                                           \
+    delete lexer;                                                                                            \
+    delete input_stream;                                                                                     \
+    return result_node;                                                                                      \
   }
 
 METHOD_PARSE_NODE(Expr, expr, expr)
@@ -3126,6 +3139,29 @@ static PyMethodDef parser_methods[] = {
      .ml_meth = method_parse_string_literal_text,
      .ml_flags = METH_VARARGS,
      .ml_doc = "Unquote the string (an identifier or a string literal))"},
+
+    // JSON output methods
+    {.ml_name = "parse_expr_json",
+     .ml_meth = (PyCFunction)method_parse_expr_json,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse the HogQL expression string into a JSON AST"},
+    {.ml_name = "parse_order_expr_json",
+     .ml_meth = (PyCFunction)method_parse_order_expr_json,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse the ORDER BY clause string into a JSON AST"},
+    {.ml_name = "parse_select_json",
+     .ml_meth = (PyCFunction)method_parse_select_json,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse the HogQL SELECT statement string into a JSON AST"},
+    {.ml_name = "parse_full_template_string_json",
+     .ml_meth = (PyCFunction)method_parse_full_template_string_json,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse a Hog template string into a JSON AST"},
+    {.ml_name = "parse_program_json",
+     .ml_meth = (PyCFunction)method_parse_program_json,
+     .ml_flags = METH_VARARGS | METH_KEYWORDS,
+     .ml_doc = "Parse a Hog program into a JSON AST"},
+
     {NULL, NULL, 0, NULL}
 };
 
