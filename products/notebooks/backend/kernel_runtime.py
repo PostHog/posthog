@@ -63,6 +63,7 @@ class KernelExecutionResult:
                 "id": str(self.kernel_runtime.id),
                 "status": self.kernel_runtime.status,
                 "last_used_at": self.kernel_runtime.last_used_at,
+                "sandbox_id": self.kernel_runtime.sandbox_id,
             },
         }
 
@@ -154,6 +155,8 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
     sandbox_config = SandboxConfig(
         name=f"notebook-kernel-{notebook.short_id}",
         template=SandboxTemplate.NOTEBOOK_BASE,
+        cpu_cores=1,
+        memory_gb=2,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
