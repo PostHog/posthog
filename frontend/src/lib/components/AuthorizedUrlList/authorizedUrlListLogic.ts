@@ -133,10 +133,8 @@ const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUs
 function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
         userIntent: _buildToolbarUserIntent(options),
-        // Make sure to pass the app url, otherwise the api_host will be used by
-        // the toolbar, which isn't correct when used behind a reverse proxy as
-        // we require e.g. SSO login to the app, which will not work when placed
-        // behind a proxy unless we register each domain with the OAuth2 client.
+        // Keeping this as backward compatibility, but we don't use it anymore in the toolbar
+        // and instead depend on the `posthog`'s instance configuration
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
