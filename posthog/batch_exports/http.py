@@ -941,21 +941,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": False})
 
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Trigger a backfill for a BatchExport.
-
-        Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
-        """
-        batch_export = self.get_object()
-        backfill_workflow_id = create_backfill(
-            self.team,
-            batch_export,
-            request.data.get("start_at"),
-            request.data.get("end_at"),
-        )
-        return response.Response({"backfill_id": backfill_workflow_id})
-
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 
