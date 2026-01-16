@@ -106,8 +106,8 @@ def test_can_put_config(client: HttpClient, temporal, organization, team, user):
 @pytest.mark.parametrize("interval", ["hour", "day"])
 def test_can_patch_config(client: HttpClient, interval, temporal, organization, team, user):
     timezone = "Europe/Berlin"
-    # use offset of 1 hour for daily exports and 0 for hourly exports (these don't support offsets)
-    interval_offset = 0 if interval == "hour" else 3600
+    # use offset of 1 hour for daily exports and None for hourly exports (these don't support offsets)
+    offset_hour = None if interval == "hour" else 1
     destination_data = {
         "type": "S3",
         "config": {
@@ -124,8 +124,9 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
         "destination": destination_data,
         "interval": interval,
         "timezone": timezone,
-        "interval_offset": interval_offset,
     }
+    if offset_hour is not None:
+        batch_export_data["offset_hour"] = offset_hour
 
     # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
     team.timezone = "Asia/Seoul"
@@ -164,15 +165,21 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
     batch_export_data = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export_data["interval"] == interval
     assert batch_export_data["timezone"] == timezone
-    assert batch_export_data["interval_offset"] == interval_offset
+    if interval == "day":
+        assert batch_export_data["offset_hour"] == offset_hour
+        assert batch_export_data["offset_day"] is None
+    else:
+        assert batch_export_data["offset_hour"] is None
+        assert batch_export_data["offset_day"] is None
     assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
     # validate the underlying temporal schedule has been updated
     codec = EncryptionCodec(settings=settings)
     new_schedule = describe_schedule(temporal, batch_export["id"])
     if interval == "day":
-        assert_is_daily_schedule(old_schedule, interval_offset // 3600)
-        assert_is_daily_schedule(new_schedule, interval_offset // 3600)
+        expected_hour = offset_hour if offset_hour is not None else 0
+        assert_is_daily_schedule(old_schedule, expected_hour)
+        assert_is_daily_schedule(new_schedule, expected_hour)
     else:
         assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
         assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
@@ -189,16 +196,20 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "hour",
                 "timezone": "UTC",
-                "interval_offset": 0,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "week",
                 "timezone": "UTC",
-                "interval_offset": 0,
+                "offset_day": 0,
+                "offset_hour": 0,
             },
             {
                 "interval": "week",
                 "timezone": "UTC",
+                "offset_day": 0,
+                "offset_hour": 0,
                 "interval_offset": 0,
             },
             None,
@@ -208,7 +219,8 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "hour",
                 "timezone": None,
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "week",
@@ -216,6 +228,8 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "week",
                 "timezone": "UTC",  # should default to UTC if not provided
+                "offset_day": None,  # should default to None if not provided
+                "offset_hour": None,  # should default to None if not provided
                 "interval_offset": None,  # should default to None if not provided
             },
             None,
@@ -225,7 +239,8 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "day",
                 "timezone": "Europe/Berlin",
-                "interval_offset": 3600,
+                "offset_day": None,
+                "offset_hour": 1,
             },
             {
                 "interval": "hour",
@@ -233,6 +248,8 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "hour",
                 "timezone": "Europe/Berlin",  # timezone should be preserved
+                "offset_day": None,  # should be reset to None as hourly exports don't support offsets
+                "offset_hour": None,  # should be reset to None as hourly exports don't support offsets
                 "interval_offset": None,  # should be reset to None as hourly exports don't support offsets
             },
             None,
@@ -242,16 +259,20 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "day",
                 "timezone": "Europe/Berlin",
-                "interval_offset": 3600,
+                "offset_day": None,
+                "offset_hour": 1,
             },
             {
                 "interval": "day",
                 "timezone": None,
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "day",
                 "timezone": "UTC",  # if None is provided, we should default to UTC
+                "offset_day": None,  # if None is provided, we should reset the offset to None
+                "offset_hour": None,  # if None is provided, we should reset the offset to None
                 "interval_offset": None,  # if None is provided, we should reset the offset to None
             },
             None,
@@ -261,12 +282,14 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "day",
                 "timezone": "Europe/Berlin",
-                "interval_offset": 3600,
+                "offset_day": None,
+                "offset_hour": 1,
             },
             {
                 "interval": None,
                 "timezone": None,
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             None,
             "This field may not be null.",
@@ -276,17 +299,20 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "hour",
                 "timezone": None,
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "day",
                 "timezone": "US/Pacific",
-                "interval_offset": 7200,
+                "offset_hour": 2,
             },
             {
                 "interval": "day",
                 "timezone": "US/Pacific",
-                "interval_offset": 7200,
+                "offset_day": None,
+                "offset_hour": 2,
+                "interval_offset": 7200,  # 2 hours = 7200 seconds
             },
             None,
             id="Changing from hourly to daily and updating timezone and offset",
@@ -295,41 +321,45 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "hour",
                 "timezone": "UTC",
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "day",
                 "timezone": "US/Pacific",
-                "interval_offset": 24 * 60 * 60,
+                "offset_hour": 24,
             },
             None,
-            "interval_offset for daily interval must be at most 82800 seconds (23 hours)",
+            "Ensure this value is less than or equal to 23.",
             id="24 hour offset is invalid for a daily export",
         ),
         pytest.param(
             {
                 "interval": "day",
                 "timezone": "US/Pacific",
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
             {
                 "interval": "week",
                 "timezone": "UTC",
-                "interval_offset": 180 * 60 * 60,
+                "offset_day": 7,
+                "offset_hour": 0,
             },
             None,
-            "interval_offset for weekly interval must be at most 601200 seconds (6 days + 23 hours)",
-            id="180 hour offset is invalid for a weekly export",
+            "Ensure this value is less than or equal to 6.",
+            id="7 day offset is invalid for a weekly export",
         ),
         pytest.param(
             {
                 "interval": "week",
                 "timezone": "UTC",
-                "interval_offset": None,
+                "offset_day": None,
+                "offset_hour": None,
             },
-            {"interval": "hour", "timezone": "Europe/Berlin", "interval_offset": 3600},
+            {"interval": "hour", "timezone": "Europe/Berlin", "offset_hour": 1},
             None,
-            "interval_offset must be 0 for non-daily/weekly intervals",
+            "offset_hour is not applicable for non-daily/weekly intervals",
         ),
     ],
 )
@@ -366,8 +396,11 @@ def test_can_patch_schedule_configuration(
         "destination": destination_data,
         "interval": initial_state["interval"],
         "timezone": initial_state["timezone"],
-        "interval_offset": initial_state["interval_offset"],
     }
+    if "offset_day" in initial_state:
+        batch_export_data["offset_day"] = initial_state["offset_day"]
+    if "offset_hour" in initial_state:
+        batch_export_data["offset_hour"] = initial_state["offset_hour"]
 
     client.force_login(user)
 
@@ -382,8 +415,10 @@ def test_can_patch_schedule_configuration(
         new_batch_export_data["interval"] = patch_data["interval"]
     if "timezone" in patch_data:
         new_batch_export_data["timezone"] = patch_data["timezone"]
-    if "interval_offset" in patch_data:
-        new_batch_export_data["interval_offset"] = patch_data["interval_offset"]
+    if "offset_day" in patch_data:
+        new_batch_export_data["offset_day"] = patch_data["offset_day"]
+    if "offset_hour" in patch_data:
+        new_batch_export_data["offset_hour"] = patch_data["offset_hour"]
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     if expected_error:
@@ -395,29 +430,26 @@ def test_can_patch_schedule_configuration(
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["interval"] == expected_state["interval"]
     assert batch_export["timezone"] == expected_state["timezone"]
-    assert batch_export["interval_offset"] == expected_state["interval_offset"]
+    assert batch_export["offset_day"] == expected_state["offset_day"]
+    assert batch_export["offset_hour"] == expected_state["offset_hour"]
 
     new_schedule = describe_schedule(temporal, batch_export["id"])
     batch_export_model = BatchExport.objects.get(id=batch_export["id"])
+
+    # Verify interval_offset in the database matches expected value
+    assert batch_export_model.interval_offset == expected_state["interval_offset"]
 
     assert new_schedule.schedule.spec.time_zone_name == expected_state["timezone"]
 
     # Verify the schedule spec matches the new interval type
     if expected_state["interval"] == "day":
         # Daily exports use ScheduleCalendarSpec
-        if expected_state["interval_offset"] is None:
-            expected_hour = 0
-        else:
-            expected_hour = expected_state["interval_offset"] // 3600
+        expected_hour = expected_state["offset_hour"] if expected_state["offset_hour"] is not None else 0
         assert_is_daily_schedule(new_schedule, expected_hour)
     elif expected_state["interval"] == "week":
         # Weekly exports use ScheduleCalendarSpec
-        if expected_state["interval_offset"] is None:
-            offset_in_hours = 0
-        else:
-            offset_in_hours = expected_state["interval_offset"] // 3600
-        day_offset = offset_in_hours // 24
-        hour_offset = offset_in_hours % 24
+        day_offset = expected_state["offset_day"] if expected_state["offset_day"] is not None else 0
+        hour_offset = expected_state["offset_hour"] if expected_state["offset_hour"] is not None else 0
         assert_is_weekly_schedule(new_schedule, day_offset, hour_offset)
     else:
         # Other intervals use ScheduleIntervalSpec

@@ -11,7 +11,7 @@ import { BatchExportConfiguration } from '~/types'
 
 import type { batchExportBackfillModalLogicType } from './batchExportBackfillModalLogicType'
 import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
-import { dayOptions, intervalOffsetToDayAndHour } from './utils'
+import { dayOptions } from './utils'
 
 export interface BatchExportBackfillModalLogicProps {
     id: string
@@ -170,43 +170,21 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         dayOfWeek: [
             (s) => [s.batchExportConfig],
             (batchExportConfig: BatchExportConfiguration | null): number | null => {
-                const interval = batchExportConfig?.interval
-                if (interval === 'day' || interval === 'week') {
-                    const { day } = intervalOffsetToDayAndHour(batchExportConfig?.interval_offset ?? 0)
-                    if (day < 0 || day > 6) {
-                        throw new Error('Invalid day of week')
-                    }
-                    return day
-                }
-                return null
+                const dayOffset = batchExportConfig?.offset_day
+                return dayOffset ?? null
             },
         ],
         dayOfWeekName: [
-            (s) => [s.batchExportConfig],
-            (batchExportConfig: BatchExportConfiguration | null): string | null => {
-                const interval = batchExportConfig?.interval
-                if (interval === 'day' || interval === 'week') {
-                    const { day } = intervalOffsetToDayAndHour(batchExportConfig?.interval_offset ?? 0)
-                    if (day < 0 || day > 6) {
-                        throw new Error('Invalid day of week')
-                    }
-                    return dayOptions[day].label
-                }
-                return null
+            (s) => [s.dayOfWeek],
+            (dayOfWeek: number | null): string | null => {
+                return dayOfWeek ? dayOptions[dayOfWeek].label : null
             },
         ],
         hourOffset: [
             (s) => [s.batchExportConfig],
             (batchExportConfig: BatchExportConfiguration | null): number | null => {
-                const interval = batchExportConfig?.interval
-                if (interval === 'day' || interval === 'week') {
-                    const { hour } = intervalOffsetToDayAndHour(batchExportConfig?.interval_offset ?? 0)
-                    if (hour < 0 || hour > 23) {
-                        throw new Error('Invalid hour offset')
-                    }
-                    return hour
-                }
-                return null
+                const hourOffset = batchExportConfig?.offset_hour
+                return hourOffset ?? null
             },
         ],
         defaultEndAt: [

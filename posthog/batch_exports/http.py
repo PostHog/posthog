@@ -363,6 +363,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    offset_day = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=6)
+    offset_hour = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=23)
 
     class Meta:
         model = BatchExport
@@ -384,7 +386,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "schema",
             "filters",
             "timezone",
-            "interval_offset",
+            "offset_day",
+            "offset_hour",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
@@ -397,14 +400,47 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if model is not None and model != "events":
                 raise serializers.ValidationError("HTTP batch exports only support the events model")
 
-        # If interval is being changed to a non-daily/weekly value, ensure interval_offset is reset to None
+        # Convert offset_day and offset_hour to interval_offset
         interval = attrs.get("interval")
-        if interval is not None and interval not in ("day", "week"):
-            # If interval_offset is not in attrs, it means it's not being updated, so we need to check the instance
-            if "interval_offset" not in attrs and self.instance:
-                existing_offset = self.instance.interval_offset
-                if existing_offset is not None:
+        if interval is not None:
+            # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
+            offset_day_provided = "offset_day" in attrs
+            offset_hour_provided = "offset_hour" in attrs
+            offset_day = attrs.pop("offset_day", None)
+            offset_hour = attrs.pop("offset_hour", None)
+
+            if interval == "day":
+                # For daily exports, only offset_hour is used
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day should not be specified for daily intervals")
+
+                if offset_hour_provided:
+                    # User explicitly provided offset_hour (even if None)
+                    attrs["interval_offset"] = offset_hour * 3600 if offset_hour is not None else None
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
                     attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset_hour is not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            elif interval == "week":
+                # For weekly exports, both offset_day and offset_hour are used
+                if offset_day_provided or offset_hour_provided:
+                    day = offset_day or 0
+                    hour = offset_hour or 0
+                    attrs["interval_offset"] = day * 86400 + hour * 3600
+                elif not self.partial:
+                    # PUT or new instance: default to None if not provided
+                    attrs["interval_offset"] = None
+                # otherwise if a PATCH and offset fields not provided, don't set interval_offset in attrs
+                # to preserve existing value
+            else:
+                # For other intervals, reset interval_offset to None
+                # Also validate that offset fields are not provided
+                if offset_day_provided and offset_day is not None:
+                    raise serializers.ValidationError("offset_day is not applicable for non-daily/weekly intervals")
+                if offset_hour_provided and offset_hour is not None:
+                    raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+                attrs["interval_offset"] = None
 
         return attrs
 
@@ -421,62 +457,46 @@ class BatchExportSerializer(serializers.ModelSerializer):
             return "UTC"
         return timezone
 
-    def validate_interval_offset(self, interval_offset: int | None) -> int | None:
-        """Validate interval_offset based on the interval.
+    def validate_offset_day(self, offset_day: int | None) -> int | None:
+        """Validate offset_day based on the interval.
 
-        NOTE: This only gets called if 'interval_offset' is provided in the request data.
-        (i.e. if we're not patching the interval_offset this function is not called and the interval_offset remains unchanged)
-        If interval_offset is not provided, it means it's not being updated, so we need to check if the interval does
-        not support an offset, and if not we reset it to 0.
+        It should be between 0-6 (Sunday-Saturday) for weekly intervals (this is included in the IntegerField
+        validation, so we don't need to validate it here).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
 
-        Rules:
-        1. Minimum interval offset is 0
-        2. We only support hourly offsets at the moment
-        3. If daily, the max interval offset is 23 hours
-        4. If weekly, the max interval offset is 6 days + 23 hours = 167 hours
-        5. If not daily or weekly, the interval offset should be ignored (ensure it is set to 0)
+        It should be None for all other intervals.
         """
-        # Get interval from incoming data or existing instance
         interval = self.initial_data.get("interval")
         if interval is None and self.instance:
             interval = self.instance.interval
 
-        if interval_offset is None:
+        if offset_day is None:
             return None
 
-        # 1. minimum interval offset is 0
-        if interval_offset < 0:
-            raise serializers.ValidationError("interval_offset must be 0 or greater")
+        if interval != "week":
+            raise serializers.ValidationError("offset_day is not applicable for non-weekly intervals")
 
-        # 2. we only support hourly offsets at the moment
-        if interval_offset % 3600 != 0:
-            raise serializers.ValidationError(
-                "interval_offset must be a multiple of 3600 seconds (hourly offsets only)"
-            )
+        return offset_day
 
-        # 3. if daily, the max interval offset is 23 hours
-        if interval == "day":
-            max_daily_offset = 23 * 3600
-            if interval_offset > max_daily_offset:
-                raise serializers.ValidationError(
-                    f"interval_offset for daily interval must be at most {max_daily_offset} seconds (23 hours)"
-                )
+    def validate_offset_hour(self, offset_hour: int | None) -> int | None:
+        """Validate offset_hour based on the interval.
 
-        # 4. if weekly, the max interval offset is 6 days + 23 hours = 167 hours
-        elif interval == "week":
-            max_weekly_offset = (6 * 24 + 23) * 3600
-            if interval_offset > max_weekly_offset:
-                raise serializers.ValidationError(
-                    f"interval_offset for weekly interval must be at most {max_weekly_offset} "
-                    f"seconds (6 days + 23 hours)"
-                )
+        Rules:
+        1. offset_hour must be between 0-23 for daily and weekly intervals (this is included in the IntegerField
+            validation, so we don't need to validate it here).
+        2. offset_hour is not applicable for other intervals
+        """
+        interval = self.initial_data.get("interval")
+        if interval is None and self.instance:
+            interval = self.instance.interval
 
-        # 5. if not daily or weekly, the interval offset should be ignored (set it to 0)
-        elif interval not in ("day", "week"):
-            if interval_offset > 0:
-                raise serializers.ValidationError("interval_offset must be 0 for non-daily/weekly intervals")
+        if offset_hour is None:
+            return None
 
-        return interval_offset
+        if interval not in ("day", "week"):
+            raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
+
+        return offset_hour
 
     def validate_filters(self, filters):
         if filters is None:
@@ -792,6 +812,30 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("JOINs are not supported")
 
         return hogql_query
+
+    def to_representation(self, instance: BatchExport) -> dict:
+        """Convert interval_offset to offset_day and offset_hour for API response."""
+        data = super().to_representation(instance)
+
+        # Convert interval_offset to offset_day and offset_hour
+        interval = instance.interval
+        interval_offset = instance.interval_offset
+
+        data["offset_day"] = None
+        data["offset_hour"] = None
+
+        if interval == "day":
+            if interval_offset is not None:
+                data["offset_hour"] = interval_offset // 3600
+            else:
+                data["offset_hour"] = None
+        elif interval == "week":
+            if interval_offset is not None:
+                offset_in_hours = interval_offset // 3600
+                data["offset_day"] = offset_in_hours // 24
+                data["offset_hour"] = offset_in_hours % 24
+
+        return data
 
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""

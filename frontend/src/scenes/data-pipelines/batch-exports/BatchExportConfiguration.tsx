@@ -31,14 +31,7 @@ import {
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
 import { batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { BatchExportConfigurationForm } from './types'
-import {
-    dayAndHourToIntervalOffset,
-    dayOptions,
-    hourOptions,
-    hourToIntervalOffset,
-    intervalOffsetToDayAndHour,
-    intervalOffsetToHour,
-} from './utils'
+import { dayOptions, hourOptions } from './utils'
 
 export function BatchExportConfiguration(): JSX.Element {
     const {
@@ -148,18 +141,18 @@ export function BatchExportConfiguration(): JSX.Element {
                                 {configuration.interval === 'day' && (
                                     <div className="flex gap-2 min-h-16">
                                         <LemonField
-                                            name="interval_offset"
+                                            name="offset_hour"
                                             label="Start time"
                                             className="flex-1"
                                             info="Time of day when the daily export should run"
                                         >
                                             {({ value, onChange }) => {
-                                                const hour = intervalOffsetToHour(value)
+                                                const hour = value ?? 0
                                                 return (
                                                     <LemonSelect
                                                         value={hour}
                                                         onChange={(newHour) => {
-                                                            onChange(hourToIntervalOffset(newHour ?? 0))
+                                                            onChange(newHour ?? 0)
                                                         }}
                                                         options={hourOptions}
                                                     />
@@ -171,44 +164,36 @@ export function BatchExportConfiguration(): JSX.Element {
                                 {configuration.interval === 'week' && (
                                     <div className="flex gap-2 min-h-16">
                                         <LemonField
-                                            name="interval_offset"
+                                            name="offset_day"
                                             label="Start time"
                                             className="flex-1"
                                             info="Day and time when the weekly export should run"
                                         >
-                                            {({ value, onChange }) => {
+                                            {({ value: dayValue, onChange: onChangeDay }) => {
                                                 const defaultDay = weekStartDay ?? 0
-                                                const { day: currentDay, hour: currentHour } =
-                                                    intervalOffsetToDayAndHour(value)
-                                                // Use defaults if value is null/undefined, otherwise use parsed values
-                                                const day =
-                                                    value === null || value === undefined ? defaultDay : currentDay
-                                                const hour = value === null || value === undefined ? 0 : currentHour
-
+                                                const day = dayValue ?? defaultDay
                                                 return (
-                                                    <div className="flex gap-2">
-                                                        <LemonSelect
-                                                            value={day}
-                                                            onChange={(newDay) => {
-                                                                onChange(
-                                                                    dayAndHourToIntervalOffset(
-                                                                        newDay ?? defaultDay,
-                                                                        hour
-                                                                    )
-                                                                )
-                                                            }}
-                                                            options={dayOptions}
-                                                            className="flex-1"
-                                                        />
-                                                        <LemonSelect
-                                                            value={hour}
-                                                            onChange={(newHour) => {
-                                                                onChange(dayAndHourToIntervalOffset(day, newHour ?? 0))
-                                                            }}
-                                                            options={hourOptions}
-                                                            className="flex-1"
-                                                        />
-                                                    </div>
+                                                    <LemonSelect
+                                                        value={day}
+                                                        onChange={(newDay) => {
+                                                            onChangeDay(newDay ?? defaultDay)
+                                                        }}
+                                                        options={dayOptions}
+                                                    />
+                                                )
+                                            }}
+                                        </LemonField>
+                                        <LemonField name="offset_hour" className="flex-1">
+                                            {({ value: hourValue, onChange: onChangeHour }) => {
+                                                const hour = hourValue ?? 0
+                                                return (
+                                                    <LemonSelect
+                                                        value={hour}
+                                                        onChange={(newHour) => {
+                                                            onChangeHour(newHour ?? 0)
+                                                        }}
+                                                        options={hourOptions}
+                                                    />
                                                 )
                                             }}
                                         </LemonField>

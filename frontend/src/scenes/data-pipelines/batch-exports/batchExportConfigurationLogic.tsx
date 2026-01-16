@@ -19,7 +19,7 @@ import {
 } from '~/types'
 
 import type { batchExportConfigurationLogicType } from './batchExportConfigurationLogicType'
-import { dayAndHourToIntervalOffset, humanizeBatchExportName } from './utils'
+import { humanizeBatchExportName } from './utils'
 
 // Bucket naming rules (supports both S3 and GCS):
 // S3: https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
@@ -79,7 +79,8 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         timezone: batchExportConfig.timezone,
-        interval_offset: batchExportConfig.interval_offset,
+        offset_day: (batchExportConfig as any).offset_day ?? null,
+        offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
@@ -656,7 +657,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         destination,
                         interval,
                         timezone,
-                        interval_offset,
+                        offset_day,
+                        offset_hour,
                         paused,
                         created_at,
                         start_at,
@@ -720,13 +722,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
-                        // timezone and interval_offset are only used for day and week intervals
+                        // timezone and offset are only used for day and week intervals
                         timezone: interval === 'day' || interval === 'week' ? timezone : null,
-                        interval_offset: interval === 'day' || interval === 'week' ? interval_offset : null,
+                        offset_day: interval === 'week' ? offset_day : null,
+                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
                         model,
                         filters,
                         destination: destinationObj,
-                    }
+                    } as any
                     if (props.id) {
                         const res = await api.batchExports.update(props.id, data)
                         lemonToast.success('Batch export configuration updated successfully')
@@ -791,7 +794,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         destination,
                         interval,
                         timezone,
-                        interval_offset,
+                        offset_day,
+                        offset_hour,
                         paused,
                         created_at,
                         start_at,
@@ -852,13 +856,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                         paused,
                         name,
                         interval,
-                        // timezone and interval_offset are only used for day and week intervals
+                        // timezone and offset are only used for day and week intervals
                         timezone: interval === 'day' || interval === 'week' ? timezone : null,
-                        interval_offset: interval === 'day' || interval === 'week' ? interval_offset : null,
+                        offset_day: interval === 'week' ? offset_day : null,
+                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
                         model,
                         filters,
                         destination: destinationObj,
-                    }
+                    } as any
 
                     if (props.id) {
                         return await api.batchExports.runTestStep(props.id, step, data)
@@ -1137,12 +1142,14 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                     // if changing to week, set the day of the week to the team's week start day
                     if (value === 'week') {
                         const weekStartDay = teamLogic.findMounted()?.values.weekStartDay || 0
-                        actions.setConfigurationValue('interval_offset', dayAndHourToIntervalOffset(weekStartDay, 0))
+                        actions.setConfigurationValue('offset_day', weekStartDay)
+                        actions.setConfigurationValue('offset_hour', 0)
                     }
                 } else {
-                    // Clear timezone and interval_offset when interval is not day or week
+                    // Clear timezone and offset when interval is not day or week
                     actions.setConfigurationValue('timezone', null)
-                    actions.setConfigurationValue('interval_offset', null)
+                    actions.setConfigurationValue('offset_day', null)
+                    actions.setConfigurationValue('offset_hour', null)
                 }
             }
         },
@@ -1200,7 +1207,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
                 const scheduleFieldsChanged =
                     formdata.interval !== values.savedConfiguration.interval ||
                     formdata.timezone !== values.savedConfiguration.timezone ||
-                    formdata.interval_offset !== values.savedConfiguration.interval_offset
+                    formdata.offset_day !== values.savedConfiguration.offset_day ||
+                    formdata.offset_hour !== values.savedConfiguration.offset_hour
 
                 if (!values.isNew && scheduleFieldsChanged) {
                     let userConfirmed = false

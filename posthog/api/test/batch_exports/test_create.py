@@ -131,34 +131,64 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal
 
 
 @pytest.mark.parametrize(
-    "timezone", ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Kathmandu", "invalid"]
-)
-@pytest.mark.parametrize(
-    "interval_offset",
+    "interval,timezone,offset_day,offset_hour,expected_interval_offset",
     [
-        0,
-        3600,  # 1 hour
-        108_000,  # 30 hours, which for weekly export means it should run at 6am on Monday (local time)
+        ("every 5 minutes", None, None, None, None),
+        ("hour", "UTC", None, None, None),
+        ("hour", "invalid", None, None, None),  # should return an error as invalid timezone is not valid
+        ("hour", "US/Pacific", None, None, None),
+        ("hour", "US/Pacific", None, 2, None),  # should return an error as offset hour not valid for hourly exports
+        ("day", "US/Pacific", None, None, None),  # should run at midnight US/Pacific time
+        ("day", "US/Pacific", None, 0, 0),  # should also run at midnight US/Pacific time
+        ("day", "Asia/Kathmandu", None, 2, 7200),  # should run at 2am Asia/Kathmandu time
+        (
+            "day",
+            "Asia/Kathmandu",
+            None,
+            24,
+            None,
+        ),  # should return an error as 24 is not a valid offset hour for daily exports
+        (
+            "day",
+            "Asia/Kathmandu",
+            1,
+            6,
+            None,
+        ),  # should return an error as non-None offset day is not valid for daily exports
+        ("week", None, None, None, None),  # should run at midnight on Sunday UTC
+        ("week", "Asia/Kathmandu", None, None, None),  # should run at midnight on Sunday Asia/Kathmandu time
+        ("week", "Asia/Kathmandu", 0, 0, 0),  # should also run at midnight on Sunday Asia/Kathmandu time
+        ("week", "Europe/Berlin", 1, 2, 25200),  # should run at 2am on Monday Europe/Berlin time (3 days + 2 hours)
+        (
+            "week",
+            "Europe/Berlin",
+            7,
+            2,
+            25200,
+        ),  # should return an error as 7 is not a valid offset day for weekly exports
     ],
 )
-@pytest.mark.parametrize(
-    "interval",
-    ["day", "week", "hour", "every 5 minutes"],
-)
 def test_create_batch_export_with_different_intervals_timezones_and_interval_offsets(
-    client: HttpClient, timezone: str, interval_offset: int, interval: str, temporal, organization
+    client: HttpClient,
+    interval: str,
+    timezone: str,
+    offset_day: int | None,
+    offset_hour: int | None,
+    expected_interval_offset: int,
+    temporal,
+    organization,
 ):
     """Test creating a BatchExport with different intervals, timezones and interval offsets.
 
-    A user should be able to create a BatchExport in the timezone of their choice, and set an interval offset to run it
+    A user should be able to create a BatchExport in the timezone of their choice, and set an offset to run it
     at a different time.  For example they could create a daily export at 1am US/Pacific time by setting timezone and
-    the interval offset to 3600.
+    the offset_hour to 1.
 
-    For intervals other than daily or weekly, the timezone and interval offset have no effect.
+    For intervals other than daily or weekly, the timezone and offset have no effect.
 
     When creating a BatchExport, we should create a corresponding Schedule in Temporal as described by the associated
     BatchExport model. In this test we assert this Schedule is created in Temporal with the expected timezone and
-    interval offset. We check the upcoming runs to confirm these look correct based on this information.
+    offset. We check the upcoming runs to confirm these look correct based on this information.
     """
 
     destination_data = {
@@ -177,8 +207,12 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         "destination": destination_data,
         "interval": interval,
         "timezone": timezone,
-        "interval_offset": interval_offset,
     }
+
+    if offset_hour is not None:
+        batch_export_data["offset_hour"] = offset_hour
+    if offset_day is not None:
+        batch_export_data["offset_day"] = offset_day
 
     # create a team with a timezone different to the one we are testing to ensure this has no effect on the batch export
     team = create_team(organization, timezone="Asia/Seoul")
@@ -198,9 +232,13 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
     # if invalid interval offset we should raise a validation error
     expect_error = False
-    if interval != "day" and interval != "week" and interval_offset > 0:
+    if offset_day is not None and offset_day > 6:
         expect_error = True
-    elif interval == "day" and interval_offset > 24 * 60 * 60:
+    if offset_hour is not None and offset_hour > 23:
+        expect_error = True
+    if interval != "day" and interval != "week" and (offset_day is not None or offset_hour is not None):
+        expect_error = True
+    elif interval == "day" and (offset_day is not None):
         expect_error = True
     elif timezone == "invalid":
         expect_error = True
@@ -217,8 +255,9 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
     batch_export = BatchExport.objects.get(id=data["id"])
     assert schedule.schedule.spec.jitter == batch_export.jitter
-    assert schedule.schedule.spec.time_zone_name == timezone
-    assert batch_export.timezone == timezone
+    expected_timezone = timezone if timezone else "UTC"
+    assert schedule.schedule.spec.time_zone_name == expected_timezone
+    assert batch_export.timezone == expected_timezone
 
     if interval == "hour":
         intervals = schedule.schedule.spec.intervals
@@ -231,22 +270,21 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         assert intervals[0].every == dt.timedelta(minutes=5)
         assert batch_export.jitter == dt.timedelta(minutes=1)
     elif interval == "day":
-        expected_hour = interval_offset // 3600
+        expected_hour = offset_hour if offset_hour is not None else 0
         assert_is_daily_schedule(schedule, expected_hour)
     elif interval == "week":
-        offset_in_hours = interval_offset // 3600
-        expected_day = offset_in_hours // 24
-        expected_hour = offset_in_hours % 24
+        expected_day = offset_day if offset_day is not None else 0
+        expected_hour = offset_hour if offset_hour is not None else 0
         assert_is_weekly_schedule(schedule, expected_day, expected_hour)
 
-    # Assert next run time is what we expect based on the interval and interval offset
+    # Assert next run time is what we expect based on the interval and offset
     next_runs = schedule.info.next_action_times
     assert len(next_runs) > 1
     next_run = next_runs[0]
     next_run_2 = next_runs[1]
 
     # Convert to the schedule's timezone
-    tz = ZoneInfo(timezone)
+    tz = ZoneInfo(expected_timezone)
     next_run_local = next_run.astimezone(tz)
     jitter = batch_export.jitter
 
@@ -257,8 +295,8 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     assert abs((next_run_2 - next_run).total_seconds()) <= max_expected_time_diff
 
     if interval == "day":
-        # For daily exports, check that it runs at the expected hour (based on interval_offset)
-        expected_hour = interval_offset // 3600
+        # For daily exports, check that it runs at the expected hour (based on offset_hour)
+        expected_hour = offset_hour if offset_hour is not None else 0
         expected_time = next_run_local.replace(hour=expected_hour, minute=0, second=0, microsecond=0)
         time_diff = abs((next_run_local - expected_time).total_seconds())
         assert time_diff <= jitter.total_seconds(), (
@@ -266,10 +304,9 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
             f"expected {expected_hour}:00 within jitter tolerance of {jitter}"
         )
     elif interval == "week":
-        # For weekly exports, check that it runs on the expected day and hour (based on interval_offset)
-        offset_in_hours = interval_offset // 3600
-        expected_day = offset_in_hours // 24
-        expected_hour = offset_in_hours % 24
+        # For weekly exports, check that it runs on the expected day and hour (based on offset_day and offset_hour)
+        expected_day = offset_day if offset_day is not None else 0
+        expected_hour = offset_hour if offset_hour is not None else 0
         expected_time = next_run_local.replace(hour=expected_hour, minute=0, second=0, microsecond=0)
         time_diff = abs((next_run_local - expected_time).total_seconds())
         # Check day of week (Temporal treats Sunday as 0)
@@ -277,9 +314,9 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         # Convert to Temporal's day format (Sunday=0)
         actual_day_temporal = (actual_day + 1) % 7
         # Additional sense check here just to ensure this makes sense
-        if interval_offset == 0 or interval_offset == 3600:
+        if expected_interval_offset == 0 or expected_interval_offset == 3600:
             assert actual_day_temporal == 0  # Sunday
-        elif interval_offset == 108_000:
+        elif expected_interval_offset == 108_000:
             assert actual_day_temporal == 1  # Monday
         assert (
             actual_day_temporal == expected_day
@@ -288,7 +325,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
             f"Next run {next_run_local} is at {next_run_local.hour}:{next_run_local.minute}, "
             f"expected {expected_hour}:00 within jitter tolerance of {jitter}"
         )
-    # For hour and "every 5 minutes" intervals, timezone and interval_offset have no effect
+    # For hour and "every 5 minutes" intervals, timezone and offset have no effect
     # so we don't need to check for a specific time
 
 
