@@ -115,8 +115,6 @@ def emit_embedding_request(
         "metadata": metadata or {},
         "models": models,
     }
-    if metadata:
-        payload["metadata"] = metadata
 
     producer = KafkaProducer()
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)
