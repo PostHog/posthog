@@ -37,6 +37,7 @@ from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
+from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
@@ -765,8 +766,6 @@ def prepare_toolbar_preloaded_flags(request):
             return JsonResponse({"error": "No team found"}, status=400)
 
         # Use Rust flags service
-        from posthog.api.services.flags_service import get_flags_from_service
-
         result = get_flags_from_service(
             token=team.api_token,
             distinct_id=distinct_id,
