@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -292,22 +291,14 @@ function TimezoneConfiguration({
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-                <Tooltip
-                    title="When enabled, uses the person's timezone from their $geoip_time_zone property. If the person doesn't have a timezone set, the fallback timezone will be used."
-                    placement="top"
-                >
-                    <span>
-                        <LemonSwitch
-                            checked={usePersonTimezone ?? false}
-                            onChange={onUsePersonTimezoneChange}
-                            label="Use person's timezone"
-                            bordered
-                            data-attr="use-person-timezone-switch"
-                        />
-                    </span>
-                </Tooltip>
-            </div>
+            <LemonSwitch
+                checked={usePersonTimezone ?? false}
+                onChange={onUsePersonTimezoneChange}
+                label="Use person's timezone"
+                bordered
+                tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
+                data-attr="use-person-timezone-switch"
+            />
 
             {usePersonTimezone ? (
                 <div>
