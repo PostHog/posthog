@@ -122,6 +122,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         setRangeDateTo,
         setDate,
         applyRange,
+        setFixedRangeGranularity,
     } = useActions(dateFilterLogic(logicProps))
     const {
         isVisible,
@@ -134,15 +135,13 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         isFixedDate,
         isRollingDateRange,
         dateFromHasTimePrecision,
+        fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
 
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
         forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
-    )
-    const [fixedRangeGranularity, setFixedRangeGranularity] = useState<'day' | 'minute'>(
-        dateFromHasTimePrecision ? 'minute' : 'day'
     )
 
     const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime

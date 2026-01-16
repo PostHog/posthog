@@ -98,10 +98,43 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     leftmostMonth={(selectingStart ? localFrom : localTo)?.startOf('month')}
-                    getLemonButtonProps={({ date, props }) => {
-                        const currentValue = selectingStart ? localFrom : localTo
-                        if (date.isSame(currentValue, 'd')) {
-                            return { ...props, status: 'default', type: 'primary' }
+                    getLemonButtonProps={({ date, props, dayIndex }) => {
+                        if ((localFrom && date.isSame(localFrom, 'd')) || (localTo && date.isSame(localTo, 'd'))) {
+                            const isStart = localFrom && date.isSame(localFrom, 'd')
+                            const isEnd = localTo && date.isSame(localTo, 'd')
+                            return {
+                                ...props,
+                                className:
+                                    isStart && isEnd
+                                        ? props.className
+                                        : clsx(
+                                              props.className,
+                                              {
+                                                  'rounded-r-none': isStart && dayIndex < 6,
+                                                  'rounded-l-none': isEnd && dayIndex > 0,
+                                              },
+                                              'LemonCalendar__range--boundary'
+                                          ),
+                                type: 'primary',
+                            }
+                        } else if (
+                            localFrom &&
+                            localTo &&
+                            date.isAfter(localFrom, 'd') &&
+                            date.isBefore(localTo, 'd')
+                        ) {
+                            return {
+                                ...props,
+                                className: clsx(
+                                    props.className,
+                                    dayIndex === 0
+                                        ? 'rounded-r-none'
+                                        : dayIndex === 6
+                                          ? 'rounded-l-none'
+                                          : 'rounded-none'
+                                ),
+                                active: true,
+                            }
                         }
                         return props
                     }}
