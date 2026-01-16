@@ -45,6 +45,7 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
+from posthog.tasks.remote_config import update_team_remote_config
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -3573,7 +3574,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_rate_limits_dont_mix_teams(self, *args):
         new_token = "bazinga"
-        Team.objects.create(
+        new_team = Team.objects.create(
             organization=self.organization,
             api_token=new_token,
             test_account_filters=[
@@ -3585,6 +3586,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 }
             ],
         )
+        # Trigger remote config update to happen synchronously in tests
+        update_team_remote_config(new_team.id)
         self.client.logout()
         with self.settings(
             DECIDE_RATE_LIMIT_ENABLED="y",
