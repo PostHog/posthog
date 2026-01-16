@@ -269,13 +269,19 @@ def revoke_oauth_session(
         return
 
     if not user or not application:
-        raise ValueError("Cannot revoke OAuth session: token has no user or application")
+        # The user is technically nullable, so it's possible to hit this.
+        # We can't revoke the full session without user+application, but still revoke the specific token (best effort)
+        if access_token:
+            access_token.delete()
+        if refresh_token:
+            refresh_token.revoked = now
+            refresh_token.save(update_fields=["revoked"])
+    else:
+        # Delete all access tokens for this user+application
+        OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
-    # Delete all access tokens for this user+application
-    OAuthAccessToken.objects.filter(user=user, application=application).delete()
+        # Revoke all refresh tokens for this user+application
+        OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
 
-    # Revoke all refresh tokens for this user+application
-    OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
-
-    # Delete all grants for this user+application
-    OAuthGrant.objects.filter(user=user, application=application).delete()
+        # Delete all grants for this user+application
+        OAuthGrant.objects.filter(user=user, application=application).delete()
