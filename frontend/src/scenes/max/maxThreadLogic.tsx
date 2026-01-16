@@ -210,6 +210,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }),
         addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
+        setForkedAtMessageCount: (count: number) => ({ count }),
     }),
 
     reducers(({ props }) => ({
@@ -446,6 +447,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 setConversation: () => false,
             },
         ],
+
+        // Tracks the message count when a conversation was forked from a shared chat
+        // Used to display a divider between original messages and new ones
+        forkedAtMessageCount: [
+            null as number | null,
+            {
+                setForkedAtMessageCount: (_, { count }) => count,
+                // Reset when starting a new conversation
+                resetThread: () => null,
+            },
+        ],
     })),
 
     listeners((logic) => ({
@@ -666,6 +678,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // sessionStorage might be unavailable
             }
 
+            // Handle shared thread: fork the conversation first
+            let conversationToUse = values.conversation
+            if (values.isSharedThread && values.conversation?.id) {
+                try {
+                    // Record the current message count before forking
+                    const messageCountBeforeFork = values.threadRaw.length
+                    // Fork the conversation
+                    const forkedConversation = await api.conversations.fork(values.conversation.id)
+                    // Store the fork point for showing the divider
+                    actions.setForkedAtMessageCount(messageCountBeforeFork)
+                    // Update to use the new forked conversation
+                    conversationToUse = forkedConversation
+                    actions.setConversation(forkedConversation)
+                    actions.updateGlobalConversationCache(forkedConversation)
+                    actions.setConversationId(forkedConversation.id)
+                } catch (err: any) {
+                    lemonToast.error(err?.data?.error || 'Failed to continue the shared chat.')
+                    return
+                }
+            }
+
             // Build auto-rejection payload if there's a pending approval that hasn't already been resolved
             // (pendingApprovalProposalId might get re-set during streaming even after user approved/rejected)
             let autoRejectPayload: { action: 'reject'; proposal_id: string; feedback?: string } | undefined = undefined
@@ -685,12 +718,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
             // For a new conversations, set the frontend conversation ID
-            if (!values.conversation) {
+            if (!conversationToUse) {
                 actions.setConversationId(values.conversationId)
             } else {
                 const updatedConversation = {
-                    ...values.conversation,
-                    agent_mode: agentMode || values.conversation?.agent_mode,
+                    ...conversationToUse,
+                    agent_mode: agentMode || conversationToUse?.agent_mode,
                     status: ConversationStatus.InProgress,
                     updated_at: dayjs().toISOString(),
                 }
@@ -711,7 +744,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     content: prompt,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: mergedUiContext,
-                    conversation: values.conversation?.id || values.conversationId,
+                    conversation: conversationToUse?.id || values.conversationId,
                     // Include auto-rejection payload if there was a pending approval
                     resume_payload: autoRejectPayload,
                 },
@@ -1047,7 +1080,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.multiQuestionFormPending,
                 s.threadLoading,
                 s.dataProcessingAccepted,
-                s.isSharedThread,
                 s.isImpersonatingExistingConversation,
             ],
             (
@@ -1055,7 +1087,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 multiQuestionFormPending,
                 threadLoading,
                 dataProcessingAccepted,
-                isSharedThread,
                 isImpersonatingExistingConversation
             ) =>
                 // Input unavailable when:
@@ -1063,7 +1094,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
                 // - Support agent is viewing an existing conversation without override
-                isSharedThread ||
                 formPending ||
                 multiQuestionFormPending ||
                 (threadLoading && !dataProcessingAccepted) ||

@@ -51,7 +51,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 ) {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
-    const { setQuestion, continueSharedChat } = useActions(maxLogic)
+    const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -161,7 +161,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     aria-describedby={!question ? 'textarea-hint' : undefined}
                                     id="question-input"
                                     ref={textAreaRef}
-                                    value={isSharedThread ? '' : question}
+                                    value={question}
                                     onChange={(value) => setQuestion(value)}
                                     onPressEnter={() => {
                                         if (question && !submissionDisabledReason && !threadLoading) {
@@ -178,34 +178,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             </div>
                         </SlashCommandAutocomplete>
 
-                        {!isSharedThread && (
-                            <div className="pb-2">
-                                {!isThreadVisible ? (
-                                    <div className="flex items-start justify-between">
-                                        <ContextDisplay size={contextDisplaySize} />
-                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                                    </div>
-                                ) : (
+                        <div className="pb-2">
+                            {!isThreadVisible ? (
+                                <div className="flex items-start justify-between">
                                     <ContextDisplay size={contextDisplaySize} />
-                                )}
-                            </div>
-                        )}
-                        {isSharedThread && conversation && (
-                            <div className="pb-2 px-2 flex justify-center">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => continueSharedChat(conversation.id)}
-                                    tooltip="Create your own copy of this chat to continue the conversation"
-                                >
-                                    Continue this chat
-                                </LemonButton>
-                            </div>
-                        )}
+                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                </div>
+                            ) : (
+                                <ContextDisplay size={contextDisplaySize} />
+                            )}
+                        </div>
                     </label>
                     <div
                         className={clsx(
                             'absolute flex items-center',
-                            isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >

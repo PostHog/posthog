@@ -13,6 +13,7 @@ import {
     IconExpand,
     IconEye,
     IconHide,
+    IconLock,
     IconNotebook,
     IconRefresh,
     IconThumbsDown,
@@ -108,7 +109,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, forkedAtMessageCount } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -202,6 +203,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             // For AI messages, use the current trace_id from the preceding human message
                             const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
 
+                            // Show fork divider after the last message from the original shared chat
+                            const showForkDivider =
+                                forkedAtMessageCount !== null && index === forkedAtMessageCount - 1
+
                             return (
                                 <React.Fragment key={`${conversationId}-${index}`}>
                                     <TraceIdProvider value={messageTraceId}>
@@ -226,6 +231,16 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                                 summary={ticketSummaryData.summary}
                                             />
                                         ))}
+                                    {showForkDivider && (
+                                        <div className="flex items-center gap-2 my-3 px-2">
+                                            <div className="flex-1 border-t border-dashed border-border" />
+                                            <div className="flex items-center gap-1.5 text-xs text-muted">
+                                                <IconLock className="w-3 h-3" />
+                                                <span>Messages beyond this point are only visible to you</span>
+                                            </div>
+                                            <div className="flex-1 border-t border-dashed border-border" />
+                                        </div>
+                                    )}
                                 </React.Fragment>
                             )
                         })
