@@ -243,6 +243,9 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     // Link question options
     if (question.type === SurveyQuestionType.Link) {
         const linkQuestion = question as LinkSurveyQuestion
+        const linkValue = linkQuestion.link || ''
+        const isValidLink = !linkValue || linkValue.startsWith('https://') || linkValue.startsWith('mailto:')
+
         return (
             <div className="space-y-3 pt-3 border-t border-border mt-3">
                 <div className="flex items-center gap-3">
@@ -260,16 +263,21 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                         <span className="text-xs text-secondary block mb-1">Link URL</span>
                         <LemonInput
                             size="xsmall"
-                            value={linkQuestion.link || ''}
+                            value={linkValue}
                             placeholder="https://example.com"
                             onChange={(val) => onUpdate({ link: val })}
                             fullWidth
+                            status={isValidLink ? 'default' : 'danger'}
                         />
                     </div>
                 </div>
-                <p className="text-xs text-secondary">
-                    Only https:// or mailto: links are supported. Leave empty for announcement-only.
-                </p>
+                {!isValidLink ? (
+                    <p className="text-xs text-danger">Link must start with https:// or mailto:</p>
+                ) : (
+                    <p className="text-xs text-secondary">
+                        Only https:// or mailto: links are supported. Leave empty for announcement-only.
+                    </p>
+                )}
             </div>
         )
     }
@@ -316,6 +324,7 @@ function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEd
                                 saveOnBlur
                                 clickToEdit
                                 compactIcon
+                                showEditIconOnHover
                             />
                             <EditableField
                                 name="confirmation-description"
@@ -326,6 +335,7 @@ function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEd
                                 saveOnBlur
                                 clickToEdit
                                 compactIcon
+                                showEditIconOnHover
                             />
                         </div>
                     </motion.div>
@@ -393,6 +403,7 @@ function SortableQuestionCard({
                         saveOnBlur
                         clickToEdit
                         compactIcon
+                        showEditIconOnHover
                     />
                     <EditableField
                         name={`description-${index}`}
@@ -403,6 +414,7 @@ function SortableQuestionCard({
                         saveOnBlur
                         clickToEdit
                         compactIcon
+                        showEditIconOnHover
                     />
                     <div className="flex items-center gap-2">
                         <QuestionTypeChip type={question.type} onChange={(newType) => onChangeType(index, newType)} />
