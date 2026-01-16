@@ -42,6 +42,9 @@ export class HogInputsService {
             ...additionalInputs,
             // and decode any integration inputs
             ...(await this.loadIntegrationInputs(hogFunction)),
+            // and resolve any push subscription inputs
+            // TODOdin: Is this the right place to load these?
+            ...(await this.loadPushSubscriptionInputs(hogFunction)),
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -178,6 +181,56 @@ export class HogInputsService {
                 }
             }
         })
+
+        return returnInputs
+    }
+
+    public async loadPushSubscriptionInputs(
+        hogFunction: HogFunctionType
+    ): Promise<Record<string, { value: string | null }>> {
+        const inputsToLoad: Record<string, string> = {}
+
+        hogFunction.inputs_schema?.forEach((schema) => {
+            if (schema.type === 'push_subscription') {
+                const input = hogFunction.inputs?.[schema.key]
+                const value = input?.value
+                if (value && typeof value === 'string') {
+                    inputsToLoad[schema.key] = value
+                }
+            }
+        })
+
+        if (Object.keys(inputsToLoad).length === 0) {
+            return {}
+        }
+
+        const returnInputs: Record<string, { value: string | null }> = {}
+
+        await Promise.all(
+            Object.entries(inputsToLoad).map(async ([key, subscriptionId]) => {
+                returnInputs[key] = {
+                    value: null,
+                }
+
+                try {
+                    const subscription = await this.pushSubscriptionsManager.getById(
+                        hogFunction.team_id,
+                        subscriptionId
+                    )
+                    if (subscription && subscription.is_active) {
+                        returnInputs[key] = {
+                            value: subscription.token,
+                        }
+                    }
+                } catch (error) {
+                    logger.warn('[HogInputsService]', 'Failed to load push subscription', {
+                        error,
+                        teamId: hogFunction.team_id,
+                        subscriptionId,
+                    })
+                }
+            })
+        )
 
         return returnInputs
     }

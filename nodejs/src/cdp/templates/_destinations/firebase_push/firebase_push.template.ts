@@ -11,19 +11,10 @@ export const template: HogFunctionTemplate = {
     category: ['Communication'],
     code_language: 'hog',
     code: `
-let fcmToken := null
-
-if (not globals.push_subscriptions) {
-    throw Error('Push subscriptions not found in globals. Ensure push subscriptions are loaded for this event.')
-}
-
-let androidSubscriptions := arrayFilter((sub) -> sub.platform = 'android', globals.push_subscriptions)
-if (length(androidSubscriptions) > 0) {
-    fcmToken := androidSubscriptions[1].token
-}
+let fcmToken := inputs.push_subscription
 
 if (not fcmToken) {
-    throw Error('FCM token not found. Ensure the user has registered a push subscription token for Android/FCM.')
+    throw Error('FCM token is required. Please select a push subscription.')
 }
 
 let title := inputs.title
@@ -56,7 +47,8 @@ let payload := {
         'Authorization': f'Bearer {inputs.firebase_account.access_token}',
         'Content-Type': 'application/json'
     },
-    'body': message
+    'body': message,
+    'timeoutMs': 10000
 }
 
 if (inputs.debug) {
@@ -83,6 +75,15 @@ if (inputs.debug) {
             secret: false,
             hidden: false,
             required: true,
+        },
+        {
+            key: 'push_subscription',
+            type: 'push_subscription',
+            label: 'Push subscription',
+            secret: false,
+            required: true,
+            description: 'Select a user with an active Android push subscription',
+            platform: 'android',
         },
         {
             key: 'title',
