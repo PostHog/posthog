@@ -7,9 +7,9 @@ from posthog.models.utils import UUIDModel
 
 
 class PushPlatform(models.TextChoices):
-    ANDROID = "android"  # FCM
-    IOS = "ios"  # APNs
-    WEB = "web"  # Future: Web Push
+    ANDROID = "android"
+    IOS = "ios"
+    WEB = "web"
 
 
 class PushSubscription(UUIDModel):
