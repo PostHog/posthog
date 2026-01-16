@@ -63,6 +63,7 @@ class KernelExecutionResult:
                 "id": str(self.kernel_runtime.id),
                 "status": self.kernel_runtime.status,
                 "last_used_at": self.kernel_runtime.last_used_at,
+                "sandbox_id": self.kernel_runtime.sandbox_id,
             },
         }
 

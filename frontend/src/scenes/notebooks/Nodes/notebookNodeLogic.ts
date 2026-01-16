@@ -189,13 +189,15 @@ const isPythonExecutionFresh = (nodeLogic: BuiltLogic<notebookNodeLogicType>, co
     const { pythonExecutionCodeHash, pythonExecution, pythonExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(code)
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = nodeLogic.values.kernelInfo?.status === 'running'
     const sandboxMatches =
         pythonExecutionSandboxId && kernelSandboxId !== null && pythonExecutionSandboxId === kernelSandboxId
     return (
         pythonExecutionCodeHash &&
         pythonExecutionCodeHash === codeHash &&
         pythonExecution?.status === 'ok' &&
-        sandboxMatches
+        sandboxMatches &&
+        kernelIsRunning
     )
 }
 
@@ -207,10 +209,15 @@ const isDuckSqlExecutionFresh = (
     const { duckExecutionCodeHash, duckExecution, duckExecutionSandboxId } = nodeLogic.values.nodeAttributes
     const codeHash = hashCodeForString(`${code}\n${returnVariable}`)
     const kernelSandboxId = nodeLogic.values.kernelInfo?.sandbox_id ?? null
+    const kernelIsRunning = nodeLogic.values.kernelInfo?.status === 'running'
     const sandboxMatches =
         duckExecutionSandboxId && kernelSandboxId !== null && duckExecutionSandboxId === kernelSandboxId
     return (
-        duckExecutionCodeHash && duckExecutionCodeHash === codeHash && duckExecution?.status === 'ok' && sandboxMatches
+        duckExecutionCodeHash &&
+        duckExecutionCodeHash === codeHash &&
+        duckExecution?.status === 'ok' &&
+        sandboxMatches &&
+        kernelIsRunning
     )
 }
 
@@ -352,10 +359,11 @@ const runPythonCell = async ({
         })) as PythonKernelExecuteResponse
 
         const executionResult = buildPythonExecutionResult(execution, exportedGlobals)
+        const runtimeSandboxId = execution.kernel_runtime?.sandbox_id ?? executionSandboxId
         updateAttributes({
             pythonExecution: executionResult,
             pythonExecutionCodeHash: hashCodeForString(code),
-            pythonExecutionSandboxId: executionSandboxId,
+            pythonExecutionSandboxId: runtimeSandboxId,
         })
         return { executed: true, execution: executionResult }
     } catch (error) {
@@ -393,10 +401,11 @@ const runDuckSqlCell = async ({
         const executionResult = buildPythonExecutionResult(execution, [
             { name: resolvedReturnVariable, type: 'DataFrame' },
         ])
+        const runtimeSandboxId = execution.kernel_runtime?.sandbox_id ?? executionSandboxId
         updateAttributes({
             duckExecution: executionResult,
             duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
-            duckExecutionSandboxId: executionSandboxId,
+            duckExecutionSandboxId: runtimeSandboxId,
         })
         return { executed: true, execution: executionResult }
     } catch (error) {
