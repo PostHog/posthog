@@ -28,7 +28,6 @@ pub async fn build_response_from_cache(
         return Ok(response);
     }
 
-    // Read cached config from Python's HyperCache
     let cached_config = get_cached_config(&context.state.config_hypercache_reader, &team.api_token)
         .await?
         .ok_or_else(|| {
@@ -38,7 +37,6 @@ pub async fn build_response_from_cache(
             ))
         })?;
 
-    // Check session recording quota limit (done per-request)
     let is_recordings_limited = if context.state.config.flags_session_replay_quota_check {
         context
             .state
@@ -49,10 +47,8 @@ pub async fn build_response_from_cache(
         false
     };
 
-    // Convert cached config to response using From trait
     response.config = cached_config.clone().into();
 
-    // Apply quota limiting override if needed
     if is_recordings_limited {
         apply_recordings_quota_limit(&mut response, cached_config.quota_limited);
     } else {
@@ -69,10 +65,8 @@ fn apply_recordings_quota_limit(
     response: &mut FlagsResponse,
     existing_quota_limited: Option<Vec<String>>,
 ) {
-    // Disable session recording
     response.config.session_recording = Some(SessionRecordingField::Disabled(false));
 
-    // Merge quota_limited arrays
     let mut limited = existing_quota_limited.unwrap_or_default();
     let recordings_str = QuotaResource::Recordings.as_str().to_string();
     if !limited.contains(&recordings_str) {

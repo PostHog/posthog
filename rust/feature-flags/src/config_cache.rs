@@ -1,17 +1,9 @@
-//! Config cache reader for Python's RemoteConfig HyperCache
-//!
-//! This module reads the pre-computed SDK config from Python's HyperCache.
-//! The config is stored at: `cache/team_tokens/{api_token}/array/config.json`
-//!
-//! HyperCache handles multi-tier lookups (Redis → S3 → Database) internally.
-//! This module only handles Python-specific conventions like the "__missing__" marker.
-
 use crate::api::cached_remote_config::CachedRemoteConfig;
 use crate::api::errors::FlagError;
 use common_hypercache::{HyperCacheReader, KeyType};
 use std::sync::Arc;
 
-/// Special value indicating cache miss (matches Python's _HYPER_CACHE_EMPTY_VALUE)
+/// Special value indicating cache miss
 const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
 /// Read cached config from HyperCache
@@ -19,7 +11,7 @@ const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 /// Returns:
 /// - `Ok(Some(config))` - Cache hit with valid config
 /// - `Ok(None)` - Cache miss (HyperCache exhausted all tiers) or Python's explicit miss marker
-/// - `Err(FlagError)` - Parse error only (cache errors return Ok(None) to allow fallback)
+/// - `Err(FlagError)` - Parse error only
 pub async fn get_cached_config(
     reader: &Arc<HyperCacheReader>,
     api_token: &str,
@@ -29,8 +21,6 @@ pub async fn get_cached_config(
     let value = match reader.get(&key).await {
         Ok(v) => v,
         Err(e) => {
-            // HyperCache already tried all tiers (Redis → S3 → Database).
-            // Any error here means the data genuinely isn't available.
             tracing::debug!(
                 api_token = %api_token,
                 error = ?e,
@@ -40,31 +30,28 @@ pub async fn get_cached_config(
         }
     };
 
-    // Handle null values
     if value.is_null() {
         return Ok(None);
     }
 
     // Check for Python's explicit "__missing__" marker
-    // This indicates Python checked and determined the config doesn't exist
     if let Some(s) = value.as_str() {
         if s == HYPER_CACHE_EMPTY_VALUE {
             return Ok(None);
         }
     }
 
-    // Parse the JSON into our struct
-    serde_json::from_value::<CachedRemoteConfig>(value.clone())
-        .map_err(|e| {
+    match serde_json::from_value::<CachedRemoteConfig>(value) {
+        Ok(cached) => Ok(Some(cached)),
+        Err(err) => {
             tracing::warn!(
                 api_token = %api_token,
-                error = %e,
-                raw_value = ?value,
+                error = %err,
                 "Failed to parse cached config"
             );
-            FlagError::Internal(format!("Config parse error: {}", e))
-        })
-        .map(Some)
+            Err(FlagError::Internal(format!("Config parse error: {}", err)))
+        }
+    }
 }
 
 #[cfg(test)]
