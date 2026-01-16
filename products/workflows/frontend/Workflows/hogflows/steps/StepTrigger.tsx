@@ -252,6 +252,7 @@ function StepTriggerConfigurationEvents({
                     setFilters={(filters) =>
                         setWorkflowActionConfig(action.id, { type: 'event', filters: filters ?? {} })
                     }
+                    filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
                 />
