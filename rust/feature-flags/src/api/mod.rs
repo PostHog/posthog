@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod cached_remote_config;
 pub mod endpoint;
 pub mod errors;
 pub mod flag_definitions;

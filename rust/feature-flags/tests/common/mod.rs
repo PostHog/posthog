@@ -273,6 +273,25 @@ impl ServerHandle {
                     }
                 };
 
+            // Create config hypercache reader for remote config (array/config.json)
+            let mut config_hypercache_config = HyperCacheConfig::new(
+                "array".to_string(),
+                "config.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            config_hypercache_config.token_based = true;
+            let config_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), config_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -286,6 +305,7 @@ impl ServerHandle {
                 flags_hypercache_reader,
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
+                config_hypercache_reader,
                 config,
             );
 

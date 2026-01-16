@@ -207,10 +207,11 @@ async fn process_request_inner(
             response
         };
 
-        // build the rest of the FlagsResponse, since the caller may have passed in `&config=true` and may need additional fields
-        // beyond just feature flags
+        // Build the rest of the FlagsResponse with config from HyperCache.
+        // When config=true, tries to read pre-computed config from Python's RemoteConfig.
         let response =
-            config_response_builder::build_response(flags_response, &context, &team).await?;
+            config_response_builder::build_response_from_cache(flags_response, &context, &team)
+                .await?;
 
         // Populate canonical log with flag evaluation results
         with_canonical_log(|log| {
