@@ -437,12 +437,14 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         return
 
     # Activity 2: Upload full video to Gemini (single upload)
-    uploaded_video = await temporalio.workflow.execute_activity(
+    upload_result = await temporalio.workflow.execute_activity(
         upload_video_to_gemini_activity,
         args=(video_inputs, asset_id),
         start_to_close_timeout=timedelta(minutes=10),
         retry_policy=retry_policy,
     )
+    uploaded_video = upload_result["uploaded_video"]
+    team_name = upload_result["team_name"]
 
     # Calculate segment specs based on video duration
     # (We ignore the first couple of seconds, as they often include malformed frames)
@@ -471,7 +473,7 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
         async with semaphore:
             return await temporalio.workflow.execute_activity(
                 analyze_video_segment_activity,
-                args=(video_inputs, uploaded_video, segment_spec, trace_id),
+                args=(video_inputs, uploaded_video, segment_spec, trace_id, team_name),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )

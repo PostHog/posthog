@@ -1,3 +1,5 @@
+from typing import TypedDict
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -25,6 +27,13 @@ class UploadedVideo(BaseModel):
     file_uri: str
     mime_type: str
     duration: int = Field(description="Duration in seconds")
+
+
+class UploadVideoToGeminiOutput(TypedDict):
+    """Return type for upload_video_to_gemini_activity including uploaded video and team name"""
+
+    uploaded_video: UploadedVideo
+    team_name: str
 
 
 class VideoSegmentSpec(BaseModel):

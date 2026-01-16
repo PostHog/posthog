@@ -18,9 +18,14 @@ from google.genai import (
 )
 
 from posthog.models.exported_asset import ExportedAsset
+from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.types.video import UploadedVideo, VideoSummarySingleSessionInputs
+from posthog.temporal.ai.session_summary.types.video import (
+    UploadedVideo,
+    UploadVideoToGeminiOutput,
+    VideoSummarySingleSessionInputs,
+)
 
 from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
 from ee.hogai.videos.utils import get_video_duration_s
@@ -33,9 +38,13 @@ MAX_PROCESSING_WAIT_SECONDS = 300
 
 
 @temporalio.activity.defn
-async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInputs, asset_id: int) -> UploadedVideo:
-    """Upload full video to Gemini for analysis and return file reference with duration"""
+async def upload_video_to_gemini_activity(
+    inputs: VideoSummarySingleSessionInputs, asset_id: int
+) -> UploadVideoToGeminiOutput:
+    """Upload full video to Gemini for analysis and return file reference with duration, plus team name"""
     try:
+        # Fetch team name once here to avoid fetching it 100+ times in parallel segment analysis
+        team_name = (await Team.objects.only("name").aget(id=inputs.team_id)).name
         # Get video bytes from ExportedAsset
         asset = await ExportedAsset.objects.aget(id=asset_id)
 
@@ -104,11 +113,12 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 signals_type="session-summaries",
             )
 
-            return UploadedVideo(
+            uploaded_video = UploadedVideo(
                 file_uri=uploaded_file.uri,
                 mime_type=uploaded_file.mime_type or DEFAULT_VIDEO_EXPORT_MIME_TYPE,
                 duration=duration,
             )
+            return UploadVideoToGeminiOutput(uploaded_video=uploaded_video, team_name=team_name)
 
     except Exception as e:
         logger.exception(
