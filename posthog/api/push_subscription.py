@@ -43,7 +43,6 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id)
 
-    @action(methods=["GET"], detail=False)
     def list(self, request: Request, *args, **kwargs) -> Response:
         """
         List push subscriptions with person identification data but without the secret token.
