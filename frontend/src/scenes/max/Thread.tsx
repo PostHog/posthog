@@ -506,12 +506,7 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                                     return null
                                 }
                                 // Message has been interrupted with quick replies
-                                // (non-links as ones with links get rendered in TextAnswer)
-                                if (
-                                    message.meta?.form?.options &&
-                                    !message.meta?.form?.options.some((option) => option.href) &&
-                                    isFinal
-                                ) {
+                                if (message.meta?.form?.options && isFinal) {
                                     return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
                                 }
 
