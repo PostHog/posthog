@@ -25,6 +25,7 @@ from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
 from posthog.tasks.email import send_personal_api_key_exposed, send_project_secret_api_key_exposed
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -204,6 +205,7 @@ class SecretAlert(APIView):
         items = secret_alert.validated_data
 
         results = []
+        pending_events = []
         for item in items:
             # Strip whitespace from token in case GitHub sends it with extra formatting
             token = item["token"].strip()
@@ -223,18 +225,21 @@ class SecretAlert(APIView):
                 "token_sha256": token_sha256,
             }
 
+            local_found = False
+
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 key_lookup = find_personal_api_key(token)
-                posthoganalytics.capture(
-                    distinct_id=None,
-                    event="github_secret_alert",
-                    properties={
+                local_found = key_lookup is not None
+
+                pending_events.append(
+                    {
                         "type": "personal_api_key",
                         "source": item["source"],
                         "url": item["url"],
-                        "found": key_lookup is not None,
+                        "found": local_found,
+                        "token_hash": token_sha256,
                         **token_debug,
-                    },
+                    }
                 )
 
                 if key_lookup is not None:
@@ -252,10 +257,9 @@ class SecretAlert(APIView):
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
             elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
-                found = False
                 try:
                     team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
-                    found = True
+                    local_found = True
                     result["label"] = "true_positive"
 
                     PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
@@ -266,16 +270,15 @@ class SecretAlert(APIView):
                 except Team.DoesNotExist:
                     pass
 
-                posthoganalytics.capture(
-                    distinct_id=None,
-                    event="github_secret_alert",
-                    properties={
+                pending_events.append(
+                    {
                         "type": "project_secret_api_key",
                         "source": item["source"],
                         "url": item["url"],
-                        "found": found,
+                        "found": local_found,
+                        "token_hash": token_sha256,
                         **token_debug,
-                    },
+                    }
                 )
 
             else:
@@ -284,6 +287,7 @@ class SecretAlert(APIView):
             results.append(result)
 
         # Relay to EU if any false positives (key might exist in EU)
+        eu_found_hashes: set[str] = set()
         has_false_positives = any(r["label"] == "false_positive" for r in results)
         if has_false_positives:
             eu_results = relay_to_eu(raw_body, kid, sig)
@@ -293,5 +297,22 @@ class SecretAlert(APIView):
                     eu_r = eu_by_hash.get(r["token_hash"])
                     if eu_r and eu_r["label"] == "true_positive":
                         r["label"] = "true_positive"
+                        eu_found_hashes.add(r["token_hash"])
+
+        # Capture events with correct key_found_region
+        for event_data in pending_events:
+            token_hash = event_data.pop("token_hash")
+
+            if token_hash in eu_found_hashes:
+                event_data["key_found_region"] = "EU"
+                event_data["found"] = True
+            elif event_data["found"]:
+                event_data["key_found_region"] = get_instance_region()
+
+            posthoganalytics.capture(
+                distinct_id=None,
+                event="github_secret_alert",
+                properties=event_data,
+            )
 
         return Response(results)

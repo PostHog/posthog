@@ -735,3 +735,115 @@ class TestSecretAlertRelayIntegration(APIBaseTest):
         self.assertEqual(data[0]["label"], "false_positive")
         mock_relay.assert_called_once()
         # Even though relay was called, it should return None due to empty setting
+
+
+class TestSecretAlertRegionTracking(APIBaseTest):
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.posthoganalytics.capture")
+    @patch("posthog.api.github.get_instance_region")
+    @patch("posthog.api.github.send_project_secret_api_key_exposed")
+    def test_local_find_sets_key_found_region_to_current_region(
+        self, mock_send_email, mock_get_region, mock_capture, mock_verify
+    ):
+        """When key is found locally, key_found_region should be set to current region."""
+        mock_verify.return_value = None
+        mock_get_region.return_value = "US"
+
+        token = "phx_test_secret_token_for_region"
+        self.team.secret_api_token = token
+        self.team.save()
+
+        self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        # Find the github_secret_alert capture call
+        alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
+        self.assertEqual(len(alert_calls), 1)
+        props = alert_calls[0][1]["properties"]
+        self.assertEqual(props["key_found_region"], "US")
+        self.assertTrue(props["found"])
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    @patch("posthog.api.github.posthoganalytics.capture")
+    @patch("posthog.api.github.get_instance_region")
+    def test_eu_find_sets_key_found_region_to_eu(self, mock_get_region, mock_capture, mock_relay, mock_verify):
+        """When key is found by EU relay, key_found_region should be 'EU'."""
+        mock_verify.return_value = None
+        mock_get_region.return_value = "US"
+
+        token = "phx_eu_only_key_1234567890"
+        token_hash = sha256(token.encode("utf-8")).hexdigest()
+
+        mock_relay.return_value = [
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+        ]
+
+        self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        # Find the github_secret_alert capture call
+        alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
+        self.assertEqual(len(alert_calls), 1)
+        props = alert_calls[0][1]["properties"]
+        self.assertEqual(props["key_found_region"], "EU")
+        self.assertTrue(props["found"])
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    @patch("posthog.api.github.posthoganalytics.capture")
+    def test_not_found_has_no_key_found_region(self, mock_capture, mock_relay, mock_verify):
+        """When key is not found anywhere, key_found_region should not be set."""
+        mock_verify.return_value = None
+        mock_relay.return_value = None
+
+        token = "phx_nonexistent_token_1234567890"
+
+        self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        # Find the github_secret_alert capture call
+        alert_calls = [call for call in mock_capture.call_args_list if call[1].get("event") == "github_secret_alert"]
+        self.assertEqual(len(alert_calls), 1)
+        props = alert_calls[0][1]["properties"]
+        self.assertNotIn("key_found_region", props)
+        self.assertFalse(props["found"])
