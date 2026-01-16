@@ -76,7 +76,7 @@ def _format_command_help(cmd_name: str, cmd_config: dict, underlying_cmd: str) -
             parts.append("Executes:")
             parts.append(f"• {underlying_cmd}")
             for child in children:
-                suffix = child.replace(cmd_name, "")  # e.g., ":minimal"
+                suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
                 child_config = manifest.get_command_config(child)
                 child_cmd = child_config.get("cmd", "") if child_config else ""
                 parts.append(f"• {suffix} → {child_cmd}")

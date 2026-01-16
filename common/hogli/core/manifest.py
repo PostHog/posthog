@@ -53,6 +53,11 @@ class Manifest:
 
             if extends not in all_commands:
                 raise ValueError(f"Command '{cmd_name}' extends unknown command '{extends}'")
+            if all_commands[extends].get("extends"):
+                raise ValueError(
+                    f"Command '{cmd_name}' extends '{extends}' which itself extends another command. "
+                    "Chained inheritance not supported."
+                )
 
             # Build children map
             if extends not in self._children_map:

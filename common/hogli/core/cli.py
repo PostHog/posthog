@@ -75,7 +75,7 @@ class CategorizedGroup(click.Group):
                 rows.append((cmd_name, help_text))
                 # Render children indented under parent
                 for child in manifest_obj.get_children_for_command(cmd_name):
-                    suffix = child.replace(cmd_name, "")  # e.g., ":minimal"
+                    suffix = child.removeprefix(cmd_name)  # e.g., ":minimal"
                     rows.append((f"  └─ {suffix}", ""))
             if rows:
                 with formatter.section(category_title):
