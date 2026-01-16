@@ -389,17 +389,6 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
-                    const response = await api.notebooks.create({
-                        content: values.content,
-                        text_content: values.editor?.getText() || '',
-                        title: values.title,
-                    })
-
-                    posthog.capture(`notebook duplicated`, {
-                        short_id: response.short_id,
-                    })
-
                     const source =
                         values.mode === 'canvas'
                             ? 'Canvas'
@@ -408,6 +397,21 @@ export const notebookLogic = kea<notebookLogicType>([
                               : values.isTemplate
                                 ? 'Template'
                                 : null
+
+                    // Add " (duplicate)" suffix for regular notebooks being duplicated
+                    const title = source ? values.title : `${values.title} (duplicate)`
+
+                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
+                    const response = await api.notebooks.create({
+                        content: values.content,
+                        text_content: values.editor?.getText() || '',
+                        title,
+                    })
+
+                    posthog.capture(`notebook duplicated`, {
+                        short_id: response.short_id,
+                    })
+
                     lemonToast.success(source ? `Notebook created from ${source}!` : 'Notebook duplicated!')
 
                     if (values.notebook?.short_id === 'scratchpad') {

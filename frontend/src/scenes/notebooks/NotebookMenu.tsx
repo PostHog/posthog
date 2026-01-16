@@ -15,13 +15,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
+    const { notebook, showHistory, isLocalOnly, isTemplate } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
 
     return (
         <LemonMenu
             items={[
-                {
+                !isTemplate && {
                     label: 'Duplicate',
                     icon: <IconCopy />,
                     onClick: () => duplicateNotebook(),
