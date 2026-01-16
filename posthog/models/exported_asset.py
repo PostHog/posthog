@@ -253,28 +253,8 @@ def _get_object_path(exported_asset: ExportedAsset) -> str:
 
 
 def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
-    """Save content by streaming from a file to S3, with fallback to direct content save."""
-    try:
-        if settings.OBJECT_STORAGE_ENABLED:
-            object_path = _get_object_path(exported_asset)
-            object_storage.write_from_file(object_path, file_path)
-            exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location"])
-        else:
-            _save_content_from_file_to_exported_asset(exported_asset, file_path)
-    except ObjectStorageError as ose:
-        capture_exception(ose)
-        logger.error(
-            "exported_asset.object-storage-error",
-            exported_asset_id=exported_asset.id,
-            exception=ose,
-            exc_info=True,
-        )
-        _save_content_from_file_to_exported_asset(exported_asset, file_path)
-
-
-def _save_content_from_file_to_exported_asset(exported_asset: ExportedAsset, file_path: str) -> None:
-    """Read file content and save directly to the exported asset model."""
-    with open(file_path, "rb") as f:
-        exported_asset.content = f.read()
-    exported_asset.save(update_fields=["content"])
+    """Save content from a file to S3."""
+    object_path = _get_object_path(exported_asset)
+    object_storage.write_from_file(object_path, file_path)
+    exported_asset.content_location = object_path
+    exported_asset.save(update_fields=["content_location"])
