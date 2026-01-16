@@ -788,7 +788,7 @@ jobs:
             # Cache Qt library packages to reduce network dependency and flakiness
             # Using cache-apt-pkgs-action instead of setup-qt-libs to avoid network issues
             - name: Cache and install Qt libraries
-              uses: awalsh128/cache-apt-pkgs-action@latest
+              uses: awalsh128/cache-apt-pkgs-action@acb598e5ddbc6f68a970c5da0688d2f3a9f04d05 # v1.6.0
               with:
                   packages: libegl1 libdbus-1-3 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xinput0 libxcb-xfixes0 x11-utils libxcb-cursor0 libopengl0
                   version: 1.0
