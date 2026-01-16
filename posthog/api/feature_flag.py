@@ -11,7 +11,6 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet, deletion
 
-import requests
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
@@ -120,8 +119,6 @@ def extract_etag_from_header(header_value: str | None) -> str | None:
     etag = etag.strip('"')
 
     return etag if etag else None
-
-
 
 
 class LocalEvaluationThrottle(BurstRateThrottle):
@@ -1271,8 +1268,6 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
         child=serializers.JSONField(),
         help_text="Cohort definitions keyed by cohort ID. Each value is a property group structure with 'type' (OR/AND) and 'values' (array of property groups or property filters).",
     )
-
-
 
 
 def _evaluate_flags_with_fallback(

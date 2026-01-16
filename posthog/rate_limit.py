@@ -8,10 +8,8 @@ from django.conf import settings
 from django.urls import resolve
 
 from prometheus_client import Counter
-from rest_framework.request import Request
-from rest_framework.throttling import BaseThrottle, SimpleRateThrottle, UserRateThrottle
+from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
-from token_bucket import Limiter, MemoryStorage
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action

@@ -7,9 +7,9 @@ flags service. This module provides a shared HTTP client and proxy function.
 
 from typing import Any
 
-import requests
 from django.conf import settings
 
+import requests
 
 # Reusable session for proxying to the flags service with connection pooling
 _FLAGS_SERVICE_SESSION = requests.Session()

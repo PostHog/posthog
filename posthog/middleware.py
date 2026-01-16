@@ -24,7 +24,6 @@ from django.utils.cache import add_never_cache_headers
 import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
-from rest_framework import status
 from social_core.exceptions import AuthCanceled, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -33,7 +32,6 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -46,7 +44,6 @@ from posthog.utils import _is_valid_ip_address
 from products.notebooks.backend.models import Notebook
 
 from .auth import PersonalAPIKeyAuthentication
-from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
