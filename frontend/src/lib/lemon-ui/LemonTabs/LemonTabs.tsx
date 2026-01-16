@@ -98,7 +98,7 @@ export function LemonTabs<T extends string | number>({
                             <div className="relative flex items-center gap-1">
                                 {tab.label}
                                 {tab.completed && (
-                                    <div className="absolute left-full ml-1 size-4 shrink-0 flex items-center justify-center">
+                                    <div className="absolute left-full -top-2 md:top-auto -ml-[2px] md:ml-1 size-4 shrink-0 flex items-center justify-center">
                                         <IconCheckCircle className="size-4 text-success" />
                                     </div>
                                 )}

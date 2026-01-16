@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
-import { LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { DangerousOperationResponse, MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
 
@@ -177,9 +177,9 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
                 <span className="font-medium">Approval required</span>
             </div>
             <p className="text-xs text-secondary m-0">This operation will make the following changes:</p>
-            <pre className="bg-bg-light rounded whitespace-pre-wrap font-mono text-xs m-0 pb-2">
-                {operation.preview}
-            </pre>
+            <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
+            <pre className="rounded whitespace-pre-wrap font-mono text-xs m-0 py-2">{operation.preview}</pre>
+            <LemonDivider className="my-0 -mx-3 w-[calc(100%+var(--spacing)*6)]" />
             <OptionSelector
                 options={options}
                 onSelect={handleSelect}

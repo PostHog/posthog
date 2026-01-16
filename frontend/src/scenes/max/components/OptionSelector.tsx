@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
@@ -38,8 +38,10 @@ export function OptionSelector({
     initialCustomValue,
     selectedValue,
 }: OptionSelectorProps): JSX.Element {
-    const isInitialCustomAnswer =
-        initialCustomValue !== undefined && !options.some((o) => o.value === initialCustomValue)
+    const isInitialCustomAnswer = useMemo(() => {
+        const valueToCheck = selectedValue ?? initialCustomValue
+        return valueToCheck !== undefined && !options.some((o) => o.value === valueToCheck)
+    }, [selectedValue, initialCustomValue, options])
     const [showCustomInput, setShowCustomInput] = useState(isInitialCustomAnswer)
     const [customInput, setCustomInput] = useState(initialCustomValue ?? '')
 
@@ -141,7 +143,7 @@ export function OptionSelector({
                                 value={customInput}
                                 onChange={(newValue) => setCustomInput(newValue)}
                                 onPressEnter={handleCustomSubmit}
-                                autoFocus={selectedValue !== options.find((o) => o.value === selectedValue)?.value}
+                                autoFocus={true}
                                 className="flex-grow"
                             />
                             <LemonButton
