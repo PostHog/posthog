@@ -38,6 +38,7 @@ members = [
     "common/hogvm",
     "kafka-deduplicator",
     "personhog-proto",
+    "personhog-replica",
 ]
 
 [workspace.lints.rust]
