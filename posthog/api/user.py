@@ -64,7 +64,6 @@ from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
-from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -765,7 +764,26 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+        # Use Rust flags service
+        flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+        proxy_timeout = getattr(settings, "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT", 3)
+
+        payload = {
+            "token": team.api_token,
+            "distinct_id": distinct_id,
+            "groups": {},
+        }
+
+        response = requests.post(
+            f"{flags_service_url}/flags",
+            params={"v": "2"},
+            json=payload,
+            timeout=proxy_timeout,
+        )
+        response.raise_for_status()
+        result = response.json()
+        flags = result.get("flags", {})
+
         key = secrets.token_urlsafe(16)
         cache_key = f"toolbar_flags_{key}"
         cache_data = {
@@ -776,7 +794,7 @@ def prepare_toolbar_preloaded_flags(request):
         cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
 
         return JsonResponse({"key": key, "flag_count": len(flags)})
-    except (json.JSONDecodeError, ValueError, KeyError) as e:
+    except (json.JSONDecodeError, ValueError, KeyError, requests.RequestException) as e:
         logger.exception("Error preparing toolbar launch", error=str(e))
         return JsonResponse({"error": "Invalid request"}, status=400)
 

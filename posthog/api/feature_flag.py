@@ -61,13 +61,12 @@ from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     FeatureFlagEvaluationTag,
-    get_all_feature_flags,
     get_user_blast_radius,
     set_feature_flags_for_team_in_cache,
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
+from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
     _get_flag_properties_from_filters,
@@ -1327,41 +1326,18 @@ def _evaluate_flags_with_fallback(
     team: Any,
     distinct_id: str,
     groups: dict[str, Any] | None,
-) -> dict | tuple:
+) -> dict:
     """
-    Proxy to the Rust flags service instead of using get_all_feature_flags, falling back to Python if the request fails.
-
-    I know, I know – proxying feels a bit unclean, but it's the easiest way for us to remove all
-    of the Python evaluation logic and use a centralized Rust service for feature flag evaluation.
-    Plus, this is kinda like a layer 7 proxy – Django handles authentication and then proxies to the Rust service,
-    which handles all of the evaluation logic without us needing to worry about passing in database connections, etc.
-    See https://posthog.slack.com/archives/C07Q2U4BH4L/p1763419358264529 for more context on this decision.
+    Proxy to the Rust flags service for feature flag evaluation.
 
     Returns:
         dict[str, Any]: Rust service response with structure {"flags": {...}, ...}
-        OR
-        tuple[dict, dict, dict, bool]: Python evaluation result (flags, reasons, payloads, errors)
     """
-    logger = logging.getLogger(__name__)
-
-    try:
-        return _proxy_to_flags_service(
-            token=team.api_token,
-            distinct_id=distinct_id,
-            groups=groups,
-        )
-    except Exception as e:
-        # The metric we're capturing here is a "tombstone" metric; i.e. we shouldn't ever expect this to happen in production.
-        # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
-        # TODO remove this fallback once we're confident that the proxying works great.
-        TOMBSTONE_COUNTER.labels(
-            namespace="feature_flags",
-            operation="proxy_to_flags_service",
-            component="python_fallback",
-        ).inc()
-        logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
-
-        return get_all_feature_flags(team, distinct_id, groups)
+    return _proxy_to_flags_service(
+        token=team.api_token,
+        distinct_id=distinct_id,
+        groups=groups,
+    )
 
 
 @extend_schema(tags=[ProductKey.FEATURE_FLAGS])

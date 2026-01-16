@@ -1,3 +1,17 @@
+"""
+Python-based feature flag evaluation engine.
+
+IMPORTANT: This module is LEGACY code and should only be used for:
+1. The "Create static cohort from feature flag" background task (posthog/tasks/calculate_cohort.py)
+
+All other flag evaluation (decide, toolbar, local evaluation, etc.) now uses the Rust flags service.
+
+DO NOT add new uses of this code. If you need flag evaluation, use the Rust service by calling
+the FEATURE_FLAGS_SERVICE_URL/flags endpoint.
+
+For flag validation in the admin UI, use posthog/models/feature_flag/flag_validation.py instead.
+"""
+
 import time
 import hashlib
 from dataclasses import dataclass
