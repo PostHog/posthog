@@ -2,7 +2,6 @@ import pytest
 from posthog.test.base import BaseTest
 
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_modeling.backend.services.saved_query_dag_sync import get_dag_id
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
@@ -17,7 +16,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id="test",
             name="ignored_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -34,7 +33,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id="test",
             name="saved_query_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -55,7 +54,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id="test",
             name="original_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -70,7 +69,7 @@ class TestNodeNameSync(BaseTest):
     def test_table_node_name_is_not_affected_by_sync(self):
         node = Node.objects.create(
             team=self.team,
-            dag_id=get_dag_id(self.team.id),
+            dag_id="test",
             name="events",
             saved_query=None,
             type=NodeType.TABLE,
@@ -88,7 +87,7 @@ class TestNodeNameSync(BaseTest):
         with self.assertRaises(ValueError) as context:
             Node.objects.create(
                 team=self.team,
-                dag_id=get_dag_id(self.team.id),
+                dag_id="test",
                 name="",
                 saved_query=None,
                 type=NodeType.TABLE,
