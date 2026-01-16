@@ -12,5 +12,5 @@ def sync_saved_query_name_to_node(sender, instance: DataWarehouseSavedQuery, **k
     # less efficient, but update() doesn't call validation logic and save() does
     # maximally this would return N nodes equal to the number of dags containing the saved_query
     # for the given team. so this shouldn't have too much performance drawback
-    for node in Node.objects.filter(saved_query=instance):
+    for node in Node.objects.filter(saved_query=instance).select_related("saved_query"):
         node.save()
