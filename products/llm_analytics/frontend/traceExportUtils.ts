@@ -4,6 +4,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from './llmAnalyticsTraceDataLogic'
 import { EventMetrics, MinimalEventExport, MinimalTraceExport } from './traceImportUtils'
+import { CompatMessage } from './types'
 import { formatLLMEventTitle, normalizeMessages } from './utils'
 
 function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode[]): MinimalEventExport {

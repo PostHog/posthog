@@ -35,7 +35,7 @@ export function LLMAnalyticsTracePreviewScene(): JSX.Element {
             <div className="max-w-7xl mx-auto">
                 <header className="mb-6">
                     <h1 className="text-2xl font-bold mb-2">LLM trace preview</h1>
-                    <p className="text-muted">Paste the exported LLM trace JSON to preview it.</p>
+                    {!hasTrace && <p className="text-muted">Paste the exported LLM trace JSON to preview it.</p>}
                 </header>
 
                 {!hasTrace ? (
