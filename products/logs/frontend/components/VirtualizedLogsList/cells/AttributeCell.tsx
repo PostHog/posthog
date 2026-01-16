@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
+import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
 
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
-import { shouldLinkToPersonPage } from 'products/logs/frontend/personLinkUtils'
+import { shouldLinkToPersonPage, shouldLinkToSessionReplay } from 'products/logs/frontend/personLinkUtils'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -29,6 +31,7 @@ export const AttributeCell = memo(function AttributeCell({
     })
 
     const isPersonLink = shouldLinkToPersonPage(attributeKey, value)
+    const isSessionLink = shouldLinkToSessionReplay(attributeKey, value)
 
     return (
         <LogsViewerCellPopover
@@ -44,6 +47,14 @@ export const AttributeCell = memo(function AttributeCell({
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                         </span>
+                    ) : isSessionLink ? (
+                        <Link
+                            to={urls.replaySingle(value)}
+                            className="font-mono text-xs whitespace-nowrap pr-24"
+                            title={value}
+                        >
+                            {value}
+                        </Link>
                     ) : (
                         <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>
                             {value}

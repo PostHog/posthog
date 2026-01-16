@@ -4,15 +4,17 @@ import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { Link } from 'lib/lemon-ui/Link'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-import { shouldLinkToPersonPage } from 'products/logs/frontend/personLinkUtils'
+import { shouldLinkToPersonPage, shouldLinkToSessionReplay } from 'products/logs/frontend/personLinkUtils'
 
 export interface LogAttributesProps {
     attributes: Record<string, string>
@@ -119,6 +121,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                         dataIndex: 'value',
                         render: (_, record) => {
                             const isPersonLink = shouldLinkToPersonPage(record.key, record.value)
+                            const isSessionLink = shouldLinkToSessionReplay(record.key, record.value)
                             return (
                                 <CopyToClipboardInline
                                     explicitValue={record.value}
@@ -132,6 +135,10 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
                                         </span>
+                                    ) : isSessionLink ? (
+                                        <Link to={urls.replaySingle(record.value)} onClick={(e) => e.stopPropagation()}>
+                                            {record.value}
+                                        </Link>
                                     ) : (
                                         record.value
                                     )}
