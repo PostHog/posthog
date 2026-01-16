@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SurveyQuestionBranchingType } from '~/types'
+import { LinkSurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
 
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { NewSurvey } from '../constants'
@@ -51,6 +51,15 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     // Survey form state from surveyLogic
     const { survey } = useValues(surveyLogic)
+
+    // Validate Link questions have valid URLs
+    const hasInvalidLinkUrl = survey.questions.some((q) => {
+        if (q.type === SurveyQuestionType.Link) {
+            const link = (q as LinkSurveyQuestion).link || ''
+            return link && !link.startsWith('https://') && !link.startsWith('mailto:')
+        }
+        return false
+    })
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -202,6 +211,9 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                     type="primary"
                                     loading={surveyLaunching}
                                     disabled={surveySaving}
+                                    disabledReason={
+                                        hasInvalidLinkUrl ? 'Fix invalid link URLs before launching' : undefined
+                                    }
                                     onClick={handleLaunchClick}
                                 >
                                     Launch survey
@@ -253,13 +265,22 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                             type="primary"
                                             loading={surveyLaunching}
                                             disabled={surveySaving}
+                                            disabledReason={
+                                                hasInvalidLinkUrl ? 'Fix invalid link URLs before launching' : undefined
+                                            }
                                             onClick={handleLaunchClick}
                                         >
                                             Launch survey
                                         </LemonButton>
                                     )
                                 ) : (
-                                    <LemonButton type="primary" onClick={nextStep}>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={nextStep}
+                                        disabledReason={
+                                            hasInvalidLinkUrl ? 'Fix invalid link URLs before continuing' : undefined
+                                        }
+                                    >
                                         Continue
                                     </LemonButton>
                                 )}
