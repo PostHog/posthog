@@ -42,7 +42,7 @@ class BaseConversationsAPITest(APIBaseTest):
 class TestTicketAPI(BaseConversationsAPITest):
     def setUp(self):
         super().setUp()
-        self.ticket = Ticket.objects.create(
+        self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="test-session-123",
@@ -57,7 +57,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
     def test_list_tickets_only_returns_team_tickets(self):
-        other_ticket = Ticket.objects.create(
+        other_ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
             widget_session_id="other-session",
@@ -154,7 +154,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         if "user" in other_ticket_attrs.get("assigned_to", ""):
             other_ticket_attrs["assigned_to"] = self.user
 
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             channel_source=other_channel,
             widget_session_id="other-session",
@@ -222,7 +222,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
         # Create 10 tickets with messages and assigned users
         for i in range(10):
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",

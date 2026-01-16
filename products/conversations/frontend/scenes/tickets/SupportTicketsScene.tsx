@@ -102,39 +102,40 @@ export function SupportTicketsScene(): JSX.Element {
                 columns={[
                     {
                         title: 'Ticket',
-                        key: 'ticket',
+                        key: 'key',
+                        width: 80,
                         render: (_, ticket) => (
-                            <div>
-                                <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-muted-alt">{ticket.ticket_number}</span>
+                        ),
+                    },
+                    {
+                        title: 'Person',
+                        key: 'customer',
+                        render: (_, ticket) => (
+                            <div className="flex items-center gap-2">
+                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon noEllipsis />
+                            </div>
+                        ),
+                    },
+                    {
+                        title: 'Last message',
+                        key: 'last_message',
+                        render: (_, ticket) => (
+                            <div className="flex items-center gap-2">
+                                {ticket.last_message_text ? (
                                     <span
-                                        className={clsx('font-medium', {
-                                            'font-bold': ticket.unread_team_count > 0,
-                                        })}
-                                    >
-                                        <PersonDisplay noLink noPopover person={{ distinct_id: ticket.distinct_id }} />
-                                    </span>
-                                    {ticket.unread_team_count > 0 && (
-                                        <LemonBadge.Number
-                                            count={ticket.unread_team_count}
-                                            size="small"
-                                            status="primary"
-                                        />
-                                    )}
-                                    {ticket.message_count > 0 && (
-                                        <LemonTag type="muted" size="small">
-                                            {ticket.message_count}
-                                        </LemonTag>
-                                    )}
-                                </div>
-                                {ticket.last_message_text && (
-                                    <div
                                         className={clsx('text-xs truncate max-w-md', {
                                             'text-muted-alt': ticket.unread_team_count === 0,
                                             'font-medium': ticket.unread_team_count > 0,
                                         })}
                                     >
                                         {ticket.last_message_text}
-                                    </div>
+                                    </span>
+                                ) : (
+                                    <span className="text-muted-alt text-xs">—</span>
+                                )}
+                                {ticket.unread_team_count > 0 && (
+                                    <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
                                 )}
                             </div>
                         ),
