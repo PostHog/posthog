@@ -421,21 +421,21 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
 
         if row_count == 0:
             with open(csv_path, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["error"])
-                writer.writerow(["No data available or unable to format for export."])
+                error_writer = csv.writer(f)
+                error_writer.writerow(["error"])
+                error_writer.writerow(["No data available or unable to format for export."])
         else:
             columns = _determine_columns(user_columns, all_keys, seen_keys)
 
             with open(csv_path, "w", newline="") as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
-                writer.writeheader()
+                dict_writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
+                dict_writer.writeheader()
 
                 with open(jsonl_path) as jsonl_file:
                     for line in jsonl_file:
                         if line.strip():
                             row = json.loads(line)
-                            writer.writerow(row)
+                            dict_writer.writerow(row)
 
         save_content_from_file(exported_asset, csv_path)
     finally:
