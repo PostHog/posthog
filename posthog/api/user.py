@@ -62,7 +62,7 @@ from posthog.event_usage import (
 )
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at
+from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
@@ -96,6 +96,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    is_impersonated_read_only = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -131,6 +132,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -162,6 +164,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -189,6 +192,13 @@ class UserSerializer(serializers.ModelSerializer):
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
+
+    def get_is_impersonated_read_only(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        if not is_impersonated_session(self.context["request"]):
+            return None
+        return is_read_only_impersonation(self.context["request"])
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:

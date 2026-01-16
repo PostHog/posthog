@@ -62,6 +62,7 @@ def authenticated_user() -> AuthenticatedUser:
         user_id=1,
         team_id=1,
         auth_method="personal_api_key",
+        distinct_id="test-distinct-id",
         scopes=["llm_gateway:read"],
     )
 
@@ -95,6 +96,7 @@ def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None,
             "user_id": 1,
             "scopes": ["llm_gateway:read"],
             "current_team_id": 1,
+            "distinct_id": "test-distinct-id",
         }
     )
     mock_db_pool.acquire = AsyncMock(return_value=conn)
