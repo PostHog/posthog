@@ -107,21 +107,23 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
                 {freshQuery ? <ReloadInsight /> : null}
 
-                <Query
-                    attachTo={attachTo}
-                    query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={setQuery}
-                    readOnly={insightMode !== ItemMode.Edit}
-                    editMode={insightMode === ItemMode.Edit}
-                    context={{
-                        showOpenEditorButton: false,
-                        showQueryEditor: actuallyShowQueryEditor,
-                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                        insightProps,
-                    }}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                />
+                <div className="min-h-100">
+                    <Query
+                        attachTo={attachTo}
+                        query={isInsightVizNode(query) ? { ...query, full: true } : query}
+                        setQuery={setQuery}
+                        readOnly={insightMode !== ItemMode.Edit}
+                        editMode={insightMode === ItemMode.Edit}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                            insightProps,
+                        }}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                    />
+                </div>
             </SceneContent>
         </BindLogic>
     )
