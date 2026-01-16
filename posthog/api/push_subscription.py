@@ -190,11 +190,7 @@ def sdk_push_subscription_register(request: HttpRequest):
     if not api_key:
         return cors_response(request, JsonResponse({"error": "api_key is required"}, status=400))
 
-    try:
-        team = Team.objects.get_team_from_token(api_key)
-    except Team.DoesNotExist:
-        return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
-
+    team = Team.objects.get_team_from_token(api_key)
     if not team:
         return cors_response(request, JsonResponse({"error": "Invalid API key"}, status=401))
 

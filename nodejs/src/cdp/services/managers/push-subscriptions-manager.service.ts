@@ -103,6 +103,11 @@ export class PushSubscriptionsManagerService {
         const row = response.rows[0]
         const decryptedToken = this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
 
+        // Update last_used_at asynchronously (don't wait for it)
+        this.updateLastUsedAt([subscriptionId]).catch((error) => {
+            logger.warn('[PushSubscriptionsManager]', 'Failed to update last_used_at', { error, subscriptionId })
+        })
+
         return {
             id: row.id,
             team_id: row.team_id,
@@ -207,6 +212,9 @@ export class PushSubscriptionsManagerService {
 
         const subscriptionRows = allResults
 
+        // Collect unique subscription IDs to update last_used_at
+        const subscriptionIdsToUpdate = new Set<string>()
+
         // Group results by key
         const result: Record<string, PushSubscription[]> = {}
 
@@ -236,10 +244,39 @@ export class PushSubscriptionsManagerService {
                         created_at: row.created_at,
                         updated_at: row.updated_at,
                     })
+                    subscriptionIdsToUpdate.add(row.id)
                 }
             }
         }
 
+        // Update last_used_at asynchronously (don't wait for it)
+        if (subscriptionIdsToUpdate.size > 0) {
+            this.updateLastUsedAt(Array.from(subscriptionIdsToUpdate)).catch((error) => {
+                logger.warn('[PushSubscriptionsManager]', 'Failed to update last_used_at', {
+                    error,
+                    count: subscriptionIdsToUpdate.size,
+                })
+            })
+        }
+
         return result
+    }
+
+    private async updateLastUsedAt(subscriptionIds: string[]): Promise<void> {
+        if (subscriptionIds.length === 0) {
+            return
+        }
+
+        const placeholders = subscriptionIds.map((_, idx) => `$${idx + 1}`).join(', ')
+        const queryString = `UPDATE workflows_pushsubscription
+            SET last_used_at = NOW()
+            WHERE id IN (${placeholders})`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            subscriptionIds,
+            'updatePushSubscriptionLastUsedAt'
+        )
     }
 }
