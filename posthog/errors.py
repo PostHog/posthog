@@ -6,10 +6,10 @@ from clickhouse_driver.errors import ServerException
 
 from posthog.exceptions import (
     ClickHouseAtCapacity,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
 )
 
 
