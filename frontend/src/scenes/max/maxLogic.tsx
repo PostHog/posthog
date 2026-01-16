@@ -119,6 +119,7 @@ export const maxLogic = kea<maxLogicType>([
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
+        continueSharedChat: (conversationId: string) => ({ conversationId }),
     }),
 
     reducers({
@@ -431,6 +432,17 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
+        },
+
+        continueSharedChat: async ({ conversationId }) => {
+            try {
+                const newConversation = await api.conversations.fork(conversationId)
+                actions.prependOrReplaceConversation(newConversation)
+                actions.openConversation(newConversation.id)
+                lemonToast.success('Chat continued! You can now add to this conversation.')
+            } catch (err: any) {
+                lemonToast.error(err?.data?.error || 'Failed to continue the chat.')
+            }
         },
     })),
 

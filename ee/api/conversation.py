@@ -310,6 +310,71 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["POST"], url_path="fork")
+    def fork(self, request: Request, *args, **kwargs):
+        """
+        Creates a new conversation from an existing shared conversation.
+        The new conversation is owned by the current user and includes
+        all messages from the original conversation.
+        """
+        # Get the original conversation - this uses safely_get_queryset which allows retrieve for any user's conversation
+        original_conversation = self.get_object()
+
+        # Get the messages from the original conversation
+        serializer_context = self.get_serializer_context()
+        conversation_serializer = ConversationSerializer(original_conversation, context=serializer_context)
+        messages_data = conversation_serializer.get_messages(original_conversation)
+
+        if not messages_data:
+            return Response({"error": "Cannot fork conversation with no messages"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create a new conversation for the current user
+        new_conversation_id = uuid.uuid4()
+        new_conversation = Conversation.objects.create(
+            id=new_conversation_id,
+            user=cast(User, request.user),
+            team=self.team,
+            type=original_conversation.type,
+            is_internal=False,  # New conversation is NOT internal
+            # Don't copy title - this is a new conversation that continues from the original
+        )
+
+        # Initialize the new conversation with the messages from the original
+        async def init_fork_state():
+            user = cast(User, request.user)
+            graph = AssistantGraph(self.team, user).compile_full_graph()
+            config = {"configurable": {"thread_id": str(new_conversation.id), "checkpoint_ns": ""}}
+
+            # Reconstruct messages from the serialized data
+            reconstructed_messages = []
+            for msg_data in messages_data:
+                msg_type = msg_data.get("type")
+                if msg_type == "human":
+                    reconstructed_messages.append(HumanMessage.model_validate(msg_data))
+                elif msg_type == "ai":
+                    reconstructed_messages.append(AssistantMessage.model_validate(msg_data))
+                # Skip other message types (tool calls, etc.) - they're tied to tool execution context
+
+            if reconstructed_messages:
+                await graph.aupdate_state(
+                    config,
+                    PartialAssistantState(messages=reconstructed_messages),
+                )
+
+        try:
+            asgi_async_to_sync(init_fork_state)()
+        except Exception as e:
+            logger.exception("Failed to initialize forked conversation", conversation_id=new_conversation.id, error=str(e))
+            # Clean up the new conversation if initialization fails
+            new_conversation.delete()
+            return Response({"error": "Failed to fork conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # Return the new conversation
+        return Response(
+            ConversationSerializer(new_conversation, context=serializer_context).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     @action(detail=True, methods=["POST"], url_path="append_message")
     def append_message(self, request: Request, *args, **kwargs):
         """

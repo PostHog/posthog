@@ -51,7 +51,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 ) {
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
-    const { setQuestion } = useActions(maxLogic)
+    const { setQuestion, continueSharedChat } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
@@ -188,6 +188,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 ) : (
                                     <ContextDisplay size={contextDisplaySize} />
                                 )}
+                            </div>
+                        )}
+                        {isSharedThread && conversation && (
+                            <div className="pb-2 px-2 flex justify-center">
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => continueSharedChat(conversation.id)}
+                                    tooltip="Create your own copy of this chat to continue the conversation"
+                                >
+                                    Continue this chat
+                                </LemonButton>
                             </div>
                         )}
                     </label>

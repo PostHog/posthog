@@ -715,3 +715,105 @@ class TestConversation(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_is_team_limited.assert_called_once()
+
+    def test_fork_other_users_conversation(self):
+        """Test that a user can fork another user's conversation"""
+        # Create a conversation owned by another user
+        original_conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Original conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        # Mock the serializer's get_messages method to return some messages
+        mock_messages = [
+            {"type": "human", "content": "Hello"},
+            {"type": "ai", "content": "Hi there!"},
+        ]
+
+        with patch(
+            "ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages
+        ), patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile:
+            mock_graph = AsyncMock()
+            mock_compile.return_value = mock_graph
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{original_conversation.id}/fork/",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            response_data = response.json()
+
+            # The new conversation should have a different ID
+            self.assertNotEqual(response_data["id"], str(original_conversation.id))
+
+            # The new conversation should be owned by the current user
+            new_conversation = Conversation.objects.get(id=response_data["id"])
+            self.assertEqual(new_conversation.user, self.user)
+            self.assertEqual(new_conversation.team, self.team)
+            self.assertEqual(new_conversation.type, original_conversation.type)
+            self.assertFalse(new_conversation.is_internal)
+
+            # The graph's aupdate_state should have been called with the messages
+            mock_graph.aupdate_state.assert_called_once()
+
+    def test_fork_conversation_with_no_messages(self):
+        """Test that forking a conversation with no messages returns an error"""
+        original_conversation = Conversation.objects.create(
+            user=self.other_user, team=self.team, title="Empty conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=[]):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{original_conversation.id}/fork/",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["error"], "Cannot fork conversation with no messages")
+
+    def test_fork_own_conversation(self):
+        """Test that a user can fork their own conversation"""
+        original_conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="My conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        mock_messages = [
+            {"type": "human", "content": "My message"},
+        ]
+
+        with patch(
+            "ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages
+        ), patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile:
+            mock_graph = AsyncMock()
+            mock_compile.return_value = mock_graph
+
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{original_conversation.id}/fork/",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            response_data = response.json()
+            self.assertNotEqual(response_data["id"], str(original_conversation.id))
+
+    def test_cannot_fork_other_teams_conversation(self):
+        """Test that a user cannot fork a conversation from another team"""
+        original_conversation = Conversation.objects.create(
+            user=self.user, team=self.other_team, title="Other team conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{original_conversation.id}/fork/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_fork_unauthenticated_request(self):
+        """Test that unauthenticated users cannot fork conversations"""
+        original_conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Test conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        self.client.logout()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/{original_conversation.id}/fork/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

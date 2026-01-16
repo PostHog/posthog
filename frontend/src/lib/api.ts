@@ -4927,6 +4927,10 @@ const api = {
                 .withAction('append_message')
                 .create({ data: { content } })
         },
+
+        fork(conversationId: string): Promise<ConversationDetail> {
+            return new ApiRequest().conversation(conversationId).withAction('fork').create()
+        },
     },
 
     datasets: {
