@@ -378,7 +378,10 @@ def _write_rows_to_jsonl(exported_asset: ExportedAsset, limit: int) -> tuple[str
             jsonl_tmp.write("\n")
             row_count += 1
 
-    return jsonl_path, row_count, all_keys, seen_keys
+    # Group columns by their top-level prefix to match expected CSV column ordering
+    grouped_keys = OrderedCsvRenderer.group_columns_by_prefix(all_keys)
+
+    return jsonl_path, row_count, grouped_keys, seen_keys
 
 
 def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: set[str]) -> list[str]:
@@ -420,10 +423,18 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
             csv_path = csv_tmp.name
 
         if row_count == 0:
-            with open(csv_path, "w", newline="") as f:
-                error_writer = csv.writer(f)
-                error_writer.writerow(["error"])
-                error_writer.writerow(["No data available or unable to format for export."])
+            if user_columns:
+                # Have columns but no data - write header with empty row
+                with open(csv_path, "w", newline="") as f:
+                    dict_writer = csv.DictWriter(f, fieldnames=user_columns, extrasaction="ignore")
+                    dict_writer.writeheader()
+                    dict_writer.writerow({})  # Empty row with empty values
+            else:
+                # No columns and no data - show error
+                with open(csv_path, "w", newline="") as f:
+                    error_writer = csv.writer(f)
+                    error_writer.writerow(["error"])
+                    error_writer.writerow(["No data available or unable to format for export."])
         else:
             columns = _determine_columns(user_columns, all_keys, seen_keys)
 
@@ -466,8 +477,14 @@ def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
         if row_count == 0:
             workbook = Workbook(write_only=True)
             worksheet = workbook.create_sheet()
-            worksheet.append(["error"])
-            worksheet.append(["No data available or unable to format for export."])
+            if user_columns:
+                # Have columns but no data - write header with empty row
+                worksheet.append(user_columns)
+                worksheet.append([""] * len(user_columns))  # Empty row
+            else:
+                # No columns and no data - show error
+                worksheet.append(["error"])
+                worksheet.append(["No data available or unable to format for export."])
             workbook.save(xlsx_path)
         else:
             columns = _determine_columns(user_columns, all_keys, seen_keys)
