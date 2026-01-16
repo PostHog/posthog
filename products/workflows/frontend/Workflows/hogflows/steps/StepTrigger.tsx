@@ -257,6 +257,7 @@ function StepTriggerConfigurationEvents({
                             filters: { ...filters, filter_test_accounts: filterTestAccounts },
                         })
                     }
+                    filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
                 />

@@ -192,7 +192,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 will skip this step and continue to the next one.
                                             </p>
                                             <HogFlowPropertyFilters
-                                                actionId={action.id}
+                                                filtersKey={`action-skip-conditions-${action.id}`}
                                                 filters={action.filters ?? {}}
                                                 setFilters={(filters) =>
                                                     setWorkflowAction(action.id, { ...action, filters })
