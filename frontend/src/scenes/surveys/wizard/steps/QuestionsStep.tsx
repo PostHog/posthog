@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { AnimatePresence, motion } from 'motion/react'
 
-import { IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
+import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -65,11 +65,11 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
                                         scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
                                     } as Partial<RatingSurveyQuestion>)
                                 }
-                                className={`px-3 py-2 text-lg transition-colors ${
+                                className={`px-3 py-2 transition-colors ${
                                     isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
                                 }`}
                             >
-                                😀
+                                <IconEmoji className="text-lg" />
                             </button>
                             <button
                                 type="button"
