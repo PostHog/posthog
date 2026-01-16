@@ -1,6 +1,6 @@
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField, StringJSONDatabaseField
+
+from products.revenue_analytics.backend.views import CUSTOMER_ALIAS
 
 from ._definitions import FieldsDict, Schema
 
@@ -21,7 +21,7 @@ FIELDS: FieldsDict = {
 
 
 SCHEMA = Schema(
-    kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
+    kind=CUSTOMER_ALIAS,
     fields=FIELDS,
     source_suffix="customer_revenue_view",
     events_suffix="customer_events_revenue_view",

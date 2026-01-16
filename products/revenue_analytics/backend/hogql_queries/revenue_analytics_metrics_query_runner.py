@@ -3,25 +3,19 @@ from typing import Optional
 
 from posthog.schema import (
     CachedRevenueAnalyticsMetricsQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsMetricsQueryResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
+from posthog.hogql.database.models import SavedQuery, UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsRevenueItemView,
-    RevenueAnalyticsSubscriptionView,
-)
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views import REVENUE_ITEM_ALIAS, SUBSCRIPTION_ALIAS, get_prefix
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -43,16 +37,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subscription_subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
-                self.database,
-            )
+            RevenueAnalyticsQueryRunner.revenue_subqueries(SUBSCRIPTION_ALIAS, self.database)
         )
         revenue_item_subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
-                self.database,
-            )
+            RevenueAnalyticsQueryRunner.revenue_subqueries(REVENUE_ITEM_ALIAS, self.database)
         )
         if not subscription_subqueries:
             columns = [
@@ -71,11 +59,12 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
         queries: list[ast.SelectQuery] = []
         for subscription_subquery in subscription_subqueries:
+            subscription_prefix = get_prefix(subscription_subquery)
             revenue_item_subquery = next(
                 (
                     revenue_item_subquery
                     for revenue_item_subquery in revenue_item_subqueries
-                    if revenue_item_subquery.prefix == subscription_subquery.prefix
+                    if get_prefix(revenue_item_subquery) == subscription_prefix
                 ),
                 None,
             )
@@ -85,8 +74,8 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
     def _to_query_from(
         self,
-        subscription_view: RevenueAnalyticsBaseView,
-        revenue_item_view: Optional[RevenueAnalyticsBaseView],
+        subscription_view: SavedQuery,
+        revenue_item_view: Optional[SavedQuery],
     ) -> ast.SelectQuery:
         with self.timings.measure("get_subquery"):
             subquery = self._get_subquery(subscription_view, revenue_item_view)
@@ -247,30 +236,28 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
 
     def _get_subquery(
         self,
-        subscription_view: RevenueAnalyticsBaseView,
-        revenue_item_view: Optional[RevenueAnalyticsBaseView],
+        subscription_view: SavedQuery,
+        revenue_item_view: Optional[SavedQuery],
     ) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             dates_expr = self._dates_expr()
 
         join_expr = ast.JoinExpr(
-            alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
+            alias=SUBSCRIPTION_ALIAS,
             table=ast.Field(chain=[subscription_view.name]),
         )
 
         if revenue_item_view is not None:
             join_expr.next_join = ast.JoinExpr(
-                alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                alias=REVENUE_ITEM_ALIAS,
                 table=ast.Field(chain=[revenue_item_view.name]),
                 join_type="LEFT JOIN",
                 constraint=ast.JoinConstraint(
                     constraint_type="ON",
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                        right=ast.Field(
-                            chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]
-                        ),
+                        left=ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
+                        right=ast.Field(chain=[REVENUE_ITEM_ALIAS, "subscription_id"]),
                     ),
                 ),
             )
@@ -279,10 +266,10 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
             select=[
                 self._build_breakdown_expr(
                     "breakdown_by",
-                    ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "source_label"]),
+                    ast.Field(chain=[SUBSCRIPTION_ALIAS, "source_label"]),
                     subscription_view,
                 ),
-                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
+                ast.Field(chain=[SUBSCRIPTION_ALIAS, "customer_id"]),
                 ast.Alias(alias="period_start", expr=dates_expr),
                 ast.Alias(
                     alias="subscription_count",
@@ -290,7 +277,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         name="countIf",
                         distinct=True,
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                            ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
                             ast.And(
                                 exprs=[
                                     self._period_lteq_expr(
@@ -312,7 +299,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         name="countIf",
                         distinct=True,
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                            ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
                             ast.And(
                                 exprs=[
                                     self._period_lteq_expr(
@@ -334,7 +321,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         name="countIf",
                         distinct=True,
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                            ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
                             self._period_eq_expr(ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])),
                         ],
                     ),
@@ -345,7 +332,7 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                         name="countIf",
                         distinct=True,
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                            ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
                             self._period_eq_expr(
                                 ast.Field(chain=["ended_at"]),
                                 self._add_period_expr(ast.Field(chain=["period_start"]), -1),
@@ -394,11 +381,9 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
                     expr=ast.Call(
                         name="sumIf",
                         args=[
-                            ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                            ast.Field(chain=[REVENUE_ITEM_ALIAS, "amount"]),
                             self._period_eq_expr(
-                                ast.Field(
-                                    chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
-                                ),
+                                ast.Field(chain=[REVENUE_ITEM_ALIAS, "timestamp"]),
                                 ast.Field(chain=["period_start"]),
                             ),
                         ],
@@ -407,13 +392,13 @@ class RevenueAnalyticsMetricsQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnal
             ],
             select_from=self._with_where_property_and_breakdown_joins(join_expr, subscription_view),
             group_by=[
-                ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
+                ast.Field(chain=[SUBSCRIPTION_ALIAS, "customer_id"]),
                 ast.Field(chain=["breakdown_by"]),
                 ast.Field(chain=["period_start"]),
             ],
             order_by=[
                 ast.OrderExpr(
-                    expr=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "customer_id"]),
+                    expr=ast.Field(chain=[SUBSCRIPTION_ALIAS, "customer_id"]),
                     order="ASC",
                 ),
                 ast.OrderExpr(expr=ast.Field(chain=["breakdown_by"]), order="ASC"),

@@ -7,16 +7,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import Team
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
+from products.revenue_analytics.backend.views import RevenueAnalyticsViewKind, is_revenue_analytics_view
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 
@@ -30,14 +29,17 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
         scope = "revenue_analytics_revenue_item"
 
     database = Database.create_for(team=team)
-    schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind(scope)]
+    schema = VIEW_SCHEMAS.get(cast(RevenueAnalyticsViewKind, scope))
+    if schema is None:
+        return []
 
     # Try and find the union view for this class
-    views: list[RevenueAnalyticsBaseView] = []
+    views: list[SavedQuery] = []
     for view_name in database.get_view_names():
         if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
             view = database.get_table(view_name)
-            views.append(cast(RevenueAnalyticsBaseView, view))
+            if isinstance(view, SavedQuery) and is_revenue_analytics_view(view):
+                views.append(view)
 
     if len(views) == 0:
         return []

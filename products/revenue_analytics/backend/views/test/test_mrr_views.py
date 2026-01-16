@@ -8,6 +8,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     _create_event,
     _create_person,
+    assert_time_is_frozen,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import ANY
@@ -24,8 +25,10 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -44,10 +47,6 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
     """E2E tests for MRR views that execute actual queries and assert on output values."""
 
     QUERY_TIMESTAMP = "2025-05-31"
-
-    def setUp(self):
-        super().setUp()
-        self._setup_stripe_data()
 
     def _setup_stripe_data(self):
         data_dir = Path(__file__).parent.parent.parent / "hogql_queries" / "test" / "data"
@@ -110,6 +109,15 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.save()
 
+    def _sync_managed_views(self):
+        # In test mode, viewsets depend on current time, so assert we're always inside a freeze_time context
+        assert_time_is_frozen()
+
+        self.viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        self.viewset.sync_views()
+
     def tearDown(self):
         self.invoices_cleanup()
         self.charges_cleanup()
@@ -150,127 +158,155 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
         return person_result
 
     def _execute_query(self, query: ast.SelectQuery) -> HogQLQueryResponse:
-        with freeze_time(self.QUERY_TIMESTAMP):
-            return execute_hogql_query(
-                query=query,
-                team=self.team,
-                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
-            )
+        return execute_hogql_query(
+            query=query,
+            team=self.team,
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
 
     def test_no_data_when_no_stripe_source_data_warehouse_tables(self):
-        self.invoices_table.delete()
-        self.charges_table.delete()
-        self.subscriptions_table.delete()
+        self._setup_stripe_data()  # Must happen outside of freeze_time context
 
-        query = ast.SelectQuery(
-            select=[ast.Alias(alias="count", expr=ast.Call(name="count", args=[]))],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
-        )
+        with freeze_time(self.QUERY_TIMESTAMP):
+            self.invoices_table.delete()
+            self.charges_table.delete()
+            self.subscriptions_table.delete()
 
-        response = self._execute_query(query)
-        results = response.results
-        self.assertEqual(results[0][0], 0)
+            # Re-sync views after deleting tables - views are still created, just with no data
+            self._sync_managed_views()
+
+            query = ast.SelectQuery(
+                select=[ast.Alias(alias="count", expr=ast.Call(name="count", args=[]))],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
+            )
+
+            response = self._execute_query(query)
+            results = response.results
+            self.assertEqual(results[0][0], 0)
 
     def test_no_data_when_no_events(self):
-        self.team.revenue_analytics_config.events = [
-            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
-                update={
-                    "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
-                }
+        self._setup_stripe_data()  # Must happen outside of freeze_time context
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+                    update={
+                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
+                    }
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self._sync_managed_views()
+
+            query = ast.SelectQuery(
+                select=[ast.Alias(alias="count", expr=ast.Call(name="count", args=[]))],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[f"revenue_analytics.events.purchase.{MRR_SCHEMA.events_suffix}"])
+                ),
             )
-        ]
-        self.team.revenue_analytics_config.save()
 
-        query = ast.SelectQuery(
-            select=[ast.Alias(alias="count", expr=ast.Call(name="count", args=[]))],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=[f"revenue_analytics.events.purchase.{MRR_SCHEMA.events_suffix}"])
-            ),
-        )
-
-        response = self._execute_query(query)
-        results = response.results
-        self.assertEqual(results[0][0], 0)
+            response = self._execute_query(query)
+            results = response.results
+            self.assertEqual(results[0][0], 0)
 
     def test_query_output_data_warehouse_tables(self):
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
-        )
+        self._setup_stripe_data()  # Must happen outside of freeze_time context
 
-        response = self._execute_query(query)
+        with freeze_time(self.QUERY_TIMESTAMP):
+            self._sync_managed_views()
 
-        self.assertEqual(len(response.results), 6)
-        self.assertEqual(
-            response.results,
-            [
-                ("stripe.posthog_test", "cus_1", "sub_1", Decimal("22.9631447238")),
-                ("stripe.posthog_test", "cus_2", "sub_2", Decimal("40.8052916666")),
-                ("stripe.posthog_test", "cus_3", "sub_3", Decimal("1546.59444")),
-                ("stripe.posthog_test", "cus_4", "sub_4", Decimal("0")),
-                ("stripe.posthog_test", "cus_5", "sub_5", Decimal("0")),
-                ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
-            ],
-        )
+            query = ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["source_label"]),
+                    ast.Field(chain=["customer_id"]),
+                    ast.Field(chain=["subscription_id"]),
+                    ast.Field(chain=["mrr"]),
+                ],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
+            )
+
+            response = self._execute_query(query)
+
+            self.assertEqual(len(response.results), 6)
+            self.assertEqual(
+                response.results,
+                [
+                    ("stripe.posthog_test", "cus_1", "sub_1", Decimal("22.9631447238")),
+                    ("stripe.posthog_test", "cus_2", "sub_2", Decimal("40.8052916666")),
+                    ("stripe.posthog_test", "cus_3", "sub_3", Decimal("1546.59444")),
+                    ("stripe.posthog_test", "cus_4", "sub_4", Decimal("0")),
+                    ("stripe.posthog_test", "cus_5", "sub_5", Decimal("0")),
+                    ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
+                ],
+            )
 
     def test_query_output_events(self):
-        self.team.revenue_analytics_config.events = [
-            REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
-                update={
-                    "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
-                }
-            )
-        ]
-        self.team.revenue_analytics_config.save()
+        self._setup_stripe_data()  # Must happen outside of freeze_time context
 
-        s1 = str(uuid7("2025-04-25"))
-        s2 = str(uuid7("2025-05-03"))
-        s3 = str(uuid7("2025-05-05"))
-        s4 = str(uuid7("2025-05-08"))
-        self._create_purchase_events(
-            [
-                (
-                    "p1",
-                    [
-                        ("2025-04-25", s1, 55, "USD", "", "", None),  # Subscriptionless event
-                        ("2025-04-25", s1, 42, "USD", "Prod A", "coupon_x", "sub_1"),
-                        ("2025-05-03", s2, 25, "USD", "Prod A", "", "sub_1"),  # Contraction
-                    ],
-                ),
-                (
-                    "p2",
-                    [
-                        ("2025-05-05", s3, 43, "BRL", "Prod B", "coupon_y", "sub_2"),
-                        ("2025-03-08", s4, 286, "BRL", "Prod B", "", "sub_2"),  # Expansion
-                    ],
-                ),
+        with freeze_time(self.QUERY_TIMESTAMP):
+            self.team.revenue_analytics_config.events = [
+                REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(
+                    update={
+                        "subscriptionDropoffMode": "after_dropoff_period",  # More reasonable default for tests
+                    }
+                )
             ]
-        )
+            self.team.revenue_analytics_config.save()
+            self._sync_managed_views()
 
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"])],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=[f"revenue_analytics.events.purchase.{MRR_SCHEMA.events_suffix}"])
-            ),
-        )
+            s1 = str(uuid7("2025-04-25"))
+            s2 = str(uuid7("2025-05-03"))
+            s3 = str(uuid7("2025-05-05"))
+            s4 = str(uuid7("2025-05-08"))
+            self._create_purchase_events(
+                [
+                    (
+                        "p1",
+                        [
+                            ("2025-04-25", s1, 55, "USD", "", "", None),  # Subscriptionless event
+                            ("2025-04-25", s1, 42, "USD", "Prod A", "coupon_x", "sub_1"),
+                            ("2025-05-03", s2, 25, "USD", "Prod A", "", "sub_1"),  # Contraction
+                        ],
+                    ),
+                    (
+                        "p2",
+                        [
+                            ("2025-05-05", s3, 43, "BRL", "Prod B", "coupon_y", "sub_2"),
+                            ("2025-03-08", s4, 286, "BRL", "Prod B", "", "sub_2"),  # Expansion
+                        ],
+                    ),
+                ]
+            )
 
-        response = self._execute_query(query)
-
-        self.assertEqual(len(response.results), 2)
-        self.assertEqual(
-            response.results,
-            [
-                (
-                    "revenue_analytics.events.purchase",
-                    ANY,
-                    "sub_1",
-                    Decimal("19.925"),
+            query = ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["source_label"]),
+                    ast.Field(chain=["customer_id"]),
+                    ast.Field(chain=["subscription_id"]),
+                    ast.Field(chain=["mrr"]),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[f"revenue_analytics.events.purchase.{MRR_SCHEMA.events_suffix}"])
                 ),
-                (
-                    "revenue_analytics.events.purchase",
-                    ANY,
-                    "sub_2",
-                    Decimal("5.5629321819"),
-                ),
-            ],
-        )
+            )
+
+            response = self._execute_query(query)
+
+            self.assertEqual(len(response.results), 2)
+            self.assertEqual(
+                response.results,
+                [
+                    (
+                        "revenue_analytics.events.purchase",
+                        ANY,
+                        "sub_1",
+                        Decimal("19.925"),
+                    ),
+                    (
+                        "revenue_analytics.events.purchase",
+                        ANY,
+                        "sub_2",
+                        Decimal("5.5629321819"),
+                    ),
+                ],
+            )

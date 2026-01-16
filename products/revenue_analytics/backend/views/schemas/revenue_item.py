@@ -1,6 +1,6 @@
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringDatabaseField
+
+from products.revenue_analytics.backend.views import REVENUE_ITEM_ALIAS
 
 from ._definitions import BASE_CURRENCY_FIELDS, FieldsDict, Schema
 
@@ -29,7 +29,7 @@ FIELDS: FieldsDict = {
 
 
 SCHEMA = Schema(
-    kind=DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM,
+    kind=REVENUE_ITEM_ALIAS,
     fields=FIELDS,
     source_suffix="revenue_item_revenue_view",
     events_suffix="revenue_item_events_revenue_view",

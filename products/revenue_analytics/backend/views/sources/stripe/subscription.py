@@ -29,7 +29,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             key=str(source.id),  # Using source rather than table because table hasn't been found yet
             prefix=prefix,
             query=ast.SelectQuery.empty(columns=SCHEMA.fields),
-            test_comments="no_schema",
+            _test_comments="no_schema",
         )
 
     subscription_schema = cast(ExternalDataSchema, subscription_schema)
@@ -38,7 +38,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
             query=ast.SelectQuery.empty(columns=SCHEMA.fields),
-            test_comments="no_table",
+            _test_comments="no_table",
         )
 
     table = cast(DataWarehouseTable, subscription_schema.table)

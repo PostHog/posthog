@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql.database.models import BooleanDatabaseField, DecimalDatabaseField, FieldOrTable, StringDatabaseField
+
+from products.revenue_analytics.backend.views import RevenueAnalyticsViewKind
 
 
 @dataclass
 class Schema:
-    kind: DatabaseSchemaManagedViewTableKind
+    kind: RevenueAnalyticsViewKind
     fields: dict[str, FieldOrTable]
     source_suffix: str
     events_suffix: str
