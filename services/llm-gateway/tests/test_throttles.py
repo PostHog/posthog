@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
-from llm_gateway.api.handler import adjust_output_throttles
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
+    ProductModelInputTokenThrottle,
     UserModelInputTokenThrottle,
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -15,6 +13,7 @@ from llm_gateway.rate_limiting.throttles import (
     Throttle,
     ThrottleContext,
     ThrottleResult,
+    get_team_multiplier,
 )
 
 
@@ -143,10 +142,10 @@ class TestThrottleRunner:
 
     @pytest.mark.asyncio
     async def test_composite_throttle_order(self) -> None:
-        global_throttle = GlobalModelInputTokenThrottle(redis=None)
+        product_throttle = ProductModelInputTokenThrottle(redis=None)
         user_throttle = UserModelInputTokenThrottle(redis=None)
 
-        runner = ThrottleRunner(throttles=[global_throttle, user_throttle])
+        runner = ThrottleRunner(throttles=[product_throttle, user_throttle])
 
         user = make_user(auth_method="personal_api_key")
         context = make_context(
@@ -184,59 +183,19 @@ class TestThrottleContext:
         assert context.request_id == "req-123"
 
 
-class TestAdjustOutputThrottles:
-    @pytest.mark.asyncio
-    async def test_adjusts_throttles_when_context_has_request_id(self) -> None:
-        mock_throttle = MagicMock()
-        mock_throttle.adjust_after_response = AsyncMock()
+class TestGetTeamMultiplier:
+    def test_returns_1_for_none_team_id(self) -> None:
+        assert get_team_multiplier(None) == 1
 
-        mock_request = MagicMock()
-        mock_request.state.throttle_context = MagicMock(request_id="req-123")
-        mock_request.app.state.output_throttles = [mock_throttle]
+    def test_returns_1_for_unconfigured_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(99) == 1
+        get_settings.cache_clear()
 
-        await adjust_output_throttles(mock_request, actual_output_tokens=500)
-
-        mock_throttle.adjust_after_response.assert_called_once_with("req-123", 500)
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_throttle_context(self) -> None:
-        mock_throttle = MagicMock()
-        mock_throttle.adjust_after_response = AsyncMock()
-
-        mock_request = MagicMock()
-        mock_request.state.throttle_context = None
-        mock_request.app.state.output_throttles = [mock_throttle]
-
-        await adjust_output_throttles(mock_request, actual_output_tokens=500)
-
-        mock_throttle.adjust_after_response.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_skips_when_no_request_id(self) -> None:
-        mock_throttle = MagicMock()
-        mock_throttle.adjust_after_response = AsyncMock()
-
-        mock_request = MagicMock()
-        mock_request.state.throttle_context = MagicMock(request_id=None)
-        mock_request.app.state.output_throttles = [mock_throttle]
-
-        await adjust_output_throttles(mock_request, actual_output_tokens=500)
-
-        mock_throttle.adjust_after_response.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_continues_on_throttle_error(self) -> None:
-        failing_throttle = MagicMock()
-        failing_throttle.adjust_after_response = AsyncMock(side_effect=Exception("boom"))
-
-        succeeding_throttle = MagicMock()
-        succeeding_throttle.adjust_after_response = AsyncMock()
-
-        mock_request = MagicMock()
-        mock_request.state.throttle_context = MagicMock(request_id="req-123")
-        mock_request.app.state.output_throttles = [failing_throttle, succeeding_throttle]
-
-        await adjust_output_throttles(mock_request, actual_output_tokens=500)
-
-        failing_throttle.adjust_after_response.assert_called_once()
-        succeeding_throttle.adjust_after_response.assert_called_once()
+    def test_returns_configured_multiplier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10, "5": 5}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(2) == 10
+        assert get_team_multiplier(5) == 5
+        get_settings.cache_clear()

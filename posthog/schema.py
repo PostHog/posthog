@@ -1675,6 +1675,7 @@ class FileSystemIconType(StrEnum):
     FOLDER = "folder"
     FOLDER_OPEN = "folder_open"
     CONVERSATIONS = "conversations"
+    TOOLBAR = "toolbar"
 
 
 class FileSystemViewLogEntry(BaseModel):

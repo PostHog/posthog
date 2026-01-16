@@ -31,3 +31,11 @@ class ThrottleRunner:
                 )
                 return result
         return ThrottleResult.allow()
+
+    async def record_output_tokens(self, context: ThrottleContext, actual_tokens: int) -> None:
+        """Record actual output tokens after response completes."""
+        from llm_gateway.rate_limiting.model_throttles import OutputTokenThrottle
+
+        for throttle in self._throttles:
+            if isinstance(throttle, OutputTokenThrottle):
+                await throttle.record_output_tokens(context, actual_tokens)

@@ -115,6 +115,20 @@ class TokenRateLimiter:
             capacity=fallback_limit,
         )
 
+    async def would_allow(self, key: str, tokens: int = 1) -> bool:
+        """Check if tokens would be allowed WITHOUT consuming them."""
+        if self.redis is None:
+            return self._fallback.would_allow(key, float(tokens))
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current = await self.redis.get(redis_key)
+            current_count = int(current or 0)
+            return (current_count + tokens) <= self.limit
+        except Exception:
+            logger.exception("redis_rate_limit_check_failed", key=key)
+            return self._fallback.would_allow(key, float(tokens))
+
     async def consume(self, key: str, tokens: int = 1) -> bool:
         """Consume tokens. Returns True if allowed."""
         if self.redis is None:

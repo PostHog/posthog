@@ -307,7 +307,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     forceEdit
                     actions={
                         <>
-                            {guidedEditorEnabled && (
+                            {guidedEditorEnabled && survey.type === SurveyType.Popover && (
                                 <LemonButton
                                     data-attr="switch-to-wizard"
                                     type="tertiary"
