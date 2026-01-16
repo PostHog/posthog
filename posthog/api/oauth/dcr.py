@@ -9,6 +9,7 @@ MCP clients run on user devices and cannot securely store a client_secret.
 Security is provided by PKCE (required for all OAuth flows).
 """
 
+import re
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -69,8 +70,6 @@ KNOWN_PARTNER_PATTERNS: list[tuple[str, str]] = [
 
 def _matches_word_boundary(text: str, pattern: str) -> bool:
     """Check if pattern matches at word boundaries in text."""
-    import re
-
     return bool(re.search(rf"\b{re.escape(pattern)}\b", text))
 
 
