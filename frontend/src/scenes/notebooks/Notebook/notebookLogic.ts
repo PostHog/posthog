@@ -401,10 +401,39 @@ export const notebookLogic = kea<notebookLogicType>([
                     // Add " (duplicate)" suffix for regular notebooks being duplicated
                     const title = source ? values.title : `${values.title} (duplicate)`
 
+                    // Clone the content and update the heading if this is a regular notebook duplication
+                    let content = values.content
+                    if (!source && content?.content?.[0]?.content?.[0]?.text) {
+                        content = {
+                            ...content,
+                            content: content.content.map((node, index) => {
+                                if (index === 0 && node.content?.[0]?.text) {
+                                    return {
+                                        ...node,
+                                        content: [
+                                            {
+                                                ...node.content[0],
+                                                text: title,
+                                            },
+                                            ...node.content.slice(1),
+                                        ],
+                                    }
+                                }
+                                return node
+                            }),
+                        }
+                    }
+
                     // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
+                    // If we updated the content heading, also update the text_content
+                    let textContent = values.editor?.getText() || ''
+                    if (!source && content !== values.content && textContent) {
+                        textContent = textContent.replace(values.title, title)
+                    }
+
                     const response = await api.notebooks.create({
-                        content: values.content,
-                        text_content: values.editor?.getText() || '',
+                        content,
+                        text_content: textContent,
                         title,
                     })
 
