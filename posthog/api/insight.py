@@ -643,7 +643,9 @@ class InsightSerializer(InsightBasicSerializer):
                     self.user_permissions.dashboard(dashboard).effective_privilege_level
                     != Dashboard.PrivilegeLevel.CAN_EDIT
                 ):
-                    raise PermissionDenied(f"You don't have permission to remove insights from dashboard: {dashboard.id}")
+                    raise PermissionDenied(
+                        f"You don't have permission to remove insights from dashboard: {dashboard.id}"
+                    )
 
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
 
