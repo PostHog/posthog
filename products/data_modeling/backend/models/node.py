@@ -20,14 +20,14 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     dag_id = models.TextField(max_length=256, default="posthog", db_index=True)
     # name of the source table, view, matview, etc.
     # for nodes with a saved_query, this is automatically synced from saved_query.name
-    name = models.TextField(max_length=2048)
+    name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
     properties = models.JSONField(default=dict)
 
     def save(self, *args, **kwargs):
         # always inherit name from saved_query when one exists
-        if self.saved_query_id is not None:
+        if self.saved_query is not None:
             self.name = self.saved_query.name
         elif not self.name:
             raise ValueError("Node without a saved_query must have a name")
