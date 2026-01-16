@@ -57,9 +57,8 @@ def resolve_dependency_to_node(
         )
         # get or create node
         node_type = NodeType.MAT_VIEW if saved_query.is_materialized else NodeType.VIEW
-        node, created = Node.objects.get_or_create(
-            team=team, dag_id=dag_id, saved_query=saved_query, 
-            defaults={"name": dependency_name, "type": node_type}
+        node, _ = Node.objects.get_or_create(
+            team=team, dag_id=dag_id, saved_query=saved_query, defaults={"name": dependency_name, "type": node_type}
         )
         return node
     except DataWarehouseSavedQuery.DoesNotExist:
@@ -78,10 +77,7 @@ def resolve_dependency_to_node(
                 )
             # First try to find by warehouse_table_id
             node = Node.objects.filter(
-                team=team,
-                dag_id=dag_id,
-                type=NodeType.TABLE,
-                properties__warehouse_table_id=str(warehouse_table.id)
+                team=team, dag_id=dag_id, type=NodeType.TABLE, properties__warehouse_table_id=str(warehouse_table.id)
             ).first()
             if not node:
                 node, _ = Node.objects.get_or_create(
@@ -89,7 +85,7 @@ def resolve_dependency_to_node(
                     dag_id=dag_id,
                     name=dependency_name,
                     type=NodeType.TABLE,
-                    defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}}
+                    defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
                 )
 
             return node
@@ -100,7 +96,11 @@ def resolve_dependency_to_node(
         database.get_table(dependency_name)
         # if we haven't returned or errored by this point, this is a posthog system table
         node, _ = Node.objects.get_or_create(
-            team=team, dag_id=dag_id, name=dependency_name, type=NodeType.TABLE, properties={"origin": "posthog"}
+            team=team,
+            dag_id=dag_id,
+            name=dependency_name,
+            type=NodeType.TABLE,
+            defaults={"properties": {"origin": "posthog"}},
         )
         return node
     except QueryError:
