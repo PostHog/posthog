@@ -335,10 +335,6 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateTrunc",
             2,
             3,  # Allow optional timezone parameter
-            signatures=[
-                ((StringType(), DateTimeType()), DateTimeType()),
-                ((StringType(), DateTimeType(), StringType()), DateTimeType()),
-            ],
         )
         for name in ["date_trunc", "dateTrunc"]
     },

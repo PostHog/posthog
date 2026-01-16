@@ -101,6 +101,12 @@ class HogQLPrinter(Visitor[str]):
 
         return response
 
+    def visit_cte(self, node: ast.CTE):
+        if node.cte_type == "subquery":
+            return f"{node.name} AS {self.visit(node.expr)}"
+
+        return f"{self.visit(node.expr)} AS {node.name}"
+
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
         ret = self.visit(node.initial_select_query)
@@ -167,6 +173,8 @@ class HogQLPrinter(Visitor[str]):
         else:
             columns = ["1"]
 
+        ctes = [self.visit(cte) for cte in node.ctes.values()] if node.ctes else None
+
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
@@ -190,13 +198,14 @@ class HogQLPrinter(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid ARRAY JOIN operation: {node.array_join_op}")
             array_join = node.array_join_op
             if node.array_join_list is None or len(node.array_join_list or []) == 0:
-                raise ImpossibleASTError(f"Invalid ARRAY JOIN without an array")
+                raise ImpossibleASTError("Invalid ARRAY JOIN without an array")
             array_join += f" {', '.join(self.visit(expr) for expr in node.array_join_list)}"
 
         space = f"\n{self.indent(1)}" if self.pretty else " "
         comma = f",\n{self.indent(1)}" if self.pretty else ", "
 
         clauses = [
+            f"WITH{space}{comma.join(ctes)}" if ctes else None,
             f"SELECT{space}{'DISTINCT ' if node.distinct else ''}{comma.join(columns)}",
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
@@ -340,6 +349,13 @@ class HogQLPrinter(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
+
+        elif isinstance(node.type, ast.CTETableType):
+            join_strings.append(self._print_identifier(node.type.name))
+
+        elif isinstance(node.type, ast.CTETableAliasType):
+            join_strings.append(self._print_identifier(node.type.cte_table_type.name))
+            join_strings.append(f"AS {self._print_identifier(node.type.alias)}")
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
@@ -611,7 +627,7 @@ class HogQLPrinter(Visitor[str]):
             params = [self.visit(param) for param in node.params] if node.params is not None else None
 
             params_part = f"({', '.join(params)})" if params is not None else ""
-            args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
+            args_part = f"({'DISTINCT ' if node.distinct else ''}{', '.join(arg_strings)})"
 
             return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
@@ -930,9 +946,16 @@ class HogQLPrinter(Visitor[str]):
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
             or isinstance(type.table_type, ast.SelectSetQueryType)
+            or isinstance(type.table_type, ast.CTETableType)
+            or isinstance(type.table_type, ast.CTETableAliasType)
         ):
             field_sql = self._print_identifier(type.name)
-            if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
+            if (
+                isinstance(type.table_type, ast.SelectQueryAliasType)
+                or isinstance(type.table_type, ast.SelectViewType)
+                or isinstance(type.table_type, ast.CTETableType)
+                or isinstance(type.table_type, ast.CTETableAliasType)
+            ):
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
@@ -945,7 +968,7 @@ class HogQLPrinter(Visitor[str]):
         else:
             error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
             if isinstance(type.table_type, ast.LazyJoinType):
-                error += f" Lazy joins should have all been replaced in the resolver."
+                error += " Lazy joins should have all been replaced in the resolver."
             raise ImpossibleASTError(error)
 
         return field_sql
@@ -1098,6 +1121,12 @@ class HogQLPrinter(Visitor[str]):
         return self._print_identifier(type.alias)
 
     def visit_select_view_type(self, type: ast.SelectViewType):
+        return self._print_identifier(type.alias)
+
+    def visit_ctetable_type(self, type: ast.CTETableType):
+        return self._print_identifier(type.name)
+
+    def visit_ctetable_alias_type(self, type: ast.CTETableAliasType):
         return self._print_identifier(type.alias)
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):

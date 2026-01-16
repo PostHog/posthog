@@ -119,6 +119,9 @@ class LazyTableResolver(TraversingVisitor):
                 raise ResolutionError("Can't access a lazy field when not in a SelectQuery context")
             self.field_collectors[-1].append(node)
 
+    def visit_cte(self, node: ast.CTE):
+        self.visit(node.expr)
+
     def visit_select_query(self, node: ast.SelectQuery):
         select_type = node.type
         if not select_type:
@@ -126,6 +129,11 @@ class LazyTableResolver(TraversingVisitor):
 
         assert node.type is not None
         assert select_type is not None
+
+        # Visit CTEs first to resolve any lazy joins inside them before processing the main query
+        if node.ctes:
+            for cte in node.ctes.values():
+                self.visit_cte(cte)
 
         # Collect each `ast.Field` with `ast.LazyJoinType`
         field_collector: list[ast.FieldType | ast.PropertyType] = []

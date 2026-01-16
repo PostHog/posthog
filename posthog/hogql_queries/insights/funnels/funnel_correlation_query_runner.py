@@ -393,7 +393,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         query = parse_select(
             f"""
             WITH
-                funnel_actors as (
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {{date_from}} AS date_from,
@@ -448,7 +448,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         query = parse_select(
             f"""
             WITH
-                funnel_actors as (
+                funnel_actors AS (
                     {{funnel_persons_query}}
                 ),
                 {target_step} AS target_step
