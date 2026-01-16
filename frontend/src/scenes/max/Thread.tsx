@@ -204,8 +204,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             const messageTraceId = message.type !== 'human' ? currentTraceId : undefined
 
                             // Show fork divider after the last message from the original shared chat
-                            const showForkDivider =
-                                forkedAtMessageCount !== null && index === forkedAtMessageCount - 1
+                            const showForkDivider = forkedAtMessageCount !== null && index === forkedAtMessageCount - 1
 
                             return (
                                 <React.Fragment key={`${conversationId}-${index}`}>

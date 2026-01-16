@@ -729,9 +729,10 @@ class TestConversation(APIBaseTest):
             {"type": "ai", "content": "Hi there!"},
         ]
 
-        with patch(
-            "ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages
-        ), patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile:
+        with (
+            patch("ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages),
+            patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile,
+        ):
             mock_graph = AsyncMock()
             mock_compile.return_value = mock_graph
 
@@ -779,9 +780,10 @@ class TestConversation(APIBaseTest):
             {"type": "human", "content": "My message"},
         ]
 
-        with patch(
-            "ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages
-        ), patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile:
+        with (
+            patch("ee.hogai.api.serializers.ConversationSerializer.get_messages", return_value=mock_messages),
+            patch("ee.hogai.chat_agent.AssistantGraph.compile_full_graph") as mock_compile,
+        ):
             mock_graph = AsyncMock()
             mock_compile.return_value = mock_graph
 

@@ -365,7 +365,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         try:
             asgi_async_to_sync(init_fork_state)()
         except Exception as e:
-            logger.exception("Failed to initialize forked conversation", conversation_id=new_conversation.id, error=str(e))
+            logger.exception(
+                "Failed to initialize forked conversation", conversation_id=new_conversation.id, error=str(e)
+            )
             # Clean up the new conversation if initialization fails
             new_conversation.delete()
             return Response({"error": "Failed to fork conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
