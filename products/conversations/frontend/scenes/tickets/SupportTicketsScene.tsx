@@ -113,7 +113,7 @@ export function SupportTicketsScene(): JSX.Element {
                         key: 'customer',
                         render: (_, ticket) => (
                             <div className="flex items-center gap-2">
-                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon noEllipsis />
+                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
                             </div>
                         ),
                     },
