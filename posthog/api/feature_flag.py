@@ -399,7 +399,6 @@ class FeatureFlagSerializer(
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
-    _should_delete_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=False)
 
     class Meta:
         model = FeatureFlag
@@ -439,7 +438,6 @@ class FeatureFlagSerializer(
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
-            "_should_delete_usage_dashboard",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -825,8 +823,6 @@ class FeatureFlagSerializer(
         )  # default to "feature_flags" if an alternative value is not provided
 
         should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
-        # Pop delete field as well (not used in create, but must be removed before model instantiation)
-        validated_data.pop("_should_delete_usage_dashboard", None)
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
 
@@ -874,10 +870,7 @@ class FeatureFlagSerializer(
         # We manage evaluation tags via _attempt_set_evaluation_tags below
         validated_data.pop("evaluation_tags", None)
 
-        # Extract dashboard deletion flag early (before any validation)
-        should_delete_dashboard = validated_data.pop("_should_delete_usage_dashboard", False)
         is_deleting = "deleted" in validated_data and validated_data["deleted"] is True
-        is_restoring = "deleted" in validated_data and validated_data["deleted"] is False
 
         if is_deleting:
             # Check for linked early access features
@@ -951,13 +944,6 @@ class FeatureFlagSerializer(
 
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
-
-            # Handle usage dashboard deletion/restoration inside transaction for atomicity
-            if is_deleting and should_delete_dashboard:
-                _delete_usage_dashboard(instance)
-            elif is_restoring and should_delete_dashboard:
-                # On undo, restore the dashboard if it was deleted with the flag
-                _restore_usage_dashboard(instance)
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these
@@ -1153,90 +1139,6 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     feature_flag.save()
 
     return usage_dashboard
-
-
-def _delete_usage_dashboard(feature_flag: FeatureFlag) -> None:
-    """Soft-delete the usage dashboard and its insights when a flag is deleted.
-
-    Note: We keep the usage_dashboard reference so it can be restored on undo.
-    """
-    from django.db.models import Count
-
-    from posthog.models.dashboard_tile import DashboardTile
-    from posthog.models.insight import Insight
-
-    usage_dashboard = feature_flag.usage_dashboard
-    if not usage_dashboard:
-        return
-
-    # Soft-delete insights that only exist on this dashboard
-    # Use annotate to avoid N+1 queries
-    tiles_with_counts = usage_dashboard.tiles.select_related("insight").annotate(
-        insight_tile_count=Count("insight__dashboard_tiles")
-    )
-
-    insights_to_update = []
-    for tile in tiles_with_counts:
-        if tile.insight and tile.insight_tile_count == 1:
-            tile.insight.deleted = True
-            insights_to_update.append(tile.insight)
-
-    if insights_to_update:
-        Insight.objects.bulk_update(insights_to_update, ["deleted"])
-
-    # Soft-delete all tiles
-    DashboardTile.objects_including_soft_deleted.filter(dashboard=usage_dashboard).update(deleted=True)
-
-    # Soft-delete the dashboard (keep the reference for undo)
-    usage_dashboard.deleted = True
-    usage_dashboard.save(update_fields=["deleted"])
-
-
-def _restore_usage_dashboard(feature_flag: FeatureFlag) -> None:
-    """Restore a soft-deleted usage dashboard and its insights when a flag is restored."""
-    from django.db.models import Count
-
-    from posthog.models.dashboard import Dashboard
-    from posthog.models.dashboard_tile import DashboardTile
-    from posthog.models.insight import Insight
-
-    # Get the dashboard even if soft-deleted
-    if not feature_flag.usage_dashboard_id:
-        return
-
-    try:
-        usage_dashboard = Dashboard.objects_including_soft_deleted.get(id=feature_flag.usage_dashboard_id)
-    except Dashboard.DoesNotExist:
-        return
-
-    if not usage_dashboard.deleted:
-        return  # Dashboard wasn't deleted, nothing to restore
-
-    # Restore the dashboard
-    usage_dashboard.deleted = False
-    usage_dashboard.save(update_fields=["deleted"])
-
-    # Restore all tiles on this dashboard
-    DashboardTile.objects_including_soft_deleted.filter(dashboard=usage_dashboard).update(deleted=False)
-
-    # Only restore insights that exist solely on this dashboard (tile_count == 1)
-    # This matches the deletion logic which only deletes insights with tile_count == 1
-    # Insights shared with other dashboards were not deleted, so we shouldn't restore them
-    tiles_with_counts = (
-        DashboardTile.objects.filter(dashboard=usage_dashboard, insight__isnull=False)
-        .select_related("insight")
-        .annotate(insight_tile_count=Count("insight__dashboard_tiles"))
-    )
-
-    insights_to_restore = []
-    for tile in tiles_with_counts:
-        if tile.insight and tile.insight.deleted and tile.insight_tile_count == 1:
-            tile.insight.deleted = False
-            insights_to_restore.append(tile.insight)
-
-    if insights_to_restore:
-        # Use objects_including_soft_deleted since the insights are currently soft-deleted
-        Insight.objects_including_soft_deleted.bulk_update(insights_to_restore, ["deleted"])
 
 
 def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
