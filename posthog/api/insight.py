@@ -470,13 +470,6 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
-                # Check permission before adding insight to dashboard
-                if (
-                    self.user_permissions.dashboard(dashboard).effective_privilege_level
-                    != Dashboard.PrivilegeLevel.CAN_EDIT
-                ):
-                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
 
         # Manual tag creation since this create method doesn't call super()

@@ -595,37 +595,6 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
-    def test_non_admin_user_cannot_create_insight_on_restricted_dashboard(
-        self,
-    ) -> None:
-        # create a restricted dashboard with the default user (who has edit permission)
-        dashboard_restricted_id, _ = self.dashboard_api.create_dashboard(
-            {"restriction_level": Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT}
-        )
-
-        # user with no permissions on the dashboard cannot create insight on it
-        user_without_permissions = User.objects.create_and_join(
-            organization=self.organization,
-            email="no_create_access_user@posthog.com",
-            password=None,
-        )
-        self.client.force_login(user_without_permissions)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            {"name": "new insight on restricted dashboard", "dashboards": [dashboard_restricted_id]},
-        )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-
-        # original user can create the insight on the dashboard
-        self.client.force_login(self.user)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            {"name": "new insight on restricted dashboard", "dashboards": [dashboard_restricted_id]},
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):
         activity_response = self.dashboard_api.get_insight_activity(insight_id)
 
