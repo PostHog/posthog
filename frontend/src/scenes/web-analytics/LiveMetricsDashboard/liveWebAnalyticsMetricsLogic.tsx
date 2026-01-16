@@ -59,7 +59,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         if (eventTs > newerThanTs) {
                             const deviceType = event.properties?.$device_type
                             window.addDataPoint(eventTs, {
-                                pageviews: 1,
+                                pageviews: event.event === '$pageview' ? 1 : 0,
                                 devices: new Map([[deviceType, 1]]),
                                 paths: new Map([[event.properties?.$pathname, 1]]),
                                 distinctId: event.distinct_id,
@@ -192,7 +192,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             }
 
             const url = new URL(`${host}/events`)
-            url.searchParams.append('eventType', '$pageview')
+
+            // Filter out all of the properties fields since we don't need them
+            url.searchParams.append('columns', '')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()

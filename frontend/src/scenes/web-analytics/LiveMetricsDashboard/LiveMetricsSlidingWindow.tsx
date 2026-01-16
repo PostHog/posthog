@@ -50,10 +50,11 @@ export class LiveMetricsSlidingWindow {
         }
 
         this.buckets.set(bucketTs, bucket)
-        this.prune(eventTs)
+        this.prune()
     }
 
-    private prune(nowTs: number): void {
+    private prune(): void {
+        const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
         for (const ts of this.buckets.keys()) {
             if (ts < threshold) {
