@@ -60,27 +60,6 @@ const manualProviderCosts: ModelCostRow[] = [
     },
 ]
 
-const transcriptionModelCosts: ModelCostRow[] = [
-    {
-        model: 'gpt-4o-transcribe',
-        cost: {
-            default: {
-                prompt_token: 0.000006, // assuming all input tokens are audio tokens
-                completion_token: 0.00001,
-            },
-        },
-    },
-    {
-        model: 'whisper-1',
-        cost: {
-            default: {
-                prompt_token: 0.000006,
-                completion_token: 0,
-            },
-        },
-    },
-]
-
 const embeddingModelCosts: ModelCostRow[] = [
     {
         model: 'text-embedding-3-small',
@@ -112,4 +91,4 @@ const embeddingModelCosts: ModelCostRow[] = [
     },
 ]
 
-export const manualCosts: ModelCostRow[] = [...manualProviderCosts, ...transcriptionModelCosts, ...embeddingModelCosts]
+export const manualCosts: ModelCostRow[] = [...manualProviderCosts, ...embeddingModelCosts]

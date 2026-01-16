@@ -69,20 +69,6 @@ describe('manualCosts', () => {
                 completion_token: 0,
             },
         },
-        {
-            model: 'gpt-4o-transcribe',
-            expected: {
-                prompt_token: 0.000006,
-                completion_token: 0.00001,
-            },
-        },
-        {
-            model: 'whisper-1',
-            expected: {
-                prompt_token: 0.000006,
-                completion_token: 0,
-            },
-        },
     ]
 
     it.each(testCases)('has expected costs for $model', ({ model, expected }) => {
