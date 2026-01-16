@@ -21,6 +21,8 @@ from posthog.temporal.ai.session_summary.types.video import (
     VideoSummarySingleSessionInputs,
 )
 
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_UNDERSTANDING_MODEL
+
 logger = structlog.get_logger(__name__)
 
 
@@ -66,7 +68,7 @@ async def consolidate_video_segments_activity(
 
         client = genai.AsyncClient(api_key=settings.GEMINI_API_KEY)
         response = await client.models.generate_content(
-            model="models/gemini-2.5-flash",
+            model=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
             contents=[CONSOLIDATION_PROMPT.format(segments_text=segments_text, json_schema=json_schema_str)],
             config=types.GenerateContentConfig(max_output_tokens=8192),
             posthog_distinct_id=inputs.user_distinct_id_to_log,
@@ -114,7 +116,7 @@ You are analyzing a session recording from a web analytics product. Below are ti
 Your task is to consolidate these into meaningful semantic segments and provide an overall analysis. For each segment:
 1. Have a **descriptive title** that captures the user's goal or activity (e.g., "Setting up integration", "Exploring analytics dashboard", "Debugging API errors")
 2. Span a coherent period of related activity (combine adjacent segments that are part of the same task)
-3. Have a **combined description** that synthesizes the details from the original segments
+3. Have a **combined description** that MERGES ALL details from the original segments without losing any information. Do NOT summarize or abbreviate - include every observable detail, UI state change, error message, and user action from the source segments
 4. Detect if the user experienced **failures** (errors, things not working), **confusion** (backtracking, hesitation, repeated attempts), or **abandonment** (starting something but not finishing)
 5. Determine if the segment was **successful** (user achieved their apparent goal)
 
@@ -131,14 +133,14 @@ Rules:
 - Titles should be specific (avoid generic titles like "User activity" or "Browsing")
 - Titles must be sentence-cased (capitalize only the first letter and proper nouns)
 - Time ranges must not overlap and should cover the full session
-- Preserve error messages, specific UI elements clicked, and outcomes mentioned in original segments
-- Keep descriptions concise but complete
+- Preserve all details from source segments: error messages, specific UI elements, button labels, file names, counts, state changes, and outcomes
 - Set failure_detected=true if you see error messages, failed actions, or things not working as expected
 - Set confusion_detected=true if the user backtracks, hesitates, or makes repeated attempts at the same thing
 - Set abandonment_detected=true if the user starts a flow but doesn't complete it
 - Set success=false for segments where the user's apparent goal wasn't achieved
 - session_outcome.success should be true if the user accomplished their main goals, false if they left frustrated or unsuccessful
 - segment_outcomes should have one entry per segment with a brief summary of what happened
+- If a segment contains any issue (failure, confusion, or abandonment), the description MUST include sufficient detail for a developer to investigate the root cause. Include: exact error messages, the specific action that triggered the issue, the UI state/context, what the user was trying to accomplish, and any visible stack traces or error codes
 
 Output ONLY the JSON object, no other text.
 """

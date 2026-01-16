@@ -182,7 +182,7 @@ def _convert_video_segments_to_session_summary(
             end_ms=end_ms,
             simplified_events_mapping=simplified_events_mapping,
             simplified_events_columns=simplified_events_columns,
-            session_start_time_str=session_start_time_str,
+            session_start_time=session_start_time,
         )
 
         # If no events found in range, find closest events to segment boundaries
