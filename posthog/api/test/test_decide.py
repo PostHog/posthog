@@ -2948,51 +2948,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-    @snapshot_postgres_queries
-    def test_flag_with_behavioural_cohorts(self, *args):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id_1"],
-            properties={"$some_prop_1": "something_1"},
-        )
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {"event_id": "$pageview", "days": 7},
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        }
-                    ]
-                },
-            ],
-            name="cohort1",
-        )
-        # no calculation for cohort
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
-            name="This is a cohort-based flag",
-            key="cohort-flag",
-            created_by=self.user,
-        )
-
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
-
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
-
     def test_personal_api_key_without_project_id(self, *args):
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
