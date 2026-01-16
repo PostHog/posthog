@@ -310,9 +310,14 @@ build:
         description: Build products manifest from TypeScript/JSX files
 docker:
     docker:services:up:
-        cmd: docker compose -f docker-compose.dev.yml up -d
+        cmd: |
+            if [[ " $* " == *" --minimal "* ]]; then
+                docker compose -f docker-compose.dev-minimal.yml up -d
+            else
+                docker compose -f docker-compose.dev.yml up -d
+            fi
         description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
-            Kafka)
+            Kafka). Use --minimal for reduced services.
         services:
             - docker
             - postgresql
@@ -320,14 +325,25 @@ docker:
             - redis
             - kafka
     docker:services:down:
-        cmd: docker compose -f docker-compose.dev.yml down
-        description: Stop Docker infrastructure services
+        cmd: |
+            if [[ " $* " == *" --minimal "* ]]; then
+                docker compose -f docker-compose.dev-minimal.yml down
+            else
+                docker compose -f docker-compose.dev.yml down
+            fi
+        description: Stop Docker infrastructure services. Use --minimal if you started
+            with --minimal.
         services:
             - docker
     docker:services:remove:
-        cmd: docker compose -f docker-compose.dev.yml down -v
+        cmd: |
+            if [[ " $* " == *" --minimal "* ]]; then
+                docker compose -f docker-compose.dev-minimal.yml down -v
+            else
+                docker compose -f docker-compose.dev.yml down -v
+            fi
         description: Stop Docker infrastructure services and remove all volumes (complete
-            wipe)
+            wipe). Use --minimal if you started with --minimal.
         services:
             - docker
         prompt: true
