@@ -6160,6 +6160,8 @@ export interface Conversation {
     slack_workspace_domain?: string | null
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
+    forked_from_id?: string | null
+    forked_at_message_index?: number | null
 }
 
 export interface ConversationDetail extends Conversation {

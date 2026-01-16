@@ -310,6 +310,65 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["POST"])
+    def fork(self, request: Request, *args, **kwargs):
+        """
+        Fork an existing conversation to continue it as the current user.
+
+        This creates a new conversation owned by the current user with the same messages
+        as the original. Used when a user wants to continue a shared conversation.
+        """
+        # Get the original conversation (can be from any user in the same team)
+        original_conversation = self.get_object()
+
+        # Validate that the conversation belongs to the same team
+        if original_conversation.team != self.team:
+            return Response(
+                {"error": "Cannot fork a conversation from another team"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        async def copy_state_to_new_conversation() -> tuple[Conversation, int]:
+            user = cast(User, request.user)
+            graph = AssistantGraph(self.team, user).compile_full_graph()
+
+            # Get the state from the original conversation
+            original_config = {"configurable": {"thread_id": str(original_conversation.id), "checkpoint_ns": ""}}
+            original_snapshot = await graph.aget_state(original_config)
+
+            if not original_snapshot.values or not original_snapshot.values.get("messages"):
+                raise ValueError("Cannot fork a conversation with no messages")
+
+            # Count messages for the fork point
+            message_count = len(original_snapshot.values.get("messages", []))
+
+            # Create the new conversation
+            new_conversation = await Conversation.objects.acreate(
+                user=user,
+                team=self.team,
+                id=uuid.uuid4(),
+                type=original_conversation.type,
+                title=original_conversation.title,
+                forked_from=original_conversation,
+                forked_at_message_index=message_count - 1,
+            )
+
+            # Copy state to the new conversation
+            new_config = {"configurable": {"thread_id": str(new_conversation.id), "checkpoint_ns": ""}}
+            await graph.aupdate_state(new_config, original_snapshot.values)
+
+            return new_conversation, message_count
+
+        try:
+            new_conversation, message_count = asgi_async_to_sync(copy_state_to_new_conversation)()
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Failed to fork conversation", conversation_id=original_conversation.id, error=str(e))
+            return Response({"error": "Failed to fork conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        serializer = self.get_serializer(new_conversation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["POST"], url_path="append_message")
     def append_message(self, request: Request, *args, **kwargs):
         """

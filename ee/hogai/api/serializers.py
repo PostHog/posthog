@@ -27,6 +27,8 @@ _conversation_fields = [
     "is_internal",
     "slack_thread_key",
     "slack_workspace_domain",
+    "forked_from_id",
+    "forked_at_message_index",
 ]
 
 

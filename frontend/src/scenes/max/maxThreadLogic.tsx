@@ -149,6 +149,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'setConversationId',
                 'setAutoRun',
                 'loadConversationHistorySuccess',
+                'openConversation',
             ],
             maxGlobalLogic,
             ['loadConversation'],
@@ -210,6 +211,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }),
         addPendingApprovalData: (approval: PendingApproval) => ({ approval }),
         loadPendingApprovalsData: (approvals: PendingApproval[]) => ({ approvals }),
+        forkAndContinue: (prompt: string) => ({ prompt }),
+        forkConversationSuccess: (newConversation: Conversation) => ({ newConversation }),
     }),
 
     reducers(({ props }) => ({
@@ -878,6 +881,32 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 false // Don't add to thread - no human message to show
             )
         },
+        forkAndContinue: async ({ prompt }) => {
+            // Fork the shared conversation to create a new one owned by the current user
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                lemonToast.error('No conversation to fork')
+                return
+            }
+
+            try {
+                const newConversation = await api.conversations.fork(conversationId)
+
+                // Add to conversation history
+                actions.updateGlobalConversationCache(newConversation)
+
+                // Open the new conversation
+                actions.openConversation(newConversation.id)
+
+                // Wait a tick for the new thread logic to mount, then ask the question
+                setTimeout(() => {
+                    // The new thread will have the same tabId, so askMax will work
+                    actions.askMax(prompt)
+                }, 100)
+            } catch (e: any) {
+                lemonToast.error(e?.data?.error || 'Failed to continue this conversation')
+            }
+        },
     })),
 
     selectors({
@@ -1047,7 +1076,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.multiQuestionFormPending,
                 s.threadLoading,
                 s.dataProcessingAccepted,
-                s.isSharedThread,
                 s.isImpersonatingExistingConversation,
             ],
             (
@@ -1055,7 +1083,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 multiQuestionFormPending,
                 threadLoading,
                 dataProcessingAccepted,
-                isSharedThread,
                 isImpersonatingExistingConversation
             ) =>
                 // Input unavailable when:
@@ -1063,7 +1090,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
                 // - Support agent is viewing an existing conversation without override
-                isSharedThread ||
+                // Note: isSharedThread is NOT included here - shared threads allow typing and will auto-fork
                 formPending ||
                 multiQuestionFormPending ||
                 (threadLoading && !dataProcessingAccepted) ||

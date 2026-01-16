@@ -74,6 +74,19 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Stores approval card metadata for dangerous operations (payload lives in checkpoint). Format: {proposal_id: {decision_status: 'pending' | 'approved' | 'rejected' | 'auto_rejected', tool_name: str, preview: str, ...}}",
     )
+    forked_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="forks",
+        help_text="The conversation this was forked from, if any. Used when continuing a shared conversation.",
+    )
+    forked_at_message_index = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="The index of the last message from the original conversation when forked. Messages after this index are only visible to the fork owner.",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):

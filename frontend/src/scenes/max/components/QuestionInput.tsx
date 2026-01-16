@@ -65,7 +65,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         supportOverrideEnabled,
         streamingActive,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, forkAndContinue } =
+        useActions(maxThreadLogic)
     // Show info banner for conversations created during impersonation (marked as internal)
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
     const isAiUx = useFeatureFlag('AI_UX')
@@ -134,9 +135,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         id="textarea-hint"
                                         className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
                                     >
-                                        {conversation && isSharedThread ? (
-                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                        ) : threadLoading ? (
+                                        {threadLoading ? (
                                             'Thinking…'
                                         ) : isThreadVisible ? (
                                             placeholder || (
@@ -161,12 +160,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     aria-describedby={!question ? 'textarea-hint' : undefined}
                                     id="question-input"
                                     ref={textAreaRef}
-                                    value={isSharedThread ? '' : question}
+                                    value={question}
                                     onChange={(value) => setQuestion(value)}
                                     onPressEnter={() => {
                                         if (question && !submissionDisabledReason && !threadLoading) {
                                             onSubmit?.()
-                                            askMax(question)
+                                            if (isSharedThread) {
+                                                forkAndContinue(question)
+                                            } else {
+                                                askMax(question)
+                                            }
                                         }
                                     }}
                                     disabled={inputDisabled}
@@ -178,30 +181,31 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             </div>
                         </SlashCommandAutocomplete>
 
-                        {!isSharedThread && (
-                            <div className="pb-2">
-                                {!isThreadVisible ? (
-                                    <div className="flex items-start justify-between">
-                                        <ContextDisplay size={contextDisplaySize} />
-                                        <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
-                                    </div>
-                                ) : (
+                        <div className="pb-2">
+                            {!isThreadVisible ? (
+                                <div className="flex items-start justify-between">
                                     <ContextDisplay size={contextDisplaySize} />
-                                )}
-                            </div>
-                        )}
+                                    <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                </div>
+                            ) : (
+                                <ContextDisplay size={contextDisplaySize} />
+                            )}
+                        </div>
                     </label>
                     <div
                         className={clsx(
                             'absolute flex items-center',
-                            isSharedThread && 'hidden',
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
                             showArrow
-                            onApprove={() => askMax(pendingPrompt || question)}
+                            onApprove={() =>
+                                isSharedThread
+                                    ? forkAndContinue(pendingPrompt || question)
+                                    : askMax(pendingPrompt || question)
+                            }
                             onDismiss={() => completeThreadGeneration()}
                             middleware={[
                                 offset((state) => ({
@@ -221,7 +225,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         textAreaRef?.current?.focus()
                                         return
                                     }
-                                    askMax(question)
+                                    if (isSharedThread) {
+                                        forkAndContinue(question)
+                                    } else {
+                                        askMax(question)
+                                    }
                                 }}
                                 tooltip={
                                     tooltipReason ? (

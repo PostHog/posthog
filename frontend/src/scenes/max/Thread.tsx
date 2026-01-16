@@ -67,6 +67,7 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isHogQLQuery } from '~/queries/utils'
 import { Region } from '~/types'
 
+import { SharedThreadDivider } from './components/SharedThreadDivider'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
 import { FeedbackPrompt } from './FeedbackPrompt'
@@ -108,8 +109,11 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, conversation } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
+
+    // Show divider at fork point for forked conversations
+    const forkedAtMessageIndex = conversation?.forked_at_message_index
 
     const ticketPromptData = useMemo(
         () => getTicketPromptData(threadGrouped, streamingActive),
@@ -226,6 +230,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                                 summary={ticketSummaryData.summary}
                                             />
                                         ))}
+                                    {/* Show divider after the fork point message */}
+                                    {forkedAtMessageIndex !== null &&
+                                        forkedAtMessageIndex !== undefined &&
+                                        index === forkedAtMessageIndex && <SharedThreadDivider />}
                                 </React.Fragment>
                             )
                         })
