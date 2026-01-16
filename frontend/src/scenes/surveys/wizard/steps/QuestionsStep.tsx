@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { AnimatePresence, motion } from 'motion/react'
 
 import { IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -19,7 +19,7 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { SCALE_OPTIONS, SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
+import { SURVEY_RATING_SCALE, defaultSurveyAppearance, defaultSurveyFieldValues } from '../../constants'
 import { surveyLogic } from '../../surveyLogic'
 import { AddQuestionButton } from '../AddQuestionButton'
 import { QuestionTypeChip } from '../QuestionTypeChip'
@@ -37,58 +37,104 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     if (question.type === SurveyQuestionType.Rating) {
         const ratingQuestion = question as RatingSurveyQuestion
         const isEmoji = ratingQuestion.display === 'emoji'
-        const scaleOptions = isEmoji ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER
+
+        // Scale options depend on display type
+        const numberScales = [
+            { value: 10, label: '0-10', sublabel: 'NPS' },
+            { value: 5, label: '1-5', sublabel: null },
+            { value: 7, label: '1-7', sublabel: 'CSAT' },
+        ]
+        const emojiScales = [
+            { value: 3, label: '3', sublabel: null },
+            { value: 5, label: '5', sublabel: null },
+        ]
+        const scaleOptions = isEmoji ? emojiScales : numberScales
 
         return (
-            <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-secondary">Display:</span>
-                        <LemonSelect
-                            size="xsmall"
-                            value={ratingQuestion.display}
-                            options={[
-                                { label: 'Numbers', value: 'number' },
-                                { label: 'Emoji', value: 'emoji' },
-                            ]}
-                            onChange={(val) => {
-                                // Reset to 5-point when switching display type
-                                onUpdate({
-                                    display: val,
-                                    scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
-                                } as Partial<RatingSurveyQuestion>)
-                            }}
-                        />
+            <div className="space-y-3 pt-3 border-t border-border mt-3">
+                <div className="flex items-start gap-6">
+                    {/* Display type toggle */}
+                    <div className="space-y-1.5">
+                        <span className="text-xs text-secondary">Display</span>
+                        <div className="flex rounded-md border border-border overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    onUpdate({
+                                        display: 'emoji',
+                                        scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                    } as Partial<RatingSurveyQuestion>)
+                                }
+                                className={`px-3 py-2 text-lg transition-colors ${
+                                    isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
+                                }`}
+                            >
+                                😀
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    onUpdate({
+                                        display: 'number',
+                                        scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                    } as Partial<RatingSurveyQuestion>)
+                                }
+                                className={`px-3 py-2 text-sm font-medium border-l border-border transition-colors ${
+                                    !isEmoji ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
+                                }`}
+                            >
+                                1-5
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-secondary">Scale:</span>
-                        <LemonSelect
-                            size="xsmall"
-                            value={ratingQuestion.scale}
-                            options={scaleOptions}
-                            onChange={(val) => onUpdate({ scale: val } as Partial<RatingSurveyQuestion>)}
-                        />
+
+                    {/* Scale toggle */}
+                    <div className="space-y-1.5">
+                        <span className="text-xs text-secondary">Scale</span>
+                        <div className="flex rounded-md border border-border overflow-hidden">
+                            {scaleOptions.map((option, idx) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => onUpdate({ scale: option.value } as Partial<RatingSurveyQuestion>)}
+                                    className={`px-3 py-1.5 text-center transition-colors ${
+                                        idx > 0 ? 'border-l border-border' : ''
+                                    } ${
+                                        ratingQuestion.scale === option.value
+                                            ? 'bg-fill-highlight-100'
+                                            : 'hover:bg-fill-highlight-50'
+                                    }`}
+                                >
+                                    <div className="text-sm font-medium">{option.label}</div>
+                                    {option.sublabel && (
+                                        <div className="text-[10px] text-secondary uppercase">{option.sublabel}</div>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
+
+                {/* Labels */}
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 flex-1">
-                        <span className="text-xs text-secondary shrink-0">Low:</span>
+                    <div className="flex-1">
+                        <span className="text-xs text-secondary block mb-1">Lower label</span>
                         <LemonInput
                             size="xsmall"
                             value={ratingQuestion.lowerBoundLabel || ''}
                             placeholder="e.g. Unlikely"
                             onChange={(val) => onUpdate({ lowerBoundLabel: val } as Partial<RatingSurveyQuestion>)}
-                            className="flex-1"
+                            fullWidth
                         />
                     </div>
-                    <div className="flex items-center gap-2 flex-1">
-                        <span className="text-xs text-secondary shrink-0">High:</span>
+                    <div className="flex-1">
+                        <span className="text-xs text-secondary block mb-1">Upper label</span>
                         <LemonInput
                             size="xsmall"
                             value={ratingQuestion.upperBoundLabel || ''}
                             placeholder="e.g. Very likely"
                             onChange={(val) => onUpdate({ upperBoundLabel: val } as Partial<RatingSurveyQuestion>)}
-                            className="flex-1"
+                            fullWidth
                         />
                     </div>
                 </div>
