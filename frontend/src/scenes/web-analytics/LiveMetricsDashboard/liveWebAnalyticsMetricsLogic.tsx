@@ -151,7 +151,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             try {
                 const now = Date.now()
-                const dateFrom = new Date(now - 30 * 60 * 1000)
+                const dateFrom = new Date(now - BUCKET_WINDOW_MINUTES * 60 * 1000)
                 const handoff = new Date(now)
 
                 // The SSE stream will drop any events older than this value
@@ -193,8 +193,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             const url = new URL(`${host}/events`)
 
-            // Filter out all of the properties fields since we don't need them
-            url.searchParams.append('columns', '')
+            // Filter for only the columns we need
+            url.searchParams.append('columns', '$pathname,$device_type')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
