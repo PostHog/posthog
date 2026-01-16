@@ -14,7 +14,7 @@ from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import AttributionMode
+from posthog.schema import AttributionMode, ProductIntentContext, ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
@@ -790,6 +790,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
+
+        if (
+            "autocapture_exceptions_opt_in" in validated_data
+            and validated_data["autocapture_exceptions_opt_in"]
+            and not before_update.get("autocapture_exceptions_opt_in")
+        ):
+            user = self.context["request"].user
+            if isinstance(user, User):
+                ProductIntent.register(
+                    team=updated_team,
+                    product_type=ProductKey.ERROR_TRACKING,
+                    context=ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                    user=user,
+                )
 
         log_activity(
             organization_id=cast(UUIDT, instance.organization_id),
