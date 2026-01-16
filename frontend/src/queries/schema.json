@@ -15536,7 +15536,8 @@
                 "search",
                 "folder",
                 "folder_open",
-                "conversations"
+                "conversations",
+                "toolbar"
             ],
             "type": "string"
         },
@@ -18330,7 +18331,8 @@
                 "tiktok-ads",
                 "bing-ads",
                 "vercel",
-                "azure-blob"
+                "azure-blob",
+                "firebase"
             ],
             "type": "string"
         },
@@ -29647,6 +29649,9 @@
                 "retention_period_days": {
                     "description": "retention period for this recording",
                     "type": "number"
+                },
+                "snapshot_library": {
+                    "type": "string"
                 },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],

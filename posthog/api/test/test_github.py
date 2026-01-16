@@ -8,7 +8,12 @@ from django.test import TestCase
 from rest_framework import status
 
 from posthog import redis
-from posthog.api.github import SignatureVerificationError, verify_github_signature
+from posthog.api.github import (
+    GITHUB_TYPE_FOR_PERSONAL_API_KEY,
+    GITHUB_TYPE_FOR_PROJECT_SECRET,
+    SignatureVerificationError,
+    verify_github_signature,
+)
 from posthog.models import PersonalAPIKey
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, mask_key_value
@@ -185,11 +190,11 @@ class TestSecretAlertEndpoint(APIBaseTest):
         for key in self.redis_client.scan_iter("github:public_key:*"):
             self.redis_client.delete(key)
 
-        # Valid test payload
+        # Valid test payload (uses project secret type)
         self.valid_payload = [
             {
                 "token": "phx_test_token_123",
-                "type": "posthog_personal_api_key",
+                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
                 "url": "https://github.com/posthog/posthog/blob/master/example.py",
                 "source": "github",
             }
@@ -229,7 +234,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertIn("token_hash", data[0])
         self.assertIn("token_type", data[0])
         self.assertIn("label", data[0])
-        self.assertEqual(data[0]["token_type"], "posthog_personal_api_key")
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PROJECT_SECRET)
 
     def test_secret_alert_missing_headers(self):
         """Test that missing headers are rejected."""
@@ -316,7 +321,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": "posthog_personal_api_key",
+                        "type": GITHUB_TYPE_FOR_PERSONAL_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/secrets.txt",
                         "source": "github",
                     }
@@ -330,7 +335,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         data = response.json()
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["label"], "true_positive")
-        self.assertEqual(data[0]["token_type"], "posthog_personal_api_key")
+        self.assertEqual(data[0]["token_type"], GITHUB_TYPE_FOR_PERSONAL_API_KEY)
 
         # Verify key was rolled (secure_value changed)
         key.refresh_from_db()
@@ -355,7 +360,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": "phx_nonexistent_token_12345678901234567890",
-                        "type": "posthog_personal_api_key",
+                        "type": GITHUB_TYPE_FOR_PERSONAL_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/config.py",
                         "source": "github",
                     }
@@ -393,7 +398,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": "posthog_personal_api_key",
+                        "type": GITHUB_TYPE_FOR_PERSONAL_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/old_secrets.txt",
                         "source": "github",
                     }
@@ -436,7 +441,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
                 [
                     {
                         "token": token,
-                        "type": "posthog_personal_api_key",
+                        "type": GITHUB_TYPE_FOR_PERSONAL_API_KEY,
                         "url": "https://github.com/test/repo/blob/main/inactive_secrets.txt",
                         "source": "github",
                     }

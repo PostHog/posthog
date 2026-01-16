@@ -1,6 +1,7 @@
 # Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
-FROM rust:1.88 AS base
-RUN cargo install --locked cargo-chef sccache
+FROM rust:1.91-bookworm AS base
+# Note - sccache pinned due to problem with depot builds. See https://posthog.slack.com/archives/C0457KENW2E/p1768558484810999?thread_ts=1768497407.301109&cid=C0457KENW2E
+RUN cargo install --locked cargo-chef sccache@0.12.0
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
 FROM base AS planner
@@ -16,19 +17,20 @@ ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
-RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev -y
+# pkg-config is required for openssl-sys to find system OpenSSL
+RUN apt-get update && apt-get install build-essential libssl-dev pkg-config cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
 RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     --mount=type=secret,id=SCCACHE_WEBDAV_TOKEN,required=false \
-    --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
     SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \

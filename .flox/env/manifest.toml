@@ -20,7 +20,7 @@ brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
-cargo = { pkg-path = "cargo", pkg-group = "rust-toolchain", version = "1.88.0" }
+cargo = { pkg-path = "cargo", pkg-group = "rust-toolchain", version = "1.91.1" }
 rustc = { pkg-path = "rustc", pkg-group = "rust-toolchain" }
 clippy = { pkg-path = "clippy", pkg-group = "rust-toolchain" }
 rustfmt = { pkg-path = "rustfmt", pkg-group = "rust-toolchain" }
