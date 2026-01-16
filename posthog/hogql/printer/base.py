@@ -1357,8 +1357,8 @@ class HogQLPrinter(Visitor[str]):
             elif isinstance(value, int) or isinstance(value, float):
                 pairs.append(f"{key}={value}")
             elif isinstance(value, list):
-                if not all(isinstance(item, str) for item in value):
-                    raise QueryError(f"List {key} can only contain strings")
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
                 formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
                 pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
             elif isinstance(value, str):
