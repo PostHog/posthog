@@ -1,0 +1,689 @@
+{
+  "description": "Standard feature flags for testing the PostHog feature flags service and SDK integrations. Designed to exercise all major flag evaluation features.",
+  "version": "2.0.0",
+  "flags": [
+    {
+      "key": "simple-boolean",
+      "name": "Simple boolean flag - always returns true (100% rollout)",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "rollout-percentage",
+      "name": "Flag at 50% rollout for testing hash-based distribution",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 50}],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "disabled-flag",
+      "name": "Inactive flag - should always return false/undefined",
+      "active": false,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "string-match-exact",
+      "name": "Exact string match on email property",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "test@posthog.com",
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "string-match-contains",
+      "name": "Case-insensitive contains match on email domain",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "@posthog.com",
+                "operator": "icontains"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {"true": {"matched": "domain"}}
+      }
+    },
+    {
+      "key": "string-match-regex",
+      "name": "Regex pattern match on email",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "^[a-z]+@posthog\\.com$",
+                "operator": "regex"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "string-not-contains",
+      "name": "Negation - email does not contain 'spam'",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "spam",
+                "operator": "not_icontains"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "list-match-exact",
+      "name": "Match against list of values (plan in enterprise, business)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "plan",
+                "type": "person",
+                "value": ["enterprise", "business", "startup"],
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "numeric-greater-than",
+      "name": "Numeric comparison - age > 18",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "age",
+                "type": "person",
+                "value": "18",
+                "operator": "gt"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "numeric-less-than",
+      "name": "Numeric comparison - age < 65",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "age",
+                "type": "person",
+                "value": "65",
+                "operator": "lt"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "numeric-gte",
+      "name": "Numeric comparison - usage >= 1000",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "usage_count",
+                "type": "person",
+                "value": "1000",
+                "operator": "gte"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "numeric-lte",
+      "name": "Numeric comparison - error_rate <= 5",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "error_rate",
+                "type": "person",
+                "value": "5",
+                "operator": "lte"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "property-is-set",
+      "name": "Match when property exists (is_set)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "premium_user",
+                "type": "person",
+                "operator": "is_set"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "property-is-not-set",
+      "name": "Match when property does not exist (is_not_set)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "opted_out",
+                "type": "person",
+                "operator": "is_not_set"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "date-before",
+      "name": "Date comparison - signup before date",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "signup_date",
+                "type": "person",
+                "value": "2025-01-01T00:00:00Z",
+                "operator": "is_date_before"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "date-after",
+      "name": "Date comparison - last_active after date",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "last_active",
+                "type": "person",
+                "value": "2024-01-01T00:00:00Z",
+                "operator": "is_date_after"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "date-relative",
+      "name": "Date comparison - active in last 7 days (relative date)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "last_seen",
+                "type": "person",
+                "value": "-7d",
+                "operator": "is_date_after"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "multivariate-simple",
+      "name": "Multivariate flag with 2 variants (50/50 split)",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+          "variants": [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50}
+          ]
+        },
+        "payloads": {
+          "control": {"variant": "control"},
+          "test": {"variant": "test"}
+        }
+      }
+    },
+    {
+      "key": "multivariate-multiple",
+      "name": "Multivariate flag with 4 variants for A/B/C/D testing",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+          "variants": [
+            {"key": "control", "name": "Control", "rollout_percentage": 25},
+            {"key": "variant-a", "name": "Variant A", "rollout_percentage": 25},
+            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 25},
+            {"key": "variant-c", "name": "Variant C", "rollout_percentage": 25}
+          ]
+        },
+        "payloads": {
+          "control": {"color": "blue", "position": "left"},
+          "variant-a": {"color": "green", "position": "left"},
+          "variant-b": {"color": "blue", "position": "right"},
+          "variant-c": {"color": "green", "position": "right"}
+        }
+      }
+    },
+    {
+      "key": "multivariate-override",
+      "name": "Multivariate with property-based variant override",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "alpha@example.com",
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100,
+            "variant": "alpha"
+          },
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "beta@example.com",
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100,
+            "variant": "beta"
+          },
+          {
+            "properties": [],
+            "rollout_percentage": 100
+          }
+        ],
+        "multivariate": {
+          "variants": [
+            {"key": "alpha", "name": "Alpha", "rollout_percentage": 50},
+            {"key": "beta", "name": "Beta", "rollout_percentage": 50}
+          ]
+        },
+        "payloads": {
+          "alpha": {"release": "alpha", "features": ["feature-x", "feature-y"]},
+          "beta": {"release": "beta", "features": ["feature-z"]}
+        }
+      }
+    },
+    {
+      "key": "payload-json-object",
+      "name": "Flag with complex JSON object payload",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {
+          "true": {
+            "api_endpoint": "https://api.example.com/v2",
+            "feature_limits": {
+              "max_users": 100,
+              "max_events": 10000,
+              "rate_limit": 1000
+            },
+            "enabled_features": ["analytics", "experiments", "surveys"],
+            "config": {
+              "timeout_ms": 5000,
+              "retry_count": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "key": "payload-json-array",
+      "name": "Flag with JSON array payload",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {
+          "true": ["feature-a", "feature-b", "feature-c", "feature-d"]
+        }
+      }
+    },
+    {
+      "key": "payload-numeric",
+      "name": "Flag with numeric payload",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {
+          "true": 42
+        }
+      }
+    },
+    {
+      "key": "payload-boolean",
+      "name": "Flag with boolean payload",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {
+          "true": true
+        }
+      }
+    },
+    {
+      "key": "payload-string",
+      "name": "Flag with string-like payload (wrapped in object)",
+      "active": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "payloads": {
+          "true": {"value": "secret-key-12345", "type": "string"}
+        }
+      }
+    },
+    {
+      "key": "multiple-conditions-and",
+      "name": "Multiple conditions with AND logic (all must match)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "plan",
+                "type": "person",
+                "value": ["enterprise", "business"],
+                "operator": "exact"
+              },
+              {
+                "key": "age",
+                "type": "person",
+                "value": "18",
+                "operator": "gte"
+              },
+              {
+                "key": "country",
+                "type": "person",
+                "value": "US",
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "multiple-conditions-or",
+      "name": "Multiple condition groups with OR logic (any group can match)",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "is_admin",
+                "type": "person",
+                "value": ["true"],
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          },
+          {
+            "properties": [
+              {
+                "key": "is_beta_tester",
+                "type": "person",
+                "value": ["true"],
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          },
+          {
+            "properties": [
+              {
+                "key": "email",
+                "type": "person",
+                "value": "@posthog.com",
+                "operator": "icontains"
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "geo-based",
+      "name": "Geo-based targeting using $geoip properties",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "$geoip_city_name",
+                "type": "person",
+                "value": "Sydney",
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 100
+          },
+          {
+            "properties": [
+              {
+                "key": "$geoip_country_code",
+                "type": "person",
+                "value": ["US", "GB", "CA"],
+                "operator": "exact"
+              }
+            ],
+            "rollout_percentage": 50
+          }
+        ],
+        "payloads": {}
+      }
+    },
+    {
+      "key": "group-based",
+      "name": "Group-based flag targeting company group type",
+      "active": true,
+      "filters": {
+        "groups": [
+          {
+            "properties": [
+              {
+                "key": "name",
+                "type": "group",
+                "value": "PostHog",
+                "operator": "exact",
+                "group_type_index": 0
+              }
+            ],
+            "rollout_percentage": 100
+          },
+          {
+            "properties": [
+              {
+                "key": "plan",
+                "type": "group",
+                "value": ["enterprise", "scale"],
+                "operator": "exact",
+                "group_type_index": 0
+              }
+            ],
+            "rollout_percentage": 100
+          }
+        ],
+        "aggregation_group_type_index": 0,
+        "payloads": {}
+      }
+    },
+    {
+      "key": "experience-continuity",
+      "name": "Flag with experience continuity enabled",
+      "active": true,
+      "ensure_experience_continuity": true,
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+          "variants": [
+            {"key": "control", "name": "Control", "rollout_percentage": 50},
+            {"key": "test", "name": "Test", "rollout_percentage": 50}
+          ]
+        },
+        "payloads": {}
+      }
+    },
+    {
+      "key": "custom-bucketing",
+      "name": "Flag using device_id for bucketing instead of distinct_id",
+      "active": true,
+      "bucketing_identifier": "device_id",
+      "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+          "variants": [
+            {"key": "variant-a", "name": "Variant A", "rollout_percentage": 50},
+            {"key": "variant-b", "name": "Variant B", "rollout_percentage": 50}
+          ]
+        },
+        "payloads": {}
+      }
+    }
+  ],
+  "group_type_mappings": [
+    {
+      "group_type_index": 0,
+      "group_type": "company",
+      "name_singular": "company",
+      "name_plural": "companies"
+    },
+    {
+      "group_type_index": 1,
+      "group_type": "project",
+      "name_singular": "project",
+      "name_plural": "projects"
+    }
+  ],
+  "features_covered": [
+    "Boolean flags with rollout percentages (0%, 50%, 100%)",
+    "Inactive/disabled flags",
+    "String operators: exact, icontains, regex, not_icontains",
+    "List matching: exact with array values",
+    "Numeric operators: gt, lt, gte, lte",
+    "Property existence: is_set, is_not_set",
+    "Date operators: is_date_before, is_date_after (absolute and relative)",
+    "Multivariate flags: 2 variants, 4 variants, variant overrides",
+    "Payloads: JSON objects, arrays, numbers, booleans, strings",
+    "Multiple conditions: AND logic (within group), OR logic (across groups)",
+    "Geo-based targeting: $geoip_city_name, $geoip_country_code",
+    "Group-based targeting: aggregation_group_type_index",
+    "Experience continuity: ensure_experience_continuity",
+    "Custom bucketing: bucketing_identifier"
+  ],
+  "notes": {
+    "flag_dependencies": "Flag dependencies require the dependent flag's numeric ID, which is auto-generated. Create the base flag first, then manually add a dependent flag using the base flag's ID.",
+    "cohorts": "Cohort-based conditions require cohorts to be created first in PostHog. These cannot be auto-created by this tool.",
+    "relative_dates": "Relative date values like '-7d' are evaluated at flag evaluation time, not flag creation time."
+  }
+}
