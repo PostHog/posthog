@@ -311,11 +311,29 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
-def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
+QUERY_PAGE_SIZE = 10000
+
+# Query kinds that support offset/limit pagination via schema parameters.
+# HogQLQuery doesn't support these yet - it uses the limit in the SQL string itself.
+PAGINATED_QUERY_KINDS = {"EventsQuery", "ActorsQuery", "GroupsQuery"}
+
+
+def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
 
-    while True:
+    breakdown_filter = query.get("breakdownFilter") if query else None
+    query_kind = query.get("kind")
+    supports_pagination = query_kind in PAGINATED_QUERY_KINDS
+
+    offset = 0
+    total = 0
+
+    while total < CSV_EXPORT_LIMIT:
+        if supports_pagination:
+            query["limit"] = QUERY_PAGE_SIZE
+            query["offset"] = offset
+
         try:
             query_response = process_query_dict(
                 team=exported_asset.team,
@@ -335,16 +353,27 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
         if isinstance(query_response, BaseModel):
             query_response = query_response.model_dump(by_alias=True)
 
-        breakdown_filter = query.get("breakdownFilter") if query else None
-        yield from _convert_response_to_csv_data(query_response, breakdown_filter=breakdown_filter)
-        return
+        rows = list(_convert_response_to_csv_data(query_response, breakdown_filter=breakdown_filter))
+        total += len(rows)
+        yield from rows
+
+        # Only paginate for supported query types
+        if not supports_pagination:
+            break
+
+        # Check if there are more results
+        has_more = query_response.get("hasMore", False)
+        if not has_more or len(rows) == 0:
+            break
+
+        offset += QUERY_PAGE_SIZE
 
 
 def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None, None]:
     resource = exported_asset.export_context or {}
 
     if resource.get("source"):
-        yield from get_from_hogql_query(exported_asset, limit, resource)
+        yield from get_from_query(exported_asset, limit, resource)
     else:
         # Legacy path for PersonsNode exports (uses API path instead of HogQL source).
         # PersonsNode was migrated to ActorsQuery in migration 0459, so this path
