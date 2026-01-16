@@ -23,7 +23,7 @@ export function GlobalShortcuts(): null {
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
-    const isUsingNewCommandKModal = useFeatureFlag('NEW_COMMAND_K_MODAL')
+    const isAiUx = useFeatureFlag('AI_UX')
     const { toggleCommand } = useActions(commandLogic)
 
     const showDebugQueries =
@@ -35,7 +35,7 @@ export function GlobalShortcuts(): null {
         intent: 'Search',
         interaction: 'function',
         callback: () => {
-            if (isUsingNewCommandKModal) {
+            if (isAiUx) {
                 toggleCommand()
             } else {
                 if (removeProjectIdIfPresent(router.values.location.pathname) === urls.newTab()) {

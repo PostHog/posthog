@@ -6,13 +6,13 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconSearch, IconX } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
-import { formatRelativeTimeShort, getCategoryDisplayName } from 'scenes/new-tab/components/Results'
+import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -22,6 +22,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { commandLogic } from './commandLogic'
 import { CommandSearchItem, commandSearchLogic } from './commandSearchLogic'
+import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 const PLACEHOLDER_OPTIONS = [
     'insights...',
@@ -280,8 +281,8 @@ export function Command(): JSX.Element {
     return (
         <Dialog.Root open={isCommandOpen} onOpenChange={(open) => !open && closeCommand()}>
             <Dialog.Portal>
-                <Dialog.Backdrop className="fixed inset-0 min-h-screen min-w-screen bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70" />
-                <Dialog.Popup className="fixed top-1/4 left-1/2 w-[640px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden">
+                <Dialog.Backdrop className="fixed inset-0 min-h-screen min-w-screen bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
+                <Dialog.Popup className="fixed top-1/4 left-1/2 w-[640px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden z-[var(--z-top)]">
                     <Autocomplete.Root
                         items={filteredItems}
                         filter={null}
@@ -298,12 +299,12 @@ export function Command(): JSX.Element {
                                 className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus:outline-none focus:ring-2 focus-within:ring-primary py-1 px-2"
                             >
                                 <Autocomplete.Icon
-                                    className="size-4"
+                                    className="size-5"
                                     render={<IconSearch className="text-tertiary group-focus-within:text-primary" />}
                                 />
                                 {searchValue ? null : (
                                     <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
-                                        Search for{' '}
+                                        <span className="text-tertiary">Search for </span>
                                         <span
                                             className="transition-opacity duration-200"
                                             style={{ opacity: placeholderVisible ? 1 : 0 }}
@@ -320,9 +321,22 @@ export function Command(): JSX.Element {
                                     id="command-palette-search"
                                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
                                 />
-                                <span className="pointer-events-none whitespace-nowrap">
-                                    <KeyboardShortcut command k minimal />
-                                </span>
+
+                                <Link
+                                    className="shrink-0 text-tertiary -mr-1"
+                                    buttonProps={{
+                                        size: 'sm',
+                                        className: 'rounded-sm',
+                                    }}
+                                    onClick={() => {
+                                        closeCommand()
+                                    }}
+                                    to={urls.ai()}
+                                >
+                                    <KeyboardShortcut tab minimal />
+                                    Ask AI
+                                </Link>
+
                                 <Autocomplete.Clear
                                     render={
                                         <ButtonPrimitive
@@ -355,7 +369,7 @@ export function Command(): JSX.Element {
                                 )}
                             </Autocomplete.Empty>
 
-                            <Autocomplete.List className="pt-3 pb-1">
+                            <Autocomplete.List className="pt-3 pb-1" tabIndex={-1}>
                                 {groupedItems.map((group) => {
                                     return (
                                         <Autocomplete.Group key={group.category} items={group.items} className="mb-4">

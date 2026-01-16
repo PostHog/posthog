@@ -55,7 +55,6 @@ import { SidePanelTab } from '~/types'
 
 import { OrganizationMenu } from '../../lib/components/Account/OrganizationMenu'
 import { ProjectMenu } from '../../lib/components/Account/ProjectMenu'
-import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { SidePanelActivationIcon } from '../navigation-3000/sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../navigation-3000/sidepanel/sidePanelLogic'
@@ -104,7 +103,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
 
-    const isUsingNewCommandKModal = useFeatureFlag('NEW_COMMAND_K_MODAL')
     const isAiUx = useFeatureFlag('AI_UX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -163,7 +161,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         onClick?: (e?: React.KeyboardEvent) => void
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
-        keyboardShortcut?: string[]
     }[] = [
         ...(isAiUx
             ? [
@@ -193,7 +190,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 toggleCommand()
             },
             collapsedTooltip: 'Search',
-            keyboardShortcut: isUsingNewCommandKModal ? ['command', 'k'] : undefined,
         },
         {
             identifier: 'Activity',
@@ -421,19 +417,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <span className={iconClassName}>{item.icon}</span>
                                                             {!isLayoutNavCollapsed && (
                                                                 <span className="truncate">{item.label}</span>
-                                                            )}
-                                                            {!!item.keyboardShortcut && (
-                                                                <span className="ml-auto">
-                                                                    <KeyboardShortcut
-                                                                        minimal
-                                                                        {...Object.fromEntries(
-                                                                            item.keyboardShortcut?.map((key) => [
-                                                                                key,
-                                                                                true,
-                                                                            ]) ?? []
-                                                                        )}
-                                                                    />
-                                                                </span>
                                                             )}
                                                         </Link>
                                                     </ButtonGroupPrimitive>
