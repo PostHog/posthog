@@ -524,17 +524,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
         if delete_related_insights:
-            tiles_with_counts = instance.tiles.select_related("insight").annotate(
-                insight_tile_count=Count("insight__dashboard_tiles")
+            # Count only non-deleted tiles. Note: deleted is nullable, so we exclude deleted=True
+            # rather than filtering for deleted=False (which would miss deleted=None)
+            insight_ids_to_delete = list(
+                instance.tiles.filter(insight__isnull=False)
+                .annotate(
+                    insight_tile_count=Count(
+                        "insight__dashboard_tiles",
+                        filter=~Q(insight__dashboard_tiles__deleted=True),
+                    )
+                )
+                .filter(insight_tile_count=1)
+                .values_list("insight_id", flat=True)
             )
 
-            insights_to_update = []
-            for tile in tiles_with_counts:
-                if tile.insight and tile.insight_tile_count == 1:
-                    tile.insight.deleted = True
-                    insights_to_update.append(tile.insight)
+            if insight_ids_to_delete:
+                Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
 
-            Insight.objects.bulk_update(insights_to_update, ["deleted"])
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
