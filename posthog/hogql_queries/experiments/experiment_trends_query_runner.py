@@ -83,7 +83,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         self.prepared_exposure_query = self._prepare_exposure_query()
 
         self.count_modifiers = count_modifiers
-        self.exposure_modifiers = exposures_modifiers
+        self.exposure_modifiers = exposure_modifiers
 
         self.count_query_runner = TrendsQueryRunner(
             query=self.prepared_count_query,
