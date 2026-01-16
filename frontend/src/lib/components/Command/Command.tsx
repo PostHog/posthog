@@ -48,15 +48,22 @@ const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: b
             return
         }
 
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+
         const interval = setInterval(() => {
             setIsVisible(false)
-            setTimeout(() => {
+            timeoutId = setTimeout(() => {
                 setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
                 setIsVisible(true)
             }, 200) // fade out duration
         }, PLACEHOLDER_CYCLE_INTERVAL)
 
-        return () => clearInterval(interval)
+        return () => {
+            clearInterval(interval)
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId)
+            }
+        }
     }, [isActive])
 
     return { text: PLACEHOLDER_OPTIONS[index], isVisible }
