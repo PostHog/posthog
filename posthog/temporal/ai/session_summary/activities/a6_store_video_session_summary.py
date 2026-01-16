@@ -63,6 +63,7 @@ async def store_video_session_summary_activity(
             logger.debug(
                 f"Video-based summary already exists for session {inputs.session_id}, skipping storage",
                 session_id=inputs.session_id,
+                signals_type="session-summaries",
             )
             return
 
@@ -82,7 +83,7 @@ async def store_video_session_summary_activity(
         # Convert video segments to session summary format, using real events if available
         if llm_input is None:
             msg = f"No LLM input found in Redis for session {inputs.session_id} when storing video-based summary"
-            logger.error(msg, session_id=inputs.session_id)
+            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
             raise ValueError(msg)
 
         summary_dict = _convert_video_segments_to_session_summary(
@@ -95,7 +96,7 @@ async def store_video_session_summary_activity(
         session_summary = SessionSummarySerializer(data=summary_dict)
         if not session_summary.is_valid():
             msg = f"Failed to validate video-based summary for session {inputs.session_id}: {session_summary.errors}"
-            logger.error(msg, session_id=inputs.session_id)
+            logger.error(msg, session_id=inputs.session_id, signals_type="session-summaries")
             raise ValueError(msg)
 
         # Get session metadata from cached LLM input if available, otherwise leave as None
@@ -132,11 +133,13 @@ async def store_video_session_summary_activity(
             session_id=inputs.session_id,
             segment_count=len(analysis.segments),
             has_real_events=llm_input is not None,
+            signals_type="session-summaries",
         )
     except Exception as e:
         logger.exception(
             f"Failed to store video-based summary for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
+            signals_type="session-summaries",
         )
         raise
 

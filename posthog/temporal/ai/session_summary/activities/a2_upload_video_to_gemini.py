@@ -49,7 +49,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
 
         if not video_bytes:
             msg = f"No video content found for asset {asset_id} for session {inputs.session_id}"
-            logger.error(msg, session_id=inputs.session_id, asset_id=asset_id)
+            logger.error(msg, session_id=inputs.session_id, asset_id=asset_id, signals_type="session-summaries")
             raise ValueError(msg)
 
         duration = get_video_duration_s(video_bytes)
@@ -64,6 +64,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 duration=duration,
                 session_id=inputs.session_id,
                 video_size_bytes=len(video_bytes),
+                signals_type="session-summaries",
             )
             raw_client = RawGenAIClient(api_key=settings.GEMINI_API_KEY)
             uploaded_file = raw_client.files.upload(
@@ -85,6 +86,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                     file_name=uploaded_file.name,
                     file_state=uploaded_file.state.name,
                     elapsed_seconds=elapsed,
+                    signals_type="session-summaries",
                 )
                 if not uploaded_file.name:
                     raise RuntimeError("Uploaded file has no name for status polling")
@@ -99,6 +101,7 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
                 session_id=inputs.session_id,
                 file_uri=uploaded_file.uri,
                 duration=duration,
+                signals_type="session-summaries",
             )
 
             return UploadedVideo(
@@ -111,5 +114,6 @@ async def upload_video_to_gemini_activity(inputs: VideoSummarySingleSessionInput
         logger.exception(
             f"Failed to upload video to Gemini for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
+            signals_type="session-summaries",
         )
         raise

@@ -57,6 +57,7 @@ async def consolidate_video_segments_activity(
             f"Consolidating {len(raw_segments)} raw segments for session {inputs.session_id}",
             session_id=inputs.session_id,
             raw_segment_count=len(raw_segments),
+            signals_type="session-summaries",
         )
         segments_text = "\n".join(f"- **{seg.start_time} - {seg.end_time}:** {seg.description}" for seg in raw_segments)
 
@@ -95,6 +96,7 @@ async def consolidate_video_segments_activity(
             raw_count=len(raw_segments),
             consolidated_count=len(consolidated_analysis.segments),
             session_success=consolidated_analysis.session_outcome.success,
+            signals_type="session-summaries",
         )
 
         return consolidated_analysis
@@ -103,6 +105,7 @@ async def consolidate_video_segments_activity(
         logger.exception(
             f"Failed to consolidate segments for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
+            signals_type="session-summaries",
         )
         # Re-raise to let the workflow retry with proper retry policy
         raise

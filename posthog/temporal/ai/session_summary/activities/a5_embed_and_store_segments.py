@@ -59,17 +59,20 @@ async def embed_and_store_segments_activity(
                 f"Produced embedding for segment {document_id}",
                 session_id=inputs.session_id,
                 document_id=document_id,
+                signals_type="session-summaries",
             )
 
         logger.debug(
             f"Successfully produced {len(segments)} embeddings for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_count=len(segments),
+            signals_type="session-summaries",
         )
 
     except Exception as e:
         logger.exception(
             f"Failed to embed and store segments for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
+            signals_type="session-summaries",
         )
         raise

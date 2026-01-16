@@ -89,6 +89,7 @@ async def analyze_video_segment_activity(
                         session_id=inputs.session_id,
                         segment_index=segment.segment_index,
                         event_count=len(events_in_range),
+                        signals_type="session-summaries",
                     )
 
         # Construct analysis prompt
@@ -100,6 +101,7 @@ async def analyze_video_segment_activity(
             f"Analyzing segment {segment.segment_index} ({start_timestamp} - {end_timestamp}) for session {inputs.session_id}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
+            signals_type="session-summaries",
         )
 
         # We can't do async operations at the workflow level, so we have to fetch team_name in each individual activity here
@@ -144,6 +146,7 @@ async def analyze_video_segment_activity(
             segment_index=segment.segment_index,
             response_length=len(response_text),
             response_preview=response_text[:200] if response_text else None,
+            signals_type="session-summaries",
         )
 
         # Parse response into segments
@@ -160,6 +163,7 @@ async def analyze_video_segment_activity(
                 session_id=inputs.session_id,
                 segment_index=segment.segment_index,
                 response_text=response_text[:500],
+                signals_type="session-summaries",
             )
 
         for start_time_str, end_time_str, description in matches:
@@ -178,6 +182,7 @@ async def analyze_video_segment_activity(
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
             segment_count=len(segments),
+            signals_type="session-summaries",
         )
 
         return segments
@@ -187,6 +192,7 @@ async def analyze_video_segment_activity(
             f"Failed to analyze segment {segment.segment_index} for session {inputs.session_id}: {e}",
             session_id=inputs.session_id,
             segment_index=segment.segment_index,
+            signals_type="session-summaries",
         )
         raise
 
