@@ -25,7 +25,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     normalize_table_column_names,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka_batch_producer import KafkaBatchProducer
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka_batch_producer import KafkaBatchProducer, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3_batch_writer import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
@@ -76,7 +76,7 @@ class PipelineV3(Generic[ResumableData]):
 
         self._s3_batch_writer = S3BatchWriter(self._logger, self._job, self._schema.id, self._job.workflow_run_id)
 
-        sync_type = "full_refresh"
+        sync_type: SyncTypeLiteral = "full_refresh"
         if self._schema.is_incremental:
             sync_type = "incremental"
         elif self._schema.is_append:
