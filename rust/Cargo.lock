@@ -5784,6 +5784,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-replica"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.5",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "pest"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

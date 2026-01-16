@@ -1,0 +1,38 @@
+[package]
+name = "personhog-replica"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+personhog-proto = { path = "../personhog-proto" }
+common-database = { path = "../common/database" }
+health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+envconfig = { workspace = true }
+futures = { workspace = true }
+metrics = { workspace = true }
+prost = "0.13"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tokio-stream = "0.1"
+
+[lints]
+workspace = true
