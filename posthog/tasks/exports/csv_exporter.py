@@ -1,4 +1,3 @@
-import io
 import os
 import csv
 import json
@@ -7,13 +6,12 @@ import tempfile
 from collections.abc import Generator
 from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from uuid import UUID
 
-from django.conf import settings
 from django.http import QueryDict
 
 import requests
 import structlog
-import posthoganalytics
 from openpyxl import Workbook
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
@@ -22,14 +20,12 @@ from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.exported_asset import ExportedAsset, save_content, save_content_from_file
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.models.exported_asset import ExportedAsset, save_content_from_file
 from posthog.utils import absolute_uri
 
-from ...clickhouse.client.escape import substitute_params
 from ...exceptions import QuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
-from ...hogql.query import HogQLQueryExecutor, LimitContext
+from ...hogql.query import LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -41,33 +37,18 @@ from .ordered_csv_renderer import OrderedCsvRenderer
 
 logger = structlog.get_logger(__name__)
 
+
+class _ExportEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, UUID):
+            return str(obj)
+        if isinstance(obj, datetime.datetime | datetime.date):
+            return str(obj)
+        return super().default(obj)
+
+
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
-
-
-# SUPPORTED CSV TYPES
-
-# - Insights - Trends (Series Linear, Series Cumulative, Totals)
-# Funnels - steps as data
-# Retention
-# Paths
-# Lifecycle
-# Via dashboard e.g. all of the above
-
-# - People
-# Cohorts
-# Retention
-# Funnel
-
-# - Events
-# Filtered
-
-# HOW DOES THIS WORK
-# 1. We receive an export task with a given resource uri (identical to the API)
-# 2. We call the actual API to load the data with the given params so that we receive a paginateable response
-# 3. We save the response to a chunk in object storage and then load the `next` page of results
-# 4. Repeat until exhausted or limit reached
-# 5. We save the final blob output and update the ExportedAsset
 
 
 def add_query_params(url: str, params: dict[str, str]) -> str:
@@ -359,192 +340,149 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
         return
 
 
-def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
-    resource = exported_asset.export_context
-
-    columns: list[str] = resource.get("columns", [])
-    returned_rows: Generator[Any, None, None]
+def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None, None]:
+    resource = exported_asset.export_context or {}
 
     if resource.get("source"):
-        returned_rows = get_from_hogql_query(exported_asset, limit, resource)
+        yield from get_from_hogql_query(exported_asset, limit, resource)
     else:
-        returned_rows = get_from_insights_api(exported_asset, limit, resource)
+        yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
 
-    all_csv_rows = list(returned_rows)
+
+def _write_rows_to_jsonl(exported_asset: ExportedAsset, limit: int) -> tuple[str, int, list[str], set[str]]:
+    """Write flattened rows to a JSON lines temp file, discovering columns as we go.
+
+    Returns:
+        Tuple of (jsonl_path, row_count, all_keys, seen_keys)
+    """
     renderer = OrderedCsvRenderer()
-    render_context = {}
-    if columns:
-        render_context["header"] = columns
+    all_keys: list[str] = []
+    seen_keys: set[str] = set()
 
-    if len(all_csv_rows):
-        # NOTE: This is not ideal as some rows _could_ have different keys
-        # Ideally we would extend the csvrenderer to supported keeping the order in place
-        is_any_col_list_or_dict = [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]
-        if not is_any_col_list_or_dict:
-            # If values are serialised then keep the order of the keys, else allow it to be unordered
-            renderer.header = all_csv_rows[0].keys()
-    else:
-        # If we have no rows, that means we couldn't convert anything, so put something to avoid confusion
-        all_csv_rows = [{"error": "No data available or unable to format for export."}]
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as jsonl_tmp:
+        jsonl_path = jsonl_tmp.name
+        row_count = 0
 
-    return renderer, all_csv_rows, render_context
+        for row in _iter_rows(exported_asset, limit):
+            flat_row = dict(renderer.flatten_item(row))
+
+            for key in flat_row.keys():
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    all_keys.append(key)
+
+            json.dump(flat_row, jsonl_tmp, cls=_ExportEncoder)
+            jsonl_tmp.write("\n")
+            row_count += 1
+
+    return jsonl_path, row_count, all_keys, seen_keys
+
+
+def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: set[str]) -> list[str]:
+    """Determine the final column order based on user preferences and discovered keys."""
+    if not user_columns:
+        return all_keys
+
+    columns = []
+    for col in user_columns:
+        if col in seen_keys:
+            columns.append(col)
+        else:
+            # Check if there are nested keys that start with this prefix
+            nested_keys = [key for key in all_keys if key.startswith(col + ".")]
+            if nested_keys:
+                columns.extend(nested_keys)
+            else:
+                # Include the column even if it doesn't exist in data (will be empty)
+                columns.append(col)
+    return columns
 
 
 def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
-    renderer, all_csv_rows, render_context = _export_to_dict(exported_asset, limit)
-
-    rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
-    save_content(exported_asset, rendered_csv_content)
-
-
-def _is_streamable_hogql_query(resource: dict) -> bool:
-    """Check if this is a raw HogQL query that can be streamed directly from ClickHouse.
-
-    Other query types (Trends, Funnels, etc.) return pre-aggregated API results so they can't be streamed.
-    """
-    source = resource.get("source")
-    if not source:
-        return False
-    kind = source.get("kind")
-    return kind == "HogQLQuery"
-
-
-def _stream_clickhouse_query(
-    clickhouse_sql: str,
-    query_params: dict[str, Any],
-) -> Generator[dict[str, Any], None, None]:
-    """
-    Stream query results from ClickHouse using HTTP interface with JSONEachRow format.
-    """
-    if query_params:
-        prepared_sql = substitute_params(clickhouse_sql, query_params)
-    else:
-        prepared_sql = clickhouse_sql
-
-    sql_with_format = f"{prepared_sql.rstrip(';')} FORMAT JSONEachRow"
-
-    client = ClickHouseClient(
-        url=settings.CLICKHOUSE_HTTP_URL,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
-    )
-
-    with client.post_query(sql_with_format, query_parameters=None, query_id=None) as response:
-        for line in response.iter_lines():
-            if line:
-                yield json.loads(line)
-
-
-def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Generator[dict[str, Any], None, None]:
-    """
-    Stream rows from a HogQL query using ClickHouse HTTP interface.
-    """
-    from posthog.hogql.modifiers import create_default_modifiers_for_team
-
     resource = exported_asset.export_context or {}
-    source = resource.get("source", {})
-    hogql_query = source.get("query", "")
+    user_columns = resource.get("columns", [])
 
-    team = exported_asset.team
-    modifiers = create_default_modifiers_for_team(team, None)
-
-    executor = HogQLQueryExecutor(
-        query=hogql_query,
-        team=team,
-        limit_context=LimitContext.EXPORT,
-        modifiers=modifiers,
-    )
-    clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
-    query_params = clickhouse_context.values
-
-    total_rows = 0
-    for row in _stream_clickhouse_query(clickhouse_sql, query_params):
-        if total_rows >= limit:
-            break
-        yield row
-        total_rows += 1
-
-
-def _export_to_csv_streaming(exported_asset: ExportedAsset, limit: int) -> None:
-    resource = exported_asset.export_context or {}
-    columns = resource.get("columns", [])
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
-        tmp_path = tmp.name
+    jsonl_path = None
+    csv_path = None
 
     try:
-        with open(tmp_path, "w", newline="") as f:
-            writer = None
-            for row in _stream_hogql_query_rows(exported_asset, limit):
-                if writer is None:
-                    header = columns if columns else list(row.keys())
-                    writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
-                    writer.writeheader()
-                writer.writerow(row)
+        jsonl_path, row_count, all_keys, seen_keys = _write_rows_to_jsonl(exported_asset, limit)
 
-            if writer is None:
-                writer = csv.DictWriter(f, fieldnames=["error"])
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as csv_tmp:
+            csv_path = csv_tmp.name
+
+        if row_count == 0:
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["error"])
+                writer.writerow(["No data available or unable to format for export."])
+        else:
+            columns = _determine_columns(user_columns, all_keys, seen_keys)
+
+            with open(csv_path, "w", newline="") as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
                 writer.writeheader()
-                writer.writerow({"error": "No data available or unable to format for export."})
 
-        save_content_from_file(exported_asset, tmp_path)
+                with open(jsonl_path) as jsonl_file:
+                    for line in jsonl_file:
+                        if line.strip():
+                            row = json.loads(line)
+                            writer.writerow(row)
+
+        save_content_from_file(exported_asset, csv_path)
     finally:
-        os.unlink(tmp_path)
-
-
-def _export_to_excel_streaming(exported_asset: ExportedAsset, limit: int) -> None:
-    resource = exported_asset.export_context or {}
-    columns = resource.get("columns", [])
-
-    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        workbook = Workbook(write_only=True)
-        worksheet = workbook.create_sheet()
-        header: list[str] = []
-
-        for row in _stream_hogql_query_rows(exported_asset, limit):
-            if not header:
-                header = columns if columns else list(row.keys())
-                worksheet.append(header)
-            row_values = []
-            for col in header:
-                value = row.get(col)
-                if value is not None and not isinstance(value, str | int | float | bool):
-                    value = str(value)
-                row_values.append(value)
-            worksheet.append(row_values)
-
-        if not header:
-            worksheet.append(["error"])
-            worksheet.append(["No data available or unable to format for export."])
-
-        workbook.save(tmp_path)
-
-        save_content_from_file(exported_asset, tmp_path)
-    finally:
-        os.unlink(tmp_path)
+        if jsonl_path and os.path.exists(jsonl_path):
+            os.unlink(jsonl_path)
+        if csv_path and os.path.exists(csv_path):
+            os.unlink(csv_path)
 
 
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
-    output = io.BytesIO()
+    resource = exported_asset.export_context or {}
+    user_columns = resource.get("columns", [])
 
-    workbook = Workbook()
-    worksheet = workbook.active
+    jsonl_path = None
+    xlsx_path = None
 
-    renderer, all_csv_rows, render_context = _export_to_dict(exported_asset, limit)
+    try:
+        jsonl_path, row_count, all_keys, seen_keys = _write_rows_to_jsonl(exported_asset, limit)
 
-    for row_num, row_data in enumerate(renderer.tablize(all_csv_rows, header=render_context.get("header"))):
-        for col_num, value in enumerate(row_data):
-            if value is not None and not isinstance(value, str | int | float | bool):
-                value = str(value)
-            worksheet.cell(row=row_num + 1, column=col_num + 1, value=value)
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as xlsx_tmp:
+            xlsx_path = xlsx_tmp.name
 
-    workbook.save(output)
-    output.seek(0)
-    save_content(exported_asset, output.getvalue())
+        if row_count == 0:
+            workbook = Workbook(write_only=True)
+            worksheet = workbook.create_sheet()
+            worksheet.append(["error"])
+            worksheet.append(["No data available or unable to format for export."])
+            workbook.save(xlsx_path)
+        else:
+            columns = _determine_columns(user_columns, all_keys, seen_keys)
+
+            workbook = Workbook(write_only=True)
+            worksheet = workbook.create_sheet()
+            worksheet.append(columns)
+
+            with open(jsonl_path) as jsonl_file:
+                for line in jsonl_file:
+                    if line.strip():
+                        row_dict = json.loads(line)
+                        row_values = []
+                        for col in columns:
+                            value = row_dict.get(col)
+                            if value is not None and not isinstance(value, str | int | float | bool):
+                                value = str(value)
+                            row_values.append(value)
+                        worksheet.append(row_values)
+
+            workbook.save(xlsx_path)
+
+        save_content_from_file(exported_asset, xlsx_path)
+    finally:
+        if jsonl_path and os.path.exists(jsonl_path):
+            os.unlink(jsonl_path)
+        if xlsx_path and os.path.exists(xlsx_path):
+            os.unlink(xlsx_path)
 
 
 def get_limit_param_key(path: str) -> str:
@@ -582,32 +520,11 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
     try:
-        resource = exported_asset.export_context or {}
-        team = exported_asset.team
-        is_streamable = _is_streamable_hogql_query(resource) and posthoganalytics.feature_enabled(
-            "buffer-tabular-export-to-disk",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(team.organization.id),
-                    "created_at": team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        )
-
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-                if is_streamable:
-                    _export_to_csv_streaming(exported_asset, limit)
-                else:
-                    _export_to_csv(exported_asset, limit)
+                _export_to_csv(exported_asset, limit)
             elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-                if is_streamable:
-                    _export_to_excel_streaming(exported_asset, limit)
-                else:
-                    _export_to_excel(exported_asset, limit)
+                _export_to_excel(exported_asset, limit)
             else:
                 raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:

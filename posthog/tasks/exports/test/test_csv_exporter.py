@@ -165,13 +165,13 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_writes_to_asset_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset()
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -184,13 +184,13 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_not_filter_columns_on_empty_param(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset({"columns": []})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -203,12 +203,12 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_does_filter_columns(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -221,11 +221,11 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write, mocked_uuidt) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_includes_whole_dict(self, mocked_object_storage_write_from_file, mocked_uuidt) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -235,13 +235,13 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content == b"distinct_id,properties.$browser\r\n2,Safari\r\n2,Safari\r\n2,Safari\r\n"
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_includes_whole_dict_alternative_order(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         exported_asset = self._create_asset({"columns": ["properties", "distinct_id"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -251,14 +251,14 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content == b"properties.$browser,distinct_id\r\nSafari,2\r\nSafari,2\r\nSafari,2\r\n"
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
     def test_csv_exporter_does_filter_columns_and_can_handle_unexpected_columns(
-        self, mocked_object_storage_write, mocked_uuidt
+        self, mocked_object_storage_write_from_file, mocked_uuidt
     ) -> None:
         # NB these columns are not in the "natural" order
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -271,12 +271,12 @@ class TestCSVExporter(APIBaseTest):
             )
 
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.models.exported_asset.object_storage.write")
-    def test_csv_exporter_excel(self, mocked_object_storage_write: Any, mocked_uuidt: Any) -> None:
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_csv_exporter_excel(self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any) -> None:
         exported_asset = self._create_asset({"columns": ["distinct_id", "properties.$browser", "event", "tomato"]})
         exported_asset.export_format = ExportedAsset.ExportFormat.XLSX
         mocked_uuidt.return_value = "a-guid"
-        mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")
+        mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
 
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             csv_exporter.export_tabular(exported_asset)
@@ -1263,8 +1263,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
-    def test_excel_streaming_saves_to_object_storage(self, _mock_feature_enabled: Any, mocked_uuidt: Any) -> None:
+    def test_excel_streaming_saves_to_object_storage(self, mocked_uuidt: Any) -> None:
         """Test that Excel streaming export saves to object storage and handles complex types."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         query_limit = 5
@@ -1315,10 +1314,7 @@ class TestCSVExporter(APIBaseTest):
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
-    def test_csv_streaming_saves_to_object_storage(
-        self, _mock_feature_enabled: Any, mocked_uuidt: Any, csv_export_limit: int = 10
-    ) -> None:
+    def test_csv_streaming_saves_to_object_storage(self, mocked_uuidt: Any, csv_export_limit: int = 10) -> None:
         """Test that CSV streaming export saves to object storage and handles complex types."""
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
@@ -1359,9 +1355,8 @@ class TestCSVExporter(APIBaseTest):
             assert "tag1" in lines[1]
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
-    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
-    def test_csv_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
-        """Test that CSV streaming export writes to a temp file and cleans it up."""
+    def test_csv_streaming_uses_temp_file(self) -> None:
+        """Test that CSV streaming export writes to temp files and cleans them up."""
         import tempfile
 
         original_temp_file = tempfile.NamedTemporaryFile
@@ -1396,14 +1391,16 @@ class TestCSVExporter(APIBaseTest):
         with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
             csv_exporter.export_tabular(exported_asset)
 
-        assert len(temp_file_paths) == 1
-        assert temp_file_paths[0].endswith(".csv")
-        assert not os.path.exists(temp_file_paths[0]), "Temp file should be cleaned up after export"
+        # Two temp files: jsonl (phase 1) + csv (phase 2)
+        assert len(temp_file_paths) == 2
+        assert any(p.endswith(".jsonl") for p in temp_file_paths)
+        assert any(p.endswith(".csv") for p in temp_file_paths)
+        for path in temp_file_paths:
+            assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
-    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
-    def test_excel_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
-        """Test that Excel streaming export writes to a temp file and cleans it up."""
+    def test_excel_streaming_uses_temp_file(self) -> None:
+        """Test that Excel streaming export writes to temp files and cleans them up."""
         import tempfile
 
         original_temp_file = tempfile.NamedTemporaryFile
@@ -1438,6 +1435,9 @@ class TestCSVExporter(APIBaseTest):
         with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
             csv_exporter.export_tabular(exported_asset)
 
-        assert len(temp_file_paths) == 1
-        assert temp_file_paths[0].endswith(".xlsx")
-        assert not os.path.exists(temp_file_paths[0]), "Temp file should be cleaned up after export"
+        # Two temp files: jsonl (phase 1) + xlsx (phase 2)
+        assert len(temp_file_paths) == 2
+        assert any(p.endswith(".jsonl") for p in temp_file_paths)
+        assert any(p.endswith(".xlsx") for p in temp_file_paths)
+        for path in temp_file_paths:
+            assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
