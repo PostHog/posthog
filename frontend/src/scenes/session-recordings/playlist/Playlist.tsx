@@ -76,8 +76,8 @@ export function Playlist({
     const { featureFlags } = useValues(featureFlagLogic)
     const { askSidePanelMax } = useActions(maxGlobalLogic)
 
-    const { isRecordingsCollapsed } = useValues(playerSettingsLogic)
-    const { setRecordingsCollapsed } = useActions(playerSettingsLogic)
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -208,13 +208,13 @@ export function Playlist({
         )
 
     // Show collapsed view
-    if (isRecordingsCollapsed) {
+    if (isPlaylistCollapsed) {
         return (
             <div className="flex items-center justify-center h-full w-full px-0">
                 <LemonButton
-                    icon={<IconSidebarClose className={clsx(!isRecordingsCollapsed && 'rotate-180')} />}
-                    onClick={() => setRecordingsCollapsed(false)}
-                    tooltip="Expand recordings"
+                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+                    onClick={() => setPlaylistCollapsed(false)}
+                    tooltip="Expand playlist"
                     size="xsmall"
                     noPadding
                     data-attr="expand-playlist"
@@ -259,11 +259,11 @@ export function Playlist({
                                         <LemonButton
                                             icon={
                                                 <IconSidebarClose
-                                                    className={clsx(!isRecordingsCollapsed && 'rotate-180')}
+                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
                                                 />
                                             }
-                                            onClick={() => setRecordingsCollapsed(true)}
-                                            tooltip="Collapse recordings"
+                                            onClick={() => setPlaylistCollapsed(true)}
+                                            tooltip="Collapse playlist"
                                             size="xsmall"
                                             data-attr="collapse-playlist"
                                         />
