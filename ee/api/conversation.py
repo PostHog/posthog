@@ -144,7 +144,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def safely_get_queryset(self, queryset):
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
-        if self.action != "retrieve":
+        # Also allow fork action to access other users' conversations (to continue shared chats)
+        if self.action not in ("retrieve", "fork"):
             queryset = queryset.filter(user=self.request.user)
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
