@@ -3787,6 +3787,7 @@ export interface Survey extends WithAccessControl {
     headline_summary?: string | null
     headline_response_count?: number | null
     form_content?: Record<string, unknown> | null
+    translations?: Record<string, { name?: string; description?: string }> | null
 }
 
 export enum SurveyMatchType {
@@ -3869,6 +3870,8 @@ export interface SurveyAppearance {
     disabledButtonOpacity?: string
     maxWidth?: string
     textSubtleColor?: string
+    autoDetectLanguage?: boolean
+    surveyLanguageProperty?: string
     inputBackground?: string
     // Optional override for input and rating button text color. If not set, auto-calculated from inputBackground.
     inputTextColor?: string
@@ -3892,6 +3895,18 @@ export interface SurveyQuestionBase {
         | ConfirmationMessageBranching
         | ResponseBasedBranching
         | SpecificQuestionBranching
+    translations?: Record<
+        string,
+        {
+            question?: string
+            description?: string
+            buttonText?: string
+            lowerBoundLabel?: string
+            upperBoundLabel?: string
+            choices?: string[]
+            link?: string
+        }
+    > | null
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
