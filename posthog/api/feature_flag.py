@@ -28,6 +28,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, tagify
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -121,8 +122,6 @@ def extract_etag_from_header(header_value: str | None) -> str | None:
     return etag if etag else None
 
 
-# Reusable session for proxying to the flags service with connection pooling
-_FLAGS_SERVICE_SESSION = requests.Session()
 
 
 class LocalEvaluationThrottle(BurstRateThrottle):
@@ -1274,52 +1273,6 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
-def _proxy_to_flags_service(
-    token: str,
-    distinct_id: str,
-    groups: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """
-    Proxy a request to the Rust feature flags service /flags endpoint.
-
-    Args:
-        token: The project API token (the public token) for the user
-        distinct_id: The distinct ID for the user
-        groups: Optional groups for group-based flags
-
-    Returns:
-        The response from the flags service
-
-    Raises:
-        Exception: If the request fails
-    """
-    logger = logging.getLogger(__name__)
-
-    flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-    proxy_timeout = getattr(settings, "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT", 3)
-
-    payload: dict[str, Any] = {
-        "token": token,
-        "distinct_id": distinct_id,
-    }
-
-    if groups:
-        payload["groups"] = groups
-
-    params: dict[str, str] = {"v": "2"}
-
-    try:
-        response = _FLAGS_SERVICE_SESSION.post(
-            f"{flags_service_url}/flags",
-            params=params,
-            json=payload,
-            timeout=proxy_timeout,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        logger.exception("Failed to proxy to flags service: %s", e)
-        raise
 
 
 def _evaluate_flags_with_fallback(
@@ -1333,7 +1286,7 @@ def _evaluate_flags_with_fallback(
     Returns:
         dict[str, Any]: Rust service response with structure {"flags": {...}, ...}
     """
-    return _proxy_to_flags_service(
+    return get_flags_from_service(
         token=team.api_token,
         distinct_id=distinct_id,
         groups=groups,

@@ -765,23 +765,13 @@ def prepare_toolbar_preloaded_flags(request):
             return JsonResponse({"error": "No team found"}, status=400)
 
         # Use Rust flags service
-        flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
-        proxy_timeout = getattr(settings, "FEATURE_FLAGS_SERVICE_PROXY_TIMEOUT", 3)
+        from posthog.api.services.flags_service import get_flags_from_service
 
-        payload = {
-            "token": team.api_token,
-            "distinct_id": distinct_id,
-            "groups": {},
-        }
-
-        response = requests.post(
-            f"{flags_service_url}/flags",
-            params={"v": "2"},
-            json=payload,
-            timeout=proxy_timeout,
+        result = get_flags_from_service(
+            token=team.api_token,
+            distinct_id=distinct_id,
+            groups={},
         )
-        response.raise_for_status()
-        result = response.json()
         flags = result.get("flags", {})
 
         key = secrets.token_urlsafe(16)
