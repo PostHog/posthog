@@ -69,7 +69,7 @@ export class PushSubscriptionsManagerService {
         return (await this.lazyLoader.get(key)) ?? []
     }
 
-    public async getMany(args: PushSubscriptionGetArgs[]): Promise<Record<string, PushSubscription[]>> {
+    public async getMany(args: PushSubscriptionGetArgs[]): Promise<Record<string, PushSubscription[] | null>> {
         const keys = args.map(toKey)
         return await this.lazyLoader.getMany(keys)
     }
@@ -168,13 +168,12 @@ export class PushSubscriptionsManagerService {
         // Group results by key
         const result: Record<string, PushSubscription[]> = {}
 
-        // Initialize all keys with empty arrays
         for (const key of ids) {
             result[key] = []
         }
 
         for (const row of subscriptionRows) {
-            // Find matching keys (could match multiple if platform was not specified)
+            // Find matching keys (could match multiple)
             for (const key of ids) {
                 const args = fromKey(key)
                 if (
