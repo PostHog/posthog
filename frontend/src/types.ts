@@ -6206,7 +6206,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: FileSystemImport[]
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }
