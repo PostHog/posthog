@@ -49,7 +49,7 @@ export function HogFunctionLogs(): JSX.Element | null {
     const logic = hogFunctionLogsLogic(logsLogicProps)
 
     const { selectingMany, selectedForRetry, retryRunning } = useValues(logic)
-    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(logic)
+    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry, retryBatch } = useActions(logic)
 
     if (!id) {
         return null
@@ -57,6 +57,28 @@ export function HogFunctionLogs(): JSX.Element | null {
 
     return (
         <>
+            {!selectingMany ? (
+                <div className="flex justify-end mb-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Retry all failed invocations?',
+                                content: 'This will schedule a task to retry all failed invocations in the current date range. This may take a while.',
+                                primaryButton: {
+                                    children: 'Retry all in range',
+                                    onClick: () => retryBatch(),
+                                },
+                                secondaryButton: {
+                                    children: 'Cancel',
+                                },
+                            })
+                        }}
+                    >
+                        Retry failures in range
+                    </LemonButton>
+                </div>
+            ) : null}
             {selectingMany ? (
                 <div className="flex gap-2 items-center mb-2 justify-end">
                     <>

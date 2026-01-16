@@ -97,7 +97,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
     props({} as LogsViewerLogicProps), // TODO: Remove `stage` from props, it isn't needed here for anything
     key(({ sourceType, sourceId }) => `${sourceType}:${sourceId}`),
     connect((props: LogsViewerLogicProps) => ({
-        values: [logsViewerLogic(props), ['groupedLogs']],
+        values: [logsViewerLogic(props), ['groupedLogs', 'logEntryParams']],
         actions: [logsViewerLogic(props), ['addLogGroups', 'setRowExpanded']],
     })),
     actions({
@@ -110,6 +110,7 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
         retryInvocationSuccess: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retryInvocationFailure: (groupedLogEntry: GroupedLogEntry) => ({ groupedLogEntry }),
         retrySelectedInvocations: true,
+        retryBatch: true,
     }),
     reducers({
         selectingMany: [
@@ -300,6 +301,27 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
             const groupsToRetry = values.groupedLogs.filter((x) => values.selectedForRetry[x.instanceId])
 
             actions.retryInvocations(groupsToRetry)
+        },
+
+        retryBatch: async () => {
+            const { dateFrom, dateTo } = values.logEntryParams
+            
+            if (!dateFrom || !dateTo) {
+                return
+            }
+
+            await lemonToast.promise(
+                api.hogFunctions.batchRetry(props.sourceId, {
+                    date_from: dateFrom,
+                    date_to: dateTo,
+                    status: 'error',
+                }),
+                {
+                    pending: 'Queueing batch retry...',
+                    success: 'Batch retry queued!',
+                    error: 'Failed to queue batch retry',
+                }
+            )
         },
 
         selectAllForRetry: async () => {
