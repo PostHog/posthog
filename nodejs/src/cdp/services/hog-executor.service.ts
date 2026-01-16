@@ -533,6 +533,7 @@ export class HogExecutorService {
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
+                                timeoutMs: fetchOptions?.timeoutMs,
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
@@ -644,6 +645,10 @@ export class HogExecutorService {
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
+        }
+
+        if (params.timeoutMs) {
+            fetchParams.timeoutMs = params.timeoutMs
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({

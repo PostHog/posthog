@@ -74,6 +74,48 @@ export class PushSubscriptionsManagerService {
         return await this.lazyLoader.getMany(keys)
     }
 
+    public async getById(teamId: number, subscriptionId: string): Promise<PushSubscription | null> {
+        const queryString = `SELECT
+                id,
+                team_id,
+                distinct_id,
+                token,
+                platform,
+                is_active,
+                last_used_at,
+                created_at,
+                updated_at
+            FROM workflows_pushsubscription
+            WHERE id = $1 AND team_id = $2 AND is_active = true
+            LIMIT 1`
+
+        const response = await this.postgres.query<PushSubscriptionRow>(
+            PostgresUse.COMMON_READ,
+            queryString,
+            [subscriptionId, teamId],
+            'getPushSubscriptionById'
+        )
+
+        if (response.rows.length === 0) {
+            return null
+        }
+
+        const row = response.rows[0]
+        const decryptedToken = this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
+
+        return {
+            id: row.id,
+            team_id: row.team_id,
+            distinct_id: row.distinct_id,
+            token: decryptedToken,
+            platform: row.platform,
+            is_active: row.is_active,
+            last_used_at: row.last_used_at,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+
     private async fetchPushSubscriptions(ids: string[]): Promise<Record<string, PushSubscription[] | undefined>> {
         const subscriptionArgs = ids.map(fromKey)
 
