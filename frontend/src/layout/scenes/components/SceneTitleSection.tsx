@@ -323,7 +323,7 @@ function SceneName({
                                 className: `${textClasses} w-full hover:bg-fill-input py-0`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         placeholder="Enter name"
                         onBlur={() => {
@@ -456,7 +456,7 @@ function SceneDescription({
                                 className: `${textClasses} w-full hover:bg-fill-input px-[var(--button-padding-x-sm)]`,
                                 autoHeight: true,
                             }),
-                            '[&_.LemonIcon]:size-4'
+                            '[&_.LemonIcon]:size-4 input-like'
                         )}
                         wrapperClassName="w-full"
                         markdown={markdown}

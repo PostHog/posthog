@@ -1297,3 +1297,64 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             # Schedule corrects the manual override
             self.assertEqual(feature_flag.active, False)
             self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 1, 17, 9, 0, tzinfo=UTC))
+
+    @freeze_time("2024-01-15T09:00:00Z")
+    def test_recurring_schedule_computes_next_yearly_run(self) -> None:
+        """Recurring yearly schedule should advance scheduled_at by 1 year."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Recurring Yearly Flag",
+            key="recurring-yearly-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 1, 15, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="yearly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 1, 15, 9, 0, tzinfo=UTC))
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)
+
+    @freeze_time("2024-02-29T09:00:00Z")
+    def test_recurring_yearly_schedule_handles_leap_year(self) -> None:
+        """Yearly schedule on Feb 29 should advance to Feb 28 in non-leap years."""
+        feature_flag = FeatureFlag.objects.create(
+            name="Leap Year Flag",
+            key="leap-year-flag",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2024, 2, 29, 9, 0, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="yearly",
+        )
+
+        process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertIsNone(scheduled_change.executed_at)
+        # 2025 is not a leap year, so Feb 29 becomes Feb 28
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 2, 28, 9, 0, tzinfo=UTC))
+        feature_flag.refresh_from_db()
+        self.assertEqual(feature_flag.active, False)

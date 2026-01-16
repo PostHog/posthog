@@ -12,9 +12,108 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { Breadcrumb, ProductTour, ProductTourContent, ProgressStatus, SurveyPosition } from '~/types'
+import {
+    Breadcrumb,
+    ProductTour,
+    ProductTourButtonAction,
+    ProductTourContent,
+    ProductTourDisplayFrequency,
+    ProductTourStepButton,
+    ProductTourStepButtons,
+    ProgressStatus,
+    SurveyPosition,
+} from '~/types'
 
 import type { productToursLogicType } from './productToursLogicType'
+
+export const BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'dismiss', label: 'Dismiss' },
+    { value: 'link', label: 'Open link' },
+    { value: 'trigger_tour', label: 'Start tour' },
+]
+
+export const TOUR_BUTTON_ACTION_OPTIONS: { value: ProductTourButtonAction; label: string }[] = [
+    { value: 'next_step', label: 'Next step' },
+    { value: 'previous_step', label: 'Previous step' },
+    ...BUTTON_ACTION_OPTIONS,
+]
+
+export const DEFAULT_PRIMARY_BUTTON: ProductTourStepButton = {
+    text: 'Got it',
+    action: 'dismiss',
+}
+
+export const DEFAULT_SECONDARY_BUTTON: ProductTourStepButton = {
+    text: 'Learn more',
+    action: 'link',
+    link: '',
+}
+
+interface ProductTourDisplayFrequencyOption {
+    value: ProductTourDisplayFrequency
+    label: string
+    tooltip?: string
+}
+
+export const BANNER_DISPLAY_FREQUENCY_OPTIONS: ProductTourDisplayFrequencyOption[] = [
+    {
+        value: 'until_interacted',
+        label: 'Until interacted',
+        tooltip: 'Shows until user dismisses or interacts',
+    },
+    {
+        value: 'always',
+        label: 'Always',
+        tooltip: 'Always shows when the rest of your conditions are met. Hides dismiss button.',
+    },
+]
+
+export const ANNOUNCEMENT_DISPLAY_FREQUENCY_OPTIONS: ProductTourDisplayFrequencyOption[] = [
+    { value: 'show_once', label: 'Once', tooltip: "Shows once per user, even if they don't interact" },
+    {
+        value: 'until_interacted',
+        label: 'Until interacted',
+        tooltip: 'Shows repeatedly until user clicks a button or dismisses',
+    },
+]
+
+export function getDisplayFrequencyOptions(tour: Pick<ProductTour, 'content'>): ProductTourDisplayFrequencyOption[] {
+    if (isBannerAnnouncement(tour)) {
+        return BANNER_DISPLAY_FREQUENCY_OPTIONS
+    }
+    if (isAnnouncement(tour)) {
+        return ANNOUNCEMENT_DISPLAY_FREQUENCY_OPTIONS
+    }
+    return []
+}
+
+export function getDefaultDisplayFrequency(tour: Pick<ProductTour, 'content'>): ProductTourDisplayFrequencyOption {
+    const options = getDisplayFrequencyOptions(tour)
+    if (options.length === 0) {
+        throw new Error(`No defaults found for tour type ${tour.content?.type}`)
+    }
+    return options[0]
+}
+
+export function getDefaultTourStepButtons(stepIndex: number, totalSteps: number): ProductTourStepButtons {
+    const isFirstStep = stepIndex === 0
+    const isLastStep = stepIndex === totalSteps - 1
+
+    return {
+        primary: {
+            text: isLastStep ? 'Done' : 'Next',
+            action: isLastStep ? 'dismiss' : 'next_step',
+        },
+        ...(isFirstStep
+            ? {}
+            : {
+                  secondary: {
+                      text: 'Back',
+                      action: 'previous_step',
+                  },
+              }),
+    }
+}
 
 function createDefaultAnnouncementContent(): ProductTourContent {
     return {
@@ -42,6 +141,9 @@ function createDefaultAnnouncementContent(): ProductTourContent {
                         },
                     ],
                 },
+                buttons: {
+                    primary: DEFAULT_PRIMARY_BUTTON,
+                },
                 modalPosition: SurveyPosition.MiddleCenter,
             },
         ],
@@ -49,6 +151,45 @@ function createDefaultAnnouncementContent(): ProductTourContent {
             showOverlay: false,
             dismissOnClickOutside: false,
         },
+        displayFrequency: 'show_once',
+    }
+}
+
+function createDefaultBannerContent(): ProductTourContent {
+    return {
+        type: 'announcement',
+        steps: [
+            {
+                id: uuid(),
+                type: 'banner',
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'Your banner message here. Keep it short and actionable.',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                bannerConfig: {
+                    behavior: 'sticky',
+                    action: {
+                        type: 'none',
+                    },
+                },
+            },
+        ],
+        appearance: {
+            showOverlay: false,
+            dismissOnClickOutside: false,
+            whiteLabel: true, // banners simply have no branding
+        },
+        displayFrequency: 'until_interacted',
     }
 }
 
@@ -74,6 +215,14 @@ export function isAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
     return tour.content?.type === 'announcement'
 }
 
+export function isBannerAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'banner'
+}
+
+export function isModalAnnouncement(tour: Pick<ProductTour, 'content'>): boolean {
+    return isAnnouncement(tour) && tour.content?.steps?.[0]?.type === 'modal'
+}
+
 export interface ProductToursFilters {
     archived: boolean
 }
@@ -86,6 +235,7 @@ export const productToursLogic = kea<productToursLogicType>([
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
         setTab: (tab: ProductToursTabs) => ({ tab }),
         createAnnouncement: (name: string) => ({ name }),
+        createBanner: (name: string) => ({ name }),
     }),
     loaders(({ values }) => ({
         productTours: {
@@ -141,9 +291,21 @@ export const productToursLogic = kea<productToursLogicType>([
                     content: createDefaultAnnouncementContent(),
                 })
                 actions.loadProductTours()
-                router.actions.push(urls.productTour(announcement.id))
+                router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
             } catch {
                 lemonToast.error('Failed to create announcement')
+            }
+        },
+        createBanner: async ({ name }) => {
+            try {
+                const banner = await api.productTours.create({
+                    name,
+                    content: createDefaultBannerContent(),
+                })
+                actions.loadProductTours()
+                router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
+            } catch {
+                lemonToast.error('Failed to create banner')
             }
         },
     })),

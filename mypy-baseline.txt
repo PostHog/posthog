@@ -176,6 +176,7 @@ posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_ch
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "django.contrib.admin.options.BaseModelAdmin"  [override]
 posthog/admin/inlines/plugin_attachment_inline.py:0: error: Signature of "has_delete_permission" incompatible with supertype "django.contrib.admin.options.InlineModelAdmin"  [override]
 posthog/api/action.py:0: error: Argument 1 to <tuple> has incompatible type "*tuple[str, ...]"; expected "type[BaseRenderer]"  [arg-type]
+posthog/api/annotation.py:0: error: "Field[Any, Any, Any, Any]" has no attribute "queryset"  [attr-defined]
 posthog/api/cohort.py:0: error: Incompatible type for lookup 'pk': (got "str | int | list[str]", expected "str | int")  [misc]
 posthog/api/cohort.py:0: error: Incompatible types in assignment (expression has type "Any | None", variable has type "bool | Combinable")  [assignment]
 posthog/api/dead_letter_queue.py:0: error: Incompatible return value type (got "str | Any", expected "int")  [return-value]
