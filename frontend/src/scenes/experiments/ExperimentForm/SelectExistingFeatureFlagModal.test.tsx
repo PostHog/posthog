@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
@@ -49,6 +54,7 @@ describe('SelectExistingFeatureFlagModal', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
 
     const mockFeatureFlags: FeatureFlagType[] = [

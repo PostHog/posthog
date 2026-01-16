@@ -37,7 +37,7 @@ import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -329,19 +329,12 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                         [context.field]: isNew
                                             ? [...metrics, metric]
                                             : metrics.map((m) => (m.uuid === metric.uuid ? metric : m)),
-                                        ...(isNew && {
-                                            [context.orderingField]: [
-                                                ...(experiment[context.orderingField] ?? []),
-                                                metric.uuid,
-                                            ],
-                                        }),
                                     })
 
                                     updateExperimentMetrics()
                                     closeExperimentMetricModal()
                                 }}
                                 onDelete={(metric, context) => {
-                                    //bail if the metric has no uuid
                                     if (!metric.uuid) {
                                         return
                                     }
@@ -349,11 +342,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                     setExperiment({
                                         [context.field]: experiment[context.field].filter(
                                             (m) => m.uuid !== metric.uuid
-                                        ),
-                                        [context.orderingField]: removeMetricFromOrderingArray(
-                                            experiment,
-                                            metric.uuid,
-                                            context.type === 'secondary'
                                         ),
                                     })
 
@@ -364,33 +352,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                             <SharedMetricModal
                                 experiment={experiment}
                                 onSave={(metrics, context) => {
-                                    const existingOrderingArray = experiment[context.orderingField] ?? []
-                                    const newMetricUuids = metrics
-                                        .map((metric) => metric.query.uuid)
-                                        .filter((uuid) => !existingOrderingArray.includes(uuid))
-                                    const newOrderingArray = [...existingOrderingArray, ...newMetricUuids]
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
                                     addSharedMetricsToExperiment(
                                         metrics.map(({ id }) => id),
                                         { type: context.type }
                                     )
                                     closeSharedMetricModal()
                                 }}
-                                onDelete={(metric, context) => {
-                                    const newOrderingArray = removeMetricFromOrderingArray(
-                                        experiment,
-                                        metric.query.uuid,
-                                        context.type === 'secondary'
-                                    )
-
-                                    setExperiment({
-                                        [context.orderingField]: newOrderingArray,
-                                    })
-
+                                onDelete={(metric) => {
                                     removeSharedMetricFromExperiment(metric.id)
                                     closeSharedMetricModal()
                                 }}

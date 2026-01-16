@@ -8,32 +8,37 @@ use tracing::{error, info};
 #[derive(Debug)]
 pub struct CheckpointImporter {
     downloader: Box<dyn CheckpointDownloader>,
+    // Base path for local RocksDB stores - checkpoint files are downloaded directly here
+    store_base_path: PathBuf,
+    // Number of historical checkpoint attempts to import as fallbacks
+    import_attempt_depth: usize,
 }
 
 impl CheckpointImporter {
-    pub fn new(downloader: Box<dyn CheckpointDownloader>) -> Self {
-        Self { downloader }
+    pub fn new(
+        downloader: Box<dyn CheckpointDownloader>,
+        store_base_path: PathBuf,
+        import_attempt_depth: usize,
+    ) -> Self {
+        Self {
+            downloader,
+            store_base_path,
+            import_attempt_depth,
+        }
     }
 
-    /// This is the one-stop entry point for DR checkpoint import.
-    /// Given the following inputs:
-    /// - local_base_path: a base path for temporary downloads (not scoped to topic/partition)
-    /// - topic: the topic to import checkpoints for
-    /// - partition: the partition number to import checkpoints for
-    /// - import_limit: the maximum number of recent checkpoints to attempt to import as fallbacks
+    /// Import checkpoint files directly into the store directory for a topic/partition.
     ///
     /// This method will:
     /// 1. Fetch checkpoint metadata.json files from the most recent N checkpoints for the topic+partition
-    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files to local directory
-    ///    of the form <local_base_path>/<topic>/<partition>/<checkpoint_id>/ (assumed to be a temp dir)
-    /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_limit) before giving up
-    /// 4. If successful, return the final local path to the most recent successful checkpoint was imported to
+    /// 2. For each metadata file (newest to oldest), attempt to download all tracked files directly
+    ///    to the store directory: `<store_base_path>/<topic>/<partition>/`
+    /// 3. If a checkpoint import fails, fall back to the next most recent (up to import_attempt_depth)
+    /// 4. If successful, return the store path where files were imported
     pub async fn import_checkpoint_for_topic_partition(
         &self,
-        local_base_path: &Path,
         topic: &str,
         partition_number: i32,
-        import_limit: usize,
     ) -> Result<PathBuf> {
         let mut checkpoint_metadata = self
             .fetch_checkpoint_metadata(topic, partition_number)
@@ -48,20 +53,15 @@ impl CheckpointImporter {
 
         // Slice to at most the most-recent N checkpoints
         // we'll attempt to import according to import_limit
-        checkpoint_metadata.truncate(import_limit);
+        checkpoint_metadata.truncate(self.import_attempt_depth);
         info!("Attempting recovery from the most recent {} checkpoints for topic:{topic} partition:{partition_number}",
             checkpoint_metadata.len());
 
         // checkpoints iterated in order of recency; we keep the first good one we fetch
         for attempt in checkpoint_metadata {
-            let local_attempt_path = local_base_path.join(attempt.get_attempt_path());
-            let attempt_tag = attempt
-                .to_json()
-                .unwrap_or(local_attempt_path.to_string_lossy().to_string());
-            info!(
-                checkpoint = attempt_tag,
-                "Attempting to import checkpoint to local directory"
-            );
+            let local_attempt_path = attempt.get_store_path(&self.store_base_path);
+            let local_path_tag = local_attempt_path.to_string_lossy().to_string();
+            let attempt_tag = attempt.get_attempt_path();
 
             match self
                 .fetch_checkpoint_files(&attempt, &local_attempt_path)
@@ -70,13 +70,15 @@ impl CheckpointImporter {
                 Ok(_) => {
                     info!(
                         checkpoint = attempt_tag,
+                        local_attempt_path = local_path_tag,
                         "Successfully imported checkpoint to local directory"
                     );
                     return Ok(local_attempt_path);
                 }
                 Err(e) => {
                     error!(
-                        checkpont = attempt_tag,
+                        checkpoint = attempt_tag,
+                        local_attempt_path = local_path_tag,
                         error = e.to_string(),
                         "Failed to import checkpoint files "
                     );
@@ -85,12 +87,14 @@ impl CheckpointImporter {
                             Ok(_) => {
                                 info!(
                                     checkpoint = attempt_tag,
+                                    local_attempt_path = local_path_tag,
                                     "Removed local directory after checkpoint import failure"
                                 );
                             }
                             Err(e) => {
                                 error!(
                                     checkpoint = attempt_tag,
+                                    local_attempt_path = local_path_tag,
                                     error = e.to_string(),
                                     "Failed to remove local directory after checkpoint import failure");
                             }

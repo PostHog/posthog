@@ -14,7 +14,7 @@ use crate::common::*;
 use feature_flags::config::{FlexBool, TeamIdCollection, DEFAULT_TEST_CONFIG};
 use feature_flags::utils::test_utils::{
     insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, TestContext,
+    setup_redis_client, update_team_in_hypercache, TestContext,
 };
 
 pub mod common;
@@ -2197,16 +2197,7 @@ async fn test_config_site_apps_with_actual_plugins() -> Result<()> {
     team.inject_web_apps = Some(true);
 
     // Update the team in Redis with inject_web_apps enabled
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2322,16 +2313,7 @@ async fn test_config_comprehensive_enterprise_team() -> Result<()> {
     ])));
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2485,16 +2467,7 @@ async fn test_config_comprehensive_minimal_team() -> Result<()> {
     team.autocapture_web_vitals_allowed_metrics = None;
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2586,16 +2559,7 @@ async fn test_config_mixed_feature_combinations() -> Result<()> {
     team.autocapture_opt_out = None; // Default (should be false)
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2686,16 +2650,7 @@ async fn test_config_team_exclusions_and_overrides() -> Result<()> {
         TeamIdCollection::TeamIds(vec![team.id, 999, 1000]);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2762,16 +2717,7 @@ async fn test_config_legacy_vs_v2_consistency() -> Result<()> {
     team.heatmaps_opt_in = Some(true);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -2850,16 +2796,7 @@ async fn test_config_error_tracking_with_suppression_rules() -> Result<()> {
     team.autocapture_exceptions_opt_in = Some(true);
 
     // Update team in Redis
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -5994,16 +5931,7 @@ async fn test_session_recording_script_config(
     team.session_recording_opt_in = true;
     team.extra_settings = extra_settings.map(sqlx::types::Json);
 
-    let serialized_team = serde_json::to_string(&team).unwrap();
-    client
-        .set(
-            format!(
-                "{}{}",
-                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
-                team.api_token.clone()
-            ),
-            serialized_team,
-        )
+    update_team_in_hypercache(client.clone(), &team)
         .await
         .unwrap();
 
@@ -6042,6 +5970,239 @@ async fn test_session_recording_script_config(
             );
         }
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+
+    let distinct_id = "test_user".to_string();
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Create a cohort with date comparison using is_date_after operator
+    let cohort_filters = json!({
+        "properties": {
+            "type": "OR",
+            "values": [{
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "signup_date",
+                        "type": "person",
+                        "value": "2025-12-01",
+                        "operator": "is_date_after"
+                    }
+                ]
+            }]
+        }
+    });
+
+    // Insert cohort and get the actual ID
+    let cohort = context
+        .insert_cohort(
+            team.id,
+            Some("Test Date with Milliseconds".to_string()),
+            cohort_filters,
+            false,
+        )
+        .await
+        .unwrap();
+
+    // Create a feature flag using the cohort's actual ID
+    let flag_json = json!([{
+        "id": 1,
+        "key": "test-date-with-milliseconds",
+        "name": "Test Date with Milliseconds",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Insert person with date in ISO 8601 format with milliseconds (no timezone)
+    // This format fails to parse in the Rust dateparser library
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({
+                "signup_date": "2025-12-19T00:00:00.000",
+            })),
+        )
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let json_data = res.json::<Value>().await?;
+
+    // The flag should be enabled because 2025-12-19 is after 2025-12-01
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "test-date-with-milliseconds": {
+                    "key": "test-date-with-milliseconds",
+                    "enabled": true
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+/// Tests that $initial_ properties are populated from overrides only when DB doesn't have them.
+///
+/// When a request sends `$browser: "Chrome"` as an override:
+/// - If DB has `$initial_browser: "Safari"`, that value should be preserved
+/// - If DB has no `$initial_browser`, it should be populated from the override's `$browser`
+#[rstest]
+#[case::db_has_initial_browser_preserves_it(
+    // DB has $initial_browser, override has $browser - DB value should win
+    Some(json!({"$initial_browser": "Safari", "$browser": "Firefox"})),
+    json!({"$browser": "Chrome"}),
+    true       // Flag checking $initial_browser = Safari should match
+)]
+#[case::db_missing_initial_browser_populates_from_override(
+    // DB has no $initial_browser, override has $browser - should populate from override
+    Some(json!({"$browser": "Firefox"})),
+    json!({"$browser": "Chrome"}),
+    false      // Flag checking $initial_browser = Safari should NOT match
+)]
+#[case::db_empty_populates_from_override(
+    // DB has nothing, override has $browser - should populate from override
+    None,
+    json!({"$browser": "Chrome"}),
+    false      // Flag checking $initial_browser = Safari should NOT match
+)]
+#[tokio::test]
+async fn test_initial_property_population_respects_db_values(
+    #[case] db_properties: Option<Value>,
+    #[case] override_properties: Value,
+    #[case] flag_should_match: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = format!("test_initial_props_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Insert person with specified DB properties
+    context
+        .insert_person(team.id, distinct_id.clone(), db_properties)
+        .await
+        .unwrap();
+
+    // Create a flag that checks $initial_browser = "Safari"
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "initial-browser-flag",
+            "name": "Flag checking initial browser",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$initial_browser",
+                                "value": "Safari",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send request with property overrides
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": override_properties
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {status}\nBody: {text}");
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // The flag checks $initial_browser = "Safari"
+    // - If DB had $initial_browser: "Safari", flag should match
+    // - If $initial_browser was populated from override's $browser: "Chrome", flag should NOT match
+    let expected_enabled = flag_should_match;
+    let expected_reason = if flag_should_match {
+        "condition_match"
+    } else {
+        "no_condition_match"
+    };
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "initial-browser-flag": {
+                    "key": "initial-browser-flag",
+                    "enabled": expected_enabled,
+                    "reason": {
+                        "code": expected_reason
+                    }
+                }
+            }
+        })
+    );
 
     Ok(())
 }

@@ -56,4 +56,7 @@ pub struct FeatureFlagEvaluationContext {
     pub hash_key_override: Option<String>,
     /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
     pub flag_keys: Option<Vec<String>>,
+    /// When true, skip hash key override lookups for flags that don't need them
+    /// (e.g., 100% rollout with no multivariate variants).
+    pub optimize_experience_continuity_lookups: bool,
 }

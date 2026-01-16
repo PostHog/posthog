@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+
+from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -14,10 +15,6 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 class TestHogFlowTemplateAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-
-        self.feature_flag_patcher = patch("posthog.api.hog_flow_template.posthoganalytics.feature_enabled")
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
-        self.mock_feature_enabled.return_value = True
 
         # Create slack template in DB
         sync_template_to_db(template_slack)
@@ -59,11 +56,6 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             category=["Testing"],
             free=True,
         )
-
-    def tearDown(self):
-        if hasattr(self, "feature_flag_patcher"):
-            self.feature_flag_patcher.stop()
-        super().tearDown()
 
     def _create_hog_flow_data(self, include_metadata=False, custom_inputs=None):
         """Helper to create hog flow data for template creation"""
@@ -438,6 +430,32 @@ class TestHogFlowTemplateAPI(APIBaseTest):
 
         assert HogFlowTemplate.objects.filter(id=template_id).exists()
 
+    def test_cannot_update_team_template_to_global_without_staff(self):
+        """Test that non-staff users cannot update a team template to global scope"""
+        self.user.is_staff = False
+        self.user.save()
+
+        hog_flow_data = self._create_hog_flow_data()
+        hog_flow_data["scope"] = "team"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+        assert response.status_code == 201
+        template_id = response.json()["id"]
+
+        template = HogFlowTemplate.objects.get(id=template_id)
+        assert template.scope == "team"
+
+        update_data = self._create_hog_flow_data()
+        update_data["scope"] = "global"
+        update_data["name"] = "Updated Name"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}", update_data)
+        assert response.status_code == 403
+        assert "you don't have edit permissions for global workflow templates" in response.json()["detail"].lower()
+
+        template.refresh_from_db()
+        assert template.scope == "team"
+        assert template.name != "Updated Name"  # Update should have failed completely
+
     def test_can_create_update_delete_global_template_with_staff(self):
         """Test that staff users can create, update, and delete global templates"""
         self.user.is_staff = True
@@ -460,3 +478,20 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert response.status_code == 204
 
         assert not HogFlowTemplate.objects.filter(id=template_id).exists()
+
+    def test_public_list_flow_templates(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        # Create at least 2 global templates
+        for _i in range(2):
+            hog_flow_data = self._create_hog_flow_data()
+            hog_flow_data["scope"] = "global"
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+            assert response.status_code == 201
+
+        self.client.logout()
+        response = self.client.get("/api/public_hog_flow_templates/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) > 1

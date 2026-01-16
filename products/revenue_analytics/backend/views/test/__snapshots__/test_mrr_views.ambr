@@ -50,7 +50,7 @@
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_item
-        WHERE and(equals(revenue_item.is_recurring, 1), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY revenue_item.source_label,
                  revenue_item.customer_id,
                  revenue_item.subscription_id, timestamp
@@ -91,7 +91,7 @@
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
                  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-              WHERE equals(events.team_id, 99999)
+              WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
               GROUP BY subscription_id,
                        person_id)
            ORDER BY started_at DESC) AS `revenue_analytics.events.purchase.subscription_events_revenue_view`
@@ -157,7 +157,7 @@
                   '' AS currency,
                   0 AS amount
            WHERE 0) AS revenue_item
-        WHERE and(equals(revenue_item.is_recurring, 1), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')))
+        WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')))
         GROUP BY revenue_item.source_label,
                  revenue_item.customer_id,
                  revenue_item.subscription_id, timestamp
@@ -292,7 +292,7 @@
                               if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.mrr_views.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
            WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_item
-        WHERE and(ifNull(equals(revenue_item.is_recurring, 1), 0), ifNull(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), 0), ifNull(lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')), 0))
+        WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), ifNull(greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC'), -60))), 0), ifNull(lessOrEquals(timestamp, toDateTime64('2025-05-31 00:00:00.000000', 6, 'UTC')), 0))
         GROUP BY revenue_item.source_label,
                  revenue_item.customer_id,
                  revenue_item.subscription_id, timestamp
@@ -387,7 +387,7 @@
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
            ORDER BY timestamp DESC) AS revenue_item
-        WHERE and(equals(revenue_item.is_recurring, 1), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+        WHERE and(revenue_item.is_recurring, isNotNull(revenue_item.subscription_id), greaterOrEquals(timestamp, toStartOfMonth(addDays(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), -60))), lessOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
         GROUP BY revenue_item.source_label,
                  revenue_item.customer_id,
                  revenue_item.subscription_id, timestamp
@@ -428,7 +428,7 @@
                  WHERE equals(person.team_id, 99999)
                  GROUP BY person.id
                  HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-              WHERE equals(events.team_id, 99999)
+              WHERE and(equals(events.team_id, 99999), and(1, isNotNull(subscription_id)))
               GROUP BY subscription_id,
                        person_id)
            ORDER BY started_at DESC) AS `revenue_analytics.events.purchase.subscription_events_revenue_view`

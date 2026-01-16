@@ -84,6 +84,15 @@ export const AddInsightToDashboardSchema = z.object({
     dashboardId: z.number().int().positive(),
 })
 
+// Input schema for reordering dashboard tiles
+export const ReorderDashboardTilesSchema = z.object({
+    dashboardId: z.number().int().positive().describe('The ID of the dashboard to reorder tiles on'),
+    tileOrder: z
+        .array(z.number().int().positive())
+        .min(1)
+        .describe('Array of tile IDs in the desired order from top to bottom'),
+})
+
 // Type exports
 export type PostHogDashboard = z.infer<typeof DashboardSchema>
 export type CreateDashboardInput = z.infer<typeof CreateDashboardInputSchema>
@@ -91,3 +100,4 @@ export type UpdateDashboardInput = z.infer<typeof UpdateDashboardInputSchema>
 export type ListDashboardsData = z.infer<typeof ListDashboardsSchema>
 export type AddInsightToDashboardInput = z.infer<typeof AddInsightToDashboardSchema>
 export type SimpleDashboard = z.infer<typeof SimpleDashboardSchema>
+export type ReorderDashboardTilesInput = z.infer<typeof ReorderDashboardTilesSchema>

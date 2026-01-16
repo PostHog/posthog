@@ -1,19 +1,26 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { Tick } from 'lib/Chart'
-import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import {
     AnnotationScope,
+    AnnotationType,
+    AnyPropertyFilter,
     DashboardType,
     DatedAnnotationType,
     InsightLogicProps,
     IntervalType,
+    PropertyGroupFilter,
     QueryBasedInsightModel,
 } from '~/types'
 
@@ -42,6 +49,31 @@ export function determineAnnotationsDateGroup(
     return adjustedDate.format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
+function hasPersonPropertyFiltersOrBreakdown(
+    properties: AnyPropertyFilter[] | PropertyGroupFilter | null | undefined,
+    breakdownFilter: BreakdownFilter | null | undefined
+): boolean {
+    // Check if there are person property filters
+    if (properties) {
+        const parsedProperties = parseProperties(properties)
+        if (parsedProperties.some((prop) => isPersonPropertyFilter(prop))) {
+            return true
+        }
+    }
+
+    // Check if breakdown is by person property
+    if (breakdownFilter) {
+        if (breakdownFilter.breakdown_type === 'person') {
+            return true
+        }
+        if (breakdownFilter.breakdowns?.some((breakdown) => breakdown.type === 'person')) {
+            return true
+        }
+    }
+
+    return false
+}
+
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
@@ -51,11 +83,13 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             insightLogic,
             ['insightId', 'savedInsight'],
             insightVizDataLogic,
-            ['interval'],
+            ['interval', 'properties', 'breakdownFilter'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
             teamLogic,
             ['timezone'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [annotationsModel, ['createAnnotationGenerically', 'updateAnnotation', 'deleteAnnotation']],
     })),
@@ -142,34 +176,89 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         relevantAnnotations: [
-            (s, p) => [s.annotations, s.dateRange, p.insightNumericId, p.dashboardId, s.savedInsight],
-            (annotations, dateRange, insightNumericId, dashboardId, savedInsight) => {
+            (s, p) => [
+                s.annotations,
+                s.dateRange,
+                s.timezone,
+                s.featureFlags,
+                p.insightNumericId,
+                p.dashboardId,
+                s.savedInsight,
+                s.properties,
+                s.breakdownFilter,
+            ],
+            (
+                annotations,
+                dateRange,
+                timezone,
+                featureFlags,
+                insightNumericId,
+                dashboardId,
+                savedInsight,
+                properties,
+                breakdownFilter
+            ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
 
-                return (
-                    dateRange
-                        ? annotations.filter(
-                              (annotation) =>
-                                  (annotation.scope !== AnnotationScope.Insight ||
-                                      annotation.dashboard_item === insightNumericId) &&
-                                  (annotation.scope !== AnnotationScope.Dashboard ||
-                                      annotation.dashboard_item === insightNumericId ||
-                                      (dashboardId
-                                          ? // on dashboard page, only show annotations if scoped to this dashboard
-                                            annotation.dashboard_id === dashboardId
-                                          : // on insight page, show annotation if insight is on any dashboard which this annotation is scoped to
-                                            savedInsight?.dashboard_tiles?.find(
-                                                ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
-                                            ))) &&
-                                  annotation.date_marker &&
-                                  annotation.date_marker >= dateRange[0] &&
-                                  annotation.date_marker < dateRange[1]
-                          )
-                        : []
-                ) as DatedAnnotationType[]
+                const filteredAnnotations = dateRange
+                    ? annotations.filter(
+                          (annotation: AnnotationType) =>
+                              (annotation.scope !== AnnotationScope.Insight ||
+                                  annotation.dashboard_item === insightNumericId) &&
+                              (annotation.scope !== AnnotationScope.Dashboard ||
+                                  annotation.dashboard_item === insightNumericId ||
+                                  (dashboardId
+                                      ? // on dashboard page, only show annotations if scoped to this dashboard
+                                        annotation.dashboard_id === dashboardId
+                                      : // on insight page, show annotation if insight is on any dashboard which this annotation is scoped to
+                                        savedInsight?.dashboard_tiles?.find(
+                                            ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
+                                        ))) &&
+                              annotation.date_marker &&
+                              annotation.date_marker >= dateRange[0] &&
+                              annotation.date_marker < dateRange[1]
+                      )
+                    : []
+
+                // Add special annotation for January 6th and 7th if person property filters or breakdown are present
+                // The incident period was Jan 6, 8:01pm UTC - Jan 7, 2:52pm UTC
+                if (
+                    dateRange &&
+                    hasPersonPropertyFiltersOrBreakdown(properties, breakdownFilter) &&
+                    featureFlags[FEATURE_FLAGS.PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026]
+                ) {
+                    const incidentDates = ['2026-01-06', '2026-01-07']
+                    const specialAnnotations: DatedAnnotationType[] = incidentDates
+                        .map((dateStr, index) => {
+                            const dateInTimezone = dayjsLocalToTimezone(dateStr, timezone).startOf('day')
+
+                            // Only include if date is within the date range
+                            if (dateInTimezone >= dateRange[0] && dateInTimezone < dateRange[1]) {
+                                return {
+                                    id: -(index + 1), // -1 for Jan 6, -2 for Jan 7
+                                    scope: AnnotationScope.Project,
+                                    content:
+                                        'Some person properties may have been set incorrectly on events between January 6, 20:01 UTC and January 7, 14:52 UTC. See https://status.posthog.com/ for more information.',
+                                    date_marker: dateInTimezone,
+                                    created_at: dayjs(),
+                                    updated_at: dayjs().toISOString(),
+                                    dashboard_item: null,
+                                    deleted: false,
+                                } as DatedAnnotationType
+                            }
+                            return null
+                        })
+                        .filter((annotation): annotation is DatedAnnotationType => annotation !== null)
+
+                    if (specialAnnotations.length > 0) {
+                        return [...filteredAnnotations, ...specialAnnotations] as DatedAnnotationType[]
+                    }
+                }
+
+                return filteredAnnotations as DatedAnnotationType[]
             },
         ],
         groupedAnnotations: [

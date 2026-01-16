@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import structlog
 from temporalio import workflow
-from temporalio.worker import Worker
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -24,7 +23,7 @@ from posthog.temporal.ai import (
     WORKFLOWS as AI_WORKFLOWS,
 )
 from posthog.temporal.common.logger import configure_logger, get_logger
-from posthog.temporal.common.worker import create_worker
+from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
@@ -93,6 +92,10 @@ from posthog.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
+from posthog.temporal.sync_person_distinct_ids import (
+    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+)
 from posthog.temporal.tests.utils.workflow import (
     ACTIVITIES as TEST_ACTIVITIES,
     WORKFLOWS as TEST_WORKFLOWS,
@@ -130,8 +133,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_TASK_QUEUE,
-        DATA_SYNC_WORKFLOWS,
-        DATA_SYNC_ACTIVITIES,
+        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -146,7 +149,8 @@ _task_queue_specs = [
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
-        + DLQ_REPLAY_WORKFLOWS,
+        + DLQ_REPLAY_WORKFLOWS
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -154,7 +158,8 @@ _task_queue_specs = [
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
-        + DLQ_REPLAY_ACTIVITIES,
+        + DLQ_REPLAY_ACTIVITIES
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -350,13 +355,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: ManagedWorker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
             logger.info("Signal %s received", sig)
 
-            if worker.is_shutdown:
+            if worker.is_shutdown():
                 logger.info("Temporal worker already shut down")
                 return
 

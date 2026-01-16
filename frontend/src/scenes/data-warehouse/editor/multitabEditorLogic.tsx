@@ -18,6 +18,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -145,6 +146,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
+                'materializeDataWarehouseSavedQuery',
                 'resetDataModelingJobs',
                 'loadDataModelingJobs',
                 'updateDataWarehouseSavedQuerySuccess',
@@ -767,12 +769,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find((q) => q.name === name)
 
                 if (materializeAfterSave && savedQuery) {
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        id: savedQuery.id,
-                        sync_frequency: '24hour',
-                        types: [[]],
-                        lifecycle: 'create',
-                    })
+                    await dataWarehouseViewsLogic.asyncActions.materializeDataWarehouseSavedQuery(savedQuery.id)
                 }
 
                 if (fromDraft) {
@@ -1122,6 +1119,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ]
                 }
                 return [first]
+            },
+        ],
+
+        selectedQueryTablesAndColumns: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): Record<string, Record<string, boolean>> => {
+                return parseQueryTablesAndColumns(queryInput)
             },
         ],
     }),

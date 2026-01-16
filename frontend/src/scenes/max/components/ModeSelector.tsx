@@ -139,7 +139,17 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 }
 
-function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean): LemonSelectSection<ModeValue>[] {
+interface GetModeOptionsParams {
+    deepResearchEnabled: boolean
+    webSearchEnabled: boolean
+    errorTrackingModeEnabled: boolean
+}
+
+function getModeOptions({
+    deepResearchEnabled,
+    webSearchEnabled,
+    errorTrackingModeEnabled,
+}: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
@@ -158,10 +168,17 @@ function getModeOptions(deepResearchEnabled: boolean, webSearchEnabled: boolean)
         })
     }
 
+    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([mode]) => {
+        if (mode === AgentMode.ErrorTracking && !errorTrackingModeEnabled) {
+            return false
+        }
+        return true
+    })
+
     return [
         { options: specialOptions },
         {
-            options: Object.entries(MODE_DEFINITIONS).map(([mode, def]) => ({
+            options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
                 label: def.name,
                 icon: def.icon,
@@ -176,12 +193,13 @@ export function ModeSelector(): JSX.Element {
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
     const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
+    const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
 
     const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
 
     const modeOptions = useMemo(
-        () => getModeOptions(deepResearchEnabled, webSearchEnabled),
-        [deepResearchEnabled, webSearchEnabled]
+        () => getModeOptions({ deepResearchEnabled, webSearchEnabled, errorTrackingModeEnabled }),
+        [deepResearchEnabled, webSearchEnabled, errorTrackingModeEnabled]
     )
 
     const handleChange = (value: ModeValue): void => {

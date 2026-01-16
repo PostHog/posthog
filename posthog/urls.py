@@ -18,6 +18,7 @@ from posthog.api import (
     authentication,
     decide,
     github,
+    hog_flow_template,
     hog_function_template,
     playwright_setup,
     remote_config,
@@ -175,6 +176,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path("api/sdk_doctor/", sdk_doctor),
+    path("api/conversations/", include("products.conversations.backend.api.urls")),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
@@ -200,6 +202,10 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
+    ),
+    opt_slash_path(
+        "api/public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

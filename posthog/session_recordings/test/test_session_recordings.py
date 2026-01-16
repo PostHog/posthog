@@ -379,6 +379,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 },
                 "recording_duration": ANY,
                 "snapshot_source": "web",
+                "snapshot_library": None,
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
                 "retention_period_days": 90,
@@ -387,6 +388,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewers": [],
                 "ongoing": True,
                 "activity_score": ANY,
+                "external_references": [],
             },
         ]
 
@@ -625,8 +627,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "retention_period_days": 30,
             "recording_ttl": 29,
             "snapshot_source": "web",
+            "snapshot_library": None,
             "ongoing": None,
             "activity_score": None,
+            "external_references": [],
         }
 
     def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):

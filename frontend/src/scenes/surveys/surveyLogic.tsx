@@ -906,16 +906,19 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
             },
             archiveSurvey: () => {
-                actions.updateSurvey({ archived: true })
-                actions.addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_ARCHIVED,
-                    metadata: {
-                        survey_id: values.survey.id,
-                    },
-                })
+                const updates: Partial<Survey> & { intentContext?: ProductIntentContext } = {
+                    archived: true,
+                    intentContext: ProductIntentContext.SURVEY_ARCHIVED,
+                }
+                if (values.isSurveyRunning) {
+                    updates.end_date = dayjs().toISOString()
+                }
+                actions.updateSurvey(updates)
             },
             loadSurveySuccess: () => {
+                // Initialize dataCollectionType from survey data (using selector pattern for consistency)
+                actions.setDataCollectionType(values.derivedDataCollectionType)
+
                 // Trigger stats loading after survey loads
                 if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
                     actions.loadSurveyBaseStats()
@@ -1355,6 +1358,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
             },
         ],
+        isSurveyResultsV2Enabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_RESULTS_V2]
+            },
+        ],
         isExternalSurveyFFEnabled: [
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
@@ -1419,6 +1428,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     survey.response_sampling_limit &&
                     survey.response_sampling_limit > 0
                 )
+            },
+        ],
+        derivedDataCollectionType: [
+            (s) => [s.surveyUsesAdaptiveLimit, s.surveyUsesLimit, s.isAdaptiveLimitFFEnabled],
+            (
+                surveyUsesAdaptiveLimit: boolean,
+                surveyUsesLimit: boolean,
+                isAdaptiveLimitFFEnabled: boolean
+            ): DataCollectionType => {
+                if (isAdaptiveLimitFFEnabled && surveyUsesAdaptiveLimit) {
+                    return 'until_adaptive_limit'
+                } else if (surveyUsesLimit) {
+                    return 'until_limit'
+                }
+                return 'until_stopped'
             },
         ],
         surveyShufflingQuestionsAvailable: [

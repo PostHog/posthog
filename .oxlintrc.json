@@ -10,16 +10,18 @@
         "build",
         "rust",
         "cli",
-        "plugin-server",
+        "nodejs",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
         "common/plugin_transpiler/dist",
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
+        "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
-        "services/mcp/python"
+        "services/mcp/python",
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",

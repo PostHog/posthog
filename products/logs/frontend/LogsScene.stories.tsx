@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -328,6 +327,7 @@ export default {
             get: {
                 '/api/environments/:team_id/logs/attributes': attributesMock,
                 '/api/environments/:team_id/logs/values': valuesMock,
+                '/api/environments/:team_id/logs/has_logs': (_, res, ctx) => res(ctx.json({ hasLogs: true })),
             },
             post: {
                 '/api/environments/:team_id/logs/query': queryMock,
@@ -340,9 +340,8 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-18',
-        featureFlags: [FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST],
         testOptions: {
-            waitForSelector: 'text=/Welcome to Logs!/i',
+            waitForSelector: 'text=/Logs is in beta/i',
         },
     }, // scene mode
 } as Meta

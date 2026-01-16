@@ -24,6 +24,7 @@ export interface LemonButtonPropsBase
         | 'tabIndex'
         | 'form'
         | 'onMouseDown'
+        | 'onMouseUp'
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'

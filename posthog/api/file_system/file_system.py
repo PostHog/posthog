@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
 
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
@@ -148,6 +149,7 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
+@extend_schema(tags=["core"])
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")

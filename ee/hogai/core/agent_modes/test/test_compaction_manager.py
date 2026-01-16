@@ -350,7 +350,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query_description": "test"},
                     )
                 ],
@@ -370,11 +370,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # When the window boundary is None (messages too large), we expect:
         # - Original messages preserved
         # - Summary message appended
+        # - Mode reminder appended
         # - Start message copied
         # - Window start should be the summary message
-        self.assertEqual(len(result.messages), 5)
+        self.assertEqual(len(result.messages), 6)
         self.assertEqual(result.messages[0].id, start_id)
-        self.assertEqual(result.messages[-2].id, summary_id)
+        self.assertEqual(result.messages[-3].id, summary_id)
         last_msg = result.messages[-1]
         assert isinstance(last_msg, HumanMessage)  # Type narrowing
         self.assertEqual(last_msg.content, "Initial question")
@@ -462,9 +463,12 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         # The copied start message should have a new ID returned
         self.assertEqual(result.updated_start_id, copied_start.id)
 
-        # Summary and copied start should be at the beginning of the window
+        # Summary, mode reminder, and copied start should be at the beginning of the window
         summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
-        self.assertEqual(result.messages[summary_idx + 1].id, copied_start.id, "Copied start should follow summary")
+        # Mode reminder is injected between summary and copied start
+        self.assertEqual(
+            result.messages[summary_idx + 2].id, copied_start.id, "Copied start should follow mode reminder"
+        )
 
     def test_tool_call_complete_sequence_in_window(self):
         """
@@ -482,7 +486,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "test"},
                     )
                 ],
@@ -524,7 +528,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-old",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "old"},
                     )
                 ],
@@ -545,7 +549,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-new",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "new"},
                     )
                 ],
@@ -589,7 +593,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-1",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "first"},
                     )
                 ],
@@ -600,7 +604,7 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_calls=[
                     AssistantToolCall(
                         id="tool-2",
-                        name="create_and_query_insight",
+                        name="create_insight",
                         args={"query": "second"},
                     )
                 ],
@@ -700,9 +704,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
         )
 
-        # When there's no window boundary, the summary and copied start message are appended
-        self.assertEqual(len(result.messages), 4)  # original 2 + summary + copied start
-        self.assertEqual(result.messages[-2].id, summary_id)
+        # When there's no window boundary, the summary, mode reminder, and copied start message are appended
+        self.assertEqual(len(result.messages), 5)  # original 2 + summary + mode reminder + copied start
+        self.assertEqual(result.messages[-3].id, summary_id)
         self.assertEqual(result.updated_window_start_id, summary_id)
         # Updated start ID should be the copied message
         self.assertNotEqual(result.updated_start_id, start_id)
@@ -744,7 +748,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify full message list structure: original messages + summary + mode reminder + copied start
@@ -782,7 +785,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SQL,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Find where summary and mode reminder were inserted
@@ -826,7 +828,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.SESSION_REPLAY,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify structure: summary at start, then mode reminder, then copied start, then window messages
@@ -858,40 +859,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
         self.assertIsInstance(result.messages[copied_start_idx], HumanMessage)
         self.assertNotEqual(copied_start.id, start_id)
 
-    def test_no_mode_message_injection_when_feature_flag_disabled(self):
-        """Test that mode reminder is not injected when feature flag is disabled"""
-        start_id = str(uuid4())
-        summary_id = str(uuid4())
-
-        messages: list[AssistantMessageUnion] = [
-            HumanMessage(content="Question", id=start_id),
-            AssistantMessage(content="Response"),
-        ]
-
-        summary_message = ContextMessage(content="Summary", id=summary_id)
-
-        result = self.window_manager.update_window(
-            messages,
-            summary_message,
-            AgentMode.PRODUCT_ANALYTICS,
-            start_id=start_id,
-            is_modes_feature_flag_enabled=False,
-        )
-
-        # Should only have summary, not mode reminder
-        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
-        self.assertEqual(len(context_messages), 1, "Should only have summary context message")
-        summary_ctx_msg = context_messages[0]
-        self.assertEqual(summary_ctx_msg.id, summary_id)
-        assert isinstance(summary_ctx_msg, ContextMessage)
-        self.assertIn("Summary", summary_ctx_msg.content)
-        # Verify no mode reminder
-        mode_reminder = next(
-            (msg for msg in result.messages if isinstance(msg, ContextMessage) and "product_analytics" in msg.content),
-            None,
-        )
-        self.assertIsNone(mode_reminder, "Mode reminder should not be present when feature flag is disabled")
-
     def test_no_mode_message_injection_when_mode_evident_in_window(self):
         """Test that mode reminder is not injected when mode is already evident from switch_mode tool call"""
 
@@ -920,7 +887,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Verify only summary context message exists (no mode reminder)
@@ -961,7 +927,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             summary_message,
             AgentMode.PRODUCT_ANALYTICS,
             start_id=start_id,
-            is_modes_feature_flag_enabled=True,
         )
 
         # Should have initial mode message and summary, but no mode reminder
@@ -1014,7 +979,6 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 summary_message,
                 mode,
                 start_id=start_id,
-                is_modes_feature_flag_enabled=True,
             )
 
             # Verify two context messages: summary and mode reminder
@@ -1032,3 +996,532 @@ class TestAnthropicConversationCompactionManager(BaseTest):
             assert isinstance(mode_reminder, ContextMessage)
             self.assertIn(mode.value, mode_reminder.content, f"Mode reminder should contain {mode.value}")
             self.assertNotEqual(mode_reminder.id, summary_id, "Mode reminder should have different ID from summary")
+
+    def test_mode_message_injected_when_old_messages_have_mode_indicator_but_new_window_doesnt(self):
+        """
+        Test edge case: when no window boundary is found and old messages (outside window) contain
+        mode indicators (like switch_mode tool call), the mode reminder should still be injected
+        in the NEW window because the new window doesn't have the mode indicator.
+        """
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        # Old messages contain a switch_mode tool call (which will be outside the new window)
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Switching mode",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="switch-1",
+                        name=AssistantTool.SWITCH_MODE,
+                        args={"mode": "product_analytics"},
+                    )
+                ],
+            ),
+            AssistantMessage(content="x" * 10000),  # Large message to force no boundary
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages,
+            summary_message,
+            AgentMode.PRODUCT_ANALYTICS,
+            start_id=start_id,
+        )
+
+        # The result should have: original messages + summary + mode reminder + copied start
+        # Even though old messages have switch_mode, the NEW window (summary + copied start) doesn't
+        self.assertEqual(len(result.messages), 6)
+
+        # When we filter to get messages in the new window, we should have mode reminder
+        window_messages = self.window_manager.get_messages_in_window(
+            result.messages, window_start_id=result.updated_window_start_id
+        )
+
+        # Window should contain: summary + mode reminder + copied start
+        self.assertEqual(len(window_messages), 3)
+        self.assertEqual(window_messages[0].id, summary_id)
+        self.assertIsInstance(window_messages[1], ContextMessage)
+        assert isinstance(window_messages[1], ContextMessage)
+        self.assertIn("product_analytics", window_messages[1].content)
+        self.assertIsInstance(window_messages[2], HumanMessage)
+
+        # Verify the mode reminder is NOT the switch_mode tool call
+        has_switch_mode_in_window = any(
+            isinstance(msg, AssistantMessage)
+            and msg.tool_calls
+            and any(tc.name == AssistantTool.SWITCH_MODE for tc in msg.tool_calls)
+            for msg in window_messages
+        )
+        self.assertFalse(has_switch_mode_in_window, "New window should not contain old switch_mode tool call")
+
+    def test_todo_reminder_not_injected_when_no_todo_in_conversation(self):
+        """Test that todo reminder is not injected when no TODO_WRITE tool calls exist"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should only have summary and mode reminder, no todo reminder
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        human_messages = [msg for msg in result.messages if isinstance(msg, HumanMessage)]
+
+        # Should have 2 context messages: summary + mode reminder
+        self.assertEqual(len(context_messages), 2)
+        # Should only have 1 human message (the original)
+        self.assertEqual(len(human_messages), 1)
+        self.assertEqual(human_messages[0].id, start_id)
+
+    def test_todo_reminder_not_injected_when_todo_in_window(self):
+        """Test that todo reminder is not injected when TODO_WRITE is within the window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+        todo_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Creating todos",
+                id=todo_id,
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={
+                            "todos": [
+                                {"content": "Task 1", "status": "pending", "id": "1"},
+                                {"content": "Task 2", "status": "in_progress", "id": "2"},
+                            ]
+                        },
+                    )
+                ],
+            ),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have the original todo message, no todo reminder
+        todo_messages = [
+            msg
+            for msg in result.messages
+            if isinstance(msg, AssistantMessage)
+            and msg.tool_calls
+            and any(tc.name == AssistantTool.TODO_WRITE for tc in msg.tool_calls)
+        ]
+        self.assertEqual(len(todo_messages), 1)
+        self.assertEqual(todo_messages[0].id, todo_id)
+
+        # Should not have a HumanMessage with "todo list" in content
+        human_messages_with_todo = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(human_messages_with_todo), 0)
+
+    def test_todo_reminder_injected_when_todo_outside_window_no_boundary(self):
+        """Test todo reminder injection when no window boundary and todo is outside"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Creating todos",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={
+                            "todos": [
+                                {"content": "Find events", "status": "pending", "id": "1"},
+                                {"content": "Create plan", "status": "in_progress", "id": "2"},
+                            ]
+                        },
+                    )
+                ],
+            ),
+            AssistantMessage(content="x" * 10000),  # Large message to force no boundary
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have a HumanMessage with todo reminder
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+        todo_reminder = todo_reminders[0]
+        self.assertIn("Find events", todo_reminder.content)
+        self.assertIn("Create plan", todo_reminder.content)
+        self.assertIn("system_reminder", todo_reminder.content)
+
+        # Verify order: summary → todo reminder → mode reminder → copied start
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        todo_idx = next(i for i, msg in enumerate(result.messages) if msg.id == todo_reminder.id)
+        mode_idx = next(
+            i
+            for i, msg in enumerate(result.messages)
+            if isinstance(msg, ContextMessage) and "product_analytics" in msg.content
+        )
+
+        self.assertEqual(todo_idx, summary_idx + 1, "Todo reminder should be right after summary")
+        self.assertEqual(mode_idx, todo_idx + 1, "Mode reminder should be right after todo reminder")
+
+    def test_todo_reminder_injected_when_todo_outside_window_start_in_window(self):
+        """Test todo reminder injection when start is in window but todo is not"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Old question 1", id=str(uuid4())),
+            AssistantMessage(
+                content="Creating todos",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Analyze data", "status": "pending", "id": "1"}]},
+                    )
+                ],
+            ),
+            HumanMessage(content="Old question 2", id=str(uuid4())),
+            AssistantMessage(content="Old response 2"),
+        ]
+
+        # Add many messages to push todo out of window but keep start in window
+        for i in range(10):
+            messages.append(HumanMessage(content=f"Question {i}", id=str(uuid4())))
+            messages.append(AssistantMessage(content=f"Response {i}"))
+
+        messages.append(HumanMessage(content="Recent question", id=start_id))
+        messages.append(AssistantMessage(content="Recent response"))
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have a HumanMessage with todo reminder
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+        self.assertIn("Analyze data", todo_reminders[0].content)
+
+        # Verify order
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        todo_idx = next(i for i, msg in enumerate(result.messages) if msg.id == todo_reminders[0].id)
+        start_idx = next(i for i, msg in enumerate(result.messages) if msg.id == start_id)
+
+        self.assertLess(summary_idx, todo_idx, "Summary before todo")
+        self.assertLess(todo_idx, start_idx, "Todo before start")
+
+    def test_todo_reminder_injected_when_todo_outside_window_start_outside_window(self):
+        """Test todo reminder injection when both start and todo are outside window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Initial question", id=start_id),
+            AssistantMessage(
+                content="Creating todos",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Build feature", "status": "in_progress", "id": "1"}]},
+                    )
+                ],
+            ),
+        ]
+
+        # Add many messages to push start and todo out of window
+        for i in range(20):
+            messages.append(HumanMessage(content=f"Question {i}", id=str(uuid4())))
+            messages.append(AssistantMessage(content=f"Response {i}" * 50))
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have todo reminder
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+        self.assertIn("Build feature", todo_reminders[0].content)
+
+    def test_todo_reminder_formats_todos_correctly(self):
+        """Test that todo reminder formats different statuses correctly"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Creating todos",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={
+                            "todos": [
+                                {"content": "Pending task", "status": "pending", "id": "1"},
+                                {"content": "In progress task", "status": "in_progress", "id": "2"},
+                                {"content": "Completed task", "status": "completed", "id": "3"},
+                            ]
+                        },
+                    )
+                ],
+            ),
+            AssistantMessage(content="x" * 10000),  # Force no boundary
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+        content = todo_reminders[0].content
+
+        # Check status indicators
+        self.assertIn("○ [pending] Pending task", content)
+        self.assertIn("→ [in_progress] In progress task", content)
+        self.assertIn("✓ [completed] Completed task", content)
+
+    def test_todo_reminder_uses_last_todo_when_multiple_exist(self):
+        """Test that only the last TODO_WRITE is used when multiple exist"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="First todo",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Old task", "status": "pending", "id": "1"}]},
+                    )
+                ],
+            ),
+            AssistantMessage(
+                content="Second todo",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-2",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "New task", "status": "pending", "id": "2"}]},
+                    )
+                ],
+            ),
+            AssistantMessage(content="x" * 10000),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+
+        # Should have the new task, not the old one
+        self.assertIn("New task", todo_reminders[0].content)
+        self.assertNotIn("Old task", todo_reminders[0].content)
+
+    def test_todo_reminder_handles_empty_todos_list(self):
+        """Test that empty todos list shows appropriate message"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Empty todo",
+                tool_calls=[AssistantToolCall(id="todo-1", name=AssistantTool.TODO_WRITE, args={"todos": []})],
+            ),
+            AssistantMessage(content="x" * 10000),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 1)
+        self.assertIn("empty", todo_reminders[0].content.lower())
+
+    def test_todo_and_mode_reminder_both_injected(self):
+        """Test that both todo and mode reminders are injected in correct order"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Todo",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Task", "status": "pending", "id": "1"}]},
+                    )
+                ],
+            ),
+            AssistantMessage(content="x" * 10000),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Find all three: summary, todo reminder, mode reminder
+        summary_idx = next(i for i, msg in enumerate(result.messages) if msg.id == summary_id)
+        todo_idx = next(
+            i
+            for i, msg in enumerate(result.messages)
+            if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        )
+        mode_idx = next(
+            i
+            for i, msg in enumerate(result.messages)
+            if isinstance(msg, ContextMessage) and msg.id != summary_id and "product_analytics" in msg.content
+        )
+
+        # Verify order: summary → todo → mode
+        self.assertLess(summary_idx, todo_idx)
+        self.assertLess(todo_idx, mode_idx)
+
+    def test_todo_reminder_only_no_mode_reminder(self):
+        """Test that only todo reminder is inserted when mode is evident"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Question", id=start_id),
+            AssistantMessage(
+                content="Todo",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Task", "status": "pending", "id": "1"}]},
+                    )
+                ],
+            ),
+        ]
+
+        # Add many messages to push todo out, but keep switch_mode in window
+        for i in range(15):
+            messages.append(HumanMessage(content=f"Question {i}", id=str(uuid4())))
+            messages.append(AssistantMessage(content=f"Response {i}"))
+
+        # Add switch_mode near the end (will be in window)
+        messages.append(
+            AssistantMessage(
+                content="Switch mode",
+                tool_calls=[
+                    AssistantToolCall(id="switch-1", name=AssistantTool.SWITCH_MODE, args={"mode": "product_analytics"})
+                ],
+            )
+        )
+        messages.append(AssistantMessage(content="Response"))
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have todo reminder
+        todo_reminders = [
+            msg for msg in result.messages if isinstance(msg, HumanMessage) and "todo list" in msg.content.lower()
+        ]
+        self.assertGreater(len(todo_reminders), 0)
+
+        # Should NOT have mode reminder (only summary context message)
+        context_messages = [msg for msg in result.messages if isinstance(msg, ContextMessage)]
+        mode_reminders = [msg for msg in context_messages if msg.id != summary_id]
+        self.assertEqual(len(mode_reminders), 0)
+
+    def test_mode_reminder_only_no_todo_reminder(self):
+        """Test that only mode reminder is inserted when todo is in window"""
+        start_id = str(uuid4())
+        summary_id = str(uuid4())
+
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Old question", id=str(uuid4())),
+            AssistantMessage(content="Old response"),
+            HumanMessage(content="Recent question", id=start_id),
+            AssistantMessage(
+                content="Todo",
+                tool_calls=[
+                    AssistantToolCall(
+                        id="todo-1",
+                        name=AssistantTool.TODO_WRITE,
+                        args={"todos": [{"content": "Task", "status": "pending", "id": "1"}]},
+                    )
+                ],
+            ),
+            AssistantMessage(content="Response"),
+        ]
+
+        summary_message = ContextMessage(content="Summary", id=summary_id)
+
+        result = self.window_manager.update_window(
+            messages, summary_message, AgentMode.PRODUCT_ANALYTICS, start_id=start_id
+        )
+
+        # Should have mode reminder
+        mode_reminders = [
+            msg
+            for msg in result.messages
+            if isinstance(msg, ContextMessage) and msg.id != summary_id and "product_analytics" in msg.content
+        ]
+        self.assertEqual(len(mode_reminders), 1)
+
+        # Should NOT have todo reminder (todo is in window)
+        todo_reminders = [
+            msg
+            for msg in result.messages
+            if isinstance(msg, HumanMessage) and msg.id != start_id and "todo list" in msg.content.lower()
+        ]
+        self.assertEqual(len(todo_reminders), 0)

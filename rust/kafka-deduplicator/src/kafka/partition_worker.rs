@@ -14,20 +14,30 @@ use tracing::{debug, error, info, warn};
 
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
 use crate::kafka::batch_message::KafkaMessage;
+use crate::kafka::offset_tracker::OffsetTracker;
 use crate::kafka::types::Partition;
 
 /// A batch of messages for a single partition
 pub struct PartitionBatch<T> {
     pub partition: Partition,
     pub messages: Vec<KafkaMessage<T>>,
+    /// Sequential batch ID for ordering verification
+    pub batch_id: u64,
 }
 
 impl<T> PartitionBatch<T> {
-    pub fn new(partition: Partition, messages: Vec<KafkaMessage<T>>) -> Self {
+    pub fn new(partition: Partition, messages: Vec<KafkaMessage<T>>, batch_id: u64) -> Self {
         Self {
             partition,
             messages,
+            batch_id,
         }
+    }
+
+    /// Compute the maximum offset from the messages in this batch
+    /// Returns None if the batch is empty
+    pub fn max_offset(&self) -> Option<i64> {
+        self.messages.iter().map(|m| m.get_offset()).max()
     }
 }
 
@@ -55,7 +65,12 @@ pub struct PartitionWorker<T: Send + 'static> {
 
 impl<T: Send + 'static> PartitionWorker<T> {
     /// Create a new partition worker
-    pub fn new<P>(partition: Partition, processor: Arc<P>, config: &PartitionWorkerConfig) -> Self
+    pub fn new<P>(
+        partition: Partition,
+        processor: Arc<P>,
+        offset_tracker: Arc<OffsetTracker>,
+        config: &PartitionWorkerConfig,
+    ) -> Self
     where
         P: BatchConsumerProcessor<T> + 'static,
     {
@@ -63,7 +78,7 @@ impl<T: Send + 'static> PartitionWorker<T> {
         let partition_clone = partition.clone();
 
         let handle = tokio::spawn(async move {
-            Self::run_worker(partition_clone, receiver, processor).await;
+            Self::run_worker(partition_clone, receiver, processor, offset_tracker).await;
         });
 
         Self {
@@ -146,6 +161,7 @@ impl<T: Send + 'static> PartitionWorker<T> {
         partition: Partition,
         mut receiver: mpsc::Receiver<PartitionBatch<T>>,
         processor: Arc<P>,
+        offset_tracker: Arc<OffsetTracker>,
     ) where
         P: BatchConsumerProcessor<T> + 'static,
     {
@@ -159,27 +175,58 @@ impl<T: Send + 'static> PartitionWorker<T> {
             let message_count = batch.messages.len();
             let first_offset = batch.messages.first().map(|m| m.get_offset());
             let last_offset = batch.messages.last().map(|m| m.get_offset());
+            let batch_id = batch.batch_id;
+
             debug!(
                 topic = partition.topic(),
                 partition = partition.partition_number(),
                 message_count = message_count,
+                batch_id = batch_id,
                 first_offset = ?first_offset,
                 last_offset = ?last_offset,
                 "Processing batch"
             );
 
-            if let Err(e) = processor.process_batch(batch.messages).await {
-                error!(
-                    topic = partition.topic(),
-                    partition = partition.partition_number(),
-                    message_count = message_count,
-                    first_offset = ?first_offset,
-                    last_offset = ?last_offset,
-                    error = %e,
-                    error_chain = ?e,
-                    "Error processing batch"
-                );
-                // Continue processing - don't crash the worker on errors
+            // Compute max_offset before consuming messages (process_batch takes ownership)
+            let max_offset = batch.max_offset();
+
+            match processor.process_batch(batch.messages).await {
+                Ok(()) => {
+                    // Mark batch as processed - the next offset to consume is max_offset + 1
+                    // Only mark if we had messages (max_offset is Some)
+                    if let Some(max_offset) = max_offset {
+                        offset_tracker.mark_processed(&partition, batch_id, max_offset + 1);
+                        debug!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            batch_id = batch_id,
+                            committed_offset = max_offset + 1,
+                            "Batch processed successfully"
+                        );
+                    } else {
+                        debug!(
+                            topic = partition.topic(),
+                            partition = partition.partition_number(),
+                            batch_id = batch_id,
+                            "Empty batch processed - no offset to commit"
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        topic = partition.topic(),
+                        partition = partition.partition_number(),
+                        message_count = message_count,
+                        batch_id = batch_id,
+                        first_offset = ?first_offset,
+                        last_offset = ?last_offset,
+                        error = %e,
+                        error_chain = ?e,
+                        "Error processing batch - offset not advanced"
+                    );
+                    // Don't mark as processed on error - offset won't advance
+                    // Continue processing next batches
+                }
             }
         }
 
@@ -292,14 +339,20 @@ mod tests {
     async fn test_partition_worker_basic() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(0));
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,
         };
 
-        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+        let worker = PartitionWorker::new(
+            partition.clone(),
+            processor.clone(),
+            offset_tracker,
+            &config,
+        );
 
         // Send a batch
-        let batch = PartitionBatch::new(partition.clone(), vec![]);
+        let batch = PartitionBatch::new(partition.clone(), vec![], 1);
         worker.send(batch).await.unwrap();
 
         // Give time for processing
@@ -313,15 +366,21 @@ mod tests {
     async fn test_partition_worker_backpressure() {
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TestProcessor::new(100)); // 100ms delay
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionWorkerConfig {
             channel_buffer_size: 2, // Small buffer
         };
 
-        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+        let worker = PartitionWorker::new(
+            partition.clone(),
+            processor.clone(),
+            offset_tracker,
+            &config,
+        );
 
         // Fill the channel
-        for _ in 0..2 {
-            let batch = PartitionBatch::new(partition.clone(), vec![]);
+        for i in 0..2 {
+            let batch = PartitionBatch::new(partition.clone(), vec![], (i + 1) as u64);
             worker.send(batch).await.unwrap();
         }
 
@@ -337,11 +396,17 @@ mod tests {
         // Verify that the worker continues processing after processor errors
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(FailingProcessor::new(3)); // Fail first 3 batches
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
         };
 
-        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+        let worker = PartitionWorker::new(
+            partition.clone(),
+            processor.clone(),
+            offset_tracker,
+            &config,
+        );
 
         // Send 5 batches - first 3 will fail, last 2 should succeed
         for i in 0..5 {
@@ -350,7 +415,7 @@ mod tests {
                 i,
                 format!("msg{i}"),
             )];
-            let batch = PartitionBatch::new(partition.clone(), messages);
+            let batch = PartitionBatch::new(partition.clone(), messages, (i + 1) as u64);
             worker.send(batch).await.unwrap();
         }
 
@@ -368,7 +433,7 @@ mod tests {
             5,
             "msg5".to_string(),
         )];
-        let batch = PartitionBatch::new(partition.clone(), messages);
+        let batch = PartitionBatch::new(partition.clone(), messages, 6);
         worker.send(batch).await.unwrap();
 
         sleep(Duration::from_millis(10)).await;
@@ -382,11 +447,17 @@ mod tests {
         // Verify that all queued messages are processed before shutdown completes
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(20)); // 20ms delay per batch
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionWorkerConfig {
             channel_buffer_size: 10,
         };
 
-        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+        let worker = PartitionWorker::new(
+            partition.clone(),
+            processor.clone(),
+            offset_tracker,
+            &config,
+        );
 
         // Queue up 5 batches with messages
         for i in 0..5 {
@@ -398,7 +469,7 @@ mod tests {
                     format!("msg{}", i * 2 + 1),
                 ),
             ];
-            let batch = PartitionBatch::new(partition.clone(), messages);
+            let batch = PartitionBatch::new(partition.clone(), messages, (i + 1) as u64);
             worker.send(batch).await.unwrap();
         }
 
@@ -423,11 +494,17 @@ mod tests {
         // Verify that the worker task exits when all senders are dropped
         let partition = Partition::new("test-topic".to_string(), 0);
         let processor = Arc::new(TrackingProcessor::new(0));
+        let offset_tracker = Arc::new(OffsetTracker::new());
         let config = PartitionWorkerConfig {
             channel_buffer_size: 5,
         };
 
-        let worker = PartitionWorker::new(partition.clone(), processor.clone(), &config);
+        let worker = PartitionWorker::new(
+            partition.clone(),
+            processor.clone(),
+            offset_tracker,
+            &config,
+        );
 
         // Send a message then drop the worker (which drops its sender)
         let messages = vec![KafkaMessage::new_for_test(
@@ -435,7 +512,7 @@ mod tests {
             0,
             "msg0".to_string(),
         )];
-        let batch = PartitionBatch::new(partition.clone(), messages);
+        let batch = PartitionBatch::new(partition.clone(), messages, 1);
         worker.send(batch).await.unwrap();
 
         // Drop worker - this drops the sender but doesn't wait for task

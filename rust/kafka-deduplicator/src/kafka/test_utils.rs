@@ -40,7 +40,10 @@ impl RebalanceHandler for TestRebalanceHandler {
         }
     }
 
-    async fn cleanup_assigned_partitions(&self, _partitions: &TopicPartitionList) -> Result<()> {
+    async fn async_setup_assigned_partitions(
+        &self,
+        _partitions: &TopicPartitionList,
+    ) -> Result<()> {
         Ok(())
     }
 

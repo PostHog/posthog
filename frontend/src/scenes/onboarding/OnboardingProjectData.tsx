@@ -8,15 +8,15 @@ import { TeamBusinessModel, TeamDisplayName, TeamTimezone } from 'scenes/setting
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
-import { onboardingLogic } from './onboardingLogic'
+import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 
-export const OnboardingProjectData = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
+export const OnboardingProjectData: OnboardingStepComponentType = () => {
     const { completeOnboarding } = useActions(onboardingLogic)
 
     return (
         <OnboardingStep
             title="Tell us more about your project"
-            stepKey={stepKey}
+            stepKey={OnboardingStepKey.TELL_US_MORE}
             showSkip
             continueText="Finish"
             onContinue={completeOnboarding}
@@ -58,3 +58,5 @@ export const OnboardingProjectData = ({ stepKey }: { stepKey: OnboardingStepKey 
         </OnboardingStep>
     )
 }
+
+OnboardingProjectData.stepKey = OnboardingStepKey.TELL_US_MORE

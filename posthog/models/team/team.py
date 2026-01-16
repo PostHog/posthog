@@ -126,6 +126,16 @@ class TeamManager(models.Manager):
 
         team.test_account_filters = self.set_test_account_filters(organization.id)
 
+        # Self-hosted deployments get 5-year session recording retention by default
+        if not is_cloud():
+            team.session_recording_retention_period = kwargs.get(
+                "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS
+            )
+
+        if team.extra_settings is None:
+            team.extra_settings = {}
+        team.extra_settings.setdefault("recorder_script", "posthog-recorder")
+
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
         create_dashboard_from_template("DEFAULT_APP", dashboard)
@@ -378,6 +388,11 @@ class Team(UUIDTClassicModel):
         choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
+    session_recording_encryption = models.BooleanField(null=True, blank=True, default=False)
+
+    # Conversations
+    conversations_enabled = models.BooleanField(null=True, blank=True)
+    conversations_settings = models.JSONField(null=True, blank=True)
 
     # Surveys
     survey_config = field_access_control(models.JSONField(null=True, blank=True), "survey", "editor")
@@ -395,6 +410,11 @@ class Team(UUIDTClassicModel):
     autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
+
+    # Capture logs
+    # Kind of confusing but this is separate from capture_console_log_opt_in, which is for session replay
+    # This captures console logs to the Logs product, not as part of a recording
+    logs_settings = models.JSONField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
@@ -667,7 +687,7 @@ class Team(UUIDTClassicModel):
             {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
-    @lru_cache(maxsize=5)
+    @lru_cache(maxsize=5)  # noqa: B019 - TODO: refactor to module-level cache
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
         from posthog.clickhouse.client import sync_execute
 
@@ -776,6 +796,39 @@ class Team(UUIDTClassicModel):
                         field="secret_api_token",
                         before=before,
                         after=after,
+                    )
+                ],
+            ),
+        )
+
+    def generate_conversations_public_token_and_save(self, *, user: "User", is_impersonated_session: bool):
+        """Generate or regenerate the conversations public token for widget authentication."""
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
+        settings = self.conversations_settings or {}
+        old_token = settings.get("widget_public_token")
+        new_token = generate_random_token_project()
+        settings["widget_public_token"] = new_token
+        self.conversations_settings = settings
+        self.save()
+
+        log_activity(
+            organization_id=self.organization_id,
+            team_id=self.pk,
+            user=cast("User", user),
+            was_impersonated=is_impersonated_session,
+            scope="Team",
+            item_id=self.pk,
+            activity="updated",
+            detail=Detail(
+                name=str(self.name),
+                changes=[
+                    Change(
+                        type="Team",
+                        action="created" if old_token is None else "changed",
+                        field="conversations_settings.widget_public_token",
+                        before=mask_key_value(old_token) if old_token else None,
+                        after=mask_key_value(new_token),
                     )
                 ],
             ),

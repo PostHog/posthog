@@ -46,6 +46,7 @@ import {
     Breadcrumb,
     CohortType,
     EarlyAccessFeatureType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagStatusResponse,
@@ -86,6 +87,12 @@ export type VariantError = {
     key: string | undefined
 }
 
+export interface DependentFlag {
+    id: number
+    key: string
+    name: string
+}
+
 export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
@@ -115,6 +122,7 @@ export const NEW_FLAG: FeatureFlagType = {
     version: 0,
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
+    bucketing_identifier: null,
     evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
@@ -132,6 +140,8 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
         },
     ],
 }
+
+const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
 
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
@@ -355,6 +365,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
+            bucketingIdentifier,
+        }),
+        showDependentFlagsConfirmation: (payload: {
+            originalFlag: FeatureFlagType | null
+            updatedFlag: Partial<FeatureFlagType>
+            onConfirm: () => void
+            dependentFlags: DependentFlag[]
+            isBeingDisabled?: boolean
+        }) => payload,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -401,6 +421,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
                         : null
                 },
+                setFeatureFlag: (_, { featureFlag }) => {
+                    // Also set originalFeatureFlag when flag is set from cache (e.g., from list view)
+                    return featureFlag
+                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
+                        : null
+                },
             },
         ],
         featureFlag: [
@@ -440,6 +466,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                setBucketingIdentifier: (state, { bucketingIdentifier }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        bucketing_identifier: bucketingIdentifier,
                     }
                 },
                 resetEncryptedPayload: (state) => {
@@ -652,37 +688,48 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    sharedListeners(({ values }) => ({
+    sharedListeners(({ values, actions }) => ({
         checkDependentFlagsAndConfirm: async (payload: {
             originalFlag: FeatureFlagType | null
             updatedFlag: Partial<FeatureFlagType>
             onConfirm: () => void
         }) => {
             const { originalFlag, updatedFlag, onConfirm } = payload
+            const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
-            // Check if flag is being disabled and has active dependents
-            const isBeingDisabled = updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
-
-            let dependentFlagsWarning: string | undefined
+            let dependentFlagsForConfirmation: DependentFlag[] = []
             if (isBeingDisabled) {
-                try {
-                    const response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}/has_active_dependents/`,
-                        {}
-                    )
-                    if (response.has_active_dependents) {
-                        dependentFlagsWarning = response.warning
-                    }
-                } catch {
-                    lemonToast.error('Failed to check for dependent flags. Please try again.')
-                    return
+                // check whether or not this flag is depended on by other flags
+                // if it is, we're going to display a warning dialog
+                if (values.dependentFlagsLoading) {
+                    await Promise.race([
+                        new Promise<void>((resolve) => {
+                            const poll = (): unknown =>
+                                values.dependentFlagsLoading ? setTimeout(poll, 50) : resolve()
+                            poll()
+                        }),
+                        new Promise<void>((resolve) => setTimeout(resolve, FLAG_DEPENDENCY_TIMEOUT_MS)),
+                    ])
                 }
+                dependentFlagsForConfirmation = values.dependentFlags
             }
 
-            const extraMessages: string[] = []
-            if (dependentFlagsWarning) {
-                extraMessages.push(dependentFlagsWarning)
-            }
+            actions.showDependentFlagsConfirmation({
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                isBeingDisabled,
+                dependentFlags: dependentFlagsForConfirmation,
+            })
+        },
+        showDependentFlagsConfirmation: (payload: {
+            originalFlag: FeatureFlagType | null
+            updatedFlag: Partial<FeatureFlagType>
+            onConfirm: () => void
+            dependentFlags: DependentFlag[]
+            isBeingDisabled?: boolean
+        }) => {
+            const { originalFlag, updatedFlag, onConfirm, dependentFlags, isBeingDisabled = false } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             let customConfirmationMessage: string | undefined
@@ -690,16 +737,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 customConfirmationMessage = values.currentTeam?.feature_flag_confirmation_message
             }
 
-            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || extraMessages.length > 0
+            const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
                 updatedFlag as FeatureFlagType,
                 shouldDisplayConfirmation,
                 customConfirmationMessage,
-                extraMessages,
                 featureFlagConfirmationEnabled,
-                onConfirm
+                onConfirm,
+                dependentFlags,
+                isBeingDisabled
             )
 
             // If no confirmation was shown, proceed immediately
@@ -1110,8 +1158,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return null
             },
         },
+        dependentFlags: [
+            [] as DependentFlag[],
+            {
+                loadDependentFlags: async () => {
+                    const { currentProjectId } = values
+                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return await api.get(
+                            `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
+                        )
+                    }
+                    return []
+                },
+            },
+        ],
     })),
     listeners(({ actions, values, props, sharedListeners }) => ({
+        showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         generateUsageDashboard: async () => {
             if (props.id) {
                 await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
@@ -1138,6 +1201,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
+            actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
@@ -1215,6 +1279,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
+            actions.loadDependentFlags()
             // Experiment is now loaded inline during loadFeatureFlag, not here
         },
         copyFlagSuccess: ({ featureFlagCopy }) => {
@@ -1258,6 +1323,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
+                actions.setScheduleDateMarker(null)
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
                 actions.setRecurrenceInterval(null)
@@ -1599,6 +1665,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadFeatureFlagStatus()
+            actions.loadDependentFlags()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()

@@ -40,8 +40,8 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -279,6 +279,7 @@ async def _run(
         assert table is not None
         assert table.size_in_s3_mib is not None
         assert table.queryable_folder is not None
+        assert table.credential_id is None
 
         query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
         assert query_folder_pattern.match(table.queryable_folder)
@@ -327,10 +328,10 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
             DATA_WAREHOUSE_REDIS_HOST="localhost",
             DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
@@ -1926,9 +1927,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(
-            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
-        ), f"Expected partition {expected_partition} not found in S3 objects"
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
@@ -2548,7 +2549,9 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
         mock.patch("ee.api.billing.requests.get") as mock_billing_request,
         mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
     ):
-        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        with freeze_time("2023-01-01"):
+            source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+
         # A previous job that reached the billing limit
         await sync_to_async(ExternalDataJob.objects.create)(
             team=team,

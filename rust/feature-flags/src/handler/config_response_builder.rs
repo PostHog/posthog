@@ -1,7 +1,9 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, SessionRecordingField},
+        types::{
+            AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, LogsConfig, SessionRecordingField,
+        },
     },
     config::Config,
     site_apps::get_decide_site_apps,
@@ -118,6 +120,43 @@ async fn apply_config_fields(
         Some(vec![])
     };
 
+    // Handle conversations widget config (domains returned for SDK-side filtering)
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
+        let settings = team
+            .conversations_settings
+            .as_ref()
+            .map(|s| s.0.clone())
+            .unwrap_or_default();
+        let widget_enabled = settings
+            .get("widget_enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let greeting_text = settings
+            .get("widget_greeting_text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Hey, how can I help you today?");
+        let color = settings
+            .get("widget_color")
+            .and_then(|v| v.as_str())
+            .unwrap_or("#1d4aff");
+        let token = settings.get("widget_public_token").and_then(|v| v.as_str());
+        let domains: Vec<&str> = settings
+            .get("widget_domains")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|d| d.as_str()).collect())
+            .unwrap_or_default();
+        Some(serde_json::json!({
+            "enabled": true,
+            "widgetEnabled": widget_enabled,
+            "greetingText": greeting_text,
+            "color": color,
+            "token": token,
+            "domains": domains
+        }))
+    } else {
+        Some(serde_json::json!(false))
+    };
+
     // Handle error tracking configuration
     response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
         // Try to get suppression rules, but don't fail if database is unavailable
@@ -225,12 +264,27 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     ));
     response.config.is_authenticated = Some(false);
     response.config.capture_dead_clicks = team.capture_dead_clicks;
+
+    let logs_settings = team
+        .logs_settings
+        .as_ref()
+        .map(|s| s.0.clone())
+        .unwrap_or_default();
+
+    response.config.logs = Some(LogsConfig {
+        capture_console_logs: Some(
+            logs_settings
+                .get("capture_console_logs")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        ),
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::{ConfigResponse, FlagsResponse, SessionRecordingField},
+        api::types::{ConfigResponse, FlagsResponse, LogsConfig, SessionRecordingField},
         config::{Config, FlexBool, TeamIdCollection},
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
@@ -253,10 +307,13 @@ mod tests {
             autocapture_web_vitals_opt_in: None,
             capture_performance_opt_in: None,
             capture_console_log_opt_in: None,
+            logs_settings: None,
             session_recording_opt_in: false,
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
+            conversations_enabled: None,
+            conversations_settings: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
             session_recording_sample_rate: None,
@@ -793,6 +850,58 @@ mod tests {
         assert!(
             !serialized.contains("extra_settings"),
             "Response should not contain extra_settings field"
+        );
+    }
+
+    #[test]
+    fn test_logs_config_enabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.logs_settings = Some(Json(json!({"capture_console_logs": true})));
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(true),
+            })
+        );
+    }
+
+    #[test]
+    fn test_logs_config_disabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.logs_settings = Some(Json(json!({"capture_console_logs": false})));
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
+        );
+    }
+
+    #[test]
+    fn test_logs_config_default() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let team = create_base_team();
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(
+            response.config.logs,
+            Some(LogsConfig {
+                capture_console_logs: Some(false),
+            })
         );
     }
 }

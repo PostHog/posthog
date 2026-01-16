@@ -30,9 +30,6 @@ export type MetricsPanelProps = {
     onPrevious: () => void
 }
 
-const sortMetrics = (metrics: ExperimentMetric[], orderedUuids: string[]): ExperimentMetric[] =>
-    orderedUuids.map((uuid) => metrics.find((metric) => metric.uuid === uuid)).filter(Boolean) as ExperimentMetric[]
-
 const convertSharedMetricToExperimentMetric = ({ id, query, name }: SharedMetric): ExperimentMetric =>
     ({
         ...query,
@@ -55,14 +52,11 @@ export const MetricsPanel = ({
     // we need this value to calculate the recent activity on the metrics list
     const filterTestAccounts = experiment.exposure_criteria?.filterTestAccounts ?? false
 
-    const primaryMetrics = sortMetrics(
-        [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary],
-        experiment.primary_metrics_ordered_uuids || []
-    )
-    const secondaryMetrics = sortMetrics(
-        [...(experiment.metrics_secondary || []).filter(isExperimentMetric), ...sharedMetrics.secondary],
-        experiment.secondary_metrics_ordered_uuids || []
-    )
+    const primaryMetrics = [...(experiment.metrics || []).filter(isExperimentMetric), ...sharedMetrics.primary]
+    const secondaryMetrics = [
+        ...(experiment.metrics_secondary || []).filter(isExperimentMetric),
+        ...sharedMetrics.secondary,
+    ]
 
     return (
         <div>

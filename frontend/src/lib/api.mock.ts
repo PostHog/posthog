@@ -195,6 +195,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     marketing_analytics_config: {
         sources_map: {},
     },
+    core_events_config: {
+        core_events: [],
+    },
     customer_analytics_config: {
         activity_event: { kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' },
         signup_pageview_event: {},
@@ -207,6 +210,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
     require_evaluation_environment_tags: false,
+    logs_settings: {
+        capture_console_logs: false,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

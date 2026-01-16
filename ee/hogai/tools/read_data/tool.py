@@ -13,8 +13,8 @@ from posthog.hogql.database.database import Database
 from posthog.models import Dashboard, Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.artifacts.manager import ModelArtifactResult
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.artifacts.types import ModelArtifactResult
+from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
@@ -83,6 +83,13 @@ class ReadArtifacts(BaseModel):
     kind: Literal["artifacts"] = "artifacts"
 
 
+class ReadErrorTrackingIssue(BaseModel):
+    """Retrieves error tracking issue details including stack trace for analysis."""
+
+    kind: Literal["error_tracking_issue"] = "error_tracking_issue"
+    issue_id: str = Field(description="The UUID of the error tracking issue.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -90,6 +97,7 @@ ReadDataQuery = (
     | ReadDashboard
     | ReadBillingInfo
     | ReadArtifacts
+    | ReadErrorTrackingIssue
 )
 
 
@@ -137,7 +145,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        ReadDataKind = Union[ReadDataWarehouseSchema, ReadDataWarehouseTableSchema, ReadInsight, ReadDashboard, *kinds]  # type: ignore
+        base_kinds: tuple[type[BaseModel], ...] = (
+            ReadDataWarehouseSchema,
+            ReadDataWarehouseTableSchema,
+            ReadInsight,
+            ReadDashboard,
+            ReadErrorTrackingIssue,
+        )
+        ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
         ReadDataToolArgs = create_model(
             "ReadDataToolArgs",
@@ -187,14 +202,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
                 return await self._read_dashboard(schema.dashboard_id, schema.execute)
+            case ReadErrorTrackingIssue() as schema:
+                return await self._read_error_tracking_issue(schema.issue_id), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Fetch the artifact content along with its source
-        result = await self._context_manager.artifacts.aget_insight_with_source(
-            self._state.messages, artifact_or_insight_id
-        )
+        result = await self._context_manager.artifacts.aget_visualization(self._state.messages, artifact_or_insight_id)
 
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
@@ -209,6 +224,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             description=result.content.description,
             insight_id=artifact_or_insight_id,
             insight_model_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
+            insight_short_id=result.model.short_id if isinstance(result, ModelArtifactResult) else None,
         )
 
         # The agent wants to read the schema, just return it
@@ -235,15 +251,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
     async def _read_artifacts(self) -> tuple[str, None]:
-        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
+        conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifacts()
         formatted_artifacts = []
 
         for message in conversation_artifacts:
-            viz_content = unwrap_visualization_artifact_content(message)
-            if viz_content:
+            if viz_content := unwrap_visualization_artifact_content(message):
                 formatted_artifacts.append(
                     f"- id: {message.artifact_id}\n- name: {viz_content.name}\n- description: {viz_content.description}\n- query: {viz_content.query}"
                 )
+            elif notebook_content := unwrap_notebook_artifact_content(message):
+                # We don't need to show the content of the notebook, just the title
+                formatted_artifacts.append(f"- id: {message.artifact_id}\n- title: {notebook_content.title}")
         if len(formatted_artifacts) == 0:
             return "No artifacts available", None
         return "\n\n".join(formatted_artifacts), None
@@ -384,3 +402,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             text_result = await dashboard_ctx.format_schema()
 
         return text_result, None
+
+    async def _read_error_tracking_issue(self, issue_id: str) -> str:
+        from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+
+        context = ErrorTrackingIssueContext(
+            team=self._team,
+            issue_id=issue_id,
+        )
+        return await context.execute_and_format()

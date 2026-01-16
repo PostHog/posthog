@@ -8,7 +8,7 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::limiters::CaptureQuotaLimiter;
+use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -170,6 +170,7 @@ fn setup_ai_test_router() -> Router {
         liveness,
         sink,
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -185,6 +186,7 @@ fn setup_ai_test_router() -> Router {
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     )
 }
 
@@ -1622,6 +1624,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         liveness,
         sink,
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -1637,6 +1640,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)
@@ -2526,6 +2530,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         liveness,
         sink,
         redis,
+        None,
         quota_limiter,
         token_dropper,
         false,
@@ -2541,6 +2546,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)
@@ -2691,7 +2697,7 @@ async fn test_ai_endpoint_token_dropper_returns_success_with_empty_accepted_part
 // Quota Limiter Tests
 // ----------------------------------------------------------------------------
 
-use capture::limiters::is_llm_event;
+use capture::quota_limiters::is_llm_event;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
@@ -2725,6 +2731,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         liveness,
         sink,
         redis,
+        None,
         quota_limiter,
         TokenDropper::default(),
         false,
@@ -2740,6 +2747,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),                         // request_timeout_seconds
         None,                             // body_chunk_read_timeout_ms
+        256,                              // body_read_chunk_size_kb
     );
 
     (router, sink_clone)

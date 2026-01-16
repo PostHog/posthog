@@ -177,6 +177,12 @@ class RemoteConfig(UUIDTModel):
             "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
         }
 
+        # MARK: Logs
+        logs_settings = team.logs_settings or {}
+        config["logs"] = {
+            "captureConsoleLogs": logs_settings.get("capture_console_logs", False),
+        }
+
         # MARK: Session recording
         session_recording_config_response: bool | dict = False
 
@@ -257,6 +263,21 @@ class RemoteConfig(UUIDTModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
+        # MARK: Conversations
+        if team.conversations_enabled:
+            conv_settings = team.conversations_settings or {}
+            config["conversations"] = {
+                "enabled": True,
+                "widgetEnabled": conv_settings.get("widget_enabled", False),
+                "greetingText": conv_settings.get("widget_greeting_text") or "Hey, how can I help you today?",
+                "color": conv_settings.get("widget_color") or "#1d4aff",
+                "token": conv_settings.get("widget_public_token"),
+                # NOTE: domains is cached but stripped out at the api level depending on the caller
+                "domains": conv_settings.get("widget_domains") or [],
+            }
+        else:
+            config["conversations"] = False
+
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:
@@ -296,7 +317,6 @@ class RemoteConfig(UUIDTModel):
                 pass
 
         config["siteApps"] = site_apps
-
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 

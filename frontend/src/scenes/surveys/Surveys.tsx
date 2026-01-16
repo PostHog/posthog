@@ -5,6 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -36,6 +38,7 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
@@ -82,9 +85,23 @@ function NewSurveyButton(): JSX.Element {
                 resourceType={AccessControlResourceType.Survey}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
-                    <span className="pr-3">New survey</span>
-                </LemonButton>
+                <AppShortcut
+                    name="NewSurvey"
+                    keybind={[keyBinds.new]}
+                    intent="New survey"
+                    interaction="click"
+                    scope={Scene.Surveys}
+                >
+                    <LemonButton
+                        size="small"
+                        to={guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()}
+                        type="primary"
+                        data-attr="new-survey"
+                        tooltip="New survey"
+                    >
+                        <span className="pr-3">New survey</span>
+                    </LemonButton>
+                </AppShortcut>
             </AccessControlAction>
         </MaxTool>
     )

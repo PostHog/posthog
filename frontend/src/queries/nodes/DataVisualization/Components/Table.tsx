@@ -1,7 +1,11 @@
-import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import '../../DataTable/DataTable.scss'
 
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { IconPin, IconPinFilled } from '@posthog/icons'
+import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
@@ -26,6 +30,24 @@ interface TableProps {
 
 export const DEFAULT_PAGE_SIZE = 500
 
+function formatColumnTitle(title: string): React.ReactNode {
+    const parts = title.split(/([_-])/)
+    if (parts.length === 1) {
+        return title
+    }
+    // inserts <wbr> (word break opportunity tag) at dashes and unders for natural break points
+    return parts.map((part, i) =>
+        part === '_' || part === '-' ? (
+            <React.Fragment key={i}>
+                {part}
+                <wbr />
+            </React.Fragment>
+        ) : (
+            part
+        )
+    )
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -37,15 +59,45 @@ export const Table = (props: TableProps): JSX.Element => {
         responseError,
         queryCancelled,
         response,
+        pinnedColumns,
+        isColumnPinned,
+        isPinningEnabled,
     } = useValues(dataVisualizationLogic)
+    const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
 
+            const columnTitle = settings?.display?.label || title || column.name
+
+            const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+
             return {
                 ...columnMeta,
-                title: settings?.display?.label || title || column.name,
+                key: column.name,
+                title: (
+                    <div className="flex items-center gap-1">
+                        <span>{formattedTitle}</span>
+                        {isPinningEnabled && (
+                            <Tooltip title={isColumnPinned(column.name) ? 'Unpin column' : 'Pin column'}>
+                                <span
+                                    className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleColumnPin(column.name)
+                                    }}
+                                >
+                                    {isColumnPinned(column.name) ? (
+                                        <IconPinFilled className="text-sm" />
+                                    ) : (
+                                        <IconPin className="text-sm" />
+                                    )}
+                                </span>
+                            </Tooltip>
+                        )}
+                    </div>
+                ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
                     return renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {
                         kind: NodeKind.DataTableNode,
@@ -115,10 +167,13 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <LemonTable
+            className="DataVisualizationTable"
             dataSource={tabularData}
             columns={tableColumns}
+            pinnedColumns={isPinningEnabled ? pinnedColumns : undefined}
             loading={responseLoading}
             pagination={{ pageSize: DEFAULT_PAGE_SIZE }}
+            maxHeaderWidth="15rem"
             emptyState={
                 responseError ? (
                     <InsightErrorState

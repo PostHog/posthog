@@ -1,3 +1,4 @@
+import type { PublicKeyCredentialDescriptorJSON } from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -25,7 +26,11 @@ export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     status: 'pending' | 'completed'
+    webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
+
+// Routes that should be handled by Django, not the React router
+const BACKEND_ONLY_ROUTES = ['/login/vercel/continue', '/oauth/authorize']
 
 export function handleLoginRedirect(): void {
     let nextURL = '/'
@@ -41,6 +46,13 @@ export function handleLoginRedirect(): void {
     } catch {
         // do nothing
     }
+
+    // Check if this is a backend-only route that shouldn't go through the React router
+    if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
     router.actions.replace(nextURL)
 }
@@ -140,7 +152,11 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        router.actions.push(urls.login2FA())
+                        const searchParams: Record<string, any> = {}
+                        if (router.values.searchParams.next) {
+                            searchParams.next = router.values.searchParams.next
+                        }
+                        router.actions.push(urls.login2FA(), searchParams)
                         throw e
                     }
                     if (code === 'email_mfa_required') {
@@ -162,13 +178,26 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners({
+    listeners(({ values }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-    }),
+        precheckSuccess: async () => {
+            const { precheckResponse } = values
+            // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
+            if (
+                precheckResponse.webauthn_credentials &&
+                precheckResponse.webauthn_credentials.length > 0 &&
+                !precheckResponse.sso_enforcement
+            ) {
+                // Dynamic import to avoid circular dependency
+                const { passkeyLogic } = await import('./passkeyLogic')
+                passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+            }
+        },
+    })),
     urlToAction(({ actions }) => ({
         '/login': (_, { error_code, error_detail, email, message }) => {
             if (error_code) {

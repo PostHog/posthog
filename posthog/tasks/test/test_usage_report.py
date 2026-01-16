@@ -2469,6 +2469,64 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_logs_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        # Create logs metrics for org 1 team 1: 1.5 GB
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=1_500_000_000,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=1000,
+        )
+
+        # Create logs metrics for org 1 team 2: 2.5 GB
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=2_500_000_000,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=2000,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+
+        # Test org-level logs metrics (sum of both teams)
+        assert org_1_report["logs_bytes_in_period"] == 4_000_000_000  # 1.5B + 2.5B
+        assert org_1_report["logs_records_in_period"] == 3000  # 1000 + 2000
+        assert org_1_report["logs_gb_in_period"] == 4.0  # 1.5 + 2.5
+
+        # Test team 1 logs metrics
+        assert org_1_report["teams"]["3"]["logs_bytes_in_period"] == 1_500_000_000
+        assert org_1_report["teams"]["3"]["logs_records_in_period"] == 1000
+        assert org_1_report["teams"]["3"]["logs_gb_in_period"] == 1.5
+
+        # Test team 2 logs metrics
+        assert org_1_report["teams"]["4"]["logs_bytes_in_period"] == 2_500_000_000
+        assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
+        assert org_1_report["teams"]["4"]["logs_gb_in_period"] == 2.5
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
@@ -4185,13 +4243,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Verify the calls
         self.assertEqual(mock_execute_split_query.call_count, 2)
 
-        # First call (get_teams_with_billable_event_count_in_period) should use 3 splits
+        # First call (get_teams_with_billable_event_count_in_period) should use 12 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 3)
+        self.assertEqual(first_call_kwargs["num_splits"], 12)
 
-        # Second call (get_all_event_metrics_in_period) should use 3 splits
+        # Second call (get_all_event_metrics_in_period) should use 12 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 3)
+        self.assertEqual(second_call_kwargs["num_splits"], 12)
 
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""

@@ -16,7 +16,7 @@ export function OnboardingCouponRedemption(): JSX.Element {
     const campaign = parseCouponCampaign(router.values.currentLocation.pathname) || ''
 
     const continueToOnboarding = (): void => {
-        router.actions.push(urls.useCaseSelection())
+        router.actions.push(urls.onboarding())
     }
 
     return (

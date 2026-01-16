@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 
-from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_visualization_artifact_content
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import get_subagent_stream_key
@@ -166,7 +166,7 @@ class TaskTool(MaxTool):
             async for event_type, message in executor.astream(ChatAgentWorkflow, inputs):
                 if event_type == AssistantEventType.MESSAGE:
                     # Only parse completed messages
-                    if isinstance(message, AssistantGenerationStatusEvent) or not message.id:
+                    if isinstance(message, AssistantGenerationStatusEvent) or not getattr(message, "id", None):
                         continue
                     if isinstance(message, AssistantMessage):
                         final_content = message.content
@@ -191,7 +191,13 @@ class TaskTool(MaxTool):
                 viz_content = unwrap_visualization_artifact_content(message)
                 if viz_content:
                     artifacts_list_prompt.append(
-                        f"- ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
+                        f"- Insight ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
+                    )
+                    continue
+                notebook_content = unwrap_notebook_artifact_content(message)
+                if notebook_content:
+                    artifacts_list_prompt.append(
+                        f"- Notebook ID: {message.artifact_id}\nTitle: {notebook_content.title}"
                     )
             artifacts_prompt = format_prompt_string(
                 TASK_ARTIFACTS_PROMPT, artifacts_list="\n\n".join(artifacts_list_prompt)
@@ -213,9 +219,9 @@ class TaskTool(MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        from ee.hogai.chat_agent.mode_manager import CHAT_AGENT_MODE_REGISTRY
+        from ee.hogai.chat_agent.mode_manager import DEFAULT_CHAT_AGENT_MODE_REGISTRY
 
-        modes_list = list(CHAT_AGENT_MODE_REGISTRY.keys())
+        modes_list = list(DEFAULT_CHAT_AGENT_MODE_REGISTRY.keys())
         # Fix the mode types to the chat agent modes, as there might be other unsupported modes in the AgentMode enum
         SubAgentArgsWithModes = create_model(
             "SubAgentArgsWithModes",
@@ -227,7 +233,7 @@ class TaskTool(MaxTool):
         )
 
         modes_prompt = ""
-        for mode_definition in CHAT_AGENT_MODE_REGISTRY.values():
+        for mode_definition in DEFAULT_CHAT_AGENT_MODE_REGISTRY.values():
             modes_prompt += f"- {mode_definition.mode.value}: {mode_definition.mode_description}\n"
 
         description = format_prompt_string(TASK_TOOL_PROMPT, available_modes=modes_prompt)

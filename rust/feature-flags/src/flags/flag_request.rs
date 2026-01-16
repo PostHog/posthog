@@ -7,6 +7,11 @@ use serde_json::Value;
 use crate::api::errors::FlagError;
 use crate::handler::flags::EvaluationRuntime;
 
+/// Maximum length for distinct_id values.
+/// This limit ensures compatibility with batch export destinations (Redshift, Postgres)
+/// which use VARCHAR(200). The main persons tables allow up to 400 chars.
+pub const MAX_DISTINCT_ID_LEN: usize = 200;
+
 fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -163,8 +168,8 @@ impl FlagRequest {
         };
 
         match distinct_id.len() {
-            0..=200 => Ok(distinct_id.to_owned()),
-            _ => Ok(distinct_id.chars().take(200).collect()),
+            0..=MAX_DISTINCT_ID_LEN => Ok(distinct_id.to_owned()),
+            _ => Ok(distinct_id.chars().take(MAX_DISTINCT_ID_LEN).collect()),
         }
     }
 
@@ -193,16 +198,14 @@ mod tests {
 
     use crate::api::errors::FlagError;
 
-    use crate::flags::flag_request::FlagRequest;
+    use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN};
     use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
-        insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
+        insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
+        setup_redis_client, setup_team_hypercache_reader,
     };
     use bytes::Bytes;
     use serde_json::json;
-
-    // Default cache TTL for tests: 5 days in seconds
-    const DEFAULT_CACHE_TTL_SECONDS: u64 = 432000;
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -223,14 +226,17 @@ mod tests {
     #[test]
     fn too_large_distinct_id_is_truncated() {
         let json = json!({
-            "distinct_id": "a".repeat(210),
+            "distinct_id": "a".repeat(MAX_DISTINCT_ID_LEN + 10),
             "token": "my_token1",
         });
         let bytes = Bytes::from(json.to_string());
 
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
 
-        assert_eq!(flag_payload.extract_distinct_id().unwrap().len(), 200);
+        assert_eq!(
+            flag_payload.extract_distinct_id().unwrap().len(),
+            MAX_DISTINCT_ID_LEN
+        );
     }
 
     #[test]
@@ -480,13 +486,14 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
         let flag_service = FlagService::new(
             redis_client.clone(),
-            None, // No dedicated flags Redis in tests
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-            crate::config::DEFAULT_TEST_CONFIG.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
         );
 
         match flag_service.verify_token(&token).await {
@@ -499,6 +506,8 @@ mod tests {
     async fn test_error_cases() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
 
         // Test invalid token
         let flag_request = FlagRequest {
@@ -511,11 +520,9 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            None, // No dedicated flags Redis in tests
             pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-            crate::config::DEFAULT_TEST_CONFIG.clone(),
+            team_hypercache_reader,
+            hypercache_reader,
         );
         assert!(matches!(
             flag_service.verify_token(&result).await,

@@ -10,7 +10,7 @@
 #
 # - frontend-build: build the frontend (static assets)
 # - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
-# - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
+# - nodejs-build: build nodejs (Node.js app) & fetch its runtime dependencies
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
 # - fetch-geoip-db: fetch the GeoIP database
 #
@@ -22,7 +22,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:22.17.1-bookworm-slim AS frontend-build
+FROM node:22.22.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -50,7 +50,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:22.17.1-bookworm-slim AS sourcemap-upload
+FROM node:22.22.0-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -80,7 +80,8 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.91-node_22.22.0 AS nodejs-build
+
 
 # Compile and install system dependencies
 # Add Confluent's client repository for librdkafka 2.10.1
@@ -93,7 +94,7 @@ RUN apt-get update && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends --allow-downgrades \
     "make" \
     "g++" \
     "gcc" \
@@ -115,34 +116,34 @@ COPY ./rust ./rust
 COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
-COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
+COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent (2.10.1) instead of bundled version
 ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies.
-# NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
+# NOTE: we don't actually use the plugin-transpiler with the nodejs, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
-    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-server... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
-# Build the plugin server.
+# Build the nodejs services.
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./plugin-server/src/
-COPY ./plugin-server/tests/ ./plugin-server/tests/
-COPY ./plugin-server/assets/ ./plugin-server/assets/
-COPY ./plugin-server/bin/ ./plugin-server/bin/
+COPY ./nodejs/src/ ./nodejs/src/
+COPY ./nodejs/tests/ ./nodejs/tests/
+COPY ./nodejs/assets/ ./nodejs/assets/
+COPY ./nodejs/bin/ ./nodejs/bin/
 
 # Build cyclotron first
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 
-# Then build the plugin server
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-server build
+# Then build the nodejs services
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 #
 # ---------------------------------------------------------
@@ -188,6 +189,7 @@ ENV PATH=/python-runtime/bin:$PATH \
 COPY manage.py manage.py
 COPY common/esbuilder common/esbuilder
 COPY common/hogvm common/hogvm/
+COPY common/migration_utils common/migration_utils/
 COPY posthog posthog/
 COPY products/ products/
 COPY ee ee/
@@ -242,7 +244,7 @@ RUN apt-get update && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-recommends --allow-downgrades \
     "chromium" \
     "chromium-driver" \
     "libpq-dev" \
@@ -250,7 +252,7 @@ RUN apt-get update && \
     "libxmlsec1-dev=1.2.37-2" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.7-0+deb12u1" \
+    "ffmpeg=7:5.1.8-0+deb12u1" \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
@@ -266,8 +268,8 @@ RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/truste
     ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22.17.1 with architecture detection and verification
-ENV NODE_VERSION 22.17.1
+# Install Node.js 22.22.0 with architecture detection and verification
+ENV NODE_VERSION 22.22.0
 
 RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && case "${dpkgArch##*-}" in \
@@ -318,21 +320,21 @@ USER posthog
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
-# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/assets /code/plugin-server/assets
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/bin /code/plugin-server/bin
+# Add in the compiled nodejs & its runtime dependencies from the nodejs-build stage.
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
+COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
@@ -376,6 +378,7 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
+COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 
 # Setup ENV.

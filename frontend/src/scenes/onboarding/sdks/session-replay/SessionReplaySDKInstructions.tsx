@@ -37,7 +37,9 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS]: NuxtJSInstructions,
     [SDKKey.REACT]: ReactInstructions,
     [SDKKey.REMIX]: RemixInstructions,
+    [SDKKey.TANSTACK_START]: ReactInstructions,
     [SDKKey.SVELTE]: SvelteInstructions,
+    [SDKKey.VITE]: ReactInstructions,
     [SDKKey.VUE_JS]: VueInstructions,
     [SDKKey.WEBFLOW]: WebflowInstructions,
     [SDKKey.IOS]: iOSInstructions,
@@ -79,7 +81,11 @@ export function AdvertiseMobileReplay({
                 <div>
                     Session replay is now in general availability for {platform}.{' '}
                     <Link
-                        to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, sdkKey)}
+                        to={urls.onboarding({
+                            productKey: 'session_replay',
+                            stepKey: OnboardingStepKey.INSTALL,
+                            sdk: sdkKey,
+                        })}
                         data-attr={`${context}-${platform.toLowerCase()}-replay-cta`}
                     >
                         Learn how to set it up

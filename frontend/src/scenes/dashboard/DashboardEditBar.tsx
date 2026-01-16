@@ -4,6 +4,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,6 +15,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
@@ -85,25 +88,33 @@ export function DashboardEditBar(): JSX.Element {
                 )}
             >
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                    <DateFilter
-                        showCustom
-                        showExplicitDateToggle={canAccessExplicitDateToggle}
-                        dateFrom={effectiveEditBarFilters.date_from}
-                        dateTo={effectiveEditBarFilters.date_to}
-                        explicitDate={effectiveEditBarFilters.explicitDate}
-                        onChange={(from_date, to_date, explicitDate) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, null)
-                            }
-                            setDates(from_date, to_date, explicitDate)
-                        }}
-                        makeLabel={(key) => (
-                            <>
-                                <IconCalendar />
-                                <span className="hide-when-small"> {key}</span>
-                            </>
-                        )}
-                    />
+                    <AppShortcut
+                        name="DashboardDateFilter"
+                        keybind={[keyBinds.dateFilter]}
+                        intent="Date filter"
+                        interaction="click"
+                        scope={Scene.Dashboard}
+                    >
+                        <DateFilter
+                            showCustom
+                            showExplicitDateToggle={canAccessExplicitDateToggle}
+                            dateFrom={effectiveEditBarFilters.date_from}
+                            dateTo={effectiveEditBarFilters.date_to}
+                            explicitDate={effectiveEditBarFilters.explicitDate}
+                            onChange={(from_date, to_date, explicitDate) => {
+                                if (dashboardMode !== DashboardMode.Edit) {
+                                    setDashboardMode(DashboardMode.Edit, null)
+                                }
+                                setDates(from_date, to_date, explicitDate)
+                            }}
+                            makeLabel={(key) => (
+                                <>
+                                    <IconCalendar />
+                                    <span className="hide-when-small"> {key}</span>
+                                </>
+                            )}
+                        />
+                    </AppShortcut>
                 </div>
                 <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
                     <PropertyFilters

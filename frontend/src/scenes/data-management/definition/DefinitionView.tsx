@@ -13,11 +13,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -39,7 +39,6 @@ import {
     FilterLogicalOperator,
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
-    ReplayTabs,
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
@@ -158,9 +157,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                 actions={
                     <>
                         {isEvent && (
-                            <LemonButton
-                                type="secondary"
-                                to={urls.replay(ReplayTabs.Home, {
+                            <ViewRecordingsPlaylistButton
+                                filters={{
                                     filter_group: {
                                         type: FilterLogicalOperator.And,
                                         values: [
@@ -177,14 +175,11 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                                             },
                                         ],
                                     },
-                                })}
-                                sideIcon={<IconPlayCircle />}
-                                data-attr="event-definition-view-recordings"
+                                }}
+                                type="secondary"
                                 size="small"
-                                targetBlank
-                            >
-                                View recordings
-                            </LemonButton>
+                                data-attr="event-definition-view-recordings"
+                            />
                         )}
                         <LemonButton
                             data-attr="delete-definition"

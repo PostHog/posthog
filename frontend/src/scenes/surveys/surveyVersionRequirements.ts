@@ -110,7 +110,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Targeting with actions',
-        sdkVersions: { 'posthog-js': '1.299.0' },
+        sdkVersions: { 'posthog-js': '1.301.0' },
         unsupportedSdks: ['posthog-ios', 'posthog-android', 'posthog-react-native'],
         check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
     },
@@ -118,6 +118,15 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Styling input appearance',
         sdkVersions: { 'posthog-js': '1.300.0' },
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
+    },
+    {
+        feature: 'Custom text colors',
+        sdkVersions: { 'posthog-js': '1.310.1', 'posthog-react-native': '4.17.0' },
+        unsupportedSdks: ['posthog-ios', 'posthog-android'],
+        check: (s) =>
+            s.appearance?.textColor !== undefined ||
+            s.appearance?.inputTextColor !== undefined ||
+            s.appearance?.submitButtonTextColor !== undefined,
     },
 ]
 

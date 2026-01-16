@@ -11,6 +11,8 @@ import { EndpointType } from '~/types'
 
 import type { endpointsLogicType } from './endpointsLogicType'
 
+export type EndpointsTab = 'endpoints' | 'usage'
+
 export interface EndpointsFilters {
     search: string
 }
@@ -29,6 +31,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
     key((props) => props.tabId),
     actions({
         setFilters: (filters: Partial<EndpointsFilters>) => ({ filters }),
+        setActiveTab: (activeTab: EndpointsTab) => ({ activeTab }),
     }),
     loaders(() => ({
         allEndpoints: [
@@ -62,6 +65,12 @@ export const endpointsLogic = kea<endpointsLogicType>([
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
+        activeTab: [
+            'endpoints' as EndpointsTab,
+            {
+                setActiveTab: (_, { activeTab }) => activeTab,
+            },
+        ],
     }),
     selectors({
         endpoints: [
@@ -85,7 +94,11 @@ export const endpointsLogic = kea<endpointsLogicType>([
 
     tabAwareUrlToAction(({ actions }) => ({
         [urls.endpoints()]: () => {
+            actions.setActiveTab('endpoints')
             actions.loadEndpoints()
+        },
+        [urls.endpointsUsage()]: () => {
+            actions.setActiveTab('usage')
         },
     })),
 ])

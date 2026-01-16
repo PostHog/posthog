@@ -72,12 +72,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
 
     const feedbackBanner = (
-        <LemonBanner
-            type="info"
-            dismissKey="marketing-analytics-beta-banner"
-            className="mb-2 mt-4"
-            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
-        >
+        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>

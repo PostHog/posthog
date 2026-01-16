@@ -45,7 +45,7 @@ export function TimeseriesModal({
     const isStaleExperiment =
         !experiment.start_date || experiment.end_date
             ? false
-            : dayjs(experiment.start_date).isBefore(dayjs().subtract(90, 'days'))
+            : dayjs(experiment.start_date).isBefore(dayjs().subtract(30, 'days'))
 
     const handleRecalculate = (): void => {
         LemonDialog.open({
@@ -112,7 +112,7 @@ export function TimeseriesModal({
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
                                             <div className="text-sm">
-                                                This experiment has been running for more than 90 days. Automatic
+                                                This experiment has been running for more than 30 days. Automatic
                                                 timeseries updates are disabled. You can still manually recalculate the
                                                 data.
                                             </div>

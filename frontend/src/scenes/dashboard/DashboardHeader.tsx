@@ -276,7 +276,6 @@ export function DashboardHeader(): JSX.Element | null {
                             keybind={[keyBinds.edit]}
                             intent="Toggle edit mode"
                             interaction="click"
-                            asChild
                         >
                             <ButtonPrimitive
                                 onClick={() => {
@@ -463,7 +462,6 @@ export function DashboardHeader(): JSX.Element | null {
                                     intent="Save dashboard"
                                     interaction="click"
                                     scope={Scene.Dashboard}
-                                    asChild
                                 >
                                     <LemonButton
                                         data-attr="dashboard-edit-mode-save"
@@ -525,7 +523,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                 keybind={[keyBinds.dashboardAddTextTile]}
                                                 intent="Add text card"
                                                 interaction="click"
-                                                asChild
                                             >
                                                 <LemonButton
                                                     onClick={() => {

@@ -39,11 +39,15 @@ jobs:
         # Only on PostHog/posthog, as there's no docker login on forks
         if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true') || github.event_name == 'merge_group' }}
 
+        outputs:
+            digest: ${{ steps.build.outputs.digest }}
+
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Build and cache Docker image in Depot
+              id: build
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
@@ -53,6 +57,18 @@ jobs:
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
+
+            - name: Container image digest
+              run: |
+                  echo "Image digest: ${{ steps.build.outputs.digest }}"
+                  echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`${{ steps.build.outputs.registry }}/posthog-cloud@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
 
     deploy_preview:
         name: Deploy preview environment
@@ -71,14 +87,14 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0
                   filter: blob:none
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@3dbe17c78367e7d60f00d78ae6781a35be47b4a1 # v45
+              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
               with:
                   files: |
                       **/Dockerfile
@@ -87,7 +103,7 @@ jobs:
                   separator: ' '
 
             - name: Lint changed Dockerfile(s) with Hadolint
-              uses: jbergstroem/hadolint-gh-action@39e57273ed8f513872326b228217828be6a42730 # v1
+              uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
               if: steps.changed-files.outputs.any_changed == 'true'
               with:
                   dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'

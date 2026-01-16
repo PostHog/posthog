@@ -3,16 +3,18 @@ import sys
 import time
 from typing import Any, Generic, Literal
 
-from django.db.models import F
-
 import pyarrow as pa
 import deltalake as deltalake
-import pyarrow.compute as pc
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.data_imports.pipelines.common.load import (
+    get_incremental_field_value,
+    supports_partial_data_loading,
+    update_job_row_count,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
@@ -23,7 +25,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
-    normalize_column_name,
     normalize_table_column_names,
     setup_partitioning,
 )
@@ -246,7 +247,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
         # we'd not process older data the next time we retry. But we do store the earliest available value so that we
         # can resume syncs if they stop mid way through without having to start from the beginning
-        last_value = _get_incremental_field_value(self._schema, pa_table)
+        last_value = get_incremental_field_value(self._schema, pa_table)
         if last_value is not None:
             if (self._last_incremental_field_value is None) or (last_value > self._last_incremental_field_value):
                 self._last_incremental_field_value = last_value
@@ -256,7 +257,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 self._schema.update_incremental_field_value(self._last_incremental_field_value)
 
             if self._resource.sort_mode == "desc":
-                earliest_value = _get_incremental_field_value(self._schema, pa_table, aggregate="min")
+                earliest_value = get_incremental_field_value(self._schema, pa_table, aggregate="min")
 
                 if (
                     self._earliest_incremental_field_value is None
@@ -267,7 +268,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                     self._logger.debug(f"Updating incremental_field_earliest_value with {earliest_value}")
                     self._schema.update_incremental_field_value(earliest_value, type="earliest")
 
-        _update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
+        update_job_row_count(self._job.id, pa_table.num_rows, self._logger)
         decrement_rows(self._job.team_id, self._schema.id, pa_table.num_rows)
 
         # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
@@ -379,49 +380,6 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         self._logger.debug("Finished validating schema and updating table")
-
-
-def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
-    schema.last_synced_at = job.created_at
-    schema.save()
-
-
-def _update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
-    logger.debug(f"Updating rows_synced with +{count}")
-    ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
-
-
-def _get_incremental_field_value(
-    schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
-) -> Any:
-    if schema is None or schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
-        return
-
-    incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
-    if incremental_field_name is None:
-        return
-
-    column = table[normalize_column_name(incremental_field_name)]
-    processed_column = pa.array(
-        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
-    )
-
-    if aggregate == "max":
-        last_value = pc.max(processed_column)
-    elif aggregate == "min":
-        last_value = pc.min(processed_column)
-    else:
-        raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
-
-    return last_value.as_py()
-
-
-def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
-    """
-    We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
-    the approach.
-    """
-    return schema.source.source_type == ExternalDataSourceType.STRIPE
 
 
 def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:

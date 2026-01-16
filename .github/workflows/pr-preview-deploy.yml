@@ -19,31 +19,31 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
             - name: Login to DockerHub
-              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+              uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
               with:
                   username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+            - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
                   role-duration-seconds: 3600
 
             - name: connect to tailscale
-              uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9 # 8b804aa882ac3429b804a2a22f9803a2101a0db9
+              uses: tailscale/github-action@53acf823325fe9ca47f4cdaa951f90b4b0de5bb9 # v4.1.1
               env:
                   TS_EXPERIMENT_OAUTH_AUTHKEY: true
               with:
@@ -53,11 +53,11 @@ jobs:
 
             - name: Login to Amazon ECR
               id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
+              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
             - name: Build and push PR test image
               id: build
-              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              uses: depot/build-push-action@9785b135c3c76c33db102e45be96a25ab55cd507 # v1.16.2
               with:
                   context: .
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -101,7 +101,7 @@ jobs:
                   echo "url=$HOSTNAME.dev.posthog.dev" >> $GITHUB_OUTPUT
 
             - name: update deployment status
-              uses: bobheadxi/deployments@648679e8e4915b27893bd7dbc35cb504dc915bc8 # v1
+              uses: bobheadxi/deployments@648679e8e4915b27893bd7dbc35cb504dc915bc8 # v1.5.0
               with:
                   step: finish
                   status: ${{ job.status }}

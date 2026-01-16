@@ -1,10 +1,17 @@
+import asyncio
+from collections.abc import Generator
+from urllib.parse import urlparse
+
 import dagster
 import psycopg2
 import psycopg2.extras
+import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
+from posthog.kafka_client.client import _KafkaProducer
 from posthog.redis import get_client, redis
+from posthog.utils import initialize_self_capture_api_token
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -79,3 +86,56 @@ class PostgresResource(dagster.ConfigurableResource):
             password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
+
+
+class PostHogAnalyticsResource(dagster.ConfigurableResource):
+    personal_api_key: str | None
+
+    def create_resource(self, context: dagster.InitResourceContext):
+        assert context.log is not None
+
+        context.log.info("Initializing PostHogAnalyticsResource")
+
+        if not (self.personal_api_key or "").strip() and not (posthoganalytics.personal_api_key or "").strip():
+            context.log.warning(
+                "Personal API key not set on the PostHogAnalyticsResource. Local feature flag evaluation will not work."
+            )
+
+        asyncio.run(initialize_self_capture_api_token())
+        posthoganalytics.personal_api_key = self.personal_api_key
+
+        return None
+
+
+class PostgresURLResource(dagster.ConfigurableResource):
+    """
+    Postgres connection that parses a connection URL.
+    Delegates to PostgresResource for actual connection logic.
+    Expects format: postgres://user:pass@host:port/dbname
+    """
+
+    connection_url: str
+
+    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
+        parsed = urlparse(self.connection_url)
+        pg = PostgresResource(
+            host=parsed.hostname or "",
+            port=str(parsed.port or 5432),
+            database=parsed.path.lstrip("/"),
+            user=parsed.username or "",
+            password=parsed.password or "",
+        )
+        return pg.create_resource(context)
+
+
+@dagster.resource
+def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
+    """
+    Kafka producer resource with proper cleanup.
+    Flushes pending messages on teardown.
+    """
+    producer = _KafkaProducer()
+    try:
+        yield producer
+    finally:
+        producer.flush()

@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 
 
@@ -14,6 +15,7 @@ class PrecalculatedPersonPropertiesTable(Table):
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+        "person_id": UUIDDatabaseField(name="person_id", nullable=False),
         "condition": StringDatabaseField(name="condition", nullable=False),
         "matches": BooleanDatabaseField(name="matches", nullable=False),
         "source": StringDatabaseField(name="source", nullable=False),

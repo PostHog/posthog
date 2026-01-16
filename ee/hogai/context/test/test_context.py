@@ -608,77 +608,74 @@ class TestAssistantContextManager(BaseTest):
 
     async def test_get_context_messages_with_agent_mode_at_start(self):
         """Test that mode prompt is added when feature flag is enabled and message is at start"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[HumanMessage(content="Test", id="1")],
-                start_id="1",
-                agent_mode=AgentMode.PRODUCT_ANALYTICS,
-            )
+        state = AssistantState(
+            messages=[HumanMessage(content="Test", id="1")],
+            start_id="1",
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            assert result is not None
-            self.assertEqual(len(result), 2)
-            assert isinstance(result[0], ContextMessage)
-            self.assertIn("Your initial mode is", result[0].content)
-            self.assertIn("product_analytics", result[0].content)
-            # Verify metadata is set correctly
-            assert isinstance(result[0].meta, ModeContext)
-            self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
-            self.assertIsInstance(result[1], HumanMessage)
+        assert result is not None
+        self.assertEqual(len(result), 2)
+        assert isinstance(result[0], ContextMessage)
+        self.assertIn("Your initial mode is", result[0].content)
+        self.assertIn("product_analytics", result[0].content)
+        # Verify metadata is set correctly
+        assert isinstance(result[0].meta, ModeContext)
+        self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
+        self.assertIsInstance(result[1], HumanMessage)
 
     async def test_get_context_messages_with_agent_mode_switch(self):
         """Test that mode switch prompt is added when mode changes mid-conversation"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[
-                    ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
-                        id="0",
-                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
-                    ),
-                    HumanMessage(content="First message", id="1"),
-                    AssistantMessage(content="Response", id="2"),
-                    HumanMessage(content="Second message", id="3"),
-                ],
-                start_id="3",
-                agent_mode=AgentMode.SQL,  # Mode changed from product_analytics to SQL
-            )
+        state = AssistantState(
+            messages=[
+                ContextMessage(
+                    content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                    id="0",
+                    meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
+                ),
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            start_id="3",
+            agent_mode=AgentMode.SQL,  # Mode changed from product_analytics to SQL
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            assert result is not None
-            # Should have added a mode switch context message before the start message
-            self.assertEqual(len(result), 5)
-            assert isinstance(result[3], ContextMessage)
-            self.assertIn("Your mode has been switched to", result[3].content)
-            self.assertIn("sql", result[3].content)
-            # Verify metadata is set correctly
-            assert isinstance(result[3].meta, ModeContext)
-            self.assertEqual(result[3].meta.mode, AgentMode.SQL)
+        assert result is not None
+        # Should have added a mode switch context message before the start message
+        self.assertEqual(len(result), 5)
+        assert isinstance(result[3], ContextMessage)
+        self.assertIn("Your mode has been switched to", result[3].content)
+        self.assertIn("sql", result[3].content)
+        # Verify metadata is set correctly
+        assert isinstance(result[3].meta, ModeContext)
+        self.assertEqual(result[3].meta.mode, AgentMode.SQL)
 
     async def test_get_context_messages_no_mode_switch_when_same_mode(self):
         """Test that no mode prompt is added when mode hasn't changed"""
-        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
-            state = AssistantState(
-                messages=[
-                    ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
-                        id="0",
-                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
-                    ),
-                    HumanMessage(content="First message", id="1"),
-                    AssistantMessage(content="Response", id="2"),
-                    HumanMessage(content="Second message", id="3"),
-                ],
-                start_id="3",
-                agent_mode=AgentMode.PRODUCT_ANALYTICS,  # Same mode as initial
-            )
+        state = AssistantState(
+            messages=[
+                ContextMessage(
+                    content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                    id="0",
+                    meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
+                ),
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ],
+            start_id="3",
+            agent_mode=AgentMode.PRODUCT_ANALYTICS,  # Same mode as initial
+        )
 
-            result = await self.context_manager.get_state_messages_with_context(state)
+        result = await self.context_manager.get_state_messages_with_context(state)
 
-            # Should return None since no context needs to be added
-            self.assertIsNone(result)
+        # Should return None since no context needs to be added
+        self.assertIsNone(result)
 
     def test_get_previous_mode_from_messages_initial(self):
         """Test extraction of initial mode from context messages via metadata"""
