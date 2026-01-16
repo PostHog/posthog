@@ -36,21 +36,30 @@ For each region you need access to, create a service account token in Grafana:
 3. Add a token with appropriate permissions (typically Viewer or Editor)
 4. Copy the token
 
-### 2. Store tokens in Keychain (macOS)
+### 2. Add scripts to your PATH
 
-Add these scripts to your PATH, then store your tokens:
+Add the following to your shell config file (`~/.zshrc`, `~/.bashrc`, or equivalent):
 
 ```bash
-# Add to PATH (add this to your ~/.zshrc or ~/.bashrc)
-export PATH="$PATH:/path/to/posthog/infra-scripts/mcp"
+# PostHog infra scripts (grafana-region, grafana-token, etc.)
+export PATH="$HOME/dev/posthog/posthog/infra-scripts/mcp:$PATH"
+```
 
-# Store tokens
+Adjust the path if your PostHog repo is in a different location. Then reload your shell:
+
+```bash
+source ~/.zshrc  # or ~/.bashrc
+```
+
+### 3. Store tokens in Keychain (macOS)
+
+```bash
 grafana-token us <your-us-token>
 grafana-token eu <your-eu-token>
 grafana-token dev <your-dev-token>  # optional
 ```
 
-### 3. Configure your MCP client
+### 4. Configure your MCP client
 
 #### Claude Code
 
@@ -60,7 +69,7 @@ Add to your Claude Code MCP configuration (`~/.claude/settings.json` or project'
 {
   "mcpServers": {
     "grafana": {
-      "command": "/path/to/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
       "args": []
     }
   }
@@ -75,7 +84,7 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "grafana": {
-      "command": "/path/to/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
       "args": []
     }
   }
