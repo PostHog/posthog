@@ -4,10 +4,13 @@ import uuid
 
 import django.db.models.deletion
 import django.contrib.postgres.fields
+from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("posthog", "0962_webanalyticsfilterpreset"),
         ("tasks", "0020_sandbox_environment"),
@@ -82,11 +85,6 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_task_reference",
-                "indexes": [
-                    models.Index(fields=["task_id", "session_id"], name="posthog_tas_task_id_cc4c4e_idx"),
-                    models.Index(fields=["team_id", "session_id"], name="posthog_tas_team_id_eb5a74_idx"),
-                    models.Index(fields=["distinct_id"], name="posthog_tas_distinc_eb434f_idx"),
-                ],
             },
         ),
         migrations.AddConstraint(
@@ -94,5 +92,17 @@ class Migration(migrations.Migration):
             constraint=models.UniqueConstraint(
                 fields=("task_id", "session_id", "start_time", "end_time"), name="unique_task_reference"
             ),
+        ),
+        AddIndexConcurrently(
+            model_name="taskreference",
+            index=models.Index(fields=["task_id", "session_id"], name="posthog_tas_task_id_cc4c4e_idx"),
+        ),
+        AddIndexConcurrently(
+            model_name="taskreference",
+            index=models.Index(fields=["team_id", "session_id"], name="posthog_tas_team_id_eb5a74_idx"),
+        ),
+        AddIndexConcurrently(
+            model_name="taskreference",
+            index=models.Index(fields=["distinct_id"], name="posthog_tas_distinc_eb434f_idx"),
         ),
     ]
