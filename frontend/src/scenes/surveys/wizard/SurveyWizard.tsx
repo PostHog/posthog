@@ -63,10 +63,8 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         const maxIndex = survey.appearance?.displayThankYouMessage
             ? survey.questions.length
             : survey.questions.length - 1
-        if (previewPageIndex > maxIndex) {
-            setPreviewPageIndex(Math.max(0, maxIndex))
-        }
-    }, [survey.appearance?.displayThankYouMessage, survey.questions.length, previewPageIndex])
+        setPreviewPageIndex((current) => (current > maxIndex ? Math.max(0, maxIndex) : current))
+    }, [survey.appearance?.displayThankYouMessage, survey.questions.length])
 
     // Show loading state while loading existing survey
     if (isEditing && surveyLoading) {

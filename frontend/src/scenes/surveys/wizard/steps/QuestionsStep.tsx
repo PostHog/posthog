@@ -212,13 +212,24 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
 
     // Link question options
     if (question.type === SurveyQuestionType.Link) {
+        const linkQuestion = question as LinkSurveyQuestion
         return (
             <div className="space-y-2 pt-2 border-t border-border mt-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-secondary shrink-0">Button text:</span>
+                    <LemonInput
+                        size="xsmall"
+                        value={linkQuestion.buttonText || ''}
+                        placeholder="Learn more"
+                        onChange={(val) => onUpdate({ buttonText: val })}
+                        className="flex-1"
+                    />
+                </div>
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-secondary shrink-0">Link URL:</span>
                     <LemonInput
                         size="xsmall"
-                        value={(question as LinkSurveyQuestion).link || ''}
+                        value={linkQuestion.link || ''}
                         placeholder="https://example.com"
                         onChange={(val) => onUpdate({ link: val })}
                         className="flex-1"
@@ -422,6 +433,7 @@ export function QuestionsStep(): JSX.Element {
             question: currentQuestion.question,
             description: currentQuestion.description,
             descriptionContentType: currentQuestion.descriptionContentType,
+            optional: currentQuestion.optional,
         } as SurveyQuestion
         setSurveyValue('questions', newQuestions)
     }
