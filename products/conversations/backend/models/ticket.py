@@ -56,7 +56,7 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "widget_session_id"]),  # Access control queries
             models.Index(fields=["team", "distinct_id"]),  # Person linking queries
             models.Index(fields=["team", "status"]),
-            models.Index(fields=["team", "-ticket_number"]),  # MAX() lookups for ticket number generation
+            models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
