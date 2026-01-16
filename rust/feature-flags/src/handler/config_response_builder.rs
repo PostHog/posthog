@@ -1,22 +1,20 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{FlagsResponse, SessionRecordingField},
+        types::{ConfigResponse, FlagsResponse},
     },
     config_cache::get_cached_config,
     team::team_models::Team,
 };
 use limiters::redis::QuotaResource;
+use serde_json::{json, Value};
 
 use super::types::RequestContext;
 
-/// Build response using cached config from Python's HyperCache.
+/// Build response by passing through cached config from Python's HyperCache.
 ///
-/// This function reads the pre-computed config blob from Python's
-/// RemoteConfig.build_config() stored in HyperCache.
-///
-/// Session recording quota checks are performed in Rust because
-/// Python caches config without per-request quota state.
+/// The config blob is passed through as-is without interpretation.
+/// Only session recording quota limiting is applied in Rust.
 pub async fn build_response_from_cache(
     flags_response: FlagsResponse,
     context: &RequestContext,
@@ -47,27 +45,42 @@ pub async fn build_response_from_cache(
         false
     };
 
-    response.config = cached_config.clone().into();
+    response.config = ConfigResponse::from_value(cached_config.clone());
 
     if is_recordings_limited {
-        apply_recordings_quota_limit(&mut response, cached_config.quota_limited);
-    } else {
-        response.quota_limited = cached_config.quota_limited;
+        apply_recordings_quota_limit(&mut response, &cached_config);
+    } else if let Some(quota_limited) = cached_config.get("quotaLimited") {
+        if let Some(arr) = quota_limited.as_array() {
+            response.quota_limited = Some(
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect(),
+            );
+        }
     }
 
-    tracing::debug!(team_id = team.id, "Used cached config from HyperCache");
+    tracing::debug!(
+        team_id = team.id,
+        "Passed through cached config from HyperCache"
+    );
 
     Ok(response)
 }
 
-/// Apply session recording quota limit by disabling recording and updating quota_limited array.
-fn apply_recordings_quota_limit(
-    response: &mut FlagsResponse,
-    existing_quota_limited: Option<Vec<String>>,
-) {
-    response.config.session_recording = Some(SessionRecordingField::Disabled(false));
+/// Apply session recording quota limit by disabling recording and updating quotaLimited.
+fn apply_recordings_quota_limit(response: &mut FlagsResponse, cached_config: &Value) {
+    response.config.set("sessionRecording", json!(false));
 
-    let mut limited = existing_quota_limited.unwrap_or_default();
+    let mut limited: Vec<String> = cached_config
+        .get("quotaLimited")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
     let recordings_str = QuotaResource::Recordings.as_str().to_string();
     if !limited.contains(&recordings_str) {
         limited.push(recordings_str);
@@ -78,9 +91,6 @@ fn apply_recordings_quota_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::cached_remote_config::CachedRemoteConfig;
-    use crate::api::types::ConfigResponse;
-    use crate::api::types::SessionRecordingField;
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -91,19 +101,18 @@ mod tests {
     #[test]
     fn test_apply_recordings_quota_limit_adds_to_empty() {
         let mut response = create_base_response();
-        apply_recordings_quota_limit(&mut response, None);
+        let cached = json!({});
+        apply_recordings_quota_limit(&mut response, &cached);
 
-        assert!(matches!(
-            response.config.session_recording,
-            Some(SessionRecordingField::Disabled(false))
-        ));
+        assert_eq!(response.config.get("sessionRecording"), Some(&json!(false)));
         assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
 
     #[test]
     fn test_apply_recordings_quota_limit_merges_existing() {
         let mut response = create_base_response();
-        apply_recordings_quota_limit(&mut response, Some(vec!["feature_flags".to_string()]));
+        let cached = json!({"quotaLimited": ["feature_flags"]});
+        apply_recordings_quota_limit(&mut response, &cached);
 
         assert_eq!(
             response.quota_limited,
@@ -114,24 +123,35 @@ mod tests {
     #[test]
     fn test_apply_recordings_quota_limit_no_duplicate() {
         let mut response = create_base_response();
-        apply_recordings_quota_limit(&mut response, Some(vec!["recordings".to_string()]));
+        let cached = json!({"quotaLimited": ["recordings"]});
+        apply_recordings_quota_limit(&mut response, &cached);
 
         assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
 
     #[test]
-    fn test_cached_config_converts_to_config_response() {
-        let cached = CachedRemoteConfig {
-            supported_compression: Some(vec!["gzip".to_string()]),
-            heatmaps: Some(true),
-            default_identified_only: Some(true),
-            ..Default::default()
-        };
+    fn test_config_passthrough_preserves_all_fields() {
+        let cached = json!({
+            "supportedCompression": ["gzip", "gzip-js"],
+            "heatmaps": true,
+            "someNewField": "that rust doesn't know about",
+            "nested": {"deeply": {"value": 123}}
+        });
 
-        let config: ConfigResponse = cached.into();
+        let config = ConfigResponse::from_value(cached);
 
-        assert_eq!(config.supported_compression, vec!["gzip".to_string()]);
-        assert_eq!(config.heatmaps, Some(true));
-        assert_eq!(config.default_identified_only, Some(true));
+        assert_eq!(
+            config.get("supportedCompression"),
+            Some(&json!(["gzip", "gzip-js"]))
+        );
+        assert_eq!(config.get("heatmaps"), Some(&json!(true)));
+        assert_eq!(
+            config.get("someNewField"),
+            Some(&json!("that rust doesn't know about"))
+        );
+        assert_eq!(
+            config.get("nested"),
+            Some(&json!({"deeply": {"value": 123}}))
+        );
     }
 }

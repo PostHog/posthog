@@ -40,7 +40,10 @@ async fn it_handles_get_requests_with_minimal_response() -> Result<()> {
     assert!(!json.errors_while_computing_flags);
     assert!(json.flags.is_empty());
     assert!(json.quota_limited.is_none());
-    assert_eq!(json.config.supported_compression, vec!["gzip", "gzip-js"]);
+    assert_eq!(
+        json.config.get("supportedCompression"),
+        Some(&serde_json::json!(["gzip", "gzip-js"]))
+    );
 
     // Verify evaluated_at field is present and is a valid timestamp
     assert!(json.evaluated_at > 0);

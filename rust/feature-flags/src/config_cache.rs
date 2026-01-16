@@ -1,21 +1,23 @@
-use crate::api::cached_remote_config::CachedRemoteConfig;
 use crate::api::errors::FlagError;
 use common_hypercache::{HyperCacheReader, KeyType};
+use serde_json::Value;
 use std::sync::Arc;
 
 /// Special value indicating cache miss
 const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
-/// Read cached config from HyperCache
+/// Read cached config from HyperCache as raw JSON.
+///
+/// Returns the config blob as-is without interpreting its structure.
 ///
 /// Returns:
-/// - `Ok(Some(config))` - Cache hit with valid config
-/// - `Ok(None)` - Cache miss (HyperCache exhausted all tiers) or Python's explicit miss marker
-/// - `Err(FlagError)` - Parse error only
+/// - `Ok(Some(value))` - Cache hit with config JSON
+/// - `Ok(None)` - Cache miss or Python's explicit miss marker
+/// - `Err(FlagError)` - HyperCache error
 pub async fn get_cached_config(
     reader: &Arc<HyperCacheReader>,
     api_token: &str,
-) -> Result<Option<CachedRemoteConfig>, FlagError> {
+) -> Result<Option<Value>, FlagError> {
     let key = KeyType::string(api_token);
 
     let value = match reader.get(&key).await {
@@ -30,6 +32,7 @@ pub async fn get_cached_config(
         }
     };
 
+    // Handle null values
     if value.is_null() {
         return Ok(None);
     }
@@ -41,17 +44,7 @@ pub async fn get_cached_config(
         }
     }
 
-    match serde_json::from_value::<CachedRemoteConfig>(value) {
-        Ok(cached) => Ok(Some(cached)),
-        Err(err) => {
-            tracing::warn!(
-                api_token = %api_token,
-                error = %err,
-                "Failed to parse cached config"
-            );
-            Err(FlagError::Internal(format!("Config parse error: {}", err)))
-        }
-    }
+    Ok(Some(value))
 }
 
 #[cfg(test)]
@@ -59,7 +52,6 @@ mod tests {
     use super::*;
     use common_hypercache::HyperCacheConfig;
     use common_redis::MockRedisClient;
-    use std::sync::Arc;
 
     async fn create_test_reader(mock_redis: MockRedisClient) -> Arc<HyperCacheReader> {
         let config = HyperCacheConfig::new(
@@ -79,7 +71,6 @@ mod tests {
     #[tokio::test]
     async fn test_cache_miss_returns_none() {
         let mock_redis = MockRedisClient::new();
-        // Default mock returns cache miss
         let reader = create_test_reader(mock_redis).await;
 
         let result = get_cached_config(&reader, "phc_test").await;
