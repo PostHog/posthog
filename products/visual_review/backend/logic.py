@@ -169,6 +169,14 @@ def create_run(
             result=result,
         )
 
+    # Calculate initial summary counts from snapshot results
+    # These are known at creation time based on hash comparison
+    snapshots_list = list(run.snapshots.all())
+    run.changed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.CHANGED)
+    run.new_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.NEW)
+    run.removed_count = sum(1 for s in snapshots_list if s.result == SnapshotResult.REMOVED)
+    run.save(update_fields=["changed_count", "new_count", "removed_count"])
+
     missing_hashes = find_missing_hashes(project_id, list(all_hashes))
     return run, missing_hashes
 
