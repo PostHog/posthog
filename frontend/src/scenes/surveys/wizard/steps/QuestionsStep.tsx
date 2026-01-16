@@ -244,27 +244,32 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     if (question.type === SurveyQuestionType.Link) {
         const linkQuestion = question as LinkSurveyQuestion
         return (
-            <div className="space-y-2 pt-2 border-t border-border mt-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-secondary shrink-0">Button text:</span>
-                    <LemonInput
-                        size="xsmall"
-                        value={linkQuestion.buttonText || ''}
-                        placeholder="Learn more"
-                        onChange={(val) => onUpdate({ buttonText: val })}
-                        className="flex-1"
-                    />
+            <div className="space-y-3 pt-3 border-t border-border mt-3">
+                <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                        <span className="text-xs text-secondary block mb-1">Button text</span>
+                        <LemonInput
+                            size="xsmall"
+                            value={linkQuestion.buttonText || ''}
+                            placeholder="Learn more"
+                            onChange={(val) => onUpdate({ buttonText: val })}
+                            fullWidth
+                        />
+                    </div>
+                    <div className="flex-1">
+                        <span className="text-xs text-secondary block mb-1">Link URL</span>
+                        <LemonInput
+                            size="xsmall"
+                            value={linkQuestion.link || ''}
+                            placeholder="https://example.com"
+                            onChange={(val) => onUpdate({ link: val })}
+                            fullWidth
+                        />
+                    </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-secondary shrink-0">Link URL:</span>
-                    <LemonInput
-                        size="xsmall"
-                        value={linkQuestion.link || ''}
-                        placeholder="https://example.com"
-                        onChange={(val) => onUpdate({ link: val })}
-                        className="flex-1"
-                    />
-                </div>
+                <p className="text-xs text-secondary">
+                    Only https:// or mailto: links are supported. Leave empty for announcement-only.
+                </p>
             </div>
         )
     }
