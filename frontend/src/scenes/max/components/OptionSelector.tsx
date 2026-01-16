@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { cn } from 'lib/utils/css-classes'
 
 export interface Option {
@@ -44,6 +45,7 @@ export function OptionSelector({
     }, [selectedValue, initialCustomValue, options])
     const [showCustomInput, setShowCustomInput] = useState(isInitialCustomAnswer)
     const [customInput, setCustomInput] = useState(initialCustomValue ?? '')
+    const [selectedOption, setSelectedOption] = useState(selectedValue)
 
     useEffect(() => {
         if (disabled || loading) {
@@ -111,7 +113,19 @@ export function OptionSelector({
                 'gap-0.5': noDescriptions,
             })}
         >
-            {options.map((option, index) => (
+            <LemonRadio
+                value={selectedOption}
+                onChange={(value) => {
+                    setSelectedOption(value)
+                    setShowCustomInput(false)
+                }}
+                options={options.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                    description: o.description,
+                }))}
+            />
+            {/* {options.map((option, index) => (
                 <div key={option.value} className="flex items-center gap-2">
                     <div className="text-muted size-4 shrink-0 flex items-center justify-center">{index + 1}.</div>
                     <LemonButton
@@ -128,45 +142,56 @@ export function OptionSelector({
                         </span>
                     </LemonButton>
                 </div>
-            ))}
+            ))} */}
 
             {allowCustom && (
-                <div className="flex items-center gap-2">
-                    <div className="text-muted size-4 shrink-0 flex items-center justify-center">
-                        {options.length + 1}.
-                    </div>
+                <div className="grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm">
                     {showCustomInput ? (
                         <>
+                            <input type="radio" className="cursor-pointer" checked />
                             <LemonInput
                                 placeholder={customPlaceholder}
                                 fullWidth
                                 value={customInput}
-                                onChange={(newValue) => setCustomInput(newValue)}
+                                onChange={(newValue) => {
+                                    setCustomInput(newValue)
+                                    setSelectedOption('custom')
+                                }}
                                 onPressEnter={handleCustomSubmit}
                                 autoFocus={true}
                                 className="flex-grow"
                             />
-                            <LemonButton
-                                type="primary"
-                                onClick={handleCustomSubmit}
-                                disabledReason={!customInput.trim() ? 'Please type a response' : undefined}
-                            >
-                                Submit
-                            </LemonButton>
                         </>
                     ) : (
-                        <LemonButton
-                            onClick={() => setShowCustomInput(true)}
-                            type="tertiary"
-                            size="small"
-                            className="justify-start text-tertiary flex-grow h-[37px]"
-                            disabledReason={disabled ? 'Please wait' : undefined}
-                        >
-                            Type something...
-                        </LemonButton>
+                        <>
+                            <input
+                                type="radio"
+                                className="cursor-pointer"
+                                onClick={() => setShowCustomInput(!showCustomInput)}
+                                checked={showCustomInput}
+                                value="custom"
+                            />
+                            <LemonButton
+                                onClick={() => setShowCustomInput(true)}
+                                type="tertiary"
+                                size="small"
+                                className="justify-start text-tertiary flex-grow h-[37px]"
+                                disabledReason={disabled ? 'Please wait' : undefined}
+                            >
+                                Type something...
+                            </LemonButton>
+                        </>
                     )}
                 </div>
             )}
+
+            <LemonButton
+                type="primary"
+                disabledReason={!selectedOption ? 'Please select an option' : undefined}
+                onClick={() => onSelect(selectedOption ?? '')}
+            >
+                Next
+            </LemonButton>
         </div>
     )
 }
