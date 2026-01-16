@@ -27,5 +27,7 @@ py_test(
         "//products:non_isolated",  # Legacy products data (JSON, etc.)
         "@pypi//pytest",
         "@pypi//pytest_django",
+        "@pypi//freezegun",
+        "@pypi//syrupy",
     ],
 )
