@@ -34,6 +34,7 @@ import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService, HogInputsServiceHub } from './hog-inputs.service'
+import { PushSubscriptionsManagerService } from './managers/push-subscriptions-manager.service'
 import { EmailService, EmailServiceHub } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -55,6 +56,12 @@ const cdpHttpRequestTiming = new Histogram({
     name: 'cdp_http_request_timing_ms',
     help: 'Timing of HTTP requests',
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+const pushNotificationSentCounter = new Counter({
+    name: 'push_notification_sent_total',
+    help: 'Total number of push notifications successfully sent',
+    labelNames: ['platform'],
 })
 
 export async function cdpTrackedFetch({
@@ -141,11 +148,13 @@ export class HogExecutorService {
     private hogInputsService: HogInputsService
     private emailService: EmailService
     private recipientTokensService: RecipientTokensService
+    private pushSubscriptionsManager: PushSubscriptionsManagerService
 
     constructor(private hub: HogExecutorServiceHub) {
         this.recipientTokensService = new RecipientTokensService(hub)
         this.hogInputsService = new HogInputsService(hub)
         this.emailService = new EmailService(hub)
+        this.pushSubscriptionsManager = new PushSubscriptionsManagerService(hub.postgres, hub.encryptedFields)
     }
 
     async buildInputsWithGlobals(
@@ -724,6 +733,9 @@ export class HogExecutorService {
             body = undefined
         }
 
+        // Handle FCM push notification responses
+        await this.handleFcmResponse(params.url, params.body, fetchResponse?.status, body, invocation.teamId, addLog)
+
         const hogVmResponse: {
             status: number
             body: unknown
@@ -745,6 +757,93 @@ export class HogExecutorService {
         })
 
         return result
+    }
+
+    private async handleFcmResponse(
+        url: string,
+        requestBody: string | null | undefined,
+        status: number | undefined,
+        responseBody: unknown,
+        teamId: number,
+        addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
+    ): Promise<void> {
+        // Check if this is an FCM API call
+        if (!url.includes('fcm.googleapis.com/v1/projects/') || !url.includes('/messages:send')) {
+            return
+        }
+
+        // TODOdin: Don't we have a way to pass in the token?
+        let fcmToken: string | null = null
+
+        try {
+            if (requestBody && typeof requestBody === 'string') {
+                const parsedBody = parseJSON(requestBody) as any
+                fcmToken = parsedBody?.message?.token || null
+            }
+        } catch (e) {
+            // Failed to parse request body, skip FCM handling
+            return
+        }
+
+        if (!fcmToken) {
+            return
+        }
+        // Handle success (200-299)
+        if (status && status >= 200 && status < 300) {
+            if (fcmToken) {
+                try {
+                    await this.pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken(teamId, fcmToken)
+                    addLog('debug', `Updated last_successfully_used_at for FCM token`)
+                } catch (error) {
+                    addLog('warn', `Failed to update last_successfully_used_at for FCM token: ${error}`)
+                }
+            }
+            // FCM is used for Android push notifications
+            pushNotificationSentCounter.labels({ platform: 'android' }).inc()
+            return
+        }
+
+        // Handle 404 - unregistered token
+        if (status === 404) {
+            try {
+                await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'unregistered token')
+                addLog('info', `Deactivated push subscription token due to 404 (unregistered token)`)
+            } catch (error) {
+                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
+            }
+            return
+        }
+
+        // Handle 400 with INVALID_ARGUMENT error
+        if (status === 400) {
+            try {
+                let shouldDeactivate = false
+                if (responseBody && typeof responseBody === 'object') {
+                    const errorBody = responseBody as any
+                    const error = errorBody?.error
+                    if (error?.code === 400) {
+                        // Check for INVALID_ARGUMENT in details
+                        const details = error?.details || []
+                        for (const detail of details) {
+                            if (
+                                detail['@type'] === 'type.googleapis.com/google.firebase.fcm.v1.FcmError' &&
+                                detail.errorCode === 'INVALID_ARGUMENT'
+                            ) {
+                                shouldDeactivate = true
+                                break
+                            }
+                        }
+                    }
+                }
+
+                if (shouldDeactivate) {
+                    await this.pushSubscriptionsManager.deactivateToken(teamId, fcmToken, 'invalid token')
+                    addLog('info', `Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)`)
+                }
+            } catch (error) {
+                addLog('warn', `Failed to deactivate push subscription token: ${error}`)
+            }
+        }
     }
 
     getSensitiveValues(hogFunction: HogFunctionType, inputs: Record<string, any>): string[] {

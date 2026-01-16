@@ -111,7 +111,7 @@ export type HogFunctionInvocationGlobals = {
         token: string
         platform: 'android' | 'ios' | 'web'
         is_active: boolean
-        last_used_at: string | null
+        last_successfully_used_at: string | null
     }> // Push notification subscriptions for the event's distinct_id
 
     actions?: HogFunctionInvocationActionVariables

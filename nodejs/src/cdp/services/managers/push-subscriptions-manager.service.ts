@@ -1,3 +1,5 @@
+import { createHash } from 'crypto'
+
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
@@ -30,7 +32,7 @@ type PushSubscriptionRow = {
     token: string
     platform: 'android' | 'ios' | 'web'
     is_active: boolean
-    last_used_at: string | null
+    last_successfully_used_at: string | null
     created_at: string
     updated_at: string
 }
@@ -42,7 +44,7 @@ export type PushSubscription = {
     token: string
     platform: 'android' | 'ios' | 'web'
     is_active: boolean
-    last_used_at: string | null
+    last_successfully_used_at: string | null
     created_at: string
     updated_at: string
 }
@@ -82,31 +84,28 @@ export class PushSubscriptionsManagerService {
                 token,
                 platform,
                 is_active,
-                last_used_at,
+                last_successfully_used_at,
                 created_at,
                 updated_at
             FROM workflows_pushsubscription
             WHERE id = $1 AND team_id = $2 AND is_active = true
             LIMIT 1`
 
-        const response = await this.postgres.query<PushSubscriptionRow>(
-            PostgresUse.COMMON_READ,
-            queryString,
-            [subscriptionId, teamId],
-            'getPushSubscriptionById'
-        )
+        const rows = (
+            await this.postgres.query<PushSubscriptionRow>(
+                PostgresUse.COMMON_READ,
+                queryString,
+                [subscriptionId, teamId],
+                'getPushSubscriptionById'
+            )
+        ).rows
 
-        if (response.rows.length === 0) {
+        const row = rows[0] ?? null
+        if (!row) {
             return null
         }
 
-        const row = response.rows[0]
         const decryptedToken = this.encryptedFields.decrypt(row.token, { ignoreDecryptionErrors: true }) ?? row.token
-
-        // Update last_used_at asynchronously (don't wait for it)
-        this.updateLastUsedAt([subscriptionId]).catch((error) => {
-            logger.warn('[PushSubscriptionsManager]', 'Failed to update last_used_at', { error, subscriptionId })
-        })
 
         return {
             id: row.id,
@@ -115,7 +114,7 @@ export class PushSubscriptionsManagerService {
             token: decryptedToken,
             platform: row.platform,
             is_active: row.is_active,
-            last_used_at: row.last_used_at,
+            last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -127,29 +126,33 @@ export class PushSubscriptionsManagerService {
         logger.debug('[PushSubscriptionsManager]', 'Fetching push subscriptions', { subscriptionArgs })
 
         // Separate queries with and without platform filter for efficiency
-        const withPlatform: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
-        const withoutPlatform: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
+        const withPlatformFilter: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
+        const withoutPlatformFilter: Array<{ index: number; args: PushSubscriptionGetArgs }> = []
 
         subscriptionArgs.forEach((args, index) => {
             if (args.platform) {
-                withPlatform.push({ index, args })
+                withPlatformFilter.push({ index, args })
             } else {
-                withoutPlatform.push({ index, args })
+                withoutPlatformFilter.push({ index, args })
             }
         })
 
         const allResults: PushSubscriptionRow[] = []
 
         // Query subscriptions with platform filter
-        if (withPlatform.length > 0) {
-            const conditions = withPlatform
+        if (withPlatformFilter.length > 0) {
+            const conditions = withPlatformFilter
                 .map((_, idx) => {
                     const baseIdx = idx * 3
                     return `(team_id = $${baseIdx + 1} AND distinct_id = $${baseIdx + 2} AND platform = $${baseIdx + 3} AND is_active = true)`
                 })
                 .join(' OR ')
 
-            const params = withPlatform.flatMap((item) => [item.args.teamId, item.args.distinctId, item.args.platform!])
+            const params = withPlatformFilter.flatMap((item) => [
+                item.args.teamId,
+                item.args.distinctId,
+                item.args.platform!,
+            ])
 
             const queryString = `SELECT
                     id,
@@ -158,12 +161,12 @@ export class PushSubscriptionsManagerService {
                     token,
                     platform,
                     is_active,
-                    last_used_at,
+                    last_successfully_used_at,
                     created_at,
                     updated_at
                 FROM workflows_pushsubscription
                 WHERE ${conditions}
-                ORDER BY last_used_at DESC NULLS LAST, created_at DESC`
+                ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
 
             const response = await this.postgres.query<PushSubscriptionRow>(
                 PostgresUse.COMMON_READ,
@@ -176,15 +179,15 @@ export class PushSubscriptionsManagerService {
         }
 
         // Query subscriptions without platform filter
-        if (withoutPlatform.length > 0) {
-            const conditions = withoutPlatform
+        if (withoutPlatformFilter.length > 0) {
+            const conditions = withoutPlatformFilter
                 .map((_, idx) => {
                     const baseIdx = idx * 2
                     return `(team_id = $${baseIdx + 1} AND distinct_id = $${baseIdx + 2} AND is_active = true)`
                 })
                 .join(' OR ')
 
-            const params = withoutPlatform.flatMap((item) => [item.args.teamId, item.args.distinctId])
+            const params = withoutPlatformFilter.flatMap((item) => [item.args.teamId, item.args.distinctId])
 
             const queryString = `SELECT
                     id,
@@ -193,14 +196,14 @@ export class PushSubscriptionsManagerService {
                     token,
                     platform,
                     is_active,
-                    last_used_at,
+                    last_successfully_used_at,
                     created_at,
                     updated_at
                 FROM workflows_pushsubscription
                 WHERE ${conditions}
-                ORDER BY last_used_at DESC NULLS LAST, created_at DESC`
+                ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
 
-            const response = await this.postgres.query<PushSubscriptionRow>(
+            const response = await this.postgres.query<PushSubscription>(
                 PostgresUse.COMMON_READ,
                 queryString,
                 params,
@@ -210,10 +213,15 @@ export class PushSubscriptionsManagerService {
             allResults.push(...response.rows)
         }
 
-        const subscriptionRows = allResults
+        // Deduplicate results by id (same subscription could appear in both queries)
+        const uniqueRows = new Map<string, PushSubscriptionRow>()
+        for (const row of allResults) {
+            if (!uniqueRows.has(row.id)) {
+                uniqueRows.set(row.id, row)
+            }
+        }
 
-        // Collect unique subscription IDs to update last_used_at
-        const subscriptionIdsToUpdate = new Set<string>()
+        const subscriptionRows = Array.from(uniqueRows.values())
 
         // Group results by key
         const result: Record<string, PushSubscription[]> = {}
@@ -240,43 +248,64 @@ export class PushSubscriptionsManagerService {
                         token: decryptedToken,
                         platform: row.platform,
                         is_active: row.is_active,
-                        last_used_at: row.last_used_at,
+                        last_successfully_used_at: row.last_successfully_used_at,
                         created_at: row.created_at,
                         updated_at: row.updated_at,
                     })
-                    subscriptionIdsToUpdate.add(row.id)
                 }
             }
-        }
-
-        // Update last_used_at asynchronously (don't wait for it)
-        if (subscriptionIdsToUpdate.size > 0) {
-            this.updateLastUsedAt(Array.from(subscriptionIdsToUpdate)).catch((error) => {
-                logger.warn('[PushSubscriptionsManager]', 'Failed to update last_used_at', {
-                    error,
-                    count: subscriptionIdsToUpdate.size,
-                })
-            })
         }
 
         return result
     }
 
-    private async updateLastUsedAt(subscriptionIds: string[]): Promise<void> {
+    public async updateLastSuccessfullyUsedAt(subscriptionIds: string[]): Promise<void> {
         if (subscriptionIds.length === 0) {
             return
         }
 
         const placeholders = subscriptionIds.map((_, idx) => `$${idx + 1}`).join(', ')
         const queryString = `UPDATE workflows_pushsubscription
-            SET last_used_at = NOW()
+            SET last_successfully_used_at = NOW()
             WHERE id IN (${placeholders})`
 
         await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             queryString,
             subscriptionIds,
-            'updatePushSubscriptionLastUsedAt'
+            'updatePushSubscriptionLastSuccessfullyUsedAt'
         )
+    }
+
+    public async updateLastSuccessfullyUsedAtByToken(teamId: number, token: string): Promise<void> {
+        const tokenHash = this.hashToken(token)
+        const queryString = `UPDATE workflows_pushsubscription
+            SET last_successfully_used_at = NOW()
+            WHERE team_id = $1 AND token_hash = $2 AND is_active = true`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            [teamId, tokenHash],
+            'updatePushSubscriptionLastSuccessfullyUsedAtByToken'
+        )
+    }
+
+    public async deactivateToken(teamId: number, token: string, reason: string): Promise<void> {
+        const tokenHash = this.hashToken(token)
+        const queryString = `UPDATE workflows_pushsubscription
+            SET is_active = false, disabled_reason = $1
+            WHERE team_id = $2 AND token_hash = $3 AND is_active = true`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            [reason, teamId, tokenHash],
+            'deactivatePushSubscriptionToken'
+        )
+    }
+
+    private hashToken(token: string): string {
+        return createHash('sha256').update(token, 'utf-8').digest('hex')
     }
 }
