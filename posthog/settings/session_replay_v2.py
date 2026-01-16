@@ -26,4 +26,5 @@ SESSION_RECORDING_V2_S3_REGION = os.getenv("SESSION_RECORDING_V2_S3_REGION", "us
 SESSION_RECORDING_V2_S3_BUCKET = os.getenv("SESSION_RECORDING_V2_S3_BUCKET", "posthog")
 SESSION_RECORDING_V2_S3_PREFIX = os.getenv("SESSION_RECORDING_V2_S3_PREFIX", "session_recordings")
 
-RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6740")
+RECORDING_API_URL = os.getenv("RECORDING_API_URL", "http://localhost:6738")
+RECORDING_API_ENABLED = get_from_env("RECORDING_API_ENABLED", True if DEBUG else False, type_cast=str_to_bool)

@@ -1,3 +1,4 @@
+import re
 import abc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -761,13 +762,21 @@ class EncryptedBlockStorage:
         self.session = session
         self.base_url = base_url.rstrip("/")
 
-    def _build_s3_uri(self, block_url: str) -> str:
+    def _parse_block_url(self, block_url: str) -> tuple[str, int, int]:
         """
-        Convert a block URL to the s3:// URI format expected by the Recording API.
+        Parse a block URL to extract the key, start byte, and end byte.
 
-        The block_url is already in the format: s3://bucket/key?range=bytes=start-end
+        The block_url is in the format: s3://bucket/key?range=bytes=start-end
+        Returns a tuple of (key, start, end).
         """
-        return block_url
+        parsed = urlparse(block_url)
+        key = parsed.path.lstrip("/")
+
+        match = re.match(r"^range=bytes=(\d+)-(\d+)$", parsed.query)
+        if not match:
+            raise ValueError(f"Invalid range format: {parsed.query}")
+
+        return key, int(match.group(1)), int(match.group(2))
 
     async def fetch_block_bytes(self, block_url: str, session_id: str, team_id: int) -> bytes:
         """
@@ -775,11 +784,11 @@ class EncryptedBlockStorage:
 
         Returns the decrypted but still snappy-compressed block bytes.
         """
-        s3_uri = self._build_s3_uri(block_url)
+        key, start, end = self._parse_block_url(block_url)
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
 
         try:
-            async with self.session.get(url, params={"uri": s3_uri}) as response:
+            async with self.session.get(url, params={"key": key, "start": start, "end": end}) as response:
                 if response.status == 404:
                     raise RecordingApiFetchError("Block not found")
                 response.raise_for_status()

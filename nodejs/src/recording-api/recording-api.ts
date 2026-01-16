@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { GetObjectCommand, S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import express from 'ultimate-express'
 
 import { RetentionService } from '../session-recording/retention/retention-service'
@@ -16,14 +16,9 @@ import { logger } from '../utils/logger'
 import { BaseKeyStore, getKeyStore } from './keystore'
 import { BaseRecordingDecryptor, getBlockDecryptor } from './recording-io'
 
-interface ParsedS3Uri {
-    bucket: string
-    key: string
-    range: string
-}
-
 export class RecordingApi {
     private s3Client: S3Client | null = null
+    private s3Bucket: string | null = null
     private keyStore: BaseKeyStore | null = null
     private decryptor: BaseRecordingDecryptor | null = null
     private keystoreRedisPool: RedisPool | null = null
@@ -39,13 +34,35 @@ export class RecordingApi {
     }
 
     async start(): Promise<void> {
-        const region = this.hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        // Load S3 settings
+        const s3Region = this.hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const s3Endpoint = this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined
+        const s3AccessKeyId = this.hub.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+        const s3SecretAccessKey = this.hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
 
-        this.s3Client = new S3Client({
-            region,
-            endpoint: this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined,
-            forcePathStyle: this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ? true : undefined,
+        this.s3Bucket = this.hub.SESSION_RECORDING_V2_S3_BUCKET
+
+        logger.info('[RecordingApi] Starting with S3 config', {
+            region: s3Region,
+            endpoint: s3Endpoint,
+            bucket: this.s3Bucket,
+            hasCredentials: !!(s3AccessKeyId && s3SecretAccessKey),
         })
+
+        const s3Config: S3ClientConfig = {
+            region: s3Region,
+            endpoint: s3Endpoint,
+            forcePathStyle: s3Endpoint ? true : undefined,
+        }
+
+        if (s3AccessKeyId && s3SecretAccessKey) {
+            s3Config.credentials = {
+                accessKeyId: s3AccessKeyId,
+                secretAccessKey: s3SecretAccessKey,
+            }
+        }
+
+        this.s3Client = new S3Client(s3Config)
 
         const teamService = new TeamService(this.hub.postgres)
         const redisPool = createRedisPoolFromConfig({
@@ -63,25 +80,23 @@ export class RecordingApi {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
-        this.keyStore = getKeyStore(teamService, retentionService, region, {
+        this.keyStore = getKeyStore(teamService, retentionService, s3Region, {
             redisPool: this.keystoreRedisPool,
             redisCacheEnabled: true,
         })
         await this.keyStore.start()
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
+
+        logger.info('[RecordingApi] Started successfully')
     }
 
     async stop(): Promise<void> {
         this.s3Client?.destroy()
-        this.s3Client = null
-        this.keyStore?.destroy()
-        this.keyStore = null
-        this.decryptor = null
+        this.keyStore?.stop()
         if (this.keystoreRedisPool) {
             await this.keystoreRedisPool.drain()
             await this.keystoreRedisPool.clear()
-            this.keystoreRedisPool = null
         }
     }
 
@@ -121,45 +136,42 @@ export class RecordingApi {
         return router
     }
 
-    private parseS3Uri(uri: string): ParsedS3Uri | null {
-        try {
-            const url = new URL(uri)
-            if (url.protocol !== 's3:') {
-                return null
-            }
-
-            const bucket = url.hostname
-            const key = url.pathname.slice(1) // Remove leading slash
-            const range = url.searchParams.get('range')
-
-            if (!range) {
-                return null
-            }
-
-            return { bucket, key, range }
-        } catch {
-            return null
-        }
-    }
-
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
         const { team_id, session_id } = req.params
-        const { uri } = req.query
+        const { key, start, end } = req.query
 
-        if (!uri || typeof uri !== 'string') {
-            res.status(400).json({ error: 'Missing or invalid uri query parameter' })
+        logger.info('[RecordingApi] getBlock request', {
+            team_id,
+            session_id,
+            key,
+            start,
+            end,
+        })
+
+        if (!key || typeof key !== 'string') {
+            res.status(400).json({ error: 'Missing or invalid key query parameter' })
             return
         }
 
-        const parsed = this.parseS3Uri(uri)
-        if (!parsed) {
-            res.status(400).json({
-                error: 'Invalid S3 URI format. Expected: s3://bucket/key?range=bytes=start-end (range is required)',
-            })
+        if (!start || typeof start !== 'string') {
+            res.status(400).json({ error: 'Missing or invalid start query parameter' })
             return
         }
 
-        if (!this.s3Client) {
+        if (!end || typeof end !== 'string') {
+            res.status(400).json({ error: 'Missing or invalid end query parameter' })
+            return
+        }
+
+        const startByte = parseInt(start, 10)
+        const endByte = parseInt(end, 10)
+
+        if (isNaN(startByte) || isNaN(endByte)) {
+            res.status(400).json({ error: 'start and end must be valid integers' })
+            return
+        }
+
+        if (!this.s3Client || !this.s3Bucket) {
             res.status(503).json({ error: 'S3 client not initialized' })
             return
         }
@@ -171,36 +183,64 @@ export class RecordingApi {
 
         try {
             const command = new GetObjectCommand({
-                Bucket: parsed.bucket,
-                Key: parsed.key,
-                Range: parsed.range,
+                Bucket: this.s3Bucket,
+                Key: key,
+                Range: `bytes=${startByte}-${endByte}`,
+            })
+
+            logger.debug('[RecordingApi] Fetching from S3', {
+                bucket: this.s3Bucket,
+                key,
+                range: `bytes=${startByte}-${endByte}`,
             })
 
             const response = await this.s3Client.send(command)
 
             if (!response.Body) {
+                logger.debug('[RecordingApi] S3 returned no body', { key })
                 res.status(404).json({ error: 'Block not found' })
                 return
             }
 
             const bodyContents = await response.Body.transformToByteArray()
+            logger.debug('[RecordingApi] S3 returned data', {
+                key,
+                bytesReceived: bodyContents.length,
+            })
+
             const decrypted = await this.decryptor.decryptBlock(
                 session_id,
                 parseInt(team_id),
                 Buffer.from(bodyContents)
             )
 
+            logger.debug('[RecordingApi] Decrypted block', {
+                session_id,
+                team_id,
+                inputSize: bodyContents.length,
+                outputSize: decrypted.length,
+            })
+
             res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(decrypted.length))
             res.send(decrypted)
         } catch (error) {
-            logger.error('[RecordingApi] Error fetching block from S3', { error, uri, team_id, session_id })
+            logger.error('[RecordingApi] Error fetching block from S3', {
+                error,
+                key,
+                start: startByte,
+                end: endByte,
+                team_id,
+                session_id,
+            })
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         }
     }
 
     private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
         const { team_id, session_id } = req.params
+
+        logger.info('[RecordingApi] deleteRecording request', { team_id, session_id })
 
         if (!this.keyStore) {
             res.status(503).json({ error: 'KeyStore not initialized' })
@@ -209,6 +249,7 @@ export class RecordingApi {
 
         try {
             const deleted = await this.keyStore.deleteKey(session_id, parseInt(team_id))
+            logger.debug('[RecordingApi] deleteKey result', { team_id, session_id, deleted })
             if (deleted) {
                 res.json({ team_id, session_id, status: 'deleted' })
             } else {
