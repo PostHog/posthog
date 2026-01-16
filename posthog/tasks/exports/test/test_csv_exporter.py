@@ -627,8 +627,8 @@ class TestCSVExporter(APIBaseTest):
         exported_asset.save()
         mocked_uuidt.return_value = "a-guid"
 
-        with patch("posthog.tasks.exports.csv_exporter.get_from_hogql_query") as mocked_get_from_hogql_query:
-            mocked_get_from_hogql_query.return_value = iter([])
+        with patch("posthog.tasks.exports.csv_exporter.get_from_query") as mocked_get_from_query:
+            mocked_get_from_query.return_value = iter([])
 
             with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
                 csv_exporter.export_tabular(exported_asset)
