@@ -3,54 +3,59 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
 import { NotebookRunMode, buildRunMenuItems } from './runMenuItems'
 
-export type PythonRunMode = NotebookRunMode
+export type DuckSqlRunMode = NotebookRunMode
 
-type PythonRunMenuProps = {
+type DuckSqlRunMenuProps = {
     isFresh: boolean
     isStale: boolean
     loading: boolean
     queued: boolean
     disabledReason?: string
-    onRun: (mode: PythonRunMode) => void
+    onRun: (mode: DuckSqlRunMode) => void
 }
 
-export const PythonRunMenu = ({
+export const DuckSqlRunMenu = ({
     isFresh,
     isStale,
     loading,
     queued,
     disabledReason,
     onRun,
-}: PythonRunMenuProps): JSX.Element => {
+}: DuckSqlRunMenuProps): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const pythonRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
-    const pythonRunTooltip = `Run Python cell.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
+    const duckSqlRunIconClass = isFresh ? 'text-success' : isStale ? 'text-danger' : undefined
+    const duckSqlRunTooltip = `Run SQL (duckdb) query.${queued ? ' Queued.' : isStale ? ' Stale.' : ''}`
 
-    const pythonRunMenuItems: LemonMenuItems = [
-        ...buildRunMenuItems(onRun),
-        {
+    const duckSqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
+
+    if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+        duckSqlRunMenuItems.push({
             label: 'Toggle kernel info',
             onClick: () => setShowKernelInfo(!showKernelInfo),
-        },
-    ]
+        })
+    }
 
     return (
         <LemonButton
             onClick={() => onRun('auto')}
             size="small"
-            icon={<IconPlay className={pythonRunIconClass} />}
+            icon={<IconPlay className={duckSqlRunIconClass} />}
             loading={loading || queued}
             disabledReason={disabledReason}
-            tooltip={pythonRunTooltip}
+            tooltip={duckSqlRunTooltip}
             sideAction={{
                 icon: <IconChevronDown />,
                 dropdown: {
                     placement: 'bottom-end',
-                    overlay: <LemonMenuOverlay items={pythonRunMenuItems} />,
+                    overlay: <LemonMenuOverlay items={duckSqlRunMenuItems} />,
                 },
                 divider: false,
                 'aria-label': 'Open run options',

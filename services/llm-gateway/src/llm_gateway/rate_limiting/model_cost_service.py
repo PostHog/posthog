@@ -10,7 +10,7 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
 logger = structlog.get_logger(__name__)
 
-TARGET_LIMIT_COST_PER_HOUR: Final[float] = 60.0
+TARGET_LIMIT_COST_PER_HOUR: Final[float] = 20.0
 CACHE_TTL_SECONDS: Final[int] = 300
 
 

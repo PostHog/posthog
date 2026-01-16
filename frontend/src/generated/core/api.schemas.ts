@@ -2441,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2480,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
