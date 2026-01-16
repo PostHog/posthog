@@ -784,7 +784,21 @@ jobs:
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
             # absolute wild tbh https://stackoverflow.com/a/75503402
-            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
+            
+            # Cache apt packages to reduce network dependency and flakiness
+            - name: Cache Qt library packages
+              id: cache-qt-libs
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      /var/cache/apt/archives
+                      /var/lib/apt/lists
+                  key: qt-libs-${{ runner.os }}-${{ hashFiles('.github/workflows/ci-backend.yml') }}
+                  restore-keys: |
+                      qt-libs-${{ runner.os }}-
+            
+            - name: Setup Qt libraries
+              uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
               shell: bash
