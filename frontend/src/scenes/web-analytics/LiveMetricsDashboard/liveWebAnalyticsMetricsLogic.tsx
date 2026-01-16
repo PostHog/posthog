@@ -287,8 +287,7 @@ const loadQueryData = async (
                     arrayDistinct(groupArray(distinct_id)) AS distinct_users, 
                     count() as total 
                 FROM events 
-                WHERE 
-                    event = '$pageview' AND
+                WHERE
                     timestamp >= toDateTime({dateFrom}) AND
                     timestamp <= toDateTime({dateTo}) 
                 GROUP BY 
