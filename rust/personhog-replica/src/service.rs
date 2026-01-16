@@ -24,14 +24,14 @@ use tonic::{Request, Response, Status};
 use tracing::error;
 use uuid::Uuid;
 
-use crate::storage::{self, PersonStorage};
+use crate::storage::{self, FullStorage};
 
 pub struct PersonHogReplicaService {
-    storage: Arc<dyn PersonStorage>,
+    storage: Arc<dyn FullStorage>,
 }
 
 impl PersonHogReplicaService {
-    pub fn new(storage: Arc<dyn PersonStorage>) -> Self {
+    pub fn new(storage: Arc<dyn FullStorage>) -> Self {
         Self { storage }
     }
 }
@@ -692,18 +692,8 @@ mod tests {
         }
     }
 
-    impl Clone for storage::StorageError {
-        fn clone(&self) -> Self {
-            match self {
-                Self::Connection(msg) => Self::Connection(msg.clone()),
-                Self::Query(msg) => Self::Query(msg.clone()),
-                Self::PoolExhausted => Self::PoolExhausted,
-            }
-        }
-    }
-
     #[async_trait]
-    impl storage::PersonStorage for FailingStorage {
+    impl storage::PersonLookup for FailingStorage {
         async fn get_person_by_id(
             &self,
             _team_id: i64,
@@ -758,7 +748,10 @@ mod tests {
         ) -> storage::StorageResult<Vec<((i64, String), Option<storage::Person>)>> {
             Err(self.error.clone())
         }
+    }
 
+    #[async_trait]
+    impl storage::DistinctIdLookup for FailingStorage {
         async fn get_distinct_ids_for_person(
             &self,
             _team_id: i64,
@@ -774,7 +767,10 @@ mod tests {
         ) -> storage::StorageResult<Vec<storage::DistinctIdMapping>> {
             Err(self.error.clone())
         }
+    }
 
+    #[async_trait]
+    impl storage::FeatureFlagStorage for FailingStorage {
         async fn get_person_ids_and_hash_key_overrides(
             &self,
             _team_id: i64,
@@ -790,7 +786,10 @@ mod tests {
         ) -> storage::StorageResult<Vec<storage::PersonIdWithOverrideKeys>> {
             Err(self.error.clone())
         }
+    }
 
+    #[async_trait]
+    impl storage::CohortStorage for FailingStorage {
         async fn check_cohort_membership(
             &self,
             _person_id: i64,
@@ -798,7 +797,10 @@ mod tests {
         ) -> storage::StorageResult<Vec<storage::CohortMembership>> {
             Err(self.error.clone())
         }
+    }
 
+    #[async_trait]
+    impl storage::GroupStorage for FailingStorage {
         async fn get_group(
             &self,
             _team_id: i64,

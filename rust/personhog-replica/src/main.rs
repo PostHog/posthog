@@ -15,7 +15,7 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
-use personhog_replica::storage::{postgres::PostgresStorage, PersonStorage};
+use personhog_replica::storage::{postgres::PostgresStorage, FullStorage};
 
 common_alloc::used!();
 
@@ -34,7 +34,7 @@ async fn shutdown_signal() {
     tracing::info!("Shutting down gracefully...");
 }
 
-async fn create_storage(config: &Config) -> Arc<dyn PersonStorage> {
+async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
     match config.storage_backend.as_str() {
         "postgres" => {
             let pool_config = PoolConfig {
