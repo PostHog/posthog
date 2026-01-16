@@ -21,5 +21,6 @@ export function shouldLinkToPersonPage(key: string, value: string): boolean {
 }
 
 export function shouldLinkToSessionReplay(key: string, value: string): boolean {
-    return isSessionIdKey(key) && value.length > 0
+    // Similar logic to ViewRecordingButton - check if session ID exists and is meaningful
+    return isSessionIdKey(key) && !!value && value.trim().length > 0
 }
