@@ -129,7 +129,7 @@ class TestNodeNameSync(BaseTest):
         self.assertEqual(node1.name, "renamed_view")
         self.assertEqual(node2.name, "renamed_view")
 
-    def test_multiple_nodes_cannot_share_saved_query_in_same_sag(self):
+    def test_multiple_nodes_cannot_share_saved_query_in_same_dag(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="shared_view",
             team=self.team,
