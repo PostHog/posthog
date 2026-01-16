@@ -201,6 +201,13 @@ jobs:
                   key: bazel-disk-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'requirements_lock.txt') }}
                   restore-keys: bazel-disk-${{ runner.os }}-
 
+            # uv needed for requirements_lock.txt generation in determinator
+            - name: Install uv (for lockfile generation)
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.9.9
+
             - name: Determine affected tests (diff-as-seed)
               id: determinator
               if: github.event_name == 'pull_request'
