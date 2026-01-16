@@ -1,0 +1,32 @@
+#
+# Traefik reverse proxy for multi-worktree development
+# Routes <branch>.localhost to the appropriate backend ports
+#
+# Start with: docker compose -f docker-compose.traefik.yml up -d
+# Dashboard: http://traefik.localhost or http://localhost:8080
+#
+
+services:
+    traefik:
+        image: traefik:v3.2
+        container_name: posthog-traefik
+        restart: unless-stopped
+        ports:
+            # HTTP entrypoint - main access point
+            - '80:80'
+            # Traefik dashboard
+            - '8080:8080'
+        volumes:
+            # Static configuration
+            - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+            # Dynamic configuration directory (watched for changes)
+            # Uses ~/.config/posthog-worktrees/traefik/dynamic for worktree configs
+            - ${HOME}/.config/posthog-worktrees/traefik/dynamic:/etc/traefik/dynamic:ro
+        extra_hosts:
+            # Allow Traefik to reach services running on host
+            - 'host.docker.internal:host-gateway'
+        healthcheck:
+            test: ['CMD', 'traefik', 'healthcheck', '--ping']
+            interval: 10s
+            timeout: 5s
+            retries: 3

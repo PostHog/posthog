@@ -1,0 +1,41 @@
+# Traefik Static Configuration
+# This file is loaded at startup and requires restart for changes
+#
+# Dynamic configuration (worktree routes) is in ./dynamic/
+# and hot-reloads automatically
+
+api:
+    dashboard: true
+    insecure: true # Dashboard at http://localhost:8080
+
+ping:
+    entryPoint: web
+
+log:
+    level: INFO
+    # level: DEBUG  # Uncomment for troubleshooting
+
+accessLog:
+    format: json
+    fields:
+        headers:
+            defaultMode: drop
+            names:
+                User-Agent: keep
+                Host: keep
+
+# Entrypoints define the ports Traefik listens on
+entryPoints:
+    web:
+        address: ':80'
+
+# File provider watches the dynamic config directory
+providers:
+    file:
+        directory: /etc/traefik/dynamic
+        watch: true
+
+# Global settings
+global:
+    checkNewVersion: false
+    sendAnonymousUsage: false

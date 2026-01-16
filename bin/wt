@@ -1,0 +1,1306 @@
+#!/usr/bin/env bash
+#
+# wt - PostHog Worktree Manager
+#
+# Manage multiple isolated PostHog development environments with subdomain routing.
+# Each worktree gets its own:
+#   - Git worktree directory
+#   - Set of ports (deterministically allocated)
+#   - PostgreSQL databases
+#   - ClickHouse database
+#   - Traefik routing config
+#   - mprocs config
+#
+# Usage:
+#   wt create <branch> [--go]  Create worktree and optionally start services
+#   wt list                    List all worktrees with status and URLs
+#   wt status                  Show current worktree status
+#   wt switch                  Fuzzy-find and switch worktrees (requires fzf)
+#   wt delete <name>           Delete worktree and clean up resources
+#   wt start                   Start services for current worktree
+#   wt stop                    Stop services for current worktree
+#   wt open [service]          Open worktree URL in browser
+#   wt traefik start|stop      Start or stop Traefik proxy
+#
+# Prerequisites:
+#   - fzf (optional, for switch command)
+#   - jq (for JSON manipulation)
+#   - mprocs (for process management)
+#   - Docker (for Traefik and databases)
+#
+
+set -eo pipefail
+
+# === Configuration ===
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WORKTREE_ROOT="${WORKTREE_ROOT:-$(dirname "$REPO_ROOT")/posthog-worktrees}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/posthog-worktrees"
+PORT_REGISTRY="$CONFIG_DIR/ports.json"
+TRAEFIK_DYNAMIC="$CONFIG_DIR/traefik/dynamic"
+MPROCS_CONFIG_DIR="$CONFIG_DIR/mprocs"
+
+# Base ports (slot 0) - using a function instead of associative array for compatibility
+get_base_port() {
+    local service="$1"
+    case "$service" in
+        backend) echo 8000 ;;
+        capture) echo 3307 ;;
+        capture_replay) echo 3306 ;;
+        capture_ai) echo 3309 ;;
+        feature_flags) echo 3001 ;;
+        plugins) echo 6738 ;;
+        livestream) echo 8666 ;;
+        property_defs) echo 3300 ;;
+        cymbal) echo 3302 ;;
+        embedding) echo 3305 ;;
+        batch_import) echo 3301 ;;
+        cyclotron) echo 3303 ;;
+        llm_gateway) echo 3308 ;;
+        frontend) echo 5173 ;;
+        dagster) echo 3030 ;;
+        *) echo 0 ;;
+    esac
+}
+
+# All services for iteration
+ALL_SERVICES="backend capture capture_replay capture_ai feature_flags plugins livestream property_defs cymbal embedding batch_import cyclotron llm_gateway frontend dagster"
+
+# Port offset per slot
+PORT_OFFSET=10
+MAX_SLOTS=10
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# === Helper Functions ===
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*"
+}
+
+log_success() {
+    echo -e "${GREEN}[OK]${NC} $*"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $*"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" >&2
+}
+
+ensure_dependencies() {
+    local missing=()
+
+    if ! command -v jq &>/dev/null; then
+        missing+=("jq")
+    fi
+
+    if ! command -v docker &>/dev/null; then
+        missing+=("docker")
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required dependencies: ${missing[*]}"
+        exit 1
+    fi
+}
+
+ensure_directories() {
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$MPROCS_CONFIG_DIR"
+    mkdir -p "$WORKTREE_ROOT"
+    mkdir -p "$TRAEFIK_DYNAMIC"
+
+    # Initialize port registry if it doesn't exist
+    if [[ ! -f "$PORT_REGISTRY" ]]; then
+        echo '{}' > "$PORT_REGISTRY"
+    fi
+
+    # Create Traefik defaults config if it doesn't exist
+    if [[ ! -f "$TRAEFIK_DYNAMIC/_defaults.yml" ]]; then
+        cat > "$TRAEFIK_DYNAMIC/_defaults.yml" << 'DEFAULTS'
+# Shared middleware definitions for all worktrees
+
+http:
+  middlewares:
+    # Strip /livestream prefix before forwarding
+    strip-livestream:
+      stripPrefix:
+        prefixes:
+          - "/livestream"
+
+    # Add headers for reverse proxy identification
+    proxy-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"
+DEFAULTS
+    fi
+}
+
+# Sanitize branch name for DNS-compatible subdomain
+sanitize_branch() {
+    local branch="$1"
+    echo "$branch" | \
+        tr '/' '-' | \
+        tr '[:upper:]' '[:lower:]' | \
+        sed 's/[^a-z0-9-]/-/g' | \
+        sed 's/--*/-/g' | \
+        sed 's/^-//' | \
+        sed 's/-$//' | \
+        cut -c1-63
+}
+
+# Get current worktree name from git
+get_current_worktree() {
+    local branch
+    branch=$(git -C "$PWD" branch --show-current 2>/dev/null || echo "")
+    if [[ -n "$branch" ]]; then
+        sanitize_branch "$branch"
+    fi
+}
+
+# Get Docker container name (handles both posthog-db and posthog-db-1 naming)
+get_container_name() {
+    local base_name="$1"
+    # Try exact match first, then with -1 suffix (docker compose v2)
+    if docker ps --format '{{.Names}}' | grep -q "^${base_name}$"; then
+        echo "$base_name"
+    elif docker ps --format '{{.Names}}' | grep -q "^${base_name}-1$"; then
+        echo "${base_name}-1"
+    else
+        echo ""
+    fi
+}
+
+# Check if a container is running
+is_container_running() {
+    local base_name="$1"
+    [[ -n "$(get_container_name "$base_name")" ]]
+}
+
+# Check if we're in the main repo or a worktree
+get_worktree_path() {
+    local name="$1"
+    if [[ "$name" == "master" || "$name" == "main" ]]; then
+        echo "$REPO_ROOT"
+    else
+        echo "$WORKTREE_ROOT/$name"
+    fi
+}
+
+# === Port Management ===
+
+# Allocate a slot for a worktree
+allocate_slot() {
+    local name="$1"
+    local registry
+    registry=$(cat "$PORT_REGISTRY")
+
+    # Check if already allocated
+    local existing_slot
+    existing_slot=$(echo "$registry" | jq -r --arg name "$name" '.[$name].slot // empty')
+    if [[ -n "$existing_slot" ]]; then
+        echo "$existing_slot"
+        return 0
+    fi
+
+    # Find first available slot
+    local used_slots
+    used_slots=$(echo "$registry" | jq -r '.[].slot // empty' | sort -n)
+
+    local slot=0
+    while [[ $slot -lt $MAX_SLOTS ]]; do
+        if ! echo "$used_slots" | grep -q "^${slot}$"; then
+            break
+        fi
+        ((slot++))
+    done
+
+    if [[ $slot -ge $MAX_SLOTS ]]; then
+        log_error "No available slots (max: $MAX_SLOTS)"
+        exit 1
+    fi
+
+    # Register the slot
+    local updated
+    updated=$(echo "$registry" | jq --arg name "$name" --argjson slot "$slot" \
+        '.[$name] = {"slot": $slot, "created": now | todate}')
+    echo "$updated" > "$PORT_REGISTRY"
+
+    echo "$slot"
+}
+
+# Get port for a service and worktree
+get_port() {
+    local name="$1"
+    local service="$2"
+
+    local slot
+    slot=$(jq -r --arg name "$name" '.[$name].slot // 0' "$PORT_REGISTRY")
+
+    local base_port
+    base_port=$(get_base_port "$service")
+    if [[ "$base_port" -eq 0 ]]; then
+        log_error "Unknown service: $service"
+        return 1
+    fi
+
+    echo $((base_port + slot * PORT_OFFSET))
+}
+
+# Free a slot
+free_slot() {
+    local name="$1"
+    local registry
+    registry=$(cat "$PORT_REGISTRY")
+
+    local updated
+    updated=$(echo "$registry" | jq --arg name "$name" 'del(.[$name])')
+    echo "$updated" > "$PORT_REGISTRY"
+}
+
+# === Database Management ===
+
+# Create PostgreSQL databases for a worktree
+create_postgres_databases() {
+    local name="$1"
+    local db_prefix="wt_${name//-/_}"
+    local db_container
+    db_container=$(get_container_name "posthog-db")
+
+    if [[ -z "$db_container" ]]; then
+        log_error "PostgreSQL container not found"
+        return 1
+    fi
+
+    log_info "Creating PostgreSQL databases for $name..."
+
+    # Wait for postgres to be ready
+    local max_attempts=30
+    local attempt=0
+    while ! docker exec "$db_container" pg_isready -U posthog &>/dev/null; do
+        ((attempt++))
+        if [[ $attempt -ge $max_attempts ]]; then
+            log_error "PostgreSQL not ready after ${max_attempts} attempts"
+            return 1
+        fi
+        sleep 1
+    done
+
+    # Create databases from templates or empty
+    local databases=("posthog" "posthog_persons" "cyclotron" "ducklake" "behavioral_cohorts")
+
+    for db in "${databases[@]}"; do
+        local new_db="${db_prefix}_${db}"
+        local template_db="$db"
+
+        # Check if database already exists
+        if docker exec "$db_container" psql -U posthog -lqt | cut -d \| -f 1 | grep -qw "$new_db"; then
+            log_info "Database $new_db already exists, skipping"
+            continue
+        fi
+
+        # Check if template exists
+        if docker exec "$db_container" psql -U posthog -lqt | cut -d \| -f 1 | grep -qw "$template_db"; then
+            # Terminate connections to template
+            docker exec "$db_container" psql -U posthog -d postgres -c \
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$template_db' AND pid <> pg_backend_pid();" \
+                >/dev/null 2>&1 || true
+
+            # Create from template
+            if docker exec "$db_container" psql -U posthog -d postgres -c \
+                "CREATE DATABASE \"$new_db\" WITH TEMPLATE \"$template_db\";" 2>/dev/null; then
+                log_success "Created $new_db from template $template_db"
+            else
+                # Template might be in use, create empty
+                docker exec "$db_container" psql -U posthog -d postgres -c \
+                    "CREATE DATABASE \"$new_db\";" 2>/dev/null || true
+                log_warn "Created empty $new_db (template was in use)"
+            fi
+        else
+            # Create empty database
+            docker exec "$db_container" psql -U posthog -d postgres -c \
+                "CREATE DATABASE \"$new_db\";" 2>/dev/null || true
+            log_info "Created empty $new_db"
+        fi
+    done
+}
+
+# Drop PostgreSQL databases for a worktree
+drop_postgres_databases() {
+    local name="$1"
+    local db_prefix="wt_${name//-/_}"
+    local db_container
+    db_container=$(get_container_name "posthog-db")
+
+    if [[ -z "$db_container" ]]; then
+        log_warn "PostgreSQL container not found, skipping database drop"
+        return 0
+    fi
+
+    log_info "Dropping PostgreSQL databases for $name..."
+
+    # Get list of databases with this prefix
+    local databases
+    databases=$(docker exec "$db_container" psql -U posthog -lqt | cut -d \| -f 1 | grep "^[[:space:]]*${db_prefix}" | tr -d ' ' || true)
+
+    for db in $databases; do
+        # Terminate connections
+        docker exec "$db_container" psql -U posthog -d postgres -c \
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" \
+            >/dev/null 2>&1 || true
+
+        # Drop database
+        if docker exec "$db_container" psql -U posthog -d postgres -c "DROP DATABASE IF EXISTS \"$db\";" 2>/dev/null; then
+            log_success "Dropped database $db"
+        fi
+    done
+}
+
+# Create ClickHouse database for a worktree
+create_clickhouse_database() {
+    local name="$1"
+    local db_name="wt_${name//-/_}_posthog"
+    local ch_container
+    ch_container=$(get_container_name "posthog-clickhouse")
+
+    if [[ -z "$ch_container" ]]; then
+        log_warn "ClickHouse container not found, skipping"
+        return 0
+    fi
+
+    log_info "Creating ClickHouse database for $name..."
+
+    # Wait for ClickHouse to be ready
+    local max_attempts=30
+    local attempt=0
+    while ! docker exec "$ch_container" clickhouse-client --query "SELECT 1" &>/dev/null; do
+        ((attempt++))
+        if [[ $attempt -ge $max_attempts ]]; then
+            log_error "ClickHouse not ready after ${max_attempts} attempts"
+            return 1
+        fi
+        sleep 1
+    done
+
+    # Create database
+    docker exec "$ch_container" clickhouse-client --query \
+        "CREATE DATABASE IF NOT EXISTS $db_name" 2>/dev/null
+
+    log_success "Created ClickHouse database $db_name"
+}
+
+# Drop ClickHouse database for a worktree
+drop_clickhouse_database() {
+    local name="$1"
+    local db_name="wt_${name//-/_}_posthog"
+    local ch_container
+    ch_container=$(get_container_name "posthog-clickhouse")
+
+    if [[ -z "$ch_container" ]]; then
+        log_warn "ClickHouse container not found, skipping"
+        return 0
+    fi
+
+    log_info "Dropping ClickHouse database for $name..."
+
+    docker exec "$ch_container" clickhouse-client --query \
+        "DROP DATABASE IF EXISTS $db_name" 2>/dev/null || true
+
+    log_success "Dropped ClickHouse database $db_name"
+}
+
+# === Config Generation ===
+
+# Generate Traefik dynamic config for a worktree
+generate_traefik_config() {
+    local name="$1"
+    local config_file="$TRAEFIK_DYNAMIC/${name}.yml"
+
+    log_info "Generating Traefik config for $name..."
+
+    local backend_port=$(get_port "$name" "backend")
+    local capture_port=$(get_port "$name" "capture")
+    local capture_replay_port=$(get_port "$name" "capture_replay")
+    local capture_ai_port=$(get_port "$name" "capture_ai")
+    local flags_port=$(get_port "$name" "feature_flags")
+    local plugins_port=$(get_port "$name" "plugins")
+    local livestream_port=$(get_port "$name" "livestream")
+
+    cat > "$config_file" << EOF
+# Auto-generated Traefik config for worktree: $name
+# Access via: http://${name}.localhost
+#
+# Port mappings:
+#   Backend:        $backend_port
+#   Capture:        $capture_port
+#   Replay Capture: $capture_replay_port
+#   Capture AI:     $capture_ai_port
+#   Feature Flags:  $flags_port
+#   Plugins/CDP:    $plugins_port
+#   Livestream:     $livestream_port
+
+http:
+  routers:
+    # Session recordings: /s, /s/*
+    ${name}-replay-capture:
+      rule: "Host(\`${name}.localhost\`) && PathPrefix(\`/s\`)"
+      entryPoints:
+        - web
+      service: ${name}-replay-capture
+      priority: 100
+
+    # Capture AI: /i/v0/ai, /i/v0/ai/*
+    ${name}-capture-ai:
+      rule: "Host(\`${name}.localhost\`) && PathPrefix(\`/i/v0/ai\`)"
+      entryPoints:
+        - web
+      service: ${name}-capture-ai
+      priority: 95
+
+    # Event capture: /e, /i/v0/*, /batch, /capture
+    ${name}-capture:
+      rule: "Host(\`${name}.localhost\`) && (PathPrefix(\`/e\`) || PathPrefix(\`/i/v0\`) || PathPrefix(\`/batch\`) || PathPrefix(\`/capture\`))"
+      entryPoints:
+        - web
+      service: ${name}-capture
+      priority: 90
+
+    # Feature flags: /flags, /flags/*
+    ${name}-flags:
+      rule: "Host(\`${name}.localhost\`) && PathPrefix(\`/flags\`)"
+      entryPoints:
+        - web
+      service: ${name}-flags
+      priority: 85
+
+    # Webhooks/CDP: /public/webhooks, /public/m
+    ${name}-webhooks:
+      rule: "Host(\`${name}.localhost\`) && (PathPrefix(\`/public/webhooks\`) || PathPrefix(\`/public/m\`))"
+      entryPoints:
+        - web
+      service: ${name}-plugins
+      priority: 80
+
+    # Livestream: /livestream/*
+    ${name}-livestream:
+      rule: "Host(\`${name}.localhost\`) && PathPrefix(\`/livestream\`)"
+      entryPoints:
+        - web
+      service: ${name}-livestream
+      middlewares:
+        - strip-livestream
+      priority: 75
+
+    # Default: Django web app (catch-all)
+    ${name}-web:
+      rule: "Host(\`${name}.localhost\`)"
+      entryPoints:
+        - web
+      service: ${name}-web
+      priority: 1
+
+  services:
+    ${name}-web:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${backend_port}"
+
+    ${name}-capture:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${capture_port}"
+
+    ${name}-replay-capture:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${capture_replay_port}"
+
+    ${name}-capture-ai:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${capture_ai_port}"
+
+    ${name}-flags:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${flags_port}"
+
+    ${name}-plugins:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${plugins_port}"
+
+    ${name}-livestream:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${livestream_port}"
+        responseForwarding:
+          flushInterval: "-1"
+EOF
+
+    log_success "Generated Traefik config: $config_file"
+}
+
+# Remove Traefik config for a worktree
+remove_traefik_config() {
+    local name="$1"
+    local config_file="$TRAEFIK_DYNAMIC/${name}.yml"
+
+    if [[ -f "$config_file" ]]; then
+        rm "$config_file"
+        log_success "Removed Traefik config: $config_file"
+    fi
+}
+
+# Generate mprocs config for a worktree
+generate_mprocs_config() {
+    local name="$1"
+    local worktree_path=$(get_worktree_path "$name")
+    local config_file="$MPROCS_CONFIG_DIR/${name}.yaml"
+
+    log_info "Generating mprocs config for $name..."
+
+    local db_prefix="wt_${name//-/_}"
+    local backend_port=$(get_port "$name" "backend")
+    local capture_port=$(get_port "$name" "capture")
+    local capture_replay_port=$(get_port "$name" "capture_replay")
+    local capture_ai_port=$(get_port "$name" "capture_ai")
+    local flags_port=$(get_port "$name" "feature_flags")
+    local plugins_port=$(get_port "$name" "plugins")
+    local livestream_port=$(get_port "$name" "livestream")
+    local property_defs_port=$(get_port "$name" "property_defs")
+    local cymbal_port=$(get_port "$name" "cymbal")
+    local embedding_port=$(get_port "$name" "embedding")
+    local batch_import_port=$(get_port "$name" "batch_import")
+    local cyclotron_port=$(get_port "$name" "cyclotron")
+    local llm_gateway_port=$(get_port "$name" "llm_gateway")
+    local frontend_port=$(get_port "$name" "frontend")
+    local dagster_port=$(get_port "$name" "dagster")
+
+    cat > "$config_file" << EOF
+# Auto-generated mprocs config for worktree: $name
+# Start with: mprocs --config $config_file
+#
+# Access URL: http://${name}.localhost
+
+procs:
+    backend:
+        shell: |
+            cd "$worktree_path" && \\
+            uv sync --active && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_ducklake_up && \\
+            python -m granian \\
+                --interface asgi \\
+                posthog.asgi:application \\
+                --reload \\
+                --reload-paths ./posthog \\
+                --reload-paths ./ee \\
+                --reload-paths ./products \\
+                --host 0.0.0.0 \\
+                --port $backend_port \\
+                --log-level debug \\
+                --workers 1
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            PERSONS_DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog_persons"
+            CYCLOTRON_DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_cyclotron"
+            DUCKLAKE_RDS_DATABASE: "${db_prefix}_ducklake"
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+            DEBUG: "1"
+            OBJECT_STORAGE_ENDPOINT: "http://localhost:19000"
+            SESSION_RECORDING_V2_S3_ENDPOINT: "http://localhost:8333"
+            JS_URL: "http://localhost:$frontend_port"
+
+    celery-worker:
+        shell: |
+            cd "$worktree_path" && \\
+            uv sync --active && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_ducklake_up && \\
+            ./bin/start-celery worker
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+
+    celery-beat:
+        shell: |
+            cd "$worktree_path" && \\
+            uv sync --active && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_ducklake_up && \\
+            ./bin/start-celery beat
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+
+    nodejs:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_ducklake_up && \\
+            WORKER_PORT=$plugins_port ./bin/posthog-node
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+
+    frontend:
+        shell: |
+            cd "$worktree_path/frontend" && \\
+            pnpm install && \\
+            pnpm build:products && \\
+            pnpm exec concurrently -n VITE,TAILWIND -c green,yellow "pnpm exec vite --host 0.0.0.0 --port $frontend_port" "pnpm watch:tailwind"
+        autorestart: true
+        env:
+            DEBUG: "0"
+
+    temporal-worker:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_temporal_up && \\
+            bin/check_ducklake_up && \\
+            python manage.py start_temporal_worker --task-queue development-task-queue
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+
+    dagster:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            bin/check_ducklake_up && \\
+            dagster dev --workspace $worktree_path/.dagster_home/workspace.yaml -p $dagster_port
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            DAGSTER_HOME: "$worktree_path/.dagster_home"
+            DAGSTER_UI_PORT: "$dagster_port"
+
+    capture:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            cd rust && cargo run --bin capture
+        env:
+            ADDRESS: "0.0.0.0:$capture_port"
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            KAFKA_HOSTS: "localhost:9092"
+            REDIS_URL: "redis://localhost:6379"
+            CAPTURE_MODE: "events"
+            RUST_LOG: "debug,rdkafka=warn"
+
+    capture-replay:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            cd rust && cargo run --bin capture
+        env:
+            ADDRESS: "0.0.0.0:$capture_replay_port"
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            KAFKA_HOSTS: "localhost:9092"
+            KAFKA_TOPIC: "session_recording_snapshot_item_events"
+            REDIS_URL: "redis://localhost:6379"
+            CAPTURE_MODE: "recordings"
+            RUST_LOG: "debug,rdkafka=warn"
+
+    capture-ai:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            bin/check_kafka_clickhouse_up && \\
+            cd rust && cargo run --bin capture
+        env:
+            ADDRESS: "0.0.0.0:$capture_ai_port"
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            KAFKA_HOSTS: "localhost:9092"
+            REDIS_URL: "redis://localhost:6379"
+            CAPTURE_MODE: "events"
+            RUST_LOG: "debug,rdkafka=warn"
+            AI_S3_BUCKET: "ai-blobs"
+            AI_S3_ENDPOINT: "http://localhost:19000"
+
+    feature-flags:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up posthog && \\
+            cd rust && cargo run --bin feature-flags
+        env:
+            ADDRESS: "0.0.0.0:$flags_port"
+            WRITE_DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            READ_DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            REDIS_URL: "redis://localhost:6379/"
+            MAXMIND_DB_PATH: "../share/GeoLite2-City.mmdb"
+            RUST_LOG: "debug,tower=warn,maxminddb=warn"
+
+    livestream:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up posthog && \\
+            bin/check_kafka_clickhouse_up && \\
+            LIVESTREAM_ADDR=0.0.0.0:$livestream_port bin/start-go-service livestream
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+
+    llm-gateway:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && \\
+            LLM_GATEWAY_PORT=$llm_gateway_port bin/start-llm-gateway
+        autostart: true
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+            LLM_GATEWAY_DEBUG: "true"
+
+    # Migration tasks (run once)
+    migrate-postgres:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres
+        env:
+            DATABASE_URL: "postgres://posthog:posthog@localhost:5432/${db_prefix}_posthog"
+
+    migrate-clickhouse:
+        shell: |
+            cd "$worktree_path" && \\
+            bin/check_kafka_clickhouse_up && bin/check_ducklake_up && bin/migrate --scope=clickhouse
+        env:
+            CLICKHOUSE_DATABASE: "${db_prefix//_/__}_posthog"
+
+mouse_scroll_speed: 1
+scrollback: 10000
+EOF
+
+    log_success "Generated mprocs config: $config_file"
+}
+
+# Remove mprocs config for a worktree
+remove_mprocs_config() {
+    local name="$1"
+    local config_file="$MPROCS_CONFIG_DIR/${name}.yaml"
+
+    if [[ -f "$config_file" ]]; then
+        rm "$config_file"
+        log_success "Removed mprocs config: $config_file"
+    fi
+}
+
+# === Commands ===
+
+cmd_create() {
+    local branch=""
+    local go_after=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --go)
+                go_after=true
+                shift
+                ;;
+            *)
+                branch="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$branch" ]]; then
+        log_error "Usage: wt create <branch> [--go]"
+        exit 1
+    fi
+
+    local name=$(sanitize_branch "$branch")
+    local worktree_path=$(get_worktree_path "$name")
+
+    log_info "Creating worktree for branch: $branch (name: $name)"
+
+    # 1. Allocate port slot
+    local slot
+    slot=$(allocate_slot "$name")
+    log_success "Allocated slot $slot for $name"
+
+    # 2. Create git worktree (skip if master/main)
+    if [[ "$name" != "master" && "$name" != "main" ]]; then
+        if [[ -d "$worktree_path" ]]; then
+            log_warn "Worktree directory already exists: $worktree_path"
+        else
+            # Check if branch exists locally
+            if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+                git -C "$REPO_ROOT" worktree add "$worktree_path" "$branch"
+            # Check if branch exists on remote
+            elif git -C "$REPO_ROOT" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+                git -C "$REPO_ROOT" worktree add "$worktree_path" -b "$branch" "origin/$branch"
+            # Create new branch from current HEAD
+            else
+                git -C "$REPO_ROOT" worktree add -b "$branch" "$worktree_path"
+            fi
+            log_success "Created git worktree at $worktree_path"
+        fi
+    fi
+
+    # 3. Create databases (requires Docker services to be running)
+    if is_container_running "posthog-db"; then
+        create_postgres_databases "$name"
+        create_clickhouse_database "$name"
+    elif [[ "$go_after" == true ]]; then
+        log_error "Docker services not running. Cannot use --go without databases."
+        log_error "Start Docker first: docker compose -f docker-compose.dev.yml up -d"
+        log_error "Then run: wt db create $name && wt start"
+        exit 1
+    else
+        log_warn "Docker services not running. Skipping database creation."
+        log_warn "Run 'wt db create' after starting Docker services."
+    fi
+
+    # 4. Generate configs
+    generate_traefik_config "$name"
+    generate_mprocs_config "$name"
+
+    # Summary
+    echo ""
+    log_success "Worktree '$name' created successfully!"
+    echo ""
+    echo "  URL:     http://${name}.localhost"
+    echo "  Path:    $worktree_path"
+    echo "  Config:  $MPROCS_CONFIG_DIR/${name}.yaml"
+    echo ""
+    echo "  To start services:"
+    echo "    cd $worktree_path && wt start"
+    echo ""
+
+    # 5. Optionally start services
+    if [[ "$go_after" == true ]]; then
+        cd "$worktree_path"
+        cmd_start
+    fi
+}
+
+cmd_list() {
+    ensure_directories
+
+    echo ""
+    printf "${CYAN}%-30s %-12s %-35s %s${NC}\n" "NAME" "SLOT" "URL" "PATH"
+    printf "%-30s %-12s %-35s %s\n" "----" "----" "---" "----"
+
+    local registry
+    registry=$(cat "$PORT_REGISTRY")
+
+    # List registered worktrees
+    local names
+    names=$(echo "$registry" | jq -r 'keys[]' | sort)
+
+    for name in $names; do
+        local slot
+        slot=$(echo "$registry" | jq -r --arg name "$name" '.[$name].slot')
+
+        local url="http://${name}.localhost"
+        local path=$(get_worktree_path "$name")
+
+        # Check if path exists
+        local status_color="$GREEN"
+        if [[ ! -d "$path" ]]; then
+            status_color="$RED"
+            path="$path (missing)"
+        fi
+
+        printf "${status_color}%-30s${NC} %-12s %-35s %s\n" "$name" "$slot" "$url" "$path"
+    done
+
+    echo ""
+
+    # Show Traefik status
+    if docker ps --format '{{.Names}}' | grep -q '^posthog-traefik$'; then
+        echo -e "${GREEN}Traefik:${NC} Running (dashboard: http://localhost:8080)"
+    else
+        echo -e "${YELLOW}Traefik:${NC} Not running. Start with: wt traefik start"
+    fi
+    echo ""
+}
+
+cmd_status() {
+    local name=$(get_current_worktree)
+
+    if [[ -z "$name" ]]; then
+        log_error "Not in a git repository or worktree"
+        exit 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}Worktree: $name${NC}"
+    echo ""
+
+    local slot
+    slot=$(jq -r --arg name "$name" '.[$name].slot // "not registered"' "$PORT_REGISTRY")
+
+    if [[ "$slot" == "not registered" ]]; then
+        log_warn "This worktree is not registered. Run 'wt create <branch>' first."
+        return
+    fi
+
+    echo "Slot:     $slot"
+    echo "URL:      http://${name}.localhost"
+    echo ""
+    echo "Ports:"
+    for service in $ALL_SERVICES; do
+        local port=$(get_port "$name" "$service")
+        printf "  %-20s %s\n" "$service:" "$port"
+    done
+    echo ""
+
+    # Check mprocs running
+    local config_file="$MPROCS_CONFIG_DIR/${name}.yaml"
+    if [[ -f "$config_file" ]]; then
+        echo -e "Config:   ${GREEN}$config_file${NC}"
+    else
+        echo -e "Config:   ${YELLOW}Not generated${NC}"
+    fi
+    echo ""
+}
+
+cmd_delete() {
+    local name="$1"
+
+    if [[ -z "$name" ]]; then
+        log_error "Usage: wt delete <name>"
+        exit 1
+    fi
+
+    name=$(sanitize_branch "$name")
+    local worktree_path=$(get_worktree_path "$name")
+
+    log_info "Deleting worktree: $name"
+
+    # Confirm deletion
+    read -p "Are you sure you want to delete worktree '$name'? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Cancelled"
+        exit 0
+    fi
+
+    # 1. Remove configs
+    remove_traefik_config "$name"
+    remove_mprocs_config "$name"
+
+    # 2. Drop databases
+    if docker ps --format '{{.Names}}' | grep -q '^posthog-db$'; then
+        drop_postgres_databases "$name"
+        drop_clickhouse_database "$name"
+    fi
+
+    # 3. Remove git worktree
+    if [[ "$name" != "master" && "$name" != "main" ]]; then
+        if [[ -d "$worktree_path" ]]; then
+            git -C "$REPO_ROOT" worktree remove --force "$worktree_path" 2>/dev/null || {
+                log_warn "Could not remove worktree via git. Removing directory manually."
+                rm -rf "$worktree_path"
+            }
+            log_success "Removed git worktree"
+        fi
+
+        # Delete the branch if it exists
+        git -C "$REPO_ROOT" branch -D "$name" 2>/dev/null || true
+    fi
+
+    # 4. Free the port slot
+    free_slot "$name"
+
+    log_success "Worktree '$name' deleted successfully"
+}
+
+cmd_start() {
+    local name=$(get_current_worktree)
+
+    if [[ -z "$name" ]]; then
+        log_error "Not in a git repository or worktree"
+        exit 1
+    fi
+
+    local config_file="$MPROCS_CONFIG_DIR/${name}.yaml"
+
+    if [[ ! -f "$config_file" ]]; then
+        log_error "No mprocs config found for worktree '$name'"
+        log_error "Run 'wt create <branch>' first to generate configs"
+        exit 1
+    fi
+
+    # Check if Traefik is running
+    if ! docker ps --format '{{.Names}}' | grep -q '^posthog-traefik$'; then
+        log_warn "Traefik is not running. Starting it now..."
+        cmd_traefik_start
+    fi
+
+    log_info "Starting services for worktree: $name"
+    log_info "Access URL: http://${name}.localhost"
+    echo ""
+
+    exec mprocs --config "$config_file"
+}
+
+cmd_stop() {
+    local name=$(get_current_worktree)
+
+    if [[ -z "$name" ]]; then
+        log_error "Not in a git repository or worktree"
+        exit 1
+    fi
+
+    log_info "To stop services, press Ctrl+C in the mprocs terminal"
+    log_info "Or kill the mprocs process manually"
+}
+
+cmd_db() {
+    local subcmd="${1:-}"
+    local name="${2:-$(get_current_worktree)}"
+
+    if [[ -z "$name" ]]; then
+        log_error "Usage: wt db create [name]"
+        log_error "Or run from within a worktree directory"
+        exit 1
+    fi
+
+    name=$(sanitize_branch "$name")
+
+    case "$subcmd" in
+        create)
+            # Check if Docker services are running
+            if ! is_container_running "posthog-db"; then
+                log_error "PostgreSQL container is not running"
+                log_error "Start Docker services first: docker compose -f docker-compose.dev.yml up -d"
+                exit 1
+            fi
+
+            create_postgres_databases "$name"
+            create_clickhouse_database "$name"
+
+            log_success "Databases created for worktree: $name"
+            ;;
+        drop)
+            drop_postgres_databases "$name"
+            drop_clickhouse_database "$name"
+            log_success "Databases dropped for worktree: $name"
+            ;;
+        *)
+            log_error "Usage: wt db create|drop [name]"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_switch() {
+    if ! command -v fzf &>/dev/null; then
+        log_error "fzf is required for the switch command"
+        log_error "Install it with: brew install fzf"
+        exit 1
+    fi
+
+    local names
+    names=$(jq -r 'keys[]' "$PORT_REGISTRY" | sort)
+
+    if [[ -z "$names" ]]; then
+        log_error "No worktrees registered"
+        exit 1
+    fi
+
+    local selected
+    selected=$(echo "$names" | fzf --height 40% --prompt="Select worktree: ")
+
+    if [[ -n "$selected" ]]; then
+        local path=$(get_worktree_path "$selected")
+        if [[ -d "$path" ]]; then
+            echo "cd $path"
+            log_info "Run: cd $path"
+        else
+            log_error "Worktree path does not exist: $path"
+        fi
+    fi
+}
+
+cmd_open() {
+    local name=$(get_current_worktree)
+    local service="${1:-}"
+
+    if [[ -z "$name" ]]; then
+        log_error "Not in a git repository or worktree"
+        exit 1
+    fi
+
+    local url="http://${name}.localhost"
+
+    case "$service" in
+        ""|web)
+            ;;
+        api)
+            url="${url}/api"
+            ;;
+        graphql)
+            url="${url}/graphql"
+            ;;
+        traefik)
+            url="http://localhost:8080"
+            ;;
+        dagster)
+            local port=$(get_port "$name" "dagster")
+            url="http://localhost:${port}"
+            ;;
+        *)
+            log_error "Unknown service: $service"
+            log_error "Available: web, api, graphql, traefik, dagster"
+            exit 1
+            ;;
+    esac
+
+    log_info "Opening: $url"
+    open "$url"
+}
+
+cmd_traefik_start() {
+    log_info "Starting Traefik..."
+
+    cd "$REPO_ROOT"
+    docker compose -f docker-compose.traefik.yml up -d
+
+    log_success "Traefik started"
+    log_info "Dashboard: http://localhost:8080"
+}
+
+cmd_traefik_stop() {
+    log_info "Stopping Traefik..."
+
+    cd "$REPO_ROOT"
+    docker compose -f docker-compose.traefik.yml down
+
+    log_success "Traefik stopped"
+}
+
+cmd_help() {
+    cat << EOF
+wt - PostHog Worktree Manager
+
+USAGE:
+    wt <command> [options]
+
+COMMANDS:
+    create <branch> [--go]  Create a new worktree for the given branch
+                            --go: Start services immediately after creation
+
+    list                    List all registered worktrees
+
+    status                  Show status of current worktree
+
+    switch                  Fuzzy-find and switch worktrees (requires fzf)
+
+    delete <name>           Delete a worktree and clean up resources
+
+    start                   Start services for current worktree
+
+    stop                    Stop services for current worktree
+
+    open [service]          Open worktree URL in browser
+                            Services: web (default), api, graphql, traefik, dagster
+
+    db create [name]        Create databases for a worktree (current if no name)
+    db drop [name]          Drop databases for a worktree
+
+    traefik start|stop      Start or stop the Traefik proxy
+
+    help                    Show this help message
+
+EXAMPLES:
+    wt create feature/my-feature --go
+    wt create bugfix/issue-123
+    wt list
+    wt delete feature-my-feature
+    wt open
+    wt open api
+    wt traefik start
+
+PREREQUISITES:
+    - Docker (for Traefik and databases)
+    - jq (for JSON manipulation)
+    - mprocs (for process management)
+    - fzf (optional, for switch command)
+
+EOF
+}
+
+# === Main ===
+
+main() {
+    ensure_dependencies
+    ensure_directories
+
+    local command="${1:-help}"
+    shift || true
+
+    case "$command" in
+        create)
+            cmd_create "$@"
+            ;;
+        list|ls)
+            cmd_list
+            ;;
+        status)
+            cmd_status
+            ;;
+        switch)
+            cmd_switch
+            ;;
+        delete|rm)
+            cmd_delete "$@"
+            ;;
+        start)
+            cmd_start
+            ;;
+        stop)
+            cmd_stop
+            ;;
+        db)
+            cmd_db "$@"
+            ;;
+        open)
+            cmd_open "$@"
+            ;;
+        traefik)
+            local subcmd="${1:-}"
+            case "$subcmd" in
+                start)
+                    cmd_traefik_start
+                    ;;
+                stop)
+                    cmd_traefik_stop
+                    ;;
+                *)
+                    log_error "Usage: wt traefik start|stop"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
