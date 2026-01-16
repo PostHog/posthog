@@ -95,10 +95,14 @@ export const CyclotronInputMappingSchema = z.object({
 
 export type CyclotronInputMappingType = z.infer<typeof CyclotronInputMappingSchema>
 
+const EventTriggerFiltersSchema = ActionFiltersSchema.extend({
+    filter_test_accounts: z.boolean().optional(),
+})
+
 export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('event'),
-        filters: ActionFiltersSchema,
+        filters: EventTriggerFiltersSchema,
     }),
     z.object({
         type: z.literal('webhook'),
