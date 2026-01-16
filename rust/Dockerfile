@@ -1,6 +1,7 @@
 # Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
-FROM rust:1.91 AS base
-RUN cargo install --locked cargo-chef sccache
+FROM rust:1.91-bookworm AS base
+# Note - sccache pinned due to problem with depot builds. See https://posthog.slack.com/archives/C0457KENW2E/p1768558484810999?thread_ts=1768497407.301109&cid=C0457KENW2E
+RUN cargo install --locked cargo-chef sccache@0.12.0
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
 FROM base AS planner
