@@ -25,3 +25,9 @@ class ResponsesRequest(BaseModel):
     stream: bool = False
     max_output_tokens: int | None = None
     previous_response_id: str | None = None
+
+
+class TranscriptionRequest(BaseModel):
+    file: bytes
+    model: str
+    language: str | None = None

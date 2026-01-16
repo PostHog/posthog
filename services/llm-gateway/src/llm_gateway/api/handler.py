@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+import litellm
 import structlog
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -36,6 +37,7 @@ class ProviderConfig:
 ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 
 
 async def handle_llm_request(
@@ -220,3 +222,87 @@ async def _handle_non_streaming_request(
         return response_dict
     except Exception:
         raise
+
+
+async def handle_transcription_request(
+    file_tuple: tuple[str, bytes, str],
+    model: str,
+    user: AuthenticatedUser,
+    language: str | None = None,
+    product: str = "llm_gateway",
+) -> dict[str, Any]:
+    settings = get_settings()
+    start_time = time.monotonic()
+    provider_config = OPENAI_TRANSCRIPTION_CONFIG
+
+    set_request_context(RequestContext(request_id=get_request_id(), product=product))
+    set_auth_user(user)
+
+    structlog.contextvars.bind_contextvars(
+        user_id=user.user_id,
+        team_id=user.team_id,
+        provider=provider_config.name,
+        model=model,
+    )
+
+    CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
+    try:
+        kwargs: dict[str, Any] = {"model": model, "file": file_tuple}
+        if language:
+            kwargs["language"] = language
+
+        provider_start = time.monotonic()
+        response = await asyncio.wait_for(
+            litellm.atranscription(**kwargs),
+            timeout=settings.request_timeout,
+        )
+        PROVIDER_LATENCY.labels(provider=provider_config.name, model=model, product=product).observe(
+            time.monotonic() - provider_start
+        )
+
+        response_dict = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+
+        REQUEST_COUNT.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            model=model,
+            status_code="200",
+            auth_method=user.auth_method,
+            product=product,
+        ).inc()
+
+        REQUEST_LATENCY.labels(
+            endpoint=provider_config.endpoint_name,
+            provider=provider_config.name,
+            streaming="false",
+            product=product,
+        ).observe(time.monotonic() - start_time)
+
+        return response_dict
+
+    except TimeoutError:
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
+        logger.error(f"Timeout in {provider_config.endpoint_name} endpoint")
+        raise HTTPException(
+            status_code=504,
+            detail={"error": {"message": "Request timed out", "type": "timeout_error", "code": None}},
+        ) from None
+    except HTTPException:
+        raise
+    except Exception as e:
+        PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
+        capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
+        logger.exception(f"Error in {provider_config.endpoint_name} endpoint: {e}")
+        status_code = getattr(e, "status_code", 500)
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "error": {
+                    "message": getattr(e, "message", str(e)),
+                    "type": getattr(e, "type", "internal_error"),
+                    "code": getattr(e, "code", None),
+                }
+            },
+        ) from e
+    finally:
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
