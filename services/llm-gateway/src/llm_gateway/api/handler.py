@@ -1,9 +1,11 @@
 import asyncio
+import json
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+import litellm
 import structlog
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -19,14 +21,129 @@ from llm_gateway.metrics.prometheus import (
     REQUEST_COUNT,
     REQUEST_LATENCY,
     STREAMING_CLIENT_DISCONNECT,
+    STREAMING_USAGE_EXTRACTION,
     TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
 from llm_gateway.observability import capture_exception
+from llm_gateway.request_context import record_output_tokens
 from llm_gateway.streaming.sse import format_sse_stream
 
 logger = structlog.get_logger(__name__)
+
+
+def _extract_usage_from_sse_bytes(chunks: list[bytes]) -> tuple[int | None, int | None]:
+    """Extract usage from raw SSE bytes (for passthrough providers like Anthropic).
+
+    Anthropic SSE format:
+    - message_start: {"type": "message_start", "message": {..., "usage": {"input_tokens": X}}}
+    - message_delta: {"type": "message_delta", "usage": {"output_tokens": Y}}
+    """
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+    for chunk in chunks:
+        try:
+            text = chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+            for line in text.split("\n"):
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                if not data_str or data_str == "[DONE]":
+                    continue
+                data = json.loads(data_str)
+
+                if data.get("type") == "message_start":
+                    message = data.get("message", {})
+                    usage = message.get("usage", {})
+                    input_tokens = usage.get("input_tokens")
+                elif data.get("type") == "message_delta":
+                    usage = data.get("usage", {})
+                    if "output_tokens" in usage:
+                        output_tokens = usage.get("output_tokens")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+
+    return input_tokens, output_tokens
+
+
+def _record_token_metrics(
+    provider: str, model: str, product: str, input_tokens: int | None, output_tokens: int | None
+) -> None:
+    """Record token usage metrics if values are within valid range."""
+    if input_tokens is not None and 0 <= input_tokens <= 1_000_000:
+        TOKENS_INPUT.labels(provider=provider, model=model, product=product).inc(input_tokens)
+    if output_tokens is not None and 0 <= output_tokens <= 1_000_000:
+        TOKENS_OUTPUT.labels(provider=provider, model=model, product=product).inc(output_tokens)
+
+
+def _extract_streaming_usage(
+    collected_chunks: list[Any], messages: list[Any], provider: str, model: str, product: str
+) -> int | None:
+    """Extract and log usage from streaming response chunks. Returns output_tokens if found."""
+    if not collected_chunks:
+        logger.warning(
+            "streaming_usage_missing",
+            provider=provider,
+            model=model,
+            reason="no chunks collected during stream",
+            chunk_count=0,
+        )
+        STREAMING_USAGE_EXTRACTION.labels(provider=provider, status="no_chunks").inc()
+        return None
+
+    is_passthrough = isinstance(collected_chunks[0], bytes)
+
+    if is_passthrough:
+        input_tokens, output_tokens = _extract_usage_from_sse_bytes(collected_chunks)
+    else:
+        input_tokens, output_tokens = None, None
+        complete = litellm.stream_chunk_builder(collected_chunks, messages=messages)
+        if complete and complete.usage:
+            input_tokens = complete.usage.prompt_tokens
+            output_tokens = complete.usage.completion_tokens
+
+    has_input = input_tokens is not None
+    has_output = output_tokens is not None
+
+    if has_input and has_output:
+        logger.info(
+            "streaming_usage",
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            passthrough=is_passthrough,
+        )
+        _record_token_metrics(provider, model, product, input_tokens, output_tokens)
+        STREAMING_USAGE_EXTRACTION.labels(provider=provider, status="success").inc()
+    elif has_input or has_output:
+        status = "partial_input_only" if has_input else "partial_output_only"
+        missing = "output_tokens" if has_input else "input_tokens"
+        logger.warning(
+            "streaming_usage_partial",
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            reason=f"{missing} missing from response",
+            passthrough=is_passthrough,
+            chunk_count=len(collected_chunks),
+        )
+        STREAMING_USAGE_EXTRACTION.labels(provider=provider, status=status).inc()
+    else:
+        logger.warning(
+            "streaming_usage_missing",
+            provider=provider,
+            model=model,
+            reason="no usage data found in response",
+            passthrough=is_passthrough,
+            chunk_count=len(collected_chunks),
+        )
+        STREAMING_USAGE_EXTRACTION.labels(provider=provider, status="missing").inc()
+
+    return output_tokens
 
 
 @dataclass
@@ -141,6 +258,8 @@ async def _handle_streaming_request(
     timeout: float,
     product: str = "llm_gateway",
 ) -> StreamingResponse:
+    collected_chunks: list[Any] = []
+
     async def stream_generator() -> AsyncGenerator[bytes, None]:
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
@@ -149,10 +268,17 @@ async def _handle_streaming_request(
         first_chunk_received = False
         error: Exception | None = None
 
+        async def collect_chunks_wrapper(
+            llm_response: AsyncGenerator[Any, None],
+        ) -> AsyncGenerator[Any, None]:
+            async for chunk in llm_response:
+                collected_chunks.append(chunk)
+                yield chunk
+
         try:
             response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
 
-            async for chunk in format_sse_stream(response):
+            async for chunk in format_sse_stream(collect_chunks_wrapper(response)):
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
@@ -195,6 +321,32 @@ async def _handle_streaming_request(
                 streaming="true",
                 product=product,
             ).observe(time.monotonic() - start_time)
+
+            output_tokens: int | None = None
+            try:
+                output_tokens = _extract_streaming_usage(
+                    collected_chunks=collected_chunks,
+                    messages=request_data.get("messages", []),
+                    provider=provider_config.name,
+                    model=model,
+                    product=product,
+                )
+            except Exception as usage_error:
+                logger.error(
+                    "streaming_usage_parse_failed",
+                    provider=provider_config.name,
+                    model=model,
+                    error=str(usage_error),
+                    error_type=type(usage_error).__name__,
+                    chunk_count=len(collected_chunks) if collected_chunks else 0,
+                )
+                STREAMING_USAGE_EXTRACTION.labels(provider=provider_config.name, status="error").inc()
+
+            if output_tokens is not None:
+                try:
+                    await record_output_tokens(output_tokens)
+                except Exception as throttle_error:
+                    logger.error("output_token_recording_failed", error=str(throttle_error))
 
             try:
                 analytics = get_analytics_service()

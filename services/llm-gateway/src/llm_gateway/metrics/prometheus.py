@@ -104,6 +104,15 @@ DB_POOL_EXHAUSTED = Counter(
     "Database pool exhaustion events",
 )
 
+STREAMING_USAGE_EXTRACTION = Counter(
+    "llm_gateway_streaming_usage_extraction_total",
+    "Streaming usage extraction results",
+    labelnames=[
+        "provider",
+        "status",
+    ],  # status: success, partial_input_only, partial_output_only, missing, no_chunks, error
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

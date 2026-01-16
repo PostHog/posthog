@@ -146,7 +146,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.11.66
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.12.129
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -215,7 +215,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.17.1
+                  node-version: 22.22.0
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
@@ -399,26 +399,26 @@ jobs:
                     exit 0
                   fi
 
-                  # Check if there are any changes (modified or untracked) in the playwright directory
+                  # Check if there are any changes (modified or untracked) in the snapshots directory
                   # Use git status --porcelain to detect both modifications and new untracked files
-                  if [ -z "$(git status --porcelain playwright/)" ]; then
+                  if [ -z "$(git status --porcelain playwright/__snapshots__/)" ]; then
                     echo "No screenshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "Screenshot changes detected:"
-                    git status --short playwright/
+                    git status --short playwright/__snapshots__/
 
                     # Stage untracked files so git diff can include them in the patch
-                    git add -N playwright/
+                    git add -N playwright/__snapshots__/
                     # Create binary-safe patch file
                     mkdir -p /tmp/patches
-                    git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
+                    git diff --binary --full-index playwright/__snapshots__/ > /tmp/patches/playwright-patch.patch
                     echo "Created patch file"
                     echo "has-changes=true" >> $GITHUB_OUTPUT
                   fi
 
             - name: Upload screenshot patch
-              if: steps.create-patch.outputs.has-changes == 'true'
+              if: steps.create-patch.outputs.has-changes == 'true' && (success() || failure())
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: playwright-patch

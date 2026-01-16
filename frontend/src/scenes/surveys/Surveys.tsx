@@ -38,6 +38,7 @@ export const scene: SceneExport = {
 }
 
 function NewSurveyButton(): JSX.Element {
+    const { guidedEditorEnabled } = useValues(surveysLogic)
     const { loadSurveys, addProductIntent } = useActions(surveysLogic)
     const { user } = useValues(userLogic)
 
@@ -93,7 +94,7 @@ function NewSurveyButton(): JSX.Element {
                 >
                     <LemonButton
                         size="small"
-                        to={urls.surveyTemplates()}
+                        to={guidedEditorEnabled ? urls.surveyWizard() : urls.surveyTemplates()}
                         type="primary"
                         data-attr="new-survey"
                         tooltip="New survey"

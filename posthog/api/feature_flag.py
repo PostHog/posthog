@@ -1106,9 +1106,11 @@ class FeatureFlagSerializer(
                 "properties": [
                     {
                         **prop,
-                        "key": f"$feature_enrollment/{validated_key}"
-                        if prop.get("key", "").startswith("$feature_enrollment/")
-                        else prop["key"],
+                        "key": (
+                            f"$feature_enrollment/{validated_key}"
+                            if prop.get("key", "").startswith("$feature_enrollment/")
+                            else prop["key"]
+                        ),
                     }
                     for prop in group.get("properties", [])
                 ],
@@ -1729,38 +1731,50 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
-    @action(methods=["POST"], detail=True)
-    def has_active_dependents(self, request: request.Request, **kwargs):
-        """Check if this flag has other active flags that depend on it."""
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    def dependent_flags(self, request: request.Request, **kwargs):
+        """Get other active flags that depend on this flag."""
         feature_flag: FeatureFlag = self.get_object()
-
-        # Use the serializer class method to find dependent flags
         serializer = self.serializer_class()
         dependent_flags = serializer._find_dependent_flags(feature_flag)
+        return Response(
+            [
+                {
+                    "id": flag.id,
+                    "key": flag.key,
+                    "name": flag.name or flag.key,
+                }
+                for flag in dependent_flags
+            ],
+            status=200,
+        )
 
-        has_dependents = len(dependent_flags) > 0
-
-        if not has_dependents:
-            return Response({"has_active_dependents": False, "dependent_flags": []}, status=200)
-
-        dependent_flag_data = [
-            {
-                "id": flag.id,
-                "key": flag.key,
-                "name": flag.name or flag.key,
-            }
-            for flag in dependent_flags
-        ]
-
+    @action(methods=["POST"], detail=True)
+    def has_active_dependents(self, request: request.Request, **kwargs):
+        """
+        Deprecated: Use GET /dependent_flags instead.
+        Safe to delete after usage falls to zero, expected by Jan 22, 2026.
+        """
+        response = self.dependent_flags(request, **kwargs)
+        dependent_flags = response.data
+        TOMBSTONE_COUNTER.labels(
+            namespace="feature_flags",
+            operation="has_active_dependents",
+            component="api",
+        ).inc()
         return Response(
             {
-                "has_active_dependents": True,
-                "dependent_flags": dependent_flag_data,
+                "has_active_dependents": len(dependent_flags) > 0,
+                "dependent_flags": dependent_flags,
                 "warning": (
-                    f"This feature flag is used by {len(dependent_flags)} other active "
-                    f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
-                    f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
-                    f"to evaluate this condition as false."
+                    (
+                        f"This feature flag is used by {len(dependent_flags)} other active "
+                        f"{'flag' if len(dependent_flags) == 1 else 'flags'}. "
+                        f"Disabling it will cause {'that flag' if len(dependent_flags) == 1 else 'those flags'} "
+                        f"to evaluate this condition as false."
+                    )
+                    if dependent_flags
+                    else None
                 ),
             },
             status=200,

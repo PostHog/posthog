@@ -2441,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2480,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
@@ -2944,6 +2944,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2952,6 +2953,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
