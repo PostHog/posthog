@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("posthog", "0973_alter_integration_kind"),
+        ("posthog", "0974_alter_scheduledchange_recurrence_interval"),
     ]
 
     operations = [
