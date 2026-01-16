@@ -453,7 +453,8 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == self.validation_error_response("Insight not found.", attr="dashboard_item")
+        assert response.json()["attr"] == "dashboard_item"
+        assert response.json()["code"] == "does_not_exist"
 
     def test_updating_annotation_with_insight_from_different_team_returns_400(self) -> None:
         annotation = Annotation.objects.create(
@@ -471,7 +472,23 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == self.validation_error_response("Insight not found.", attr="dashboard_item")
+        assert response.json()["attr"] == "dashboard_item"
+        assert response.json()["code"] == "does_not_exist"
+
+    def test_creating_annotation_with_nonexistent_insight_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Insight annotation",
+                "scope": "dashboard_item",
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                "dashboard_item": 999999,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "dashboard_item"
+        assert response.json()["code"] == "does_not_exist"
 
     def test_creating_annotation_with_insight_from_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")
