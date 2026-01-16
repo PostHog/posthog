@@ -20,8 +20,9 @@ from rest_framework.views import APIView
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.models import Team
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.tasks.email import send_personal_api_key_exposed
+from posthog.tasks.email import send_personal_api_key_exposed, send_project_secret_api_key_exposed
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
@@ -169,9 +170,10 @@ class SecretAlert(APIView):
         for item in items:
             # Strip whitespace from token in case GitHub sends it with extra formatting
             token = item["token"].strip()
+            token_sha256 = sha256(token.encode("utf-8")).hexdigest()
 
             result = {
-                "token_hash": sha256(token.encode("utf-8")).hexdigest(),
+                "token_hash": token_sha256,
                 "token_type": item["type"],
                 "label": "false_positive",
             }
@@ -181,9 +183,9 @@ class SecretAlert(APIView):
                 "token_length": len(token),
                 "token_prefix": token[:8],
                 "token_suffix": token[-4:],
+                "token_sha256": token_sha256,
             }
 
-            # GitHub sends "posthog_feature_flags_secure_api_key" for personal API keys
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 key_lookup = find_personal_api_key(token)
                 posthoganalytics.capture(
@@ -212,16 +214,17 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
-            # GitHub sends "posthog_personal_api_key" for project secret tokens
             elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
                 found = False
                 try:
-                    _ = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                    team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                     found = True
-                    # TODO send email to team members
                     result["label"] = "true_positive"
 
                     PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
+
+                    more_info = f"This key was detected by GitHub at {item['url']}."
+                    send_project_secret_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                 except Team.DoesNotExist:
                     pass
