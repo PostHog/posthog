@@ -71,27 +71,25 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 
 const win = window as any
 
-win['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
-    // If toolbarFlagsKey is present, fetch the feature flags from the backend
+win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
+    // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
-        try {
-            // Use API host from posthog instance, fallback to apiURL from params (set by backend)
-            const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
-            fetch(`${apiHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
-                credentials: 'include',
+        const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
+        const trimmedHost = apiHost.replace(/\/+$/, '')
+        await fetch(`${trimmedHost}/api/user/get_toolbar_preloaded_flags?key=${toolbarParams.toolbarFlagsKey}`, {
+            credentials: 'include',
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                if (data.featureFlags) {
+                    posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
+                } else {
+                    console.error('[Toolbar Flags] Feature flags not found:', JSON.stringify(data))
+                }
             })
-                .then((response) => response.json())
-                .then((data) => {
-                    if (data.featureFlags) {
-                        posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
-                    }
-                })
-                .catch((error) => {
-                    console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
-                })
-        } catch (error) {
-            console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
-        }
+            .catch((error) => {
+                console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+            })
     }
 
     initKeaInToolbar()

@@ -45,13 +45,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps): string => {
                 if (props.posthog?.config?.ui_host) {
-                    return props.posthog.config.ui_host
+                    return props.posthog.config.ui_host.replace(/\/+$/, '')
                 }
 
                 // Fallback: if apiURL prop is set, use it (backwards compatibility)
                 if (props.apiURL) {
-                    const url = props.apiURL.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL
-                    return url
+                    return props.apiURL.replace(/\/+$/, '')
                 }
 
                 // Final fallback: current origin
@@ -64,13 +63,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             (s) => [s.props],
             (props: ToolbarProps): string => {
                 if (props.posthog?.config?.api_host) {
-                    return props.posthog.config.api_host
+                    return props.posthog.config.api_host.replace(/\/+$/, '')
                 }
 
                 // Fallback: if apiURL prop is set, use it (backwards compatibility)
                 if (props.apiURL) {
-                    const url = props.apiURL.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL
-                    return url
+                    return props.apiURL.replace(/\/+$/, '')
                 }
 
                 // Final fallback: current origin

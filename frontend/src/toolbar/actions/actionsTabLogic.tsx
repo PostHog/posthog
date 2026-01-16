@@ -97,16 +97,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            [
-                'dataAttributes',
-                'apiHost',
-                'uiHost',
-                'temporaryToken',
-                'buttonVisible',
-                'userIntent',
-                'actionId',
-                'dataAttributes',
-            ],
+            ['dataAttributes', 'apiHost', 'uiHost', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId'],
             actionsLogic,
             ['allActions'],
         ],
