@@ -405,8 +405,10 @@ export const notebookLogic = kea<notebookLogicType>([
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
                               ? 'Scratchpad'
-                              : 'Template'
-                    lemonToast.success(`Notebook created from ${source}!`)
+                              : values.isTemplate
+                                ? 'Template'
+                                : null
+                    lemonToast.success(source ? `Notebook created from ${source}!` : 'Notebook duplicated!')
 
                     if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
