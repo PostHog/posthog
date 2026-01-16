@@ -116,6 +116,30 @@ CALLBACK_ERRORS = Counter(
     labelnames=["callback", "error_type"],
 )
 
+COST_RECORDED = Counter(
+    "llm_gateway_cost_recorded_total",
+    "Total cost (USD) recorded for rate limiting",
+    labelnames=["provider", "model", "product"],
+)
+
+COST_ESTIMATED = Counter(
+    "llm_gateway_cost_estimated_total",
+    "Requests where cost was estimated from tokens",
+    labelnames=["provider", "model", "product"],
+)
+
+COST_MISSING = Counter(
+    "llm_gateway_cost_missing_total",
+    "Requests where cost was not available",
+    labelnames=["provider", "model", "product"],
+)
+
+COST_FALLBACK_DEFAULT = Counter(
+    "llm_gateway_cost_fallback_default_total",
+    "Requests where default fallback cost was used",
+    labelnames=["provider", "model", "product"],
+)
+
 
 def get_instrumentator() -> Instrumentator:
     return Instrumentator(

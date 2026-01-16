@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import structlog
 from redis.asyncio import Redis
 
@@ -182,19 +184,31 @@ class TokenRateLimiter:
 
 
 class CostAccumulator:
-    """Simple in-memory cost accumulator for fallback rate limiting."""
+    """In-memory cost accumulator with TTL-based expiration for fallback rate limiting."""
 
-    def __init__(self, limit: float):
-        self._costs: dict[str, float] = {}
+    def __init__(self, limit: float, window_seconds: int):
+        self._buckets: dict[str, tuple[float, float]] = {}  # key -> (cost, start_time)
         self._limit = limit
+        self._window = window_seconds
+
+    def _get_bucket(self, key: str) -> tuple[float, float]:
+        """Get or create bucket, expiring old ones."""
+        now = time.monotonic()
+        if key in self._buckets:
+            cost, start_time = self._buckets[key]
+            if now - start_time < self._window:
+                return cost, start_time
+        self._buckets[key] = (0.0, now)
+        return 0.0, now
 
     def get_current(self, key: str) -> float:
-        return self._costs.get(key, 0.0)
+        cost, _ = self._get_bucket(key)
+        return cost
 
     def incr(self, key: str, cost: float) -> bool:
-        current = self._costs.get(key, 0.0)
+        current, start_time = self._get_bucket(key)
         new_val = current + cost
-        self._costs[key] = new_val
+        self._buckets[key] = (new_val, start_time)
         return new_val <= self._limit
 
 
@@ -216,7 +230,7 @@ class CostRateLimiter:
         self.limit = limit
         self.window = window_seconds
         self._fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
-        self._fallback = CostAccumulator(self._fallback_limit)
+        self._fallback = CostAccumulator(self._fallback_limit, window_seconds)
 
     async def get_current(self, key: str) -> float:
         """Get current accumulated cost for a key."""
@@ -254,3 +268,17 @@ class CostRateLimiter:
             logger.exception("redis_cost_incr_failed", key=key)
             REDIS_FALLBACK.inc()
             return self._fallback.incr(key, cost)
+
+    async def get_ttl(self, key: str) -> int:
+        """Get remaining TTL for a key in seconds."""
+        if self.redis is None:
+            return self.window
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            ttl = await self.redis.ttl(redis_key)
+            if ttl < 0:
+                return self.window
+            return ttl
+        except Exception:
+            return self.window

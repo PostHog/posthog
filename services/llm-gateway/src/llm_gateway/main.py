@@ -22,6 +22,7 @@ from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
@@ -132,6 +133,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Throttle runner initialized")
 
     init_callbacks()
+
+    ensure_costs_fresh()
+    logger.info("Model costs initialized")
 
     yield
 

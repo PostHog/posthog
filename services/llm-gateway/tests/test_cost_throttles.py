@@ -163,6 +163,147 @@ class TestUserCostThrottle:
         assert key == "cost:user:42"
 
 
+class TestRetryAfterHeader:
+    @pytest.mark.asyncio
+    async def test_retry_after_returns_full_window_without_redis(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        await throttle.record_cost(context, 2.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False
+        assert result.retry_after == 3600
+
+    @pytest.mark.asyncio
+    async def test_retry_after_returns_ttl_from_redis(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=b"10.0")
+        mock_redis.ttl = AsyncMock(return_value=600)
+
+        throttle = UserCostThrottle(redis=mock_redis)
+        context = make_context()
+
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False
+        assert result.retry_after == 600
+        mock_redis.ttl.assert_called_once()
+
+
+class TestCostAccumulation:
+    @pytest.mark.asyncio
+    async def test_multiple_small_costs_accumulate_to_limit(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        for _ in range(10):
+            await throttle.record_cost(context, 0.19)
+            result = await throttle.allow_request(context)
+            assert result.allowed is True
+
+        await throttle.record_cost(context, 0.19)
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+
+    @pytest.mark.asyncio
+    async def test_zero_cost_not_recorded(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        await throttle.record_cost(context, 0.0)
+        await throttle.record_cost(context, -1.0)
+
+        limiter = throttle._get_limiter(context)
+        key = throttle._get_cache_key(context)
+        current = await limiter.get_current(key)
+        assert current == 0.0
+
+
+class TestCostRateLimiterRedisIntegration:
+    @pytest.mark.asyncio
+    async def test_redis_incr_called_with_correct_args(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        mock_redis = MagicMock()
+        mock_redis.eval = AsyncMock(return_value=0.5)
+        mock_redis.get = AsyncMock(return_value=b"0.0")
+
+        throttle = UserCostThrottle(redis=mock_redis)
+        context = make_context()
+
+        await throttle.record_cost(context, 0.5)
+
+        mock_redis.eval.assert_called_once()
+        call_args = mock_redis.eval.call_args
+        assert "ratelimit:cost:user:1" in call_args[0]
+
+    @pytest.mark.asyncio
+    async def test_redis_get_current_returns_accumulated_cost(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=b"1.5")
+
+        throttle = UserCostThrottle(redis=mock_redis)
+        context = make_context()
+
+        limiter = throttle._get_limiter(context)
+        current = await limiter.get_current(throttle._get_cache_key(context))
+
+        assert current == 1.5
+
+    @pytest.mark.asyncio
+    async def test_redis_ttl_returns_remaining_time(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=b"5.0")
+        mock_redis.ttl = AsyncMock(return_value=1800)
+
+        throttle = UserCostThrottle(redis=mock_redis)
+        context = make_context()
+
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False
+        assert result.retry_after == 1800
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_local_on_redis_error(self) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        mock_redis = MagicMock()
+        mock_redis.eval = AsyncMock(side_effect=Exception("Redis error"))
+        mock_redis.get = AsyncMock(side_effect=Exception("Redis error"))
+
+        throttle = UserCostThrottle(redis=mock_redis)
+        context = make_context()
+
+        await throttle.record_cost(context, 0.1)
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+
+
 class TestTeamRateLimitMultipliers:
     @pytest.mark.asyncio
     async def test_cache_key_has_no_suffix_for_default_multiplier(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -226,3 +367,60 @@ class TestTeamRateLimitMultipliers:
         key = throttle._get_cache_key(context)
         assert key == "cost:product:wizard:tm10"
         get_settings.cache_clear()
+
+
+class TestCostAccumulatorTTL:
+    def test_cost_expires_after_window(self) -> None:
+        from unittest.mock import patch
+
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=0):
+            accumulator.incr("user1", 5.0)
+            assert accumulator.get_current("user1") == 5.0
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=61):
+            assert accumulator.get_current("user1") == 0.0
+
+    def test_cost_persists_within_window(self) -> None:
+        from unittest.mock import patch
+
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=0):
+            accumulator.incr("user1", 5.0)
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=30):
+            assert accumulator.get_current("user1") == 5.0
+            accumulator.incr("user1", 3.0)
+            assert accumulator.get_current("user1") == 8.0
+
+    def test_new_window_starts_fresh(self) -> None:
+        from unittest.mock import patch
+
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=0):
+            accumulator.incr("user1", 10.0)
+            assert accumulator.incr("user1", 1.0) is False
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.time.monotonic", return_value=61):
+            assert accumulator.incr("user1", 5.0) is True
+            assert accumulator.get_current("user1") == 5.0
+
+    def test_different_keys_independent(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        accumulator.incr("user1", 5.0)
+        accumulator.incr("user2", 3.0)
+
+        assert accumulator.get_current("user1") == 5.0
+        assert accumulator.get_current("user2") == 3.0

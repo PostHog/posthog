@@ -45,14 +45,15 @@ class CostThrottle(Throttle):
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
-        limit, window = self._get_limit_and_window(context)
+        limit, _ = self._get_limit_and_window(context)
 
         current = await limiter.get_current(key)
         if current >= limit:
+            retry_after = await limiter.get_ttl(key)
             return ThrottleResult.deny(
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
-                retry_after=window,
+                retry_after=retry_after,
             )
         return ThrottleResult.allow()
 

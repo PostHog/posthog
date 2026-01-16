@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request, status
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.products.config import check_product_access
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
 from llm_gateway.request_context import get_request_id, set_throttle_context
@@ -89,6 +90,7 @@ async def enforce_throttles(
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
     runner: Annotated[ThrottleRunner, Depends(get_throttle_runner)],
 ) -> AuthenticatedUser:
+    ensure_costs_fresh()
     product = get_product_from_request(request)
 
     context = ThrottleContext(

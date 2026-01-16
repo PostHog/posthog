@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     default_user_cost_limit_usd: float = 2.0
     default_user_cost_window_seconds: int = 3600
 
+    default_fallback_cost_usd: float = 0.01
+
     @field_validator("product_cost_limits", mode="before")
     @classmethod
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
