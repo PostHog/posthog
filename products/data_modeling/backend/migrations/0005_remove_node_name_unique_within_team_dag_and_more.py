@@ -33,7 +33,9 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="node",
             constraint=models.UniqueConstraint(
-                fields=("team", "dag_id", "saved_query_id"), name="saved_query_unique_within_team_dag"
+                condition=models.Q(saved_query__isnull=False),
+                fields=["team", "dag_id", "saved_query"],
+                name="saved_query_unique_within_team_dag",
             ),
         ),
     ]
