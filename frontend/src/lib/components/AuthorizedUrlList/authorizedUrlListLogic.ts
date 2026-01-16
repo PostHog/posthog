@@ -21,10 +21,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
@@ -424,6 +426,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
         launchAtUrl: ({ url }) => {
+            void addProductIntent({
+                product_type: ProductKey.TOOLBAR,
+                intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,
+            })
             window.location.href = values.launchUrl(url)
         },
         cancelProposingUrl: () => {
