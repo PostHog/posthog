@@ -1,9 +1,10 @@
 import json
+from hashlib import sha256
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from rest_framework import status
 
@@ -12,6 +13,7 @@ from posthog.api.github import (
     GITHUB_TYPE_FOR_PERSONAL_API_KEY,
     GITHUB_TYPE_FOR_PROJECT_SECRET,
     SignatureVerificationError,
+    relay_to_eu,
     verify_github_signature,
 )
 from posthog.models import PersonalAPIKey
@@ -534,3 +536,202 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
 
         # Verify email task was called
         mock_send_email.assert_called_once()
+
+
+class TestRelayToEu(TestCase):
+    def test_returns_none_when_setting_empty(self):
+        """Verify no call when GITHUB_SECRET_ALERT_RELAY_URL is None."""
+        with override_settings(GITHUB_SECRET_ALERT_RELAY_URL=None):
+            result = relay_to_eu('{"test": "data"}', "kid", "sig")
+            self.assertIsNone(result)
+
+    @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
+    @patch("posthog.api.github.requests.post")
+    def test_relay_success(self, mock_post):
+        """Test successful relay returns EU results."""
+        expected = [{"token_hash": "abc123", "label": "true_positive", "token_type": "test"}]
+        mock_response = MagicMock()
+        mock_response.json.return_value = expected
+        mock_post.return_value = mock_response
+
+        result = relay_to_eu('{"test": "data"}', "kid123", "sig456")
+
+        self.assertEqual(result, expected)
+        mock_post.assert_called_once_with(
+            "https://eu.posthog.com/api/github/secret_alert/",
+            data='{"test": "data"}',
+            headers={
+                "Content-Type": "application/json",
+                "Github-Public-Key-Identifier": "kid123",
+                "Github-Public-Key-Signature": "sig456",
+            },
+            timeout=15,
+        )
+
+    @override_settings(GITHUB_SECRET_ALERT_RELAY_URL="https://eu.posthog.com/api/github/secret_alert/")
+    @patch("posthog.api.github.requests.post")
+    def test_relay_failure_returns_none(self, mock_post):
+        """Test that EU request failure returns None (graceful degradation)."""
+        mock_post.side_effect = Exception("Network error")
+
+        result = relay_to_eu('{"test": "data"}', "kid", "sig")
+
+        self.assertIsNone(result)
+
+
+class TestSecretAlertRelayIntegration(APIBaseTest):
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    def test_no_relay_when_all_true_positive(self, mock_relay, mock_verify):
+        """Verify no HTTP call to EU when all results are true_positive."""
+        mock_verify.return_value = None
+
+        token = "phx_test_secret_token_1234567890"
+        self.team.secret_api_token = token
+        self.team.save()
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+        mock_relay.assert_not_called()
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    def test_relay_on_false_positive(self, mock_relay, mock_verify):
+        """Mock EU endpoint, verify called with correct headers/body."""
+        mock_verify.return_value = None
+        mock_relay.return_value = None
+
+        token = "phx_unknown_token_1234567890"
+        payload = [
+            {
+                "token": token,
+                "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                "url": "https://github.com/test/repo/blob/main/config.py",
+                "source": "github",
+            }
+        ]
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(payload),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "false_positive")
+        mock_relay.assert_called_once()
+        call_args = mock_relay.call_args
+        self.assertEqual(call_args[0][1], "test_kid")
+        self.assertEqual(call_args[0][2], "test_sig")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    def test_merge_eu_true_positive(self, mock_relay, mock_verify):
+        """US returns false_positive, EU returns true_positive → final is true_positive."""
+        mock_verify.return_value = None
+
+        token = "phx_eu_key_1234567890"
+        token_hash = sha256(token.encode("utf-8")).hexdigest()
+
+        mock_relay.return_value = [
+            {"token_hash": token_hash, "label": "true_positive", "token_type": GITHUB_TYPE_FOR_PROJECT_SECRET}
+        ]
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    def test_eu_failure_graceful(self, mock_relay, mock_verify):
+        """EU request fails → US results returned unchanged."""
+        mock_verify.return_value = None
+        mock_relay.return_value = None
+
+        token = "phx_unknown_token_1234567890"
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "false_positive")
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.relay_to_eu")
+    @override_settings(GITHUB_SECRET_ALERT_RELAY_URL=None)
+    def test_no_relay_when_setting_empty(self, mock_relay, mock_verify):
+        """Verify no call when GITHUB_SECRET_ALERT_RELAY_URL is None."""
+        mock_verify.return_value = None
+
+        token = "phx_unknown_token_1234567890"
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_PROJECT_SECRET,
+                        "url": "https://github.com/test/repo/blob/main/config.py",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "false_positive")
+        mock_relay.assert_called_once()
+        # Even though relay was called, it should return None due to empty setting

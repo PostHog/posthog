@@ -2,9 +2,11 @@ import base64
 from hashlib import sha256
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
 
 import requests
+import structlog
 import posthoganalytics
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -23,6 +25,8 @@ from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
 from posthog.tasks.email import send_personal_api_key_exposed, send_project_secret_api_key_exposed
+
+logger = structlog.get_logger(__name__)
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
@@ -43,6 +47,39 @@ GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
 
 class SignatureVerificationError(Exception):
     pass
+
+
+def relay_to_eu(raw_body: str, kid: str, sig: str) -> list[dict] | None:
+    """Relay request to EU. Returns EU results or None on failure."""
+    url = settings.GITHUB_SECRET_ALERT_RELAY_URL
+    if not url:
+        return None
+    try:
+        resp = requests.post(
+            url,
+            data=raw_body,
+            headers={
+                "Content-Type": "application/json",
+                "Github-Public-Key-Identifier": kid,
+                "Github-Public-Key-Signature": sig,
+            },
+            # GitHub expects a response w/in 30 seconds, so EU gets half that
+            timeout=15,
+        )
+        resp.raise_for_status()
+        posthoganalytics.capture(
+            distinct_id=None,
+            event="github_secret_alert_relay_success",
+        )
+        return resp.json()
+    except Exception as e:
+        logger.warning("Failed to relay GitHub secret alert to EU", error=str(e))
+        posthoganalytics.capture(
+            distinct_id=None,
+            event="github_secret_alert_relay_failure",
+            properties={"error": str(e)},
+        )
+        return None
 
 
 def verify_github_signature(payload: str, kid: str, sig: str) -> None:
@@ -245,5 +282,16 @@ class SecretAlert(APIView):
                 raise ValidationError(detail="Unexpected alert type")
 
             results.append(result)
+
+        # Relay to EU if any false positives (key might exist in EU)
+        has_false_positives = any(r["label"] == "false_positive" for r in results)
+        if has_false_positives:
+            eu_results = relay_to_eu(raw_body, kid, sig)
+            if eu_results:
+                eu_by_hash = {r["token_hash"]: r for r in eu_results}
+                for r in results:
+                    eu_r = eu_by_hash.get(r["token_hash"])
+                    if eu_r and eu_r["label"] == "true_positive":
+                        r["label"] = "true_positive"
 
         return Response(results)
