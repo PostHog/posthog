@@ -8,8 +8,9 @@ from playwright.sync_api import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed, should_block_url
+from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
+from posthog.security.url_validation import is_url_allowed, should_block_url
 from posthog.tasks.exports.image_exporter import HEIGHT_OFFSET
 from posthog.tasks.utils import CeleryQueue
 

@@ -12,3 +12,6 @@ concurrency:
               limit: 1
               value:
                   applyLimitPerUniqueValue: true
+            - key: 'dagster/web_analytics_cache_warming'
+              value: 'web_analytics_cache_warming'
+              limit: 1

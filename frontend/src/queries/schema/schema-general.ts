@@ -2859,6 +2859,7 @@ export type FileSystemIconType =
     | 'folder'
     | 'folder_open'
     | 'conversations'
+    | 'toolbar'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

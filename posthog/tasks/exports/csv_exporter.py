@@ -1,13 +1,19 @@
 import io
+import os
+import csv
+import json
 import datetime
+import tempfile
 from collections.abc import Generator
 from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
+from django.conf import settings
 from django.http import QueryDict
 
 import requests
 import structlog
+import posthoganalytics
 from openpyxl import Workbook
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
@@ -16,12 +22,14 @@ from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models.exported_asset import ExportedAsset, save_content
+from posthog.models.exported_asset import ExportedAsset, save_content, save_content_from_file
+from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.utils import absolute_uri
 
+from ...clickhouse.client.escape import substitute_params
 from ...exceptions import QuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
-from ...hogql.query import LimitContext
+from ...hogql.query import HogQLQueryExecutor, LimitContext
 from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -389,6 +397,137 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     save_content(exported_asset, rendered_csv_content)
 
 
+def _is_streamable_hogql_query(resource: dict) -> bool:
+    """Check if this is a raw HogQL query that can be streamed directly from ClickHouse.
+
+    Other query types (Trends, Funnels, etc.) return pre-aggregated API results so they can't be streamed.
+    """
+    source = resource.get("source")
+    if not source:
+        return False
+    kind = source.get("kind")
+    return kind == "HogQLQuery"
+
+
+def _stream_clickhouse_query(
+    clickhouse_sql: str,
+    query_params: dict[str, Any],
+) -> Generator[dict[str, Any], None, None]:
+    """
+    Stream query results from ClickHouse using HTTP interface with JSONEachRow format.
+    """
+    if query_params:
+        prepared_sql = substitute_params(clickhouse_sql, query_params)
+    else:
+        prepared_sql = clickhouse_sql
+
+    sql_with_format = f"{prepared_sql.rstrip(';')} FORMAT JSONEachRow"
+
+    client = ClickHouseClient(
+        url=settings.CLICKHOUSE_HTTP_URL,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
+
+    with client.post_query(sql_with_format, query_parameters=None, query_id=None) as response:
+        for line in response.iter_lines():
+            if line:
+                yield json.loads(line)
+
+
+def _stream_hogql_query_rows(exported_asset: ExportedAsset, limit: int) -> Generator[dict[str, Any], None, None]:
+    """
+    Stream rows from a HogQL query using ClickHouse HTTP interface.
+    """
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+    resource = exported_asset.export_context or {}
+    source = resource.get("source", {})
+    hogql_query = source.get("query", "")
+
+    team = exported_asset.team
+    modifiers = create_default_modifiers_for_team(team, None)
+
+    executor = HogQLQueryExecutor(
+        query=hogql_query,
+        team=team,
+        limit_context=LimitContext.EXPORT,
+        modifiers=modifiers,
+    )
+    clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
+    query_params = clickhouse_context.values
+
+    total_rows = 0
+    for row in _stream_clickhouse_query(clickhouse_sql, query_params):
+        if total_rows >= limit:
+            break
+        yield row
+        total_rows += 1
+
+
+def _export_to_csv_streaming(exported_asset: ExportedAsset, limit: int) -> None:
+    resource = exported_asset.export_context or {}
+    columns = resource.get("columns", [])
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as tmp:
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "w", newline="") as f:
+            writer = None
+            for row in _stream_hogql_query_rows(exported_asset, limit):
+                if writer is None:
+                    header = columns if columns else list(row.keys())
+                    writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+                    writer.writeheader()
+                writer.writerow(row)
+
+            if writer is None:
+                writer = csv.DictWriter(f, fieldnames=["error"])
+                writer.writeheader()
+                writer.writerow({"error": "No data available or unable to format for export."})
+
+        save_content_from_file(exported_asset, tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+def _export_to_excel_streaming(exported_asset: ExportedAsset, limit: int) -> None:
+    resource = exported_asset.export_context or {}
+    columns = resource.get("columns", [])
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        workbook = Workbook(write_only=True)
+        worksheet = workbook.create_sheet()
+        header: list[str] = []
+
+        for row in _stream_hogql_query_rows(exported_asset, limit):
+            if not header:
+                header = columns if columns else list(row.keys())
+                worksheet.append(header)
+            row_values = []
+            for col in header:
+                value = row.get(col)
+                if value is not None and not isinstance(value, str | int | float | bool):
+                    value = str(value)
+                row_values.append(value)
+            worksheet.append(row_values)
+
+        if not header:
+            worksheet.append(["error"])
+            worksheet.append(["No data available or unable to format for export."])
+
+        workbook.save(tmp_path)
+
+        save_content_from_file(exported_asset, tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
     output = io.BytesIO()
 
@@ -443,14 +582,34 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 
     try:
-        if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                _export_to_csv(exported_asset, limit)
-        elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-            with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                _export_to_excel(exported_asset, limit)
-        else:
-            raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
+        resource = exported_asset.export_context or {}
+        team = exported_asset.team
+        is_streamable = _is_streamable_hogql_query(resource) and posthoganalytics.feature_enabled(
+            "buffer-tabular-export-to-disk",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+        with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
+            if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
+                if is_streamable:
+                    _export_to_csv_streaming(exported_asset, limit)
+                else:
+                    _export_to_csv(exported_asset, limit)
+            elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
+                if is_streamable:
+                    _export_to_excel_streaming(exported_asset, limit)
+                else:
+                    _export_to_excel(exported_asset, limit)
+            else:
+                raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:
         if exported_asset:
             team_id = str(exported_asset.team.id)

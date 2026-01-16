@@ -269,6 +269,27 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], False)
 
+    def test_logs_console_capture_opt_in(self, *args):
+        from django.core.cache import cache
+
+        # Test default logs config
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": False})
+
+        # Test when logs console capture is enabled
+        self._update_team({"logs_settings": {"capture_console_logs": True}})
+        cache.delete(f"team_token:{self.team.api_token}")
+
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": True})
+
+        # Test when logs console capture is disabled
+        self._update_team({"logs_settings": {"capture_console_logs": False}})
+        cache.delete(f"team_token:{self.team.api_token}")
+
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": False})
+
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
 

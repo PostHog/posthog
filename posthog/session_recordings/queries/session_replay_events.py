@@ -8,6 +8,7 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
 
@@ -49,6 +50,7 @@ class SessionReplayEvents:
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = sync_execute(
             """
             SELECT
@@ -140,6 +142,7 @@ class SessionReplayEvents:
                 "now": now,
             },
         )
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return []
@@ -170,6 +173,7 @@ class SessionReplayEvents:
                 "max_timestamp": max_timestamp,
             },
         )
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result = HogQLQueryRunner(team=team, query=query).calculate()
         if not result.results:
             return set()
@@ -301,6 +305,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(recording_start_time)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -369,6 +374,7 @@ class SessionReplayEvents:
             HAVING
                 expiry_time >= %(python_now)s
         """
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -411,6 +417,7 @@ class SessionReplayEvents:
         recording_start_time: Optional[datetime] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
             query,
             {
@@ -487,6 +494,7 @@ class SessionReplayEvents:
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
         hq = self.get_events_query(session_id, metadata, events_to_ignore, extra_fields, limit, page)
+        tag_queries(product=Product.REPLAY, team_id=team.pk)
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
@@ -629,6 +637,7 @@ def get_person_emails_for_session_ids(
             "max_timestamp": max_timestamp,
         },
     )
+    tag_queries(product=Product.REPLAY, team_id=team_id)
     result = HogQLQueryRunner(team=team, query=query).calculate()
     email_mapping: dict[str, str | None] = dict.fromkeys(session_ids)
     if result.results:

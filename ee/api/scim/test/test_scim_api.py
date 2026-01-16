@@ -7,6 +7,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):
@@ -166,3 +167,48 @@ class TestSCIMAPI(APILicensedTest):
         assert other_user.email == "alice@othercorp.com"
         assert other_user.first_name == "Alice"
         assert User.objects.filter(id=other_user.id).exists()
+
+    def _create_group_in_other_org(self):
+        other_org = Organization.objects.create(name="OtherCorp")
+        other_role = Role.objects.create(
+            name="OtherRole",
+            organization=other_org,
+        )
+        return other_role
+
+    @parameterized.expand(["get", "put", "patch", "delete"])
+    def test_scim_group_detail_rejects_cross_tenant_access(self, method: str):
+        other_role = self._create_group_in_other_org()
+        self.client.credentials(**self.scim_headers)
+
+        url = f"/scim/v2/{self.domain.id}/Groups/{other_role.id}"
+
+        if method == "get":
+            response = self.client.get(url)
+        elif method == "put":
+            response = self.client.put(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                    "displayName": "ChangedName",
+                    "members": [],
+                },
+                format="json",
+            )
+        elif method == "patch":
+            response = self.client.patch(
+                url,
+                {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [{"op": "replace", "path": "displayName", "value": "ChangedName"}],
+                },
+                format="json",
+            )
+        elif method == "delete":
+            response = self.client.delete(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        other_role.refresh_from_db()
+        assert other_role.name == "OtherRole"
+        assert Role.objects.filter(id=other_role.id).exists()
