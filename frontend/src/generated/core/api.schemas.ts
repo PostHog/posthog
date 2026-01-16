@@ -2441,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2480,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
@@ -3244,6 +3244,8 @@ export interface UserApi {
     /** @nullable */
     readonly is_impersonated_until: string | null
     /** @nullable */
+    readonly is_impersonated_read_only: boolean | null
+    /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
@@ -3307,6 +3309,8 @@ export interface PatchedUserApi {
     readonly is_impersonated?: boolean | null
     /** @nullable */
     readonly is_impersonated_until?: string | null
+    /** @nullable */
+    readonly is_impersonated_read_only?: boolean | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi

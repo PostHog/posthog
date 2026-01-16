@@ -105,3 +105,257 @@ pub fn test_vm() {
         assert!(matches!(res, Ok(Value::Bool(true))))
     }
 }
+
+#[test]
+pub fn test_null_comparison_handling() {
+    // Equality comparisons with null should work
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(31.into()), // NULL
+                    Value::Number(31.into()), // NULL
+                    Value::Number(11.into()), // EQ
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(31.into()), // NULL
+                    Value::Number(31.into()), // NULL
+                    Value::Number(12.into()), // NOT_EQ
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(false)
+    );
+
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(31.into()), // NULL
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(1.into()),
+                    Value::Number(11.into()), // EQ
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(false)
+    );
+
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(31.into()), // NULL
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(1.into()),
+                    Value::Number(12.into()), // NOT_EQ
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+
+    // Ordering comparisons with null should raise errors
+    // null <= 18
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(33.into()), // INTEGER
+                Value::Number(18.into()),
+                Value::Number(16.into()), // LT_EQ
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // null < 18
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(33.into()), // INTEGER
+                Value::Number(18.into()),
+                Value::Number(15.into()), // LT
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // null >= 18
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(33.into()), // INTEGER
+                Value::Number(18.into()),
+                Value::Number(14.into()), // GT_EQ
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // null > 18
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(33.into()), // INTEGER
+                Value::Number(18.into()),
+                Value::Number(13.into()), // GT
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // Ordering comparisons with null in mixed-type scenarios should also raise errors
+    // null <= '18'
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(32.into()), // STRING
+                Value::String("18".to_string()),
+                Value::Number(16.into()), // LT_EQ
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // 5 > null
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(33.into()), // INTEGER
+                Value::Number(5.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(13.into()), // GT
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // null <= null
+    assert!(sync_execute(
+        &ExecutionContext::with_defaults(
+            Program::new(vec![
+                Value::String("_H".to_string()),
+                Value::Number(1.into()),
+                Value::Number(31.into()), // NULL
+                Value::Number(31.into()), // NULL
+                Value::Number(16.into()), // LT_EQ
+                Value::Number(38.into()), // RETURN
+            ])
+            .unwrap()
+        ),
+        false
+    )
+    .is_err());
+
+    // Valid comparisons should still work
+    // 5 <= 18 (push in reverse order: 18, then 5)
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(18.into()),
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(5.into()),
+                    Value::Number(16.into()), // LT_EQ
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+
+    // 20 > 18 (push in reverse order: 18, then 20)
+    assert_eq!(
+        sync_execute(
+            &ExecutionContext::with_defaults(
+                Program::new(vec![
+                    Value::String("_H".to_string()),
+                    Value::Number(1.into()),
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(18.into()),
+                    Value::Number(33.into()), // INTEGER
+                    Value::Number(20.into()),
+                    Value::Number(13.into()), // GT
+                    Value::Number(38.into()), // RETURN
+                ])
+                .unwrap()
+            ),
+            false
+        )
+        .unwrap(),
+        Value::Bool(true)
+    );
+}

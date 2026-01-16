@@ -29650,6 +29650,9 @@
                     "description": "retention period for this recording",
                     "type": "number"
                 },
+                "snapshot_library": {
+                    "type": "string"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
