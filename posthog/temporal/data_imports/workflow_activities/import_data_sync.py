@@ -1,9 +1,6 @@
 import uuid
 import dataclasses
-from typing import TYPE_CHECKING, Any, Optional
-
-if TYPE_CHECKING:
-    pass
+from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
@@ -210,7 +207,7 @@ def _run(
             from posthog.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
 
             logger.info("Running V3 pipeline (feature flag enabled)")
-            pipeline = PipelineV3(
+            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
                 source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor, resumable_source_manager
             )
         else:

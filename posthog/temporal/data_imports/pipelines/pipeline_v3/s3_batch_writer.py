@@ -24,14 +24,18 @@ class BatchWriteResult:
 
 class S3BatchWriter:
     _job: ExternalDataJob
+    _schema_id: str
     _logger: FilteringBoundLogger
     _run_uuid: str
     _base_folder: str
     _data_folder: str
     _schema: pa.Schema | None
 
-    def __init__(self, job: ExternalDataJob, logger: FilteringBoundLogger, run_uuid: str | None = None) -> None:
+    def __init__(
+        self, logger: FilteringBoundLogger, job: ExternalDataJob, schema_id: str, run_uuid: str | None = None
+    ) -> None:
         self._job = job
+        self._schema_id = schema_id
         self._logger = logger
         self._run_uuid = (
             run_uuid if run_uuid is not None else f"generated-{str(uuid.uuid4())}"
@@ -62,7 +66,7 @@ class S3BatchWriter:
             )
 
     def _get_base_folder(self) -> str:
-        return f"{settings.BUCKET_URL}/data_pipelines_extract/{self._job.team_id}/{self._job.id}/{self._run_uuid}"
+        return f"{settings.BUCKET_URL}/data_pipelines_extract/{self._job.team_id}/{self._schema_id}/{self._run_uuid}"  # TODO: decide if we want to add date info in the path
 
     def write_batch(self, pa_table: pa.Table, batch_index: int) -> BatchWriteResult:
         timestamp_ns = time.time_ns()

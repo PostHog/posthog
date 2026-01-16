@@ -74,7 +74,7 @@ class PipelineV3(Generic[ResumableData]):
         self._schema = schema
         self._is_incremental = schema.is_incremental
 
-        self._s3_batch_writer = S3BatchWriter(self._job, self._logger, self._job.workflow_run_id)
+        self._s3_batch_writer = S3BatchWriter(self._logger, self._job, self._schema.id, self._job.workflow_run_id)
 
         sync_type = "full_refresh"
         if self._schema.is_incremental:
@@ -175,6 +175,7 @@ class PipelineV3(Generic[ResumableData]):
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
+            del self._kafka_producer
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
@@ -194,6 +195,7 @@ class PipelineV3(Generic[ResumableData]):
                     null_column = pa.array([None] * pa_table.num_rows, type=field.type)
                     pa_table = pa_table.append_column(field, null_column)
 
+        # TODO: make write in S3 + kafka event in a single transaction
         batch_result = self._s3_batch_writer.write_batch(pa_table, batch_index)
         self._batch_results.append(batch_result)
 

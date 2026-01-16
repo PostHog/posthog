@@ -80,6 +80,9 @@ class KafkaBatchProducer:
         self._producer = _warpstream_kafka_producer()
         self._pending_futures = []
 
+    def _get_key(self) -> str:
+        return f"{self._team_id}:{self._schema_id}"  # we want ordering across multiple runs for the same schema
+
     def send_batch_notification(
         self,
         batch_result: BatchWriteResult,
@@ -110,16 +113,15 @@ class KafkaBatchProducer:
         )
 
         self._logger.debug(
-            f"Sending batch notification to Kafka",
+            "Sending batch notification to Kafka",
             batch_index=batch_result.batch_index,
             is_final_batch=is_final_batch,
         )
 
-        key = f"{self._team_id}:{self._schema_id}:{self._run_uuid}"
         future = self._producer.produce(
             topic=KAFKA_WAREHOUSE_PIPELINES_BATCH_EXPORTS,
             data=message.to_dict(),
-            key=key,
+            key=self._get_key(),
         )
         self._pending_futures.append(future)
 
@@ -143,4 +145,6 @@ class KafkaBatchProducer:
         else:
             self._logger.debug(f"Successfully flushed {flushed_count} messages")
 
-        return flushed_count - errors  # TODO: handle errors while flushing
+        return (
+            flushed_count - errors
+        )  # TODO: handle errors while flushing, this needs to be done before rollout but postponing the implementation until deciding how to handle these errors
