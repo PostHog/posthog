@@ -1,6 +1,4 @@
-import { ReactNativeInstallation } from '@posthog/shared-onboarding/product-analytics/react-native'
-
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { ReactNativeInstallation } from '@posthog/shared-onboarding/product-analytics'
 
 import { SDKKey } from '~/types'
 
@@ -8,9 +6,9 @@ import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstruc
 
 export function ProductAnalyticsRNInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper>
+        <>
             <ReactNativeInstallation />
             <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.REACT_NATIVE} />
-        </OnboardingDocsContentWrapper>
+        </>
     )
 }

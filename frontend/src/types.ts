@@ -768,6 +768,7 @@ export type ToolbarUserIntent =
     | 'edit-experiment'
     | 'add-product-tour'
     | 'edit-product-tour'
+    | 'preview-product-tour'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
@@ -3318,7 +3319,32 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
-export type ProductTourStepType = 'element' | 'modal' | 'survey'
+export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
+
+export interface ProductTourBannerConfig {
+    behavior: 'sticky' | 'static'
+    action?: {
+        type: 'none' | 'link' | 'trigger_tour'
+        link?: string
+        tourId?: string
+    }
+}
+
+export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
+
+export interface ProductTourStepButton {
+    text: string
+    action: ProductTourButtonAction
+    /** URL to open when action is 'link' */
+    link?: string
+    /** Tour ID to trigger when action is 'trigger_tour' */
+    tourId?: string
+}
+
+export interface ProductTourStepButtons {
+    primary?: ProductTourStepButton
+    secondary?: ProductTourStepButton
+}
 
 /** Preset width options for product tour tooltips */
 export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
@@ -3356,6 +3382,10 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** Button configuration for tour steps (modals / announcements) */
+    buttons?: ProductTourStepButtons
+    /** Banner configuration (only for banner steps) */
+    bannerConfig?: ProductTourBannerConfig
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3399,9 +3429,12 @@ export interface ProductTourAppearance {
     whiteLabel?: boolean
     /** defaults to true, auto-set to false for announcements/banners */
     dismissOnClickOutside?: boolean
+    zIndex?: number
 }
 
 export type ProductTourType = 'tour' | 'announcement'
+
+export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
 export interface ProductTourContent {
     type?: ProductTourType
@@ -3410,6 +3443,7 @@ export interface ProductTourContent {
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
+    displayFrequency?: ProductTourDisplayFrequency
 }
 
 export interface ProductTour {
@@ -3818,6 +3852,7 @@ export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
     Monthly = 'monthly',
+    Yearly = 'yearly',
 }
 
 export type ScheduledChangePayload =
@@ -3974,7 +4009,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
-
+    | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {

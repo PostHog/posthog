@@ -132,6 +132,7 @@
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
+        { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": [] },
         {
             "path": "User interviews",
             "category": "Unreleased",

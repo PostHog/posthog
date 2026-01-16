@@ -232,6 +232,7 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
     productTourId: string | null
+    userIntent?: ToolbarUserIntent
     type: AuthorizedUrlListType
     allowWildCards?: boolean
 }
@@ -240,6 +241,7 @@ export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
     productTourId: null,
+    userIntent: undefined,
 }
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
@@ -479,8 +481,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId, p.experimentId, p.productTourId],
-            (actionId, experimentId, productTourId) => (url: string) => {
+            (_, p) => [p.actionId, p.experimentId, p.productTourId, p.userIntent ?? (() => undefined)],
+            (actionId, experimentId, productTourId, userIntent) => (url: string) => {
                 if (experimentId) {
                     return appEditorUrl(url, {
                         experimentId,
@@ -488,7 +490,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 }
 
                 if (productTourId) {
-                    return appEditorUrl(url, { productTourId })
+                    return appEditorUrl(url, { productTourId, userIntent })
                 }
 
                 return appEditorUrl(url, {

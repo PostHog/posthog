@@ -1,6 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -16,6 +19,7 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
 import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
@@ -27,6 +31,7 @@ import { getLogicKey } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const { groupKey, groupTypeIndex, personId, tabId } = attributes
     const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
@@ -36,6 +41,18 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
     const { tracesQuery } = useValues(logic)
     const context = useTracesQueryContext()
     const attachTo = groupTypeIndex !== undefined && groupKey ? groupLogic({ groupTypeIndex, groupKey }) : undefined
+    const { removeNode } = useActions(customerProfileLogic)
+
+    useOnMountEffect(() => {
+        setMenuItems([
+            {
+                label: 'Remove',
+                onClick: () => removeNode(NotebookNodeType.LLMTrace),
+                sideIcon: <IconX />,
+                status: 'danger',
+            },
+        ])
+    })
 
     if (!expanded) {
         return null
