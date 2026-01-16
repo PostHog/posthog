@@ -756,6 +756,8 @@ const EventContent = React.memo(
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
                                     timestamp={event.createdAt}
+                                    timeToFirstToken={event.properties.$ai_time_to_first_token}
+                                    isStreaming={event.properties.$ai_stream === true}
                                 />
                             ) : (
                                 <MetadataHeader

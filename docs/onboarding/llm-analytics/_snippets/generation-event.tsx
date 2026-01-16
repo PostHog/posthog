@@ -208,6 +208,14 @@ export const GenerationEvent = (): JSX.Element => {
                     </tr>
                     <tr>
                         <td style={propertyColumnStyle}>
+                            <code>$ai_time_to_first_token</code>
+                        </td>
+                        <td>
+                            <p><em>(Optional)</em> Time to first token in seconds. Only applicable for streaming responses.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style={propertyColumnStyle}>
                             <code>$ai_http_status</code>
                         </td>
                         <td>

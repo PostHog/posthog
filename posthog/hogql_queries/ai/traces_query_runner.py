@@ -214,6 +214,11 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                              )
                     END, 2
                 ) AS total_latency,
+                round(
+                    minIf(toFloat(properties.$ai_time_to_first_token),
+                          event = '$ai_generation' AND toFloat(properties.$ai_time_to_first_token) > 0
+                    ), 3
+                ) AS min_time_to_first_token,
                 sumIf(toFloat(properties.$ai_input_tokens),
                       event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,

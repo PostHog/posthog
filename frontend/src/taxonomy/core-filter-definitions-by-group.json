@@ -221,6 +221,14 @@
             ],
             "label": "AI latency (LLM)"
         },
+        "$ai_time_to_first_token": {
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [
+                0.125,
+                0.5
+            ],
+            "label": "AI time to first token (LLM)"
+        },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",
             "examples": [
@@ -2753,6 +2761,14 @@
                 0.361
             ],
             "label": "AI latency (LLM)"
+        },
+        "$ai_time_to_first_token": {
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [
+                0.125,
+                0.5
+            ],
+            "label": "AI time to first token (LLM)"
         },
         "$ai_metric_name": {
             "description": "The name assigned to the metric used to evaluate the LLM trace.",

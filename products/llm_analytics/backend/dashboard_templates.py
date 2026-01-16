@@ -277,6 +277,48 @@ def get_llm_analytics_default_template() -> DashboardTemplate:
             },
             {
                 "type": "INSIGHT",
+                "name": "Time to first token by model (median)",
+                "description": "Streaming requests only",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [
+                            {
+                                "event": "$ai_generation",
+                                "name": "$ai_generation",
+                                "math": "median",
+                                "kind": "EventsNode",
+                                "math_property": "$ai_time_to_first_token",
+                                "properties": [
+                                    {
+                                        "type": "event",
+                                        "key": "$ai_stream",
+                                        "operator": "exact",
+                                        "value": "true",
+                                    }
+                                ],
+                            }
+                        ],
+                        "breakdownFilter": {
+                            "breakdown": "$ai_model",
+                        },
+                        "trendsFilter": {
+                            "aggregationAxisPostfix": " s",
+                            "decimalPlaces": 3,
+                        },
+                        "dateRange": {"date_from": "-7d"},
+                        "properties": [],
+                        "filterTestAccounts": False,
+                    },
+                },
+                "layouts": {
+                    "sm": {"h": 5, "w": 4, "x": 0, "y": 15, "minH": 5, "minW": 3},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": 40, "minH": 5, "minW": 3},
+                },
+            },
+            {
+                "type": "INSIGHT",
                 "name": "Generations by HTTP status",
                 "description": "",
                 "query": {

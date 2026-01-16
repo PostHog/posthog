@@ -67,7 +67,10 @@ export const ManualInstallation = (): JSX.Element => {
                                                         $ai_input_tokens: 10,
                                                         $ai_output_choices: [{ role: 'assistant', content: 'Hedgehogs have around 5,000 to 7,000 spines on their backs!' }],
                                                         $ai_output_tokens: 20,
-                                                        $ai_latency: 1.5
+                                                        $ai_latency: 1.5,
+                                                        // For streaming responses, also include:
+                                                        // $ai_stream: true,
+                                                        // $ai_time_to_first_token: 0.25
                                                     }
                                                 })
 
@@ -108,7 +111,10 @@ export const ManualInstallation = (): JSX.Element => {
                                                         '$ai_input_tokens': 10,
                                                         '$ai_output_choices': [{'role': 'assistant', 'content': 'Hedgehogs have around 5,000 to 7,000 spines on their backs!'}],
                                                         '$ai_output_tokens': 20,
-                                                        '$ai_latency': 1.5
+                                                        '$ai_latency': 1.5,
+                                                        # For streaming responses, also include:
+                                                        # '$ai_stream': True,
+                                                        # '$ai_time_to_first_token': 0.25
                                                     }
                                                 )
                                             `}
@@ -149,6 +155,9 @@ export const ManualInstallation = (): JSX.Element => {
                                                         "$ai_input_tokens":    10,
                                                         "$ai_output_tokens":   20,
                                                         "$ai_latency":         1.5,
+                                                        // For streaming responses, also include:
+                                                        // "$ai_stream":              true,
+                                                        // "$ai_time_to_first_token": 0.25,
                                                     },
                                                 })
                                             `}
@@ -189,6 +198,9 @@ export const ManualInstallation = (): JSX.Element => {
                                                     '$ai_input_tokens' => 10,
                                                     '$ai_output_tokens' => 20,
                                                     '$ai_latency' => 1.5
+                                                    # For streaming responses, also include:
+                                                    # '$ai_stream' => true,
+                                                    # '$ai_time_to_first_token' => 0.25
                                                     }
                                                 })
                                             `}
@@ -230,6 +242,9 @@ export const ManualInstallation = (): JSX.Element => {
                                                         '$ai_input_tokens' => 10,
                                                         '$ai_output_tokens' => 20,
                                                         '$ai_latency' => 1.5
+                                                        // For streaming responses, also include:
+                                                        // '$ai_stream' => true,
+                                                        // '$ai_time_to_first_token' => 0.25
                                                     ]
                                                 ]);
                                             `}
@@ -257,7 +272,9 @@ export const ManualInstallation = (): JSX.Element => {
                                                                 "$ai_input_tokens": 10,
                                                                 "$ai_output_choices": [{"role": "assistant", "content": "Hedgehogs have around 5,000 to 7,000 spines on their backs!"}],
                                                                 "$ai_output_tokens": 20,
-                                                                "$ai_latency": 1.5
+                                                                "$ai_latency": 1.5,
+                                                                "$ai_stream": true,
+                                                                "$ai_time_to_first_token": 0.25
                                                             }
                                                         }'
                                             `}

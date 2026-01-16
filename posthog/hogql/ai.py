@@ -2591,6 +2591,11 @@ Here is the taxonomy for event properties:
             "description": "The latency of the request made to the LLM API, in seconds.",
             "examples": [0.361],
         },
+        "$ai_time_to_first_token": {
+            "label": "AI time to first token (LLM)",
+            "description": "The time in seconds from request start until the first token was received. Only applicable for streaming responses.",
+            "examples": [0.125, 0.5],
+        },
         "$ai_model": {
             "label": "AI model (LLM)",
             "description": "The model used to generate the output from the LLM API.",

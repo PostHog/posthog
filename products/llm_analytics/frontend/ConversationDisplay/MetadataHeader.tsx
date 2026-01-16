@@ -18,6 +18,8 @@ export function MetadataHeader({
     cacheReadTokens,
     cacheWriteTokens,
     timestamp,
+    timeToFirstToken,
+    isStreaming,
 }: {
     inputTokens?: number
     outputTokens?: number
@@ -29,12 +31,21 @@ export function MetadataHeader({
     isError?: boolean
     className?: string
     timestamp?: string
+    timeToFirstToken?: number
+    isStreaming?: boolean
 }): JSX.Element {
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
             {isError && <LemonTag type="danger">Error</LemonTag>}
             {typeof latency === 'number' && (
                 <MetadataTag label="Latency">{`${Math.round(latency * 10e2) / 10e2} s of latency`}</MetadataTag>
+            )}
+            {typeof timeToFirstToken === 'number' && isStreaming && (
+                <MetadataTag label="Time to first token">
+                    {timeToFirstToken < 1
+                        ? `${Math.round(timeToFirstToken * 1000)} ms`
+                        : `${timeToFirstToken.toFixed(2)} s`}
+                </MetadataTag>
             )}
             {timestamp && <MetadataTag label="Timestamp">{dayjs(timestamp).format('MMM D, YYYY h:mm A')}</MetadataTag>}
             {typeof inputTokens === 'number' && typeof outputTokens === 'number' && (
