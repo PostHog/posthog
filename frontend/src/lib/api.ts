@@ -1296,10 +1296,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('push_subscriptions')
     }
 
-    public pushSubscriptionsListSafe(teamId?: TeamType['id']): ApiRequest {
-        return this.pushSubscriptions(teamId).addPathComponent('list_safe')
-    }
-
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('integrations')
@@ -4499,6 +4495,10 @@ const api = {
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()
         },
+    },
+
+    pushSubscriptionsList(teamId?: TeamType['id']): Promise<PaginatedResponse<any>> {
+        return new ApiRequest().pushSubscriptions(teamId).get()
     },
 
     integrations: {
