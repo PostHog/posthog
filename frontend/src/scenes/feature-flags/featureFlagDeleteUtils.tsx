@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { FeatureFlagType } from '~/types'
 
@@ -23,6 +23,13 @@ function DeleteFeatureFlagModal({
     const [deleteUsageDashboard, setDeleteUsageDashboard] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
 
+    // Reset checkbox state when modal opens for a different flag
+    useEffect(() => {
+        if (isOpen) {
+            setDeleteUsageDashboard(false)
+        }
+    }, [isOpen, featureFlag.id])
+
     const handleDelete = async (): Promise<void> => {
         setIsDeleting(true)
         try {
@@ -34,6 +41,8 @@ function DeleteFeatureFlagModal({
             }
             onDelete()
             onClose()
+        } catch {
+            lemonToast.error('Failed to delete dashboard. Please try again.')
         } finally {
             setIsDeleting(false)
         }
@@ -53,6 +62,7 @@ function DeleteFeatureFlagModal({
                                 onChange={setDeleteUsageDashboard}
                                 label="Also delete flag usage dashboard"
                                 labelClassName="font-normal"
+                                data-attr="delete-usage-dashboard-checkbox"
                             />
                         )}
                     </div>
@@ -101,31 +111,4 @@ export function useDeleteFeatureFlagModal({ currentTeamId }: { currentTeamId: nu
     ) : null
 
     return { DeleteFeatureFlagModal: modal, openDeleteModal }
-}
-
-export async function deleteFeatureFlagWithDashboard({
-    featureFlag,
-    projectId,
-    currentTeamId,
-    deleteUsageDashboard,
-    callback,
-}: {
-    featureFlag: Pick<FeatureFlagType, 'key' | 'id' | 'usage_dashboard'>
-    projectId: number
-    currentTeamId: number
-    deleteUsageDashboard: boolean
-    callback?: (undo: boolean) => void
-}): Promise<void> {
-    if (deleteUsageDashboard && featureFlag.usage_dashboard) {
-        await api.update(`environments/${currentTeamId}/dashboards/${featureFlag.usage_dashboard}`, {
-            deleted: true,
-            delete_insights: true,
-        })
-    }
-
-    await deleteWithUndo({
-        endpoint: `projects/${projectId}/feature_flags`,
-        object: { name: featureFlag.key, id: featureFlag.id },
-        callback,
-    })
 }
