@@ -410,7 +410,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 else:
                     cleaned_translation["description"] = translation_data["description"]
 
-            cleaned_translations[lang_code] = cleaned_translation
+            # Only store non-empty translations to avoid wasting storage
+            if cleaned_translation:
+                cleaned_translations[lang_code] = cleaned_translation
 
         return cleaned_translations
 
@@ -461,7 +463,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     translation_data["choices"], f"Question {question_index}: Translation '{lang_code}'"
                 )
 
-            cleaned_translations[lang_code] = cleaned_translation
+            # Only store non-empty translations to avoid wasting storage
+            if cleaned_translation:
+                cleaned_translations[lang_code] = cleaned_translation
 
         return cleaned_translations
 
