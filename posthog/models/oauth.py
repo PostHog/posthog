@@ -225,3 +225,57 @@ class OAuthGrant(AbstractGrant):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+
+def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
+    """Find an OAuth access token by its value using the token_checksum index."""
+    from hashlib import sha256
+
+    checksum = sha256(token.encode()).hexdigest()
+    try:
+        return OAuthAccessToken.objects.select_related("user", "application", "source_refresh_token").get(
+            token_checksum=checksum
+        )
+    except OAuthAccessToken.DoesNotExist:
+        return None
+
+
+def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
+    """Find an active OAuth refresh token by its value."""
+    try:
+        return OAuthRefreshToken.objects.select_related("user", "application", "access_token").get(
+            token=token, revoked__isnull=True
+        )
+    except OAuthRefreshToken.DoesNotExist:
+        return None
+
+
+def revoke_oauth_session(
+    access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
+) -> None:
+    """Revoke all OAuth artifacts related to a session (access token, refresh token, and grant)."""
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    # Get user and application from whichever token we have
+    if access_token:
+        user = access_token.user
+        application = access_token.application
+    elif refresh_token:
+        user = refresh_token.user
+        application = refresh_token.application
+    else:
+        return
+
+    if not user or not application:
+        raise ValueError("Cannot revoke OAuth session: token has no user or application")
+
+    # Delete all access tokens for this user+application
+    OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+    # Revoke all refresh tokens for this user+application
+    OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
+
+    # Delete all grants for this user+application
+    OAuthGrant.objects.filter(user=user, application=application).delete()

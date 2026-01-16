@@ -1104,3 +1104,28 @@ def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.get(pk=user_id)
+    token_type_display = "OAuth access token" if token_type == "access" else "OAuth refresh token"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"oauth-token-exposed-{user.uuid}-{timezone.now().timestamp()}",
+        subject=f"{token_type_display} has been revoked",
+        template_name="oauth_token_exposed",
+        template_context={
+            "preheader": f"{token_type_display} has been revoked",
+            "token_type": token_type_display,
+            "more_info": more_info,
+            "mask_value": mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()

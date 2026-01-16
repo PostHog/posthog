@@ -21,10 +21,15 @@ from rest_framework.views import APIView
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.models import Team
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_session
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.tasks.email import send_personal_api_key_exposed, send_project_secret_api_key_exposed
+from posthog.tasks.email import (
+    send_oauth_token_exposed,
+    send_personal_api_key_exposed,
+    send_project_secret_api_key_exposed,
+)
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -44,6 +49,8 @@ PROJECT_SECRET_API_KEY_LEAKED_COUNTER = Counter(
 # GitHub sends swapped type names - these constants clarify the mismatch
 GITHUB_TYPE_FOR_PERSONAL_API_KEY = "posthog_feature_flags_secure_api_key"
 GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
+GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN = "posthog_oauth_access_token"
+GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN = "posthog_oauth_refresh_token"
 
 
 class SignatureVerificationError(Exception):
@@ -140,7 +147,14 @@ def verify_github_signature(payload: str, kid: str, sig: str) -> None:
 
 class SecretAlertSerializer(serializers.Serializer):
     token = serializers.CharField()
-    type = serializers.ChoiceField(choices=[GITHUB_TYPE_FOR_PERSONAL_API_KEY, GITHUB_TYPE_FOR_PROJECT_SECRET])
+    type = serializers.ChoiceField(
+        choices=[
+            GITHUB_TYPE_FOR_PERSONAL_API_KEY,
+            GITHUB_TYPE_FOR_PROJECT_SECRET,
+            GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+            GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN,
+        ]
+    )
     url = serializers.CharField(allow_blank=True)
     source: Any = serializers.CharField()
 
@@ -284,6 +298,56 @@ class SecretAlert(APIView):
                         **token_debug,
                     }
                 )
+
+            elif item["type"] == GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN:
+                access_token = find_oauth_access_token(token)
+                local_found = access_token is not None
+
+                pending_events.append(
+                    {
+                        "type": "oauth_access_token",
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": local_found,
+                        "token_hash": token_sha256,
+                        **token_debug,
+                    }
+                )
+
+                if access_token is not None:
+                    result["label"] = "true_positive"
+                    more_info = f"This token was detected by GitHub at {item['url']}."
+
+                    user = access_token.user
+                    revoke_oauth_session(access_token=access_token)
+
+                    if user:
+                        send_oauth_token_exposed(user.id, "access", mask_key_value(token), more_info)
+
+            elif item["type"] == GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN:
+                refresh_token = find_oauth_refresh_token(token)
+                local_found = refresh_token is not None
+
+                pending_events.append(
+                    {
+                        "type": "oauth_refresh_token",
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": local_found,
+                        "token_hash": token_sha256,
+                        **token_debug,
+                    }
+                )
+
+                if refresh_token is not None:
+                    result["label"] = "true_positive"
+                    more_info = f"This token was detected by GitHub at {item['url']}."
+
+                    user = refresh_token.user
+                    revoke_oauth_session(refresh_token=refresh_token)
+
+                    if user:
+                        send_oauth_token_exposed(user.id, "refresh", mask_key_value(token), more_info)
 
             else:
                 raise ValidationError(detail="Unexpected alert type")
