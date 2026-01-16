@@ -5026,7 +5026,7 @@ class HogQLQueryModifiers(BaseModel):
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None
     forceClickhouseDataSkippingIndexes: list[str] | None = Field(
-        default=None, description="If these are provided, the query will fail if these skip indexes are not used *"
+        default=None, description="If these are provided, the query will fail if these skip indexes are not used"
     )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
