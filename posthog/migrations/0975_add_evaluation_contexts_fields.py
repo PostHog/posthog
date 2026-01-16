@@ -3,20 +3,6 @@
 from django.db import migrations, models
 
 
-def copy_evaluation_settings(apps, schema_editor):
-    """
-    Copy values from old fields to new fields.
-    This ensures existing team settings are preserved during the rename.
-    """
-    Team = apps.get_model("posthog", "Team")
-
-    # Copy default_evaluation_environments_enabled -> default_evaluation_contexts_enabled
-    Team.objects.filter(default_evaluation_environments_enabled=True).update(default_evaluation_contexts_enabled=True)
-
-    # Copy require_evaluation_environment_tags -> require_evaluation_contexts
-    Team.objects.filter(require_evaluation_environment_tags=True).update(require_evaluation_contexts=True)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "0974_alter_scheduledchange_recurrence_interval"),
@@ -43,6 +29,4 @@ class Migration(migrations.Migration):
                 null=True,
             ),
         ),
-        # Copy existing data from old fields to new fields
-        migrations.RunPython(copy_evaluation_settings, migrations.RunPython.noop),
     ]
