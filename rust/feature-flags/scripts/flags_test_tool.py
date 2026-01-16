@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa
 """
 Feature Flags Explorer
 
@@ -77,9 +78,7 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
-                if (value.startswith('"') and value.endswith('"')) or (
-                    value.startswith("'") and value.endswith("'")
-                ):
+                if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
                     value = value[1:-1]
                 env_vars[key] = value
     return env_vars
@@ -129,9 +128,7 @@ class PostHogClient:
         self.headers = {"Authorization": f"Bearer {personal_api_key}"}
         self._project_id: Optional[int] = None
 
-    def _api_request(
-        self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None
-    ) -> Tuple[int, Any]:
+    def _api_request(self, method: str, endpoint: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Any]:
         url = f"{self.host}{endpoint}"
         return http_request(url, method=method, data=data, headers=self.headers)
 
@@ -158,9 +155,7 @@ class PostHogClient:
         return response.get("results", [])
 
     def create_feature_flag(self, flag_data: Dict[str, Any]) -> Dict[str, Any]:
-        status, response = self._api_request(
-            "POST", f"/api/projects/{self.project_id}/feature_flags/", data=flag_data
-        )
+        status, response = self._api_request("POST", f"/api/projects/{self.project_id}/feature_flags/", data=flag_data)
         if status not in (200, 201):
             raise RuntimeError(f"Failed to create flag '{flag_data.get('key')}': {response}")
         return response
@@ -224,9 +219,7 @@ def load_config() -> Dict[str, Any]:
         "POSTHOG_PERSONAL_API_KEY": os.environ.get(
             "POSTHOG_PERSONAL_API_KEY", env_vars.get("POSTHOG_PERSONAL_API_KEY")
         ),
-        "POSTHOG_PROJECT_API_KEY": os.environ.get(
-            "POSTHOG_PROJECT_API_KEY", env_vars.get("POSTHOG_PROJECT_API_KEY")
-        ),
+        "POSTHOG_PROJECT_API_KEY": os.environ.get("POSTHOG_PROJECT_API_KEY", env_vars.get("POSTHOG_PROJECT_API_KEY")),
     }
 
 
@@ -360,8 +353,8 @@ def run_setup_flags(config: Dict[str, Any], force: bool = False, verbose: bool =
 
 def visible_len(text: str) -> int:
     """Calculate visible length of string (excluding ANSI codes)."""
-    ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
-    return len(ansi_escape.sub('', text))
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    return len(ansi_escape.sub("", text))
 
 
 def pad_to_width(text: str, width: int) -> str:
@@ -437,14 +430,24 @@ def print_flags_table(
     # Category filters
     categories = {
         "boolean": ["simple-boolean", "rollout-percentage", "disabled-flag"],
-        "string": ["string-match-exact", "string-match-contains", "string-match-regex",
-                   "string-not-contains", "list-match-exact"],
+        "string": [
+            "string-match-exact",
+            "string-match-contains",
+            "string-match-regex",
+            "string-not-contains",
+            "list-match-exact",
+        ],
         "numeric": ["numeric-greater-than", "numeric-less-than", "numeric-gte", "numeric-lte"],
         "property": ["property-is-set", "property-is-not-set"],
         "date": ["date-before", "date-after", "date-relative"],
         "multivariate": ["multivariate-simple", "multivariate-multiple", "multivariate-override"],
-        "payload": ["payload-json-object", "payload-json-array", "payload-numeric",
-                    "payload-boolean", "payload-string"],
+        "payload": [
+            "payload-json-object",
+            "payload-json-array",
+            "payload-numeric",
+            "payload-boolean",
+            "payload-string",
+        ],
         "condition": ["multiple-conditions-and", "multiple-conditions-or"],
         "advanced": ["geo-based", "group-based", "experience-continuity", "custom-bucketing"],
     }
@@ -879,7 +882,10 @@ def get_flag_scenarios() -> Dict[str, Dict[str, Any]]:
             "description": "AND logic: plan in [enterprise,business] AND age >= 18 AND country = 'US'",
             "match": {"distinct_id": "user-1", "person_properties": {"plan": "enterprise", "age": 25, "country": "US"}},
             "match_why": "All three conditions match",
-            "no_match": {"distinct_id": "user-2", "person_properties": {"plan": "enterprise", "age": 25, "country": "UK"}},
+            "no_match": {
+                "distinct_id": "user-2",
+                "person_properties": {"plan": "enterprise", "age": 25, "country": "UK"},
+            },
             "no_match_why": "Country is UK, not US - fails one AND condition",
         },
         "multiple-conditions-or": {
@@ -901,7 +907,7 @@ def get_flag_scenarios() -> Dict[str, Dict[str, Any]]:
             "match": {
                 "distinct_id": "user-1",
                 "groups": {"company": "posthog-inc"},
-                "group_properties": {"company": {"name": "PostHog"}}
+                "group_properties": {"company": {"name": "PostHog"}},
             },
             "match_why": "Company name matches 'PostHog'",
             "no_match": {"distinct_id": "user-2"},
@@ -948,7 +954,8 @@ def print_flag_detail(
 
         # Make the call
         response = call_flags_endpoint(
-            host, api_key,
+            host,
+            api_key,
             req["distinct_id"],
             req.get("person_properties"),
             req.get("groups"),
@@ -989,7 +996,8 @@ def print_flag_detail(
 
         # Make the call
         response = call_flags_endpoint(
-            host, api_key,
+            host,
+            api_key,
             req["distinct_id"],
             req.get("person_properties"),
             req.get("groups"),
@@ -1051,8 +1059,16 @@ def cmd_examples(args: argparse.Namespace, config: Dict[str, Any]) -> int:
         table_examples = [
             {"title": "Baseline (no properties)", "distinct_id": "anonymous-user"},
             {"title": "PostHog email", "distinct_id": "user-1", "person_properties": {"email": "dev@posthog.com"}},
-            {"title": "Numeric properties", "distinct_id": "user-2", "person_properties": {"age": 25, "usage_count": 1500, "error_rate": 2}},
-            {"title": "Enterprise plan + US", "distinct_id": "user-3", "person_properties": {"plan": "enterprise", "age": 30, "country": "US"}},
+            {
+                "title": "Numeric properties",
+                "distinct_id": "user-2",
+                "person_properties": {"age": 25, "usage_count": 1500, "error_rate": 2},
+            },
+            {
+                "title": "Enterprise plan + US",
+                "distinct_id": "user-3",
+                "person_properties": {"plan": "enterprise", "age": 30, "country": "US"},
+            },
             {"title": "Sydney geo", "distinct_id": "user-4", "person_properties": {"$geoip_city_name": "Sydney"}},
         ]
 
@@ -1065,13 +1081,14 @@ def cmd_examples(args: argparse.Namespace, config: Dict[str, Any]) -> int:
             print()
 
             response = call_flags_endpoint(
-                host, project_api_key,
+                host,
+                project_api_key,
                 example["distinct_id"],
                 example.get("person_properties"),
                 show_table=True,
                 standard_flags=standard_flags,
                 previous_response=previous_response,
-                filter_category=args.category if hasattr(args, 'category') else None,
+                filter_category=args.category if hasattr(args, "category") else None,
                 verbose=False,
             )
             previous_response = response
@@ -1100,14 +1117,24 @@ def cmd_examples(args: argparse.Namespace, config: Dict[str, Any]) -> int:
     elif args.category:
         categories = {
             "boolean": ["simple-boolean", "rollout-percentage", "disabled-flag"],
-            "string": ["string-match-exact", "string-match-contains", "string-match-regex",
-                       "string-not-contains", "list-match-exact"],
+            "string": [
+                "string-match-exact",
+                "string-match-contains",
+                "string-match-regex",
+                "string-not-contains",
+                "list-match-exact",
+            ],
             "numeric": ["numeric-greater-than", "numeric-less-than", "numeric-gte", "numeric-lte"],
             "property": ["property-is-set", "property-is-not-set"],
             "date": ["date-before", "date-after", "date-relative"],
             "multivariate": ["multivariate-simple", "multivariate-multiple", "multivariate-override"],
-            "payload": ["payload-json-object", "payload-json-array", "payload-numeric",
-                        "payload-boolean", "payload-string"],
+            "payload": [
+                "payload-json-object",
+                "payload-json-array",
+                "payload-numeric",
+                "payload-boolean",
+                "payload-string",
+            ],
             "condition": ["multiple-conditions-and", "multiple-conditions-or"],
             "advanced": ["geo-based", "group-based", "experience-continuity", "custom-bucketing"],
         }
@@ -1193,7 +1220,7 @@ def cmd_call(args: argparse.Namespace, config: Dict[str, Any]) -> int:
             print(color(f"groups: {json.dumps(groups)}", "dim"))
         print()
 
-        filter_cat = args.category if hasattr(args, 'category') else None
+        filter_cat = args.category if hasattr(args, "category") else None
         if filter_cat:
             print(color(f"Filtering to: {filter_cat}", "dim"))
 
@@ -1273,9 +1300,21 @@ Configuration:
     examples_parser.add_argument("--all", action="store_true", help="Run all without pausing")
     examples_parser.add_argument("--table", action="store_true", help="Show all flags in table view")
     examples_parser.add_argument("--flag", "-f", help="Explore a specific flag")
-    examples_parser.add_argument("--category", choices=["boolean", "string", "numeric", "property", "date",
-                                 "multivariate", "payload", "condition", "advanced"],
-                                 help="Filter to specific flag category")
+    examples_parser.add_argument(
+        "--category",
+        choices=[
+            "boolean",
+            "string",
+            "numeric",
+            "property",
+            "date",
+            "multivariate",
+            "payload",
+            "condition",
+            "advanced",
+        ],
+        help="Filter to specific flag category",
+    )
 
     # Call command
     call_parser = subparsers.add_parser("call", help="Make a custom /flags API call")
@@ -1286,9 +1325,21 @@ Configuration:
     call_parser.add_argument("-g", "--groups", help="Groups as JSON")
     call_parser.add_argument("--group-props", help="Group properties as JSON")
     call_parser.add_argument("--python", action="store_true", help="Use Python service instead of Rust")
-    call_parser.add_argument("--category", choices=["boolean", "string", "numeric", "property", "date",
-                             "multivariate", "payload", "condition", "advanced"],
-                             help="Filter to specific flag category")
+    call_parser.add_argument(
+        "--category",
+        choices=[
+            "boolean",
+            "string",
+            "numeric",
+            "property",
+            "date",
+            "multivariate",
+            "payload",
+            "condition",
+            "advanced",
+        ],
+        help="Filter to specific flag category",
+    )
 
     args = parser.parse_args()
     config = load_config()
