@@ -285,15 +285,20 @@ environments_router.register(
     ["team_id"],
 )
 
+environments_router.register(
+    r"push_subscriptions",
+    push_subscription.PushSubscriptionViewSet,
+    "environment_push_subscriptions",
+    ["team_id"],
+)
+
 register_grandfathered_environment_nested_viewset(
     r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
 )
 register_grandfathered_environment_nested_viewset(
     r"integrations", integration.IntegrationViewSet, "environment_integrations", ["team_id"]
 )
-register_grandfathered_environment_nested_viewset(
-    r"push_subscriptions", push_subscription.PushSubscriptionViewSet, "environment_push_subscriptions", ["team_id"]
-)
+
 register_grandfathered_environment_nested_viewset(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,

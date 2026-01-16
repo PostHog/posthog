@@ -44,41 +44,35 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.filter(team_id=self.team_id)
 
     @action(methods=["GET"], detail=False)
-    def list_safe(self, request: Request, *args, **kwargs) -> Response:
+    def list(self, request: Request, *args, **kwargs) -> Response:
         """
         List push subscriptions with person identification data but without the secret token.
-        Returns only id, distinct_id, platform, is_active, and person identification (id, email, name).
+        Returns only id, distinct_id, platform, and person identification (email, name).
+        Only returns active subscriptions.
         """
         queryset = self.safely_get_queryset(self.get_queryset())
         subscriptions = queryset.filter(is_active=True)
 
-        # Get distinct_ids for batch person lookup
         distinct_ids = list(subscriptions.values_list("distinct_id", flat=True).distinct())
 
         if not distinct_ids:
             return Response({"results": []}, status=status.HTTP_200_OK)
 
-        # Batch fetch person data
         persons_qs = get_persons_by_distinct_ids(self.team_id, distinct_ids)
         persons = {p.id: p for p in persons_qs}
 
-        # Get PersonDistinctId mappings to link distinct_ids to persons
         person_distinct_ids = PersonDistinctId.objects.filter(team_id=self.team_id, distinct_id__in=distinct_ids)
 
-        # Create mapping from distinct_id to person
         distinct_id_to_person = {}
         for pdi in person_distinct_ids:
             if pdi.distinct_id not in distinct_id_to_person and pdi.person_id in persons:
                 distinct_id_to_person[pdi.distinct_id] = persons[pdi.person_id]
 
-        # Get team for person name lookup
         team = Team.objects.get(pk=self.team_id)
 
-        # Build response data
         results = []
         for subscription in subscriptions:
             person = distinct_id_to_person.get(subscription.distinct_id)
-            person_id = person.pk if person else None
             person_email = person.email if person else None
             person_name = get_person_name(team, person) if person else None
 
@@ -87,10 +81,8 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "id": subscription.id,
                     "distinct_id": subscription.distinct_id,
                     "platform": subscription.platform,
-                    "is_active": subscription.is_active,
                     "created_at": subscription.created_at,
                     "updated_at": subscription.updated_at,
-                    "person_id": person_id,
                     "person_email": person_email,
                     "person_name": person_name,
                 }
@@ -222,6 +214,11 @@ def sdk_push_subscription_register(request: HttpRequest):
         token=token,
         platform=platform_enum,
     )
+
+    if not subscription.is_active or subscription.disabled_reason:
+        subscription.is_active = True
+        subscription.disabled_reason = None
+        subscription.save(update_fields=["is_active", "disabled_reason"])
 
     logger.info(
         "push_subscription_registered",

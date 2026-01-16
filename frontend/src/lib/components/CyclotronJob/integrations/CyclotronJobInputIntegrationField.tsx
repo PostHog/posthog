@@ -17,7 +17,7 @@ import {
     LinkedInAdsAccountIdPicker,
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
-import { PushSubscriptionPicker } from 'lib/integrations/PushSubscriptionPicker'
+import { PushSubscriptionPickerField } from 'lib/integrations/PushSubscriptionPickerField'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { TwilioPhoneNumberPicker } from 'lib/integrations/TwilioIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -178,22 +178,12 @@ export function CyclotronJobInputIntegrationField({
     if (schema.integration_field === 'clickup_workspace_id') {
         return <ClickUpWorkspacePicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
+    if (schema.integration_field === 'push_subscription') {
+        return <PushSubscriptionPickerField schema={schema} value={value} onChange={onChange} />
+    }
     return (
         <div className="text-danger">
             <p>Unsupported integration type: {schema.integration}</p>
         </div>
     )
-}
-
-export function PushSubscriptionPickerField({
-    schema,
-    value,
-    onChange,
-}: {
-    schema: CyclotronJobInputSchemaType
-    value?: any
-    onChange?: (value: any) => void
-}): JSX.Element {
-    const platform = schema.platform as 'android' | 'ios' | 'web' | undefined
-    return <PushSubscriptionPicker value={value} onChange={onChange} platform={platform} />
 }
