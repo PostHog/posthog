@@ -81,7 +81,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
                 const cleanId = props.id.replace('self-managed-', '').replace('managed-', '')
                 return cleanId
                     ? {
-                          activity_scope: ActivityScope.DATA_WAREHOUSE_SOURCE,
+                          activity_scope: ActivityScope.EXTERNAL_DATA_SOURCE,
                           activity_item_id: cleanId,
                           access_control_resource: 'external_data_source',
                           access_control_resource_id: cleanId,

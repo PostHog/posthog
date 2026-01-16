@@ -4858,6 +4858,7 @@ export type APIScopeObject =
     | 'event_definition'
     | 'experiment'
     | 'experiment_saved_metric'
+    | 'external_data_source'
     | 'export'
     | 'feature_flag'
     | 'group'
