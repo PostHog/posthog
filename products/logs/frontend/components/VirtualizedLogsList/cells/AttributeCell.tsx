@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
+import { shouldLinkToPersonPage } from 'products/logs/frontend/personLinkUtils'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -25,6 +28,8 @@ export const AttributeCell = memo(function AttributeCell({
         cellKey: `attr:${attributeKey}`,
     })
 
+    const isPersonLink = shouldLinkToPersonPage(attributeKey, value)
+
     return (
         <LogsViewerCellPopover
             attributeKey={attributeKey}
@@ -35,9 +40,15 @@ export const AttributeCell = memo(function AttributeCell({
         >
             <div style={{ width, flexShrink: 0 }} className="relative flex items-center self-stretch group/attr pr-1">
                 <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-x-auto hide-scrollbar">
-                    <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>
-                        {value}
-                    </span>
+                    {isPersonLink ? (
+                        <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
+                            <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
+                        </span>
+                    ) : (
+                        <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>
+                            {value}
+                        </span>
+                    )}
                 </div>
                 <LogRowScrollButtons
                     onStartScrolling={startScrolling}
