@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { OriginProduct, Task, TaskRunStatus } from '../types'
+import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types'
 import { taskLogic } from './taskLogic'
 import { tasksLogic } from './tasksLogic'
 
@@ -15,10 +15,15 @@ const createMockTask = (id: string): Task => ({
     origin_product: OriginProduct.USER_CREATED,
     repository: 'test/repo',
     github_integration: null,
+    json_schema: null,
     latest_run: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
+    relevant_user_count: 0,
+    occurrence_count: 0,
+    last_occurrence_at: null,
+    reference_count: 0,
 })
 
 describe('taskLogic', () => {
@@ -69,10 +74,12 @@ describe('taskLogic', () => {
                     stage: null,
                     branch: null,
                     status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
                     log_url: null,
                     error_message: null,
                     output: null,
                     state: {},
+                    artifacts: [],
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                     completed_at: null,

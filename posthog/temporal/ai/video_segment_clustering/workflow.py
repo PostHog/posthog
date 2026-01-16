@@ -2,6 +2,8 @@
 
 from temporalio import workflow
 
+from posthog.temporal.common.base import PostHogWorkflow
+
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.activities import (
@@ -26,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
 
 
 @workflow.defn(name="video-segment-clustering")
-class VideoSegmentClusteringWorkflow:
+class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     """Per-team workflow to cluster video segments and create Tasks.
 
     This workflow orchestrates 6 activities:

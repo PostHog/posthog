@@ -12,10 +12,15 @@ const createMockTask = (id: string): Task => ({
     origin_product: OriginProduct.USER_CREATED,
     repository: 'test/repo',
     github_integration: null,
+    json_schema: null,
     latest_run: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
+    relevant_user_count: 0,
+    occurrence_count: 0,
+    last_occurrence_at: null,
+    reference_count: 0,
 })
 
 describe('tasksLogic', () => {

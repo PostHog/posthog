@@ -17,16 +17,32 @@ export enum TaskRunStatus {
     CANCELLED = 'cancelled',
 }
 
+export enum TaskRunEnvironment {
+    LOCAL = 'local',
+    CLOUD = 'cloud',
+}
+
+export interface TaskRunArtifact {
+    name: string
+    type: string
+    size?: number
+    content_type?: string
+    storage_path: string
+    uploaded_at: string
+}
+
 export interface TaskRun {
     id: string
     task: string
     stage: string | null
     branch: string | null
     status: TaskRunStatus
+    environment: TaskRunEnvironment
     log_url: string | null
     error_message: string | null
     output: Record<string, any> | null
     state: Record<string, any>
+    artifacts: TaskRunArtifact[]
     created_at: string
     updated_at: string
     completed_at: string | null
@@ -41,6 +57,7 @@ export interface Task {
     origin_product: OriginProduct
     repository: string | null
     github_integration: number | null
+    json_schema: Record<string, any> | null
     latest_run: TaskRun | null
     created_at: string
     updated_at: string
@@ -66,7 +83,6 @@ export interface TaskReference {
     distinct_id: string
     content: string
     distance_to_centroid: number | null
-    timestamp: string | null
     created_at: string
 }
 
