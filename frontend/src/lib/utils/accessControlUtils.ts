@@ -168,7 +168,7 @@ export const userHasAccess = (
  */
 export const getAccessControlTooltip = (resource: APIScopeObject): string | null => {
     if (resource === AccessControlResourceType.ExternalDataSource) {
-        return 'Data warehouse sources currently only apply to the source itself, not querying data from the source.'
+        return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     return null
 }
