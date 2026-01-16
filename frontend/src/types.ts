@@ -3870,8 +3870,6 @@ export interface SurveyAppearance {
     disabledButtonOpacity?: string
     maxWidth?: string
     textSubtleColor?: string
-    autoDetectLanguage?: boolean
-    surveyLanguageProperty?: string
     inputBackground?: string
     // Optional override for input and rating button text color. If not set, auto-calculated from inputBackground.
     inputTextColor?: string
