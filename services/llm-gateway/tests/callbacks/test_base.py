@@ -115,14 +115,14 @@ class TestInstrumentedCallback:
 
     @pytest.mark.asyncio
     async def test_kwargs_passed_to_on_success(self, callback: MockCallback) -> None:
-        received_kwargs = {}
+        received_kwargs: dict[str, object] = {}
 
-        async def capture_kwargs(kwargs, response_obj, start_time, end_time):
+        async def capture_kwargs(self, kwargs, response_obj, start_time, end_time):
             received_kwargs.update(kwargs)
 
-        callback._on_success = capture_kwargs
-
         test_kwargs = {"standard_logging_object": {"model": "test-model"}}
-        await callback.async_log_success_event(test_kwargs, None, 0.0, 1.0)
+
+        with patch.object(MockCallback, "_on_success", capture_kwargs):
+            await callback.async_log_success_event(test_kwargs, None, 0.0, 1.0)
 
         assert received_kwargs == test_kwargs

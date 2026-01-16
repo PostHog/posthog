@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,7 +34,7 @@ class TestRateLimitCallback:
 
     @pytest.mark.asyncio
     async def test_does_not_record_missing_tokens(self, callback: RateLimitCallback) -> None:
-        kwargs = {"standard_logging_object": {}}
+        kwargs: dict[str, Any] = {"standard_logging_object": {}}
 
         with patch("llm_gateway.callbacks.rate_limiting.record_output_tokens", new_callable=AsyncMock) as mock_record:
             await callback._on_success(kwargs, None, 0.0, 1.0)
@@ -42,7 +43,7 @@ class TestRateLimitCallback:
 
     @pytest.mark.asyncio
     async def test_handles_none_standard_logging_object(self, callback: RateLimitCallback) -> None:
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
 
         with patch("llm_gateway.callbacks.rate_limiting.record_output_tokens", new_callable=AsyncMock) as mock_record:
             await callback._on_success(kwargs, None, 0.0, 1.0)

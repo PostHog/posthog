@@ -131,10 +131,12 @@ class TestCallbacksReceiveCorrectData:
                 max_tokens=5,
             )
 
-        assert received_data.get("prompt_tokens") is not None
-        assert received_data.get("prompt_tokens") > 0
-        assert received_data.get("completion_tokens") is not None
-        assert received_data.get("completion_tokens") > 0
+        prompt_tokens = received_data.get("prompt_tokens")
+        completion_tokens = received_data.get("completion_tokens")
+        assert prompt_tokens is not None
+        assert prompt_tokens > 0
+        assert completion_tokens is not None
+        assert completion_tokens > 0
         assert "claude" in received_data.get("model", "").lower()
         assert received_data.get("provider") == "anthropic"
 
