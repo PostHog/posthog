@@ -431,9 +431,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         return parse_expr(
                             f"""tupleElement((
                                 throwIf(isNull(e.{node.id_field}), 'Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values.'),
-                                accurateCastOrDefault(
+                                toUUIDOrDefault(
                                     e.{node.id_field},
-                                    'UUID',
                                     reinterpretAsUUID(md5(concat('{node.table_name}_', toString(e.{node.id_field}))))
                                 )
                             ), 2)"""
