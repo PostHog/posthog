@@ -88,7 +88,6 @@ export const defaultSurveyAppearance = {
     borderRadius: '10px',
     shuffleQuestions: false,
     surveyPopupDelaySeconds: undefined,
-    autoDetectLanguage: true,
 } as const satisfies SurveyAppearance
 
 export const defaultSurveyFieldValues = {
