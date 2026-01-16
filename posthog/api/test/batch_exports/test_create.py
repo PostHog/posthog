@@ -271,10 +271,16 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         assert batch_export.jitter == dt.timedelta(minutes=1)
     elif interval == "day":
         expected_hour = offset_hour if offset_hour is not None else 0
+        assert batch_export.offset_hour == expected_hour
+        assert data["offset_hour"] == expected_hour
         assert_is_daily_schedule(schedule, expected_hour)
     elif interval == "week":
         expected_day = offset_day if offset_day is not None else 0
         expected_hour = offset_hour if offset_hour is not None else 0
+        assert batch_export.offset_day == expected_day
+        assert data["offset_day"] == expected_day
+        assert batch_export.offset_hour == expected_hour
+        assert data["offset_hour"] == expected_hour
         assert_is_weekly_schedule(schedule, expected_day, expected_hour)
 
     # Assert next run time is what we expect based on the interval and offset

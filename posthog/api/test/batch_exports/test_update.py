@@ -88,6 +88,9 @@ def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     # get the batch export and validate e.g. that interval has been updated to day
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["interval"] == "day"
+    assert batch_export["timezone"] == "UTC"
+    assert batch_export["offset_day"] is None
+    assert batch_export["offset_hour"] == 0
 
     # validate the underlying temporal schedule has been updated
     codec = EncryptionCodec(settings=settings)
@@ -228,8 +231,8 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
             {
                 "interval": "week",
                 "timezone": "UTC",  # should default to UTC if not provided
-                "offset_day": None,  # should default to None if not provided
-                "offset_hour": None,  # should default to None if not provided
+                "offset_day": 0,
+                "offset_hour": 0,
                 "interval_offset": None,  # should default to None if not provided
             },
             None,
@@ -272,7 +275,7 @@ def test_can_patch_config(client: HttpClient, interval, temporal, organization, 
                 "interval": "day",
                 "timezone": "UTC",  # if None is provided, we should default to UTC
                 "offset_day": None,  # if None is provided, we should reset the offset to None
-                "offset_hour": None,  # if None is provided, we should reset the offset to None
+                "offset_hour": 0,  # if None is provided, we should reset the offset to 0
                 "interval_offset": None,  # if None is provided, we should reset the offset to None
             },
             None,

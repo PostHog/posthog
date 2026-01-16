@@ -813,30 +813,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return hogql_query
 
-    def to_representation(self, instance: BatchExport) -> dict:
-        """Convert interval_offset to offset_day and offset_hour for API response."""
-        data = super().to_representation(instance)
-
-        # Convert interval_offset to offset_day and offset_hour
-        interval = instance.interval
-        interval_offset = instance.interval_offset
-
-        data["offset_day"] = None
-        data["offset_hour"] = None
-
-        if interval == "day":
-            if interval_offset is not None:
-                data["offset_hour"] = interval_offset // 3600
-            else:
-                data["offset_hour"] = None
-        elif interval == "week":
-            if interval_offset is not None:
-                offset_in_hours = interval_offset // 3600
-                data["offset_day"] = offset_in_hours // 24
-                data["offset_hour"] = offset_in_hours % 24
-
-        return data
-
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)

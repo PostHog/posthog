@@ -1,6 +1,7 @@
 import datetime as dt
 from datetime import timedelta
 from math import ceil
+from zoneinfo import ZoneInfo
 
 from django.db import models
 
@@ -285,6 +286,54 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
             return self.interval_time_delta / 5
 
         raise ValueError(f"Invalid interval: '{self.interval}'")
+
+    @property
+    def timezone_info(self) -> ZoneInfo:
+        """Return the timezone info for this batch export."""
+        return ZoneInfo(self.timezone or "UTC")
+
+    @property
+    def offset_day(self) -> int | None:
+        """Return the offset day for this batch export.
+
+        For a weekly schedule, this is the day of the week to start at (0-6, where 0 is Sunday).
+        Sunday is 0 since this is what is used by Temporal and Sunday is also the default week start day in PostHog.
+        For all other intervals, this is None.
+        """
+        if self.interval == "week":
+            if self.interval_offset is None:
+                return 0  # default to Sunday
+            return self.interval_offset // (24 * 3600)
+        return None
+
+    @property
+    def offset_day_name(self) -> str | None:
+        """Return the offset day name for this batch export.
+
+        For a weekly schedule, this is the name of the day to start at (Sunday, Monday, etc.).
+        For all other intervals, this is None.
+        """
+        if self.offset_day is None:
+            return None
+        day_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return day_names[self.offset_day]
+
+    @property
+    def offset_hour(self) -> int | None:
+        """Return the offset hour for this batch export.
+
+        For a daily or weekly schedule, this is the hour to start at (0-23).
+        For all other intervals, this is None.
+
+        Note: we don't support sub-hour offsets at the moment so we can assume the offset is always an
+        integer number of hours.
+        """
+        if self.interval == "day" or self.interval == "week":
+            if self.interval_offset is None:
+                return 0  # default to midnight
+            offset_in_hours = self.interval_offset // 3600
+            return offset_in_hours % 24
+        return None
 
 
 class BatchExportBackfill(UUIDTModel):
