@@ -45,6 +45,7 @@ import {
     NotebookType,
     TableOfContentData,
 } from '../types'
+import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
@@ -389,7 +390,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    const source =
+                    const duplicationSource =
                         values.mode === 'canvas'
                             ? 'Canvas'
                             : values.notebook?.short_id === 'scratchpad'
@@ -397,38 +398,17 @@ export const notebookLogic = kea<notebookLogicType>([
                               : values.isTemplate
                                 ? 'Template'
                                 : null
+                    const isRegularNotebookDuplication = duplicationSource === null
 
-                    // Add " (duplicate)" suffix for regular notebooks being duplicated
-                    const title = source ? values.title : `${values.title} (duplicate)`
+                    const title = isRegularNotebookDuplication ? `${values.title} (duplicate)` : values.title
 
-                    // Clone the content and update the heading if this is a regular notebook duplication
-                    let content = values.content
-                    if (!source && content?.content?.[0]?.content?.[0]?.text) {
-                        content = {
-                            ...content,
-                            content: content.content.map((node, index) => {
-                                if (index === 0 && node.content?.[0]?.text) {
-                                    return {
-                                        ...node,
-                                        content: [
-                                            {
-                                                ...node.content[0],
-                                                text: title,
-                                            },
-                                            ...node.content.slice(1),
-                                        ],
-                                    }
-                                }
-                                return node
-                            }),
-                        }
-                    }
+                    const content = isRegularNotebookDuplication
+                        ? updateContentHeading(values.content, title)
+                        : values.content
 
-                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
-                    // If we updated the content heading, also update the text_content
                     let textContent = values.editor?.getText() || ''
-                    if (!source && content !== values.content && textContent) {
-                        textContent = textContent.replace(values.title, title)
+                    if (isRegularNotebookDuplication && textContent.startsWith(values.title)) {
+                        textContent = title + textContent.slice(values.title.length)
                     }
 
                     const response = await api.notebooks.create({
@@ -441,7 +421,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         short_id: response.short_id,
                     })
 
-                    lemonToast.success(source ? `Notebook created from ${source}!` : 'Notebook duplicated!')
+                    lemonToast.success(
+                        duplicationSource ? `Notebook created from ${duplicationSource}!` : 'Notebook duplicated!'
+                    )
 
                     if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
