@@ -46,6 +46,7 @@ describe('RecordingApi', () => {
         mockHub = {
             SESSION_RECORDING_V2_S3_REGION: 'us-west-2',
             SESSION_RECORDING_V2_S3_ENDPOINT: undefined,
+            SESSION_RECORDING_V2_S3_BUCKET: 'test-bucket',
             REDIS_URL: 'rediss://localhost:6379',
             REDIS_POOL_MIN_SIZE: 1,
             REDIS_POOL_MAX_SIZE: 10,
@@ -57,7 +58,7 @@ describe('RecordingApi', () => {
             generateKey: jest.fn(),
             getKey: jest.fn(),
             deleteKey: jest.fn(),
-            destroy: jest.fn(),
+            stop: jest.fn(),
         } as unknown as jest.Mocked<BaseKeyStore>
 
         mockDecryptor = {
@@ -182,71 +183,81 @@ describe('RecordingApi', () => {
     })
 
     describe('getBlock endpoint', () => {
-        it('should return 400 if uri is missing', async () => {
+        it('should return 400 if key is missing', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: {},
+                query: { start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid uri query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid key query parameter' })
         })
 
-        it('should return 400 if uri is not a string', async () => {
+        it('should return 400 if key is not a string', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 123 },
+                query: { key: 123, start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid uri query parameter' })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid key query parameter' })
         })
 
-        it('should return 400 if uri has invalid protocol', async () => {
+        it('should return 400 if start is missing', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 'http://my-bucket/path?range=bytes=0-100' },
+                query: { key: 'path/to/file', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Invalid S3 URI format. Expected: s3://bucket/key?range=bytes=start-end (range is required)',
-            })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid start query parameter' })
         })
 
-        it('should return 400 if range is missing', async () => {
+        it('should return 400 if end is missing', async () => {
             await recordingApi.start()
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 's3://my-bucket/path/to/file' },
+                query: { key: 'path/to/file', start: '0' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
 
             expect(statusMock).toHaveBeenCalledWith(400)
-            expect(jsonMock).toHaveBeenCalledWith({
-                error: 'Invalid S3 URI format. Expected: s3://bucket/key?range=bytes=start-end (range is required)',
-            })
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'Missing or invalid end query parameter' })
+        })
+
+        it('should return 400 if start is not a valid integer', async () => {
+            await recordingApi.start()
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'path/to/file', start: 'abc', end: '100' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(400)
+            expect(jsonMock).toHaveBeenCalledWith({ error: 'start and end must be valid integers' })
         })
 
         it('should return 503 if S3 client not initialized', async () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 's3://my-bucket/path/to/file?range=bytes=0-100' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -263,7 +274,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 's3://my-bucket/path/to/file?range=bytes=0-100' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -284,7 +295,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, setMock, sendMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 's3://my-bucket/path/to/file?range=bytes=0-100' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)
@@ -303,7 +314,7 @@ describe('RecordingApi', () => {
             const { statusMock, jsonMock, ...mockRes } = createMockResponse()
             const mockReq = {
                 params: { team_id: '1', session_id: 'session-123' },
-                query: { uri: 's3://my-bucket/path/to/file?range=bytes=0-100' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
             }
 
             await (recordingApi as any).getBlock(mockReq, mockRes)

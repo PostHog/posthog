@@ -1253,12 +1253,19 @@ class SessionRecordingViewSet(
         if not settings.RECORDING_API_URL:
             return False
 
-        return posthoganalytics.feature_enabled(
-            "session-replay-use-recording-api",
-            str(self.team.id),
-            groups={"organization": str(self.team.organization_id)},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
+        # Allow override via settings (defaults to True in DEBUG mode)
+        if settings.RECORDING_API_ENABLED:
+            return True
+
+        return (
+            posthoganalytics.feature_enabled(
+                "session-replay-use-recording-api",
+                str(self.team.id),
+                groups={"organization": str(self.team.organization_id)},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            or False
         )
 
     async def _fetch_blocks_parallel(

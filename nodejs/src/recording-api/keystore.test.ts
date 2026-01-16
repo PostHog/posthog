@@ -337,13 +337,13 @@ describe('KeyStore', () => {
         })
     })
 
-    describe('destroy', () => {
+    describe('stop', () => {
         it('should clean up all clients', () => {
             const mockDestroy = jest.fn()
             ;(mockKMSClient as any).destroy = mockDestroy
             ;(mockDynamoDBClient as any).destroy = mockDestroy
 
-            keyStore.destroy()
+            keyStore.stop()
 
             expect(mockDestroy).toHaveBeenCalledTimes(2)
         })
@@ -393,9 +393,9 @@ describe('PassthroughKeyStore', () => {
         })
     })
 
-    describe('destroy', () => {
+    describe('stop', () => {
         it('should complete without error', () => {
-            expect(() => keyStore.destroy()).not.toThrow()
+            expect(() => keyStore.stop()).not.toThrow()
         })
     })
 })

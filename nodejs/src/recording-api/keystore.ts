@@ -27,7 +27,7 @@ export abstract class BaseKeyStore {
     abstract generateKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract getKey(sessionId: string, teamId: number): Promise<SessionKey>
     abstract deleteKey(sessionId: string, teamId: number): Promise<boolean>
-    abstract destroy(): void
+    abstract stop(): void
 }
 
 export class PassthroughKeyStore extends BaseKeyStore {
@@ -57,7 +57,7 @@ export class PassthroughKeyStore extends BaseKeyStore {
         return Promise.resolve(true)
     }
 
-    destroy(): void {}
+    stop(): void {}
 }
 
 export class KeyStore extends BaseKeyStore {
@@ -336,7 +336,7 @@ export class KeyStore extends BaseKeyStore {
         return !!result.Attributes
     }
 
-    destroy(): void {
+    stop(): void {
         this.kmsClient.destroy()
         this.dynamoDBClient.destroy()
     }
