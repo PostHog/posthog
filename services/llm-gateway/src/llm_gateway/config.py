@@ -1,8 +1,13 @@
 import json
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import BaseModel, field_validator
 from pydantic_settings import BaseSettings
+
+
+class ProductCostLimit(BaseModel):
+    limit_usd: float
+    window_seconds: int
 
 
 class Settings(BaseSettings):
@@ -42,6 +47,36 @@ class Settings(BaseSettings):
     auth_cache_ttl: int = 900  # 15 minutes
 
     team_rate_limit_multipliers: dict[int, int] = {}
+
+    product_cost_limits: dict[str, ProductCostLimit] = {
+        "llm_gateway": ProductCostLimit(limit_usd=20.0, window_seconds=3600),
+    }
+
+    default_user_cost_limit_usd: float = 2.0
+    default_user_cost_window_seconds: int = 3600
+
+    @field_validator("product_cost_limits", mode="before")
+    @classmethod
+    def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
+        if v is None or v == "":
+            return {"llm_gateway": ProductCostLimit(limit_usd=20.0, window_seconds=3600)}
+        if isinstance(v, dict):
+            result = {}
+            for product, config in v.items():
+                if isinstance(config, ProductCostLimit):
+                    result[product] = config
+                elif isinstance(config, dict):
+                    result[product] = ProductCostLimit(**config)
+                else:
+                    raise ValueError(f"Invalid config for product {product}")
+            return result
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in product_cost_limits: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError("product_cost_limits must be a JSON object")
+        return {product: ProductCostLimit(**config) for product, config in parsed.items()}
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod

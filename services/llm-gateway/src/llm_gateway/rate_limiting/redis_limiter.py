@@ -179,3 +179,78 @@ class TokenRateLimiter:
         except Exception:
             logger.exception("redis_release_failed", key=key)
             self._fallback.release(key, float(tokens))
+
+
+class CostAccumulator:
+    """Simple in-memory cost accumulator for fallback rate limiting."""
+
+    def __init__(self, limit: float):
+        self._costs: dict[str, float] = {}
+        self._limit = limit
+
+    def get_current(self, key: str) -> float:
+        return self._costs.get(key, 0.0)
+
+    def incr(self, key: str, cost: float) -> bool:
+        current = self._costs.get(key, 0.0)
+        new_val = current + cost
+        self._costs[key] = new_val
+        return new_val <= self._limit
+
+
+class CostRateLimiter:
+    """
+    Redis-backed cost rate limiter with local fallback.
+
+    Uses Redis for cluster-wide cost limits with float values.
+    Falls back to in-memory with limit / IN_MEMORY_LIMIT_DIVIDER.
+    """
+
+    def __init__(
+        self,
+        redis: Redis[bytes] | None,
+        limit: float,
+        window_seconds: int,
+    ):
+        self.redis = redis
+        self.limit = limit
+        self.window = window_seconds
+        self._fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
+        self._fallback = CostAccumulator(self._fallback_limit)
+
+    async def get_current(self, key: str) -> float:
+        """Get current accumulated cost for a key."""
+        if self.redis is None:
+            return self._fallback.get_current(key)
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current = await self.redis.get(redis_key)
+            return float(current or 0)
+        except Exception:
+            logger.exception("redis_get_current_failed", key=key)
+            return self._fallback.get_current(key)
+
+    async def incr(self, key: str, cost: float) -> bool:
+        """Increment cost. Returns True if still under limit."""
+        if self.redis is None:
+            return self._fallback.incr(key, cost)
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            script = """
+            local current = redis.call('GET', KEYS[1])
+            local new_val = tonumber(current or 0) + tonumber(ARGV[1])
+            redis.call('SET', KEYS[1], new_val)
+            local ttl = redis.call('TTL', KEYS[1])
+            if ttl < 0 then
+                redis.call('EXPIRE', KEYS[1], ARGV[2])
+            end
+            return new_val
+            """
+            new_val = await self.redis.eval(script, 1, redis_key, str(cost), self.window)
+            return float(new_val) <= self.limit
+        except Exception:
+            logger.exception("redis_cost_incr_failed", key=key)
+            REDIS_FALLBACK.inc()
+            return self._fallback.incr(key, cost)

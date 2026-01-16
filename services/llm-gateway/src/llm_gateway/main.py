@@ -22,14 +22,8 @@ from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
-from llm_gateway.rate_limiting.model_throttles import (
-    ProductModelInputTokenThrottle,
-    ProductModelOutputTokenThrottle,
-    UserModelInputTokenThrottle,
-    UserModelOutputTokenThrottle,
-)
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.tokenizer import TokenCounter
 from llm_gateway.request_context import RequestContext, set_request_context
 
 
@@ -129,19 +123,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
-    app.state.token_counter = TokenCounter()
-
-    output_throttles = [
-        ProductModelOutputTokenThrottle(redis=app.state.redis),
-        UserModelOutputTokenThrottle(redis=app.state.redis),
-    ]
-    app.state.output_throttles = output_throttles
-
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            ProductModelInputTokenThrottle(redis=app.state.redis),
-            UserModelInputTokenThrottle(redis=app.state.redis),
-            *output_throttles,
+            ProductCostThrottle(redis=app.state.redis),
+            UserCostThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")

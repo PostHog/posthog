@@ -90,29 +90,10 @@ async def enforce_throttles(
     runner: Annotated[ThrottleRunner, Depends(get_throttle_runner)],
 ) -> AuthenticatedUser:
     product = get_product_from_request(request)
-    model = await get_model_from_request(request)
-
-    input_tokens: int | None = None
-    max_output_tokens: int | None = None
-
-    body = await get_cached_body(request)
-    if body:
-        try:
-            data: dict[str, Any] = json.loads(body)
-            max_output_tokens = data.get("max_tokens")
-            if model and "messages" in data:
-                token_counter = getattr(request.app.state, "token_counter", None)
-                if token_counter:
-                    input_tokens = token_counter.count(model, data["messages"])
-        except (json.JSONDecodeError, TypeError):
-            pass
 
     context = ThrottleContext(
         user=user,
         product=product,
-        model=model,
-        input_tokens=input_tokens,
-        max_output_tokens=max_output_tokens,
         request_id=get_request_id() or None,
     )
     request.state.throttle_context = context
