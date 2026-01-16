@@ -5,6 +5,7 @@ import { IconEllipsis, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
+    LemonDropdown,
     LemonInput,
     LemonInputSelect,
     LemonModal,
@@ -17,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { fullName, toSentenceCase } from 'lib/utils'
 import { pluralizeResource } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -59,13 +59,64 @@ type RuleModalState =
           row: AccessControlRow
       }
 
+type AccessControlsTab = 'defaults' | 'roles' | 'members'
+
+function scopeTypeForTab(activeTab: AccessControlsTab): ScopeType {
+    switch (activeTab) {
+        case 'defaults':
+            return 'default'
+        case 'roles':
+            return 'role'
+        case 'members':
+            return 'member'
+    }
+}
+
+function optionalScopeColumnsForTab(activeTab: AccessControlsTab): any[] {
+    switch (activeTab) {
+        case 'roles':
+            return [
+                {
+                    title: 'Role',
+                    key: 'role',
+                    render: function RenderRole(_: any, row: AccessControlRow) {
+                        return <span>{row.scopeLabel}</span>
+                    },
+                },
+            ]
+        case 'members':
+            return [
+                {
+                    title: 'Member',
+                    key: 'member',
+                    render: function RenderMember(_: any, row: AccessControlRow) {
+                        return <span>{row.scopeLabel}</span>
+                    },
+                },
+            ]
+        case 'defaults':
+            return []
+    }
+}
+
+function addTitleForScopeType(scopeType: ScopeType): string {
+    switch (scopeType) {
+        case 'default':
+            return 'Add default rule'
+        case 'role':
+            return 'Add rule for role'
+        case 'member':
+            return 'Add rule for member'
+    }
+}
+
 function SearchableSelect(props: {
     value: string | null
     onChange: (value: string | null) => void
     options: { value: string; label: string }[]
     placeholder: string
     searchPlaceholder: string
-    disabled?: boolean
+    disabledReason?: string
 }): JSX.Element {
     const [visible, setVisible] = useState(false)
     const [query, setQuery] = useState('')
@@ -83,51 +134,51 @@ function SearchableSelect(props: {
     }, [props.options, query])
 
     return (
-        <LemonButtonWithDropdown
-            fullWidth
-            type="secondary"
-            disabled={props.disabled}
-            onClick={() => {
-                if (!visible) {
-                    setQuery('')
-                }
-            }}
-            dropdown={{
-                actionable: true,
-                placement: 'bottom-start',
-                closeOnClickInside: false,
-                visible,
-                onVisibilityChange: setVisible,
-                overlay: (
-                    <div className="w-96 p-2 space-y-2">
-                        <LemonInput value={query} onChange={setQuery} placeholder={props.searchPlaceholder} autoFocus />
-                        <div className="max-h-80 overflow-y-auto">
-                            {filteredOptions.length ? (
-                                <div className="flex flex-col gap-px">
-                                    {filteredOptions.map((option) => (
-                                        <LemonButton
-                                            key={option.value}
-                                            fullWidth
-                                            type="tertiary"
-                                            onClick={() => {
-                                                props.onChange(option.value)
-                                                setVisible(false)
-                                            }}
-                                        >
-                                            {option.label}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-secondary p-1">No results</div>
-                            )}
-                        </div>
+        <LemonDropdown
+            placement="bottom-start"
+            closeOnClickInside={false}
+            visible={visible}
+            onVisibilityChange={setVisible}
+            overlay={
+                <div className="w-96 p-2 space-y-2">
+                    <LemonInput value={query} onChange={setQuery} placeholder={props.searchPlaceholder} autoFocus />
+                    <div className="max-h-80 overflow-y-auto">
+                        {filteredOptions.length ? (
+                            <div className="flex flex-col gap-px">
+                                {filteredOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.value}
+                                        fullWidth
+                                        type="tertiary"
+                                        onClick={() => {
+                                            props.onChange(option.value)
+                                            setVisible(false)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-secondary p-1">No results</div>
+                        )}
                     </div>
-                ),
-            }}
+                </div>
+            }
         >
-            {selectedOption?.label ?? props.placeholder}
-        </LemonButtonWithDropdown>
+            <LemonButton
+                fullWidth
+                type="secondary"
+                disabledReason={props.disabledReason}
+                onClick={() => {
+                    if (!visible) {
+                        setQuery('')
+                    }
+                }}
+            >
+                {selectedOption?.label ?? props.placeholder}
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
@@ -195,8 +246,6 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
 
         return [{ key: 'project', label: projectResourceLabel }, ...resourceOptions]
     }, [projectResourceLabel, resources])
-
-    type AccessControlsTab = 'defaults' | 'roles' | 'members'
 
     const [activeTab, setActiveTab] = useState<AccessControlsTab>('defaults')
 
@@ -407,12 +456,7 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
     }, [projectAvailableLevels, resourceAvailableLevels])
 
     const scopedRows = useMemo((): AccessControlRow[] => {
-        const scopeType: ScopeType =
-            activeTab === 'defaults'
-                ? 'default'
-                : activeTab === 'roles'
-                  ? 'role'
-                  : /* activeTab === 'members' */ 'member'
+        const scopeType: ScopeType = scopeTypeForTab(activeTab)
 
         let rows = allRows.filter((row) => row.scopeType === scopeType)
 
@@ -466,28 +510,7 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
     const canEditAny = !!canEditAccessControls || !!canEditRoleBasedAccessControls
 
     const columns = useMemo(() => {
-        const optionalScopeColumn =
-            activeTab === 'roles'
-                ? [
-                      {
-                          title: 'Role',
-                          key: 'role',
-                          render: function RenderRole(_: any, row: AccessControlRow) {
-                              return <span>{row.scopeLabel}</span>
-                          },
-                      },
-                  ]
-                : activeTab === 'members'
-                  ? [
-                        {
-                            title: 'Member',
-                            key: 'member',
-                            render: function RenderMember(_: any, row: AccessControlRow) {
-                                return <span>{row.scopeLabel}</span>
-                            },
-                        },
-                    ]
-                  : []
+        const optionalScopeColumn = optionalScopeColumnsForTab(activeTab)
 
         return [
             ...optionalScopeColumn,
@@ -534,43 +557,43 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
                     const disabledReason = !canEditThisRow ? 'You cannot edit this' : undefined
 
                     return (
-                        <LemonButtonWithDropdown
-                            size="xsmall"
-                            type="tertiary"
-                            icon={<IconEllipsis />}
-                            disabledReason={disabledReason}
-                            dropdown={{
-                                actionable: true,
-                                placement: 'bottom-end',
-                                closeOnClickInside: true,
-                                overlay: (
-                                    <div className="flex flex-col">
+                        <LemonDropdown
+                            placement="bottom-end"
+                            closeOnClickInside={true}
+                            overlay={
+                                <div className="flex flex-col">
+                                    <LemonButton
+                                        size="small"
+                                        fullWidth
+                                        icon={<IconPencil />}
+                                        onClick={() => {
+                                            setRuleModalState({ mode: 'edit', row })
+                                        }}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                    {row.isException &&
+                                    !(row.scopeType === 'default' && row.resourceKey === 'project') ? (
                                         <LemonButton
                                             size="small"
                                             fullWidth
-                                            icon={<IconPencil />}
-                                            onClick={() => {
-                                                setRuleModalState({ mode: 'edit', row })
-                                            }}
+                                            status="danger"
+                                            icon={<IconTrash />}
+                                            onClick={() => confirmDelete(row)}
                                         >
-                                            Edit
+                                            Delete
                                         </LemonButton>
-                                        {row.isException &&
-                                        !(row.scopeType === 'default' && row.resourceKey === 'project') ? (
-                                            <LemonButton
-                                                size="small"
-                                                fullWidth
-                                                status="danger"
-                                                icon={<IconTrash />}
-                                                onClick={() => confirmDelete(row)}
-                                            >
-                                                Delete
-                                            </LemonButton>
-                                        ) : null}
-                                    </div>
-                                ),
-                            }}
-                        />
+                                    ) : null}
+                                </div>
+                            }
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconEllipsis />}
+                                disabledReason={disabledReason}
+                            />
+                        </LemonDropdown>
                     )
                 },
             },
@@ -607,99 +630,90 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
                             />
 
                             {activeTab === 'roles' ? (
-                                <LemonButtonWithDropdown
-                                    type="secondary"
-                                    size="small"
-                                    disabledReason={!canUseRoles ? 'Roles require an upgrade' : undefined}
-                                    dropdown={{
-                                        actionable: true,
-                                        closeOnClickInside: false,
-                                        placement: 'bottom-start',
-                                        overlay: (
-                                            <MultiSelectFilterDropdown
-                                                title="Role"
-                                                placeholder="Filter by roles…"
-                                                values={selectedRoleIds}
-                                                setValues={setSelectedRoleIds}
-                                                options={(roles ?? []).map((role) => ({
-                                                    key: role.id,
-                                                    label: role.name,
-                                                }))}
-                                            />
-                                        ),
-                                    }}
+                                <LemonDropdown
+                                    closeOnClickInside={false}
+                                    placement="bottom-start"
+                                    overlay={
+                                        <MultiSelectFilterDropdown
+                                            title="Role"
+                                            placeholder="Filter by roles…"
+                                            values={selectedRoleIds}
+                                            setValues={setSelectedRoleIds}
+                                            options={(roles ?? []).map((role) => ({
+                                                key: role.id,
+                                                label: role.name,
+                                            }))}
+                                        />
+                                    }
                                 >
-                                    Role{selectedRoleIds.length ? ` (${selectedRoleIds.length})` : ''}
-                                </LemonButtonWithDropdown>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        disabledReason={!canUseRoles ? 'Roles require an upgrade' : undefined}
+                                    >
+                                        Role{selectedRoleIds.length ? ` (${selectedRoleIds.length})` : ''}
+                                    </LemonButton>
+                                </LemonDropdown>
                             ) : null}
 
                             {activeTab === 'members' ? (
-                                <LemonButtonWithDropdown
-                                    type="secondary"
-                                    size="small"
-                                    dropdown={{
-                                        actionable: true,
-                                        closeOnClickInside: false,
-                                        placement: 'bottom-start',
-                                        overlay: (
-                                            <MultiSelectFilterDropdown
-                                                title="Member"
-                                                placeholder="Filter by members…"
-                                                values={selectedMemberIds}
-                                                setValues={setSelectedMemberIds}
-                                                options={allMembers.map((member) => ({
-                                                    key: member.id,
-                                                    label: fullName(member.user),
-                                                }))}
-                                            />
-                                        ),
-                                    }}
+                                <LemonDropdown
+                                    closeOnClickInside={false}
+                                    placement="bottom-start"
+                                    overlay={
+                                        <MultiSelectFilterDropdown
+                                            title="Member"
+                                            placeholder="Filter by members…"
+                                            values={selectedMemberIds}
+                                            setValues={setSelectedMemberIds}
+                                            options={allMembers.map((member) => ({
+                                                key: member.id,
+                                                label: fullName(member.user),
+                                            }))}
+                                        />
+                                    }
                                 >
-                                    Member{selectedMemberIds.length ? ` (${selectedMemberIds.length})` : ''}
-                                </LemonButtonWithDropdown>
+                                    <LemonButton type="secondary" size="small">
+                                        Member{selectedMemberIds.length ? ` (${selectedMemberIds.length})` : ''}
+                                    </LemonButton>
+                                </LemonDropdown>
                             ) : null}
 
-                            <LemonButtonWithDropdown
-                                type="secondary"
-                                size="small"
-                                dropdown={{
-                                    actionable: true,
-                                    closeOnClickInside: false,
-                                    placement: 'bottom-start',
-                                    overlay: (
-                                        <MultiSelectFilterDropdown
-                                            title="Feature"
-                                            placeholder="Filter by features…"
-                                            values={selectedResourceKeys}
-                                            setValues={setSelectedResourceKeys}
-                                            options={resourcesWithProject.map((r) => ({ key: r.key, label: r.label }))}
-                                        />
-                                    ),
-                                }}
+                            <LemonDropdown
+                                closeOnClickInside={false}
+                                placement="bottom-start"
+                                overlay={
+                                    <MultiSelectFilterDropdown
+                                        title="Feature"
+                                        placeholder="Filter by features…"
+                                        values={selectedResourceKeys}
+                                        setValues={setSelectedResourceKeys}
+                                        options={resourcesWithProject.map((r) => ({ key: r.key, label: r.label }))}
+                                    />
+                                }
                             >
-                                Feature{selectedResourceKeys.length ? ` (${selectedResourceKeys.length})` : ''}
-                            </LemonButtonWithDropdown>
+                                <LemonButton type="secondary" size="small">
+                                    Feature{selectedResourceKeys.length ? ` (${selectedResourceKeys.length})` : ''}
+                                </LemonButton>
+                            </LemonDropdown>
 
-                            <LemonButtonWithDropdown
-                                type="secondary"
-                                size="small"
-                                dropdown={{
-                                    actionable: true,
-                                    closeOnClickInside: false,
-                                    placement: 'bottom-start',
-                                    overlay: (
-                                        <MultiSelectFilterDropdown
-                                            title="Access"
-                                            placeholder="Filter by access…"
-                                            values={selectedRuleLevels}
-                                            setValues={setSelectedRuleLevels}
-                                            options={ruleOptions}
-                                        />
-                                    ),
-                                }}
+                            <LemonDropdown
+                                closeOnClickInside={false}
+                                placement="bottom-start"
+                                overlay={
+                                    <MultiSelectFilterDropdown
+                                        title="Access"
+                                        placeholder="Filter by access…"
+                                        values={selectedRuleLevels}
+                                        setValues={setSelectedRuleLevels}
+                                        options={ruleOptions}
+                                    />
+                                }
                             >
-                                Access{selectedRuleLevels.length ? ` (${selectedRuleLevels.length})` : ''}
-                            </LemonButtonWithDropdown>
+                                <LemonButton type="secondary" size="small">
+                                    Access{selectedRuleLevels.length ? ` (${selectedRuleLevels.length})` : ''}
+                                </LemonButton>
+                            </LemonDropdown>
                         </div>
 
                         <LemonButton
@@ -709,12 +723,7 @@ export function ResourcesAccessControlsV2({ projectId }: { projectId: string }):
                             onClick={() =>
                                 setRuleModalState({
                                     mode: 'add',
-                                    initialScopeType:
-                                        activeTab === 'defaults'
-                                            ? 'default'
-                                            : activeTab === 'roles'
-                                              ? 'role'
-                                              : 'member',
+                                    initialScopeType: scopeTypeForTab(activeTab),
                                 })
                             }
                             disabledReason={
@@ -950,12 +959,7 @@ function RuleModal(props: {
     const isValid = scopeType === 'default' || !!scopeId
     const scopeTargetNoun = scopeType === 'role' ? 'role' : 'member'
 
-    const addTitle =
-        scopeType === 'default'
-            ? 'Add default rule'
-            : scopeType === 'role'
-              ? 'Add rule for role'
-              : 'Add rule for member'
+    const addTitle = addTitleForScopeType(scopeType)
 
     return (
         <LemonModal
@@ -1007,7 +1011,7 @@ function RuleModal(props: {
                             options={scopeTargetOptions}
                             placeholder={scopeType === 'role' ? 'Select role…' : 'Select member…'}
                             searchPlaceholder={scopeType === 'role' ? 'Search roles…' : 'Search members…'}
-                            disabled={isEditMode}
+                            disabledReason={isEditMode ? 'Cannot edit' : undefined}
                         />
                     </div>
                 ) : null}
@@ -1020,7 +1024,7 @@ function RuleModal(props: {
                         options={resourceOptions}
                         placeholder="Select feature…"
                         searchPlaceholder="Search features…"
-                        disabled={isEditMode}
+                        disabledReason={isEditMode ? 'Cannot edit' : undefined}
                     />
                 </div>
 
