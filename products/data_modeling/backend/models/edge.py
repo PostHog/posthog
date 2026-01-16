@@ -35,8 +35,8 @@ class DataModelingEdgeQuerySet(models.QuerySet):
         raise NotImplementedError("bulk_create() is disabled for Edge objects to ensure cycle detection.")
 
     def bulk_update(self, objs, fields, *args, **kwargs):
-        for key in DISALLOWED_UPDATE_FIELDS:
-            if key in kwargs:
+        for field in fields:
+            if field in DISALLOWED_UPDATE_FIELDS:
                 raise NotImplementedError(
                     f"QuerySet.bulk_update() is disabled for fields ({DISALLOWED_UPDATE_FIELDS}) to ensure cycle detection. "
                     "Use individual save() calls instead."
