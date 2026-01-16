@@ -433,12 +433,12 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                                 throwIf(isNull({{id_field}}), {{exception_message}}),
                                 toUUIDOrDefault(
                                     {{id_field}},
-                                    reinterpretAsUUID(md5(concat('{{table_name_str}}_', toString({{id_field}}))))
+                                    reinterpretAsUUID(md5(concat({{table_prefix}}, toString({{id_field}}))))
                                 )
                             ), 2)""",
                             placeholders={
                                 "id_field": ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.id_field]),
-                                "table_name_str": ast.Constant(value=node.table_name),
+                                "table_prefix": ast.Constant(value=f"{node.table_name}_"),
                                 "exception_message": ast.Constant(
                                     value=f"Encountered a null value in {node.table_name}.{node.id_field}, but a non-null value is required. Please ensure this column contains no null values, or add a filter to exclude rows with null values."
                                 ),
