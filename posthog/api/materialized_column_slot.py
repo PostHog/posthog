@@ -308,45 +308,20 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
     @action(methods=["POST"], detail=False)
     def assign_slot(self, request, **kwargs):
-        """Assign a property to an available slot.
-
-        Accepts either property_name + property_type directly, or property_definition_id
-        to look up the name and type from the property definition.
-        """
-        property_name = request.data.get("property_name")
-        property_type = request.data.get("property_type")
+        """Assign a property to an available slot."""
         property_definition_id = request.data.get("property_definition_id")
-
-        # Support both direct property_name/property_type and legacy property_definition_id
-        if property_definition_id and not property_name:
-            try:
-                property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
-                property_name = property_definition.name
-                property_type = property_definition.property_type
-            except PropertyDefinition.DoesNotExist:
-                return response.Response({"error": "Property definition not found"}, status=404)
-
-        if not property_name:
-            return response.Response({"error": "property_name is required"}, status=400)
-        if not property_type:
-            return response.Response({"error": "property_type is required"}, status=400)
-
-        # Validate type matches PropertyDefinition if it exists (can't change type after EAV slot created)
         if not property_definition_id:
-            existing_definition = PropertyDefinition.objects.filter(
-                team_id=self.team_id,
-                name=property_name,
-                type=PropertyDefinition.Type.EVENT,
-            ).first()
-            if existing_definition and existing_definition.property_type:
-                if existing_definition.property_type != property_type:
-                    return response.Response(
-                        {
-                            "error": f"Property type mismatch: property '{property_name}' is defined as "
-                            f"'{existing_definition.property_type}' but you specified '{property_type}'"
-                        },
-                        status=400,
-                    )
+            return response.Response({"error": "property_definition_id is required"}, status=400)
+
+        try:
+            property_definition = PropertyDefinition.objects.get(id=property_definition_id, team_id=self.team_id)
+        except PropertyDefinition.DoesNotExist:
+            return response.Response({"error": "Property definition not found"}, status=404)
+
+        property_name = property_definition.name
+        property_type = property_definition.property_type
+        if not property_type:
+            return response.Response({"error": "Property has no type defined"}, status=400)
 
         # Parse materialization type, default to DMAT for backwards compatibility
         materialization_type_str = request.data.get("materialization_type", MaterializationType.DMAT)
