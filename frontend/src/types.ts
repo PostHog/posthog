@@ -340,6 +340,7 @@ export interface UserType extends UserBaseType {
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
+    is_impersonated_read_only?: boolean
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -1729,6 +1730,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    snapshot_library?: string
     /** whether we have received data for this recording in the last 5 minutes
      * (assumes the recording was loaded from ClickHouse)
      * **/
