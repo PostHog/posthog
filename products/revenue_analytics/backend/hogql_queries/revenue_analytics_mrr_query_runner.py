@@ -4,7 +4,6 @@ from decimal import Decimal
 
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
@@ -13,14 +12,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.models import UnknownDatabaseField
+from posthog.hogql.database.models import SavedQuery, UnknownDatabaseField
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views import REVENUE_ITEM_ALIAS, SUBSCRIPTION_ALIAS, get_prefix
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
@@ -47,12 +46,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
-                self.database,
-            )
-        )
+        subqueries = list(RevenueAnalyticsQueryRunner.revenue_subqueries(REVENUE_ITEM_ALIAS, self.database))
         if not subqueries:
             columns = ["breakdown_by", "period_start", "amount"]
             return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
@@ -60,7 +54,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
-    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _to_query_from(self, view: SavedQuery) -> ast.SelectQuery:
         with self.timings.measure("subquery"):
             subquery = self._get_subquery(view)
 
@@ -92,7 +86,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             limit=ast.Constant(value=10000),
         )
 
-    def _get_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _get_subquery(self, view: SavedQuery) -> ast.SelectQuery:
         with self.timings.measure("mrr_per_day_subquery"):
             mrr_per_day_subquery = self._mrr_per_day_subquery(view)
 
@@ -195,7 +189,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # so that we can know what's our MRR on each day (by summing up the amounts on each day)
     # This is extremely memory-intensive, but it's the best way to get the MRR to work
     # We'll need to improve this and materialize it in the future
-    def _mrr_per_day_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _mrr_per_day_subquery(self, view: SavedQuery) -> ast.SelectQuery:
         with self.timings.measure("mrr_per_day_subquery"):
             map_query = self._revenue_map_subquery(view)
 
@@ -270,7 +264,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
     # Create a map of (date, amount) for each customer and subscription
     # This is useful because we can use it to know what's the MRR on each day
-    def _revenue_map_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _revenue_map_subquery(self, view: SavedQuery) -> ast.SelectQuery:
         with self.timings.measure("revenue_item_subquery"):
             subquery = self._revenue_item_subquery(view)
 
@@ -353,7 +347,7 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # This is slightly more complicated than normal because we need to include some extra 0-revenue
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
-    def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _revenue_item_subquery(self, view: SavedQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         # Not doing "SELECT *" here because it'll use an arbitrary order for the columns
         # since this is expanded to the order stored in Postgres for the saved query (see resolver.py)
         #
@@ -368,22 +362,19 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
         # https://www.postgresql.org/docs/17/datatype-json.html
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             ast.SelectQuery(
-                select=[
-                    ast.Field(chain=[field])
-                    for field in VIEW_SCHEMAS[
-                        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
-                    ].fields.keys()
-                ],
+                select=[ast.Field(chain=[field]) for field in VIEW_SCHEMAS[REVENUE_ITEM_ALIAS].fields.keys()],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
             ),
         ]
 
-        subscription_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
-            self.database,
-        )
+        view_prefix = get_prefix(view)
+        subscription_views = RevenueAnalyticsQueryRunner.revenue_subqueries(SUBSCRIPTION_ALIAS, self.database)
         subscription_view = next(
-            (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),
+            (
+                subscription_view
+                for subscription_view in subscription_views
+                if get_prefix(subscription_view) == view_prefix
+            ),
             None,
         )
 
@@ -446,33 +437,27 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             select=[
                 self._build_breakdown_expr(
                     "breakdown_by",
-                    ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "source_label"]),
+                    ast.Field(chain=[REVENUE_ITEM_ALIAS, "source_label"]),
                     view,
                 ),
-                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"]),
-                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "subscription_id"]),
-                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]),
-                ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                ast.Field(chain=[REVENUE_ITEM_ALIAS, "customer_id"]),
+                ast.Field(chain=[REVENUE_ITEM_ALIAS, "subscription_id"]),
+                ast.Field(chain=[REVENUE_ITEM_ALIAS, "timestamp"]),
+                ast.Field(chain=[REVENUE_ITEM_ALIAS, "amount"]),
             ],
             select_from=self._with_where_property_and_breakdown_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                    table=base_query,
-                ),
+                ast.JoinExpr(alias=REVENUE_ITEM_ALIAS, table=base_query),
                 view,
             ),
             where=ast.And(
                 exprs=[
                     self.timestamp_where_clause(
-                        chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"],
-                        extra_days_before=LOOKBACK_PERIOD_DAYS,
+                        chain=[REVENUE_ITEM_ALIAS, "timestamp"], extra_days_before=LOOKBACK_PERIOD_DAYS
                     ),
                     # Only care about recurring events because this is MRR after all
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(
-                            chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "is_recurring"]
-                        ),
+                        left=ast.Field(chain=[REVENUE_ITEM_ALIAS, "is_recurring"]),
                         right=ast.Constant(value=True),
                     ),
                     *self.where_property_exprs(view),

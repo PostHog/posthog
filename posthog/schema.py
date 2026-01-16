@@ -993,15 +993,6 @@ class DataWarehouseViewLinkConfiguration(BaseModel):
     experiments_timestamp_key: str | None = None
 
 
-class DatabaseSchemaManagedViewTableKind(StrEnum):
-    REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
-    REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
-    REVENUE_ANALYTICS_MRR = "revenue_analytics_mrr"
-    REVENUE_ANALYTICS_PRODUCT = "revenue_analytics_product"
-    REVENUE_ANALYTICS_REVENUE_ITEM = "revenue_analytics_revenue_item"
-    REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
-
-
 class DatabaseSchemaSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

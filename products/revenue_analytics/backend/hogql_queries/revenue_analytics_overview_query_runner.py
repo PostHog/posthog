@@ -1,6 +1,5 @@
 from posthog.schema import (
     CachedRevenueAnalyticsOverviewQueryResponse,
-    DatabaseSchemaManagedViewTableKind,
     ResolvedDateRangeResponse,
     RevenueAnalyticsOverviewItem,
     RevenueAnalyticsOverviewItemKey,
@@ -9,11 +8,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.schema.exchange_rate import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.query import execute_hogql_query
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
-from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
+from products.revenue_analytics.backend.views import REVENUE_ITEM_ALIAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -27,12 +26,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(
-            RevenueAnalyticsQueryRunner.revenue_subqueries(
-                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
-                self.database,
-            )
-        )
+        subqueries = list(RevenueAnalyticsQueryRunner.revenue_subqueries(REVENUE_ITEM_ALIAS, self.database))
 
         # If there is no revenue item view, we return a query that returns 0 for all values
         if not subqueries:
@@ -90,7 +84,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
             select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")),
         )
 
-    def _to_query_from(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery:
+    def _to_query_from(self, view: SavedQuery) -> ast.SelectQuery:
         query = ast.SelectQuery(
             select=[
                 ast.Alias(
@@ -101,17 +95,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                             ast.Call(
                                 name="toDecimal",
                                 args=[
-                                    ast.Call(
-                                        name="sum",
-                                        args=[
-                                            ast.Field(
-                                                chain=[
-                                                    RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                                                    "amount",
-                                                ]
-                                            )
-                                        ],
-                                    ),
+                                    ast.Call(name="sum", args=[ast.Field(chain=[REVENUE_ITEM_ALIAS, "amount"])]),
                                     ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
                                 ],
                             ),
@@ -122,29 +106,20 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                 ast.Alias(
                     alias="paying_customer_count",
                     expr=ast.Call(
-                        name="count",
-                        distinct=True,
-                        args=[
-                            ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"])
-                        ],
+                        name="count", distinct=True, args=[ast.Field(chain=[REVENUE_ITEM_ALIAS, "customer_id"])]
                     ),
                 ),
             ],
             select_from=self._with_where_property_joins(
-                ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
-                    table=ast.Field(chain=[view.name]),
-                ),
+                ast.JoinExpr(alias=REVENUE_ITEM_ALIAS, table=ast.Field(chain=[view.name])),
                 view,
             ),
             where=ast.And(
                 exprs=[
-                    self.timestamp_where_clause(
-                        [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
-                    ),
+                    self.timestamp_where_clause([REVENUE_ITEM_ALIAS, "timestamp"]),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
-                        left=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
+                        left=ast.Field(chain=[REVENUE_ITEM_ALIAS, "amount"]),
                         right=ZERO_DECIMAL,
                     ),
                     *self.where_property_exprs(view),

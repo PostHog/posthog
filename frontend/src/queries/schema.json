@@ -11022,19 +11022,6 @@
             "required": ["name", "hogql_value", "type", "schema_valid"],
             "type": "object"
         },
-        "DatabaseSchemaManagedViewTableKind": {
-            "deprecated": true,
-            "description": "Kept around while we finish our migration away from these",
-            "enum": [
-                "revenue_analytics_charge",
-                "revenue_analytics_customer",
-                "revenue_analytics_mrr",
-                "revenue_analytics_product",
-                "revenue_analytics_revenue_item",
-                "revenue_analytics_subscription"
-            ],
-            "type": "string"
-        },
         "DatabaseSchemaMaterializedViewTable": {
             "additionalProperties": false,
             "properties": {

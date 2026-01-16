@@ -19,7 +19,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
             key=event.eventName,
             prefix=prefix,
             query=ast.SelectQuery.empty(columns=PRODUCT_SCHEMA.fields),
-            test_comments="no_property",
+            _test_comments="no_property",
         )
 
     events_query = ast.SelectQuery(

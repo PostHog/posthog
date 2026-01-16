@@ -4,7 +4,6 @@ from typing import Optional, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
-    DatabaseSchemaManagedViewTableKind,
     IntervalType,
     RevenueAnalyticsBreakdown,
     RevenueAnalyticsGrossRevenueQuery,
@@ -27,19 +26,21 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.data_warehouse.backend.models import ExternalDataSchema
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsChargeView,
-    RevenueAnalyticsCustomerView,
-    RevenueAnalyticsProductView,
-    RevenueAnalyticsRevenueItemView,
-    RevenueAnalyticsSubscriptionView,
+    CHARGE_ALIAS,
+    CUSTOMER_ALIAS,
+    PRODUCT_ALIAS,
+    REVENUE_ITEM_ALIAS,
+    SUBSCRIPTION_ALIAS,
+    RevenueAnalyticsViewKind,
+    get_kind,
+    get_kind_alias,
+    get_prefix,
+    is_event_view,
+    is_revenue_analytics_view,
 )
-from products.revenue_analytics.backend.views.schemas import (
-    SCHEMAS as VIEW_SCHEMAS,
-    Schema as RevenueAnalyticsSchema,
-)
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 # This is the placeholder that we use for the breakdown_by field when the breakdown is not present
 NO_BREAKDOWN_PLACEHOLDER = "<none>"
@@ -49,18 +50,18 @@ NO_BREAKDOWN_PLACEHOLDER = "<none>"
 EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 
 # Not all filter/breakdown properties can be accessed from all views
-FILTERS_AVAILABLE_REVENUE_ITEM_VIEW: list[DatabaseSchemaManagedViewTableKind] = [
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM,
+FILTERS_AVAILABLE_REVENUE_ITEM_VIEW: list[str] = [
+    CHARGE_ALIAS,
+    CUSTOMER_ALIAS,
+    SUBSCRIPTION_ALIAS,
+    PRODUCT_ALIAS,
+    REVENUE_ITEM_ALIAS,
 ]
 
-FILTERS_AVAILABLE_SUBSCRIPTION_VIEW: list[DatabaseSchemaManagedViewTableKind] = [
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT,
-    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION,
+FILTERS_AVAILABLE_SUBSCRIPTION_VIEW: list[str] = [
+    CUSTOMER_ALIAS,
+    PRODUCT_ALIAS,
+    SUBSCRIPTION_ALIAS,
 ]
 
 
@@ -77,125 +78,128 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         user_access_control = UserAccessControl(user=user, team=self.team)
         return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
 
-    def where_property_exprs(self, join_from: RevenueAnalyticsBaseView) -> list[ast.Expr]:
+    def where_property_exprs(self, join_from: SavedQuery) -> list[ast.Expr]:
+        join_from_kind = get_kind(join_from)
+        join_from_alias = get_kind_alias(join_from)
+
         # Some filters are not namespaced and they should simply use the raw property
         # so let's map them to include the full property with the join_from alias
         mapped_properties = [
             property
             if len(property.key.split(".")) != 1
-            else property.model_copy(update={"key": f"{join_from.get_generic_view_alias()}.{property.key}"})
+            else property.model_copy(update={"key": f"{join_from_alias}.{property.key}"})
             for property in self.query.properties
         ]
 
         return [
             property_to_expr(property, self.team, scope="revenue_analytics")
             for property in mapped_properties
-            if self._can_access_property_from(property, join_from.__class__)
+            if self._can_access_property_from(property, join_from_kind)
         ]
 
-    def parsed_breakdown_from(self, join_from: type[RevenueAnalyticsBaseView]) -> list[RevenueAnalyticsBreakdown]:
+    def parsed_breakdown_from(self, join_from_kind: RevenueAnalyticsViewKind | None) -> list[RevenueAnalyticsBreakdown]:
         if not hasattr(self.query, "breakdown"):
             return []
+
+        join_from_alias = join_from_kind if join_from_kind else ""
 
         # Some breakdowns are not namespaced and they should simply use the raw property
         # so let's map them to include the full property with the join_from alias
         mapped_breakdowns = [
             breakdown
             if len(breakdown.property.split(".")) != 1
-            else breakdown.model_copy(update={"property": f"{join_from.get_generic_view_alias()}.{breakdown.property}"})
+            else breakdown.model_copy(update={"property": f"{join_from_alias}.{breakdown.property}"})
             for breakdown in self.query.breakdown
         ]
 
         # Keep only the ones who can be accessed from the given join_from
         valid_breakdowns = [
-            breakdown for breakdown in mapped_breakdowns if self._can_access_breakdown_from(breakdown, join_from)
+            breakdown for breakdown in mapped_breakdowns if self._can_access_breakdown_from(breakdown, join_from_kind)
         ]
 
         # Limit to 2 breakdowns at most for performance reasons
         return valid_breakdowns[:2]
 
     def _can_access_property_from(
-        self, property: RevenueAnalyticsPropertyFilter, join_from: type[RevenueAnalyticsBaseView]
+        self, property: RevenueAnalyticsPropertyFilter, join_from_kind: RevenueAnalyticsViewKind | None
     ) -> bool:
         scopes = property.key.split(".")
         if len(scopes) == 1:
             return True  # Raw access, always allowed
 
         scope, *_ = scopes
-        if join_from == RevenueAnalyticsRevenueItemView:
+        if join_from_kind == REVENUE_ITEM_ALIAS:
             return scope in FILTERS_AVAILABLE_REVENUE_ITEM_VIEW
-        elif join_from == RevenueAnalyticsSubscriptionView:
+        elif join_from_kind == SUBSCRIPTION_ALIAS:
             return scope in FILTERS_AVAILABLE_SUBSCRIPTION_VIEW
 
         # Everything else is disallowed
         return False
 
     def _can_access_breakdown_from(
-        self, breakdown: RevenueAnalyticsBreakdown, join_from: type[RevenueAnalyticsBaseView]
+        self, breakdown: RevenueAnalyticsBreakdown, join_from_kind: RevenueAnalyticsViewKind | None
     ) -> bool:
         scopes = breakdown.property.split(".")
         if len(scopes) == 1:
             return True  # Raw access, always allowed
 
         scope, *_ = scopes
-        if join_from == RevenueAnalyticsRevenueItemView:
+        if join_from_kind == REVENUE_ITEM_ALIAS:
             return scope in FILTERS_AVAILABLE_REVENUE_ITEM_VIEW
-        elif join_from == RevenueAnalyticsSubscriptionView:
+        elif join_from_kind == SUBSCRIPTION_ALIAS:
             return scope in FILTERS_AVAILABLE_SUBSCRIPTION_VIEW
 
         # Everything else is disallowed
         return False
 
-    def _joins_set_for_properties(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
+    def _joins_set_for_properties(self, join_from_kind: RevenueAnalyticsViewKind | None) -> set[str]:
         joins_set = set()
         for property in self.query.properties:
-            if self._can_access_property_from(property, join_from):
+            if self._can_access_property_from(property, join_from_kind):
                 scope, *_ = property.key.split(".")
                 joins_set.add(scope)
 
         return joins_set
 
-    def _joins_set_for_breakdown(self, join_from: type[RevenueAnalyticsBaseView]) -> set[str]:
+    def _joins_set_for_breakdown(self, join_from_kind: RevenueAnalyticsViewKind | None) -> set[str]:
         joins_set = set()
 
-        for breakdown in self.parsed_breakdown_from(join_from):
-            if self._can_access_breakdown_from(breakdown, join_from):
+        for breakdown in self.parsed_breakdown_from(join_from_kind):
+            if self._can_access_breakdown_from(breakdown, join_from_kind):
                 scope, *_ = breakdown.property.split(".")
                 joins_set.add(scope)
 
         return joins_set
 
-    def _with_where_property_and_breakdown_joins(
-        self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView
-    ) -> ast.JoinExpr:
+    def _with_where_property_and_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: SavedQuery) -> ast.JoinExpr:
+        join_from_kind = get_kind(join_from)
         return self._with_joins(
             join_expr,
             join_from,
-            self._joins_set_for_properties(join_from.__class__) | self._joins_set_for_breakdown(join_from.__class__),
+            self._joins_set_for_properties(join_from_kind) | self._joins_set_for_breakdown(join_from_kind),
         )
 
-    def _with_where_property_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self._joins_set_for_properties(join_from.__class__))
+    def _with_where_property_joins(self, join_expr: ast.JoinExpr, join_from: SavedQuery) -> ast.JoinExpr:
+        return self._with_joins(join_expr, join_from, self._joins_set_for_properties(get_kind(join_from)))
 
-    def _with_where_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        return self._with_joins(join_expr, join_from, self._joins_set_for_breakdown(join_from.__class__))
+    def _with_where_breakdown_joins(self, join_expr: ast.JoinExpr, join_from: SavedQuery) -> ast.JoinExpr:
+        return self._with_joins(join_expr, join_from, self._joins_set_for_breakdown(get_kind(join_from)))
 
-    def _with_joins(
-        self, join_expr: ast.JoinExpr, join_from: RevenueAnalyticsBaseView, joins_set: set[str]
-    ) -> ast.JoinExpr:
+    def _with_joins(self, join_expr: ast.JoinExpr, join_from: SavedQuery, joins_set: set[str]) -> ast.JoinExpr:
+        join_from_kind = get_kind(join_from)
         joins = []
         for join in sorted(joins_set):
             join_to_add: ast.JoinExpr | None = None
-            if join == "revenue_analytics_charge" and join_from.__class__ != RevenueAnalyticsChargeView:
+            if join == CHARGE_ALIAS and join_from_kind != CHARGE_ALIAS:
                 join_to_add = self._create_charge_join(join_from)
-            elif join == "revenue_analytics_customer" and join_from.__class__ != RevenueAnalyticsCustomerView:
+            elif join == CUSTOMER_ALIAS and join_from_kind != CUSTOMER_ALIAS:
                 join_to_add = self._create_customer_join(join_from)
-            elif join == "revenue_analytics_product" and join_from.__class__ != RevenueAnalyticsProductView:
+            elif join == PRODUCT_ALIAS and join_from_kind != PRODUCT_ALIAS:
                 join_to_add = self._create_product_join(join_from)
-            elif join == "revenue_analytics_revenue_item" and join_from.__class__ != RevenueAnalyticsRevenueItemView:
+            elif join == REVENUE_ITEM_ALIAS and join_from_kind != REVENUE_ITEM_ALIAS:
                 # Can never join TO revenue_item because it's N:N
                 pass
-            elif join == "revenue_analytics_subscription" and join_from.__class__ != RevenueAnalyticsSubscriptionView:
+            elif join == SUBSCRIPTION_ALIAS and join_from_kind != SUBSCRIPTION_ALIAS:
                 join_to_add = self._create_subscription_join(join_from)
 
             if join_to_add is not None:
@@ -203,76 +207,80 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return self._append_joins(join_expr, joins)
 
-    def _create_charge_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        charge_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE]
-        charge_suffix = charge_schema.events_suffix if join_from.is_event_view() else charge_schema.source_suffix
+    def _create_charge_join(self, join_from: SavedQuery) -> ast.JoinExpr:
+        charge_schema = VIEW_SCHEMAS[CHARGE_ALIAS]
+        charge_suffix = charge_schema.events_suffix if is_event_view(join_from) else charge_schema.source_suffix
+        join_from_prefix = get_prefix(join_from)
 
         return ast.JoinExpr(
-            alias=RevenueAnalyticsChargeView.get_generic_view_alias(),
-            table=ast.Field(chain=[*join_from.prefix.split("."), charge_suffix]),
+            alias=CHARGE_ALIAS,
+            table=ast.Field(chain=[*join_from_prefix.split("."), charge_suffix]),
             join_type="LEFT JOIN",
             constraint=ast.JoinConstraint(
                 constraint_type="ON",
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_from.get_generic_view_alias(), "charge_id"]),
-                    right=ast.Field(chain=[RevenueAnalyticsChargeView.get_generic_view_alias(), "id"]),
+                    left=ast.Field(chain=[get_kind_alias(join_from), "charge_id"]),
+                    right=ast.Field(chain=[CHARGE_ALIAS, "id"]),
                 ),
             ),
         )
 
-    def _create_customer_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
-        customer_suffix = customer_schema.events_suffix if join_from.is_event_view() else customer_schema.source_suffix
+    def _create_customer_join(self, join_from: SavedQuery) -> ast.JoinExpr:
+        customer_schema = VIEW_SCHEMAS[CUSTOMER_ALIAS]
+        customer_suffix = customer_schema.events_suffix if is_event_view(join_from) else customer_schema.source_suffix
+        join_from_prefix = get_prefix(join_from)
 
         return ast.JoinExpr(
-            alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
-            table=ast.Field(chain=[*join_from.prefix.split("."), customer_suffix]),
+            alias=CUSTOMER_ALIAS,
+            table=ast.Field(chain=[*join_from_prefix.split("."), customer_suffix]),
             join_type="LEFT JOIN",
             constraint=ast.JoinConstraint(
                 constraint_type="ON",
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_from.get_generic_view_alias(), "customer_id"]),
-                    right=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                    left=ast.Field(chain=[get_kind_alias(join_from), "customer_id"]),
+                    right=ast.Field(chain=[CUSTOMER_ALIAS, "id"]),
                 ),
             ),
         )
 
-    def _create_product_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        product_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT]
-        product_suffix = product_schema.events_suffix if join_from.is_event_view() else product_schema.source_suffix
+    def _create_product_join(self, join_from: SavedQuery) -> ast.JoinExpr:
+        product_schema = VIEW_SCHEMAS[PRODUCT_ALIAS]
+        product_suffix = product_schema.events_suffix if is_event_view(join_from) else product_schema.source_suffix
+        join_from_prefix = get_prefix(join_from)
 
         return ast.JoinExpr(
-            alias=RevenueAnalyticsProductView.get_generic_view_alias(),
-            table=ast.Field(chain=[*join_from.prefix.split("."), product_suffix]),
+            alias=PRODUCT_ALIAS,
+            table=ast.Field(chain=[*join_from_prefix.split("."), product_suffix]),
             join_type="LEFT JOIN",
             constraint=ast.JoinConstraint(
                 constraint_type="ON",
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_from.get_generic_view_alias(), "product_id"]),
-                    right=ast.Field(chain=[RevenueAnalyticsProductView.get_generic_view_alias(), "id"]),
+                    left=ast.Field(chain=[get_kind_alias(join_from), "product_id"]),
+                    right=ast.Field(chain=[PRODUCT_ALIAS, "id"]),
                 ),
             ),
         )
 
-    def _create_subscription_join(self, join_from: RevenueAnalyticsBaseView) -> ast.JoinExpr:
-        subscription_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION]
+    def _create_subscription_join(self, join_from: SavedQuery) -> ast.JoinExpr:
+        subscription_schema = VIEW_SCHEMAS[SUBSCRIPTION_ALIAS]
         subscription_suffix = (
-            subscription_schema.events_suffix if join_from.is_event_view() else subscription_schema.source_suffix
+            subscription_schema.events_suffix if is_event_view(join_from) else subscription_schema.source_suffix
         )
+        join_from_prefix = get_prefix(join_from)
 
         return ast.JoinExpr(
-            alias=RevenueAnalyticsSubscriptionView.get_generic_view_alias(),
-            table=ast.Field(chain=[*join_from.prefix.split("."), subscription_suffix]),
+            alias=SUBSCRIPTION_ALIAS,
+            table=ast.Field(chain=[*join_from_prefix.split("."), subscription_suffix]),
             join_type="LEFT JOIN",
             constraint=ast.JoinConstraint(
                 constraint_type="ON",
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[join_from.get_generic_view_alias(), "subscription_id"]),
-                    right=ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
+                    left=ast.Field(chain=[get_kind_alias(join_from), "subscription_id"]),
+                    right=ast.Field(chain=[SUBSCRIPTION_ALIAS, "id"]),
                 ),
             ),
         )
@@ -308,68 +316,15 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         return initial_join
 
     @staticmethod
-    def revenue_subqueries(schema: RevenueAnalyticsSchema, database: Database) -> Iterable[RevenueAnalyticsBaseView]:
+    def revenue_subqueries(view_kind: RevenueAnalyticsViewKind, database: Database) -> Iterable[SavedQuery]:
+        schema = VIEW_SCHEMAS[view_kind]
+
         for view_name in database.get_view_names():
             if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
                 # To be extra sure we aren't including user-defined queries we assert they're managed by the Revenue Analytics managed viewset
                 table = database.get_table(view_name)
-                if (
-                    isinstance(table, SavedQuery)
-                    and table.metadata.get("managed_viewset_kind") == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
-                ):
-                    yield RevenueAnalyticsQueryRunner.saved_query_to_revenue_analytics_base_view(table)
-
-    # This is pretty complex right now and it's doing a lot of string matching to determine the class
-    # This will become simpler once we don't need to support the old way anymore
-    @staticmethod
-    def saved_query_to_revenue_analytics_base_view(saved_query: SavedQuery) -> RevenueAnalyticsBaseView:
-        Klass: type[RevenueAnalyticsBaseView] | None = None
-        if saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].source_suffix
-        ) or saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].events_suffix
-        ):
-            Klass = RevenueAnalyticsChargeView
-        elif saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].source_suffix
-        ) or saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER].events_suffix
-        ):
-            Klass = RevenueAnalyticsCustomerView
-        elif saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].source_suffix
-        ) or saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT].events_suffix
-        ):
-            Klass = RevenueAnalyticsProductView
-        elif saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].source_suffix
-        ) or saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM].events_suffix
-        ):
-            Klass = RevenueAnalyticsRevenueItemView
-        elif saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].source_suffix
-        ) or saved_query.name.endswith(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION].events_suffix
-        ):
-            Klass = RevenueAnalyticsSubscriptionView
-        else:
-            raise ValueError(f"Saved query {saved_query.name} is not a revenue analytics view")
-
-        is_event_view = "revenue_analytics.events" in saved_query.name
-        return Klass(
-            id=saved_query.id,
-            query=saved_query.query,
-            name=saved_query.name,
-            fields=saved_query.fields,
-            metadata=saved_query.metadata,
-            # :KLUDGE: None of these properties below are great but it's all we can do to figure this one out for now
-            # We'll be able to come up with a better solution we don't need to support the old managed views anymore
-            prefix=".".join(saved_query.name.split(".")[:-1]),
-            source_id=None,  # Not used so just ignore it
-            event_name=saved_query.name.split(".")[2] if is_event_view else None,
-        )
+                if isinstance(table, SavedQuery) and is_revenue_analytics_view(table):
+                    yield table
 
     @cached_property
     def query_date_range(self):
@@ -470,10 +425,10 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
             ],
         )
 
-    def _build_breakdown_expr(self, alias: str, field: ast.Field, join_from: RevenueAnalyticsBaseView) -> ast.Alias:
+    def _build_breakdown_expr(self, alias: str, field: ast.Field, join_from: SavedQuery) -> ast.Alias:
         expr: ast.Expr = field
 
-        for breakdown in self.parsed_breakdown_from(join_from.__class__):
+        for breakdown in self.parsed_breakdown_from(get_kind(join_from)):
             # dumb assertion because mypy is dumb, praying for ty coming soon
             breakdown_expr = ast.Field(chain=breakdown.property.split("."))  # type: ignore
             expr = ast.Call(

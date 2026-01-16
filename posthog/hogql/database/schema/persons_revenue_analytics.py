@@ -1,7 +1,4 @@
 from collections import defaultdict
-from typing import Any, cast
-
-from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -19,6 +16,14 @@ from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 
+from products.revenue_analytics.backend.views import (
+    CUSTOMER_ALIAS,
+    MRR_ALIAS,
+    REVENUE_ITEM_ALIAS,
+    RevenueAnalyticsViewKind,
+    is_event_view,
+    is_revenue_analytics_view,
+)
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 ZERO_DECIMAL = ast.Call(
@@ -34,50 +39,38 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
-    from products.revenue_analytics.backend.views import (
-        RevenueAnalyticsBaseView,
-        RevenueAnalyticsCustomerView,
-        RevenueAnalyticsMRRView,
-        RevenueAnalyticsRevenueItemView,
-    )
-
     if not context.database:
         return ast.SelectQuery.empty(columns=FIELDS)
 
-    customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
-    mrr_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR]
-    revenue_item_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+    customer_schema = VIEW_SCHEMAS[CUSTOMER_ALIAS]
+    mrr_schema = VIEW_SCHEMAS[MRR_ALIAS]
+    revenue_item_schema = VIEW_SCHEMAS[REVENUE_ITEM_ALIAS]
 
     # Get all customer/mrr/revenue item tuples from the existing views making sure we ignore `all`
     # since the `persons` join is in the child view
-    all_views = defaultdict[str, dict[DatabaseSchemaManagedViewTableKind, RevenueAnalyticsBaseView]](defaultdict)
+    all_views = defaultdict[str, dict[RevenueAnalyticsViewKind, SavedQuery]](defaultdict)
     for view_name in context.database.get_view_names():
-        view = cast(SavedQuery | RevenueAnalyticsBaseView, context.database.get_table(view_name))
+        view = context.database.get_table(view_name)
+        if not isinstance(view, SavedQuery) or not is_revenue_analytics_view(view):
+            continue
+
         prefix = ".".join(view_name.split(".")[:-1])
 
-        # Might need to convert to RevenueAnalyticsBaseView from a SavedQuery if the FF is enabled
-        # Soon we'll be able to remove all of this and handle them all using the `SavedQuery` logic directly
         if view_name.endswith(customer_schema.source_suffix) or view_name.endswith(customer_schema.events_suffix):
-            if not isinstance(view, RevenueAnalyticsBaseView):
-                view = RevenueAnalyticsCustomerView(**_base_view_args_from_saved_query(view))
-            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER] = view
+            all_views[prefix][CUSTOMER_ALIAS] = view
         elif view_name.endswith(revenue_item_schema.source_suffix) or view_name.endswith(
             revenue_item_schema.events_suffix
         ):
-            if not isinstance(view, RevenueAnalyticsBaseView):
-                view = RevenueAnalyticsRevenueItemView(**_base_view_args_from_saved_query(view))
-            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM] = view
+            all_views[prefix][REVENUE_ITEM_ALIAS] = view
         elif view_name.endswith(mrr_schema.source_suffix) or view_name.endswith(mrr_schema.events_suffix):
-            if not isinstance(view, RevenueAnalyticsBaseView):
-                view = RevenueAnalyticsMRRView(**_base_view_args_from_saved_query(view))
-            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR] = view
+            all_views[prefix][MRR_ALIAS] = view
 
     # Iterate over all possible view tuples and figure out which queries we can add to the set
     queries = []
     for views in all_views.values():
-        customer_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER)
-        mrr_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR)
-        revenue_item_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM)
+        customer_view = views.get(CUSTOMER_ALIAS)
+        mrr_view = views.get(MRR_ALIAS)
+        revenue_item_view = views.get(REVENUE_ITEM_ALIAS)
 
         # Only proceed for those where we have the whole tuple
         if customer_view is None or revenue_item_view is None or mrr_view is None:
@@ -86,12 +79,12 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         # If we're working with event views, we can use the customer's id field directly
         # Otherwise, we need to join with the persons table by checking whether it exists
         person_id_chain: list[str | int] | None = None
-        if customer_view.is_event_view():
-            person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
+        if is_event_view(customer_view):
+            person_id_chain = [CUSTOMER_ALIAS, "id"]
         else:
             persons_lazy_join = customer_view.fields.get("persons")
             if persons_lazy_join is not None and isinstance(persons_lazy_join, ast.LazyJoin):
-                person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "persons", "id"]
+                person_id_chain = [CUSTOMER_ALIAS, "persons", "id"]
 
         if person_id_chain is not None:
             # Get the aggregated revenue by customer_id
@@ -101,7 +94,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     ast.Alias(alias="revenue", expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])])),
                 ],
                 select_from=ast.JoinExpr(
-                    alias=RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                    alias=REVENUE_ITEM_ALIAS,
                     table=ast.Field(chain=[revenue_item_view.name]),
                 ),
                 group_by=[ast.Field(chain=["customer_id"])],
@@ -142,7 +135,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     ),
                 ],
                 select_from=ast.JoinExpr(
-                    alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),
+                    alias=CUSTOMER_ALIAS,
                     table=ast.Field(chain=[customer_view.name]),
                     next_join=ast.JoinExpr(
                         alias="revenue_agg",
@@ -152,7 +145,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                             constraint_type="ON",
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                                left=ast.Field(chain=[CUSTOMER_ALIAS, "id"]),
                                 right=ast.Field(chain=["revenue_agg", "customer_id"]),
                             ),
                         ),
@@ -164,7 +157,7 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                                 constraint_type="ON",
                                 expr=ast.CompareOperation(
                                     op=ast.CompareOperationOp.Eq,
-                                    left=ast.Field(chain=[RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]),
+                                    left=ast.Field(chain=[CUSTOMER_ALIAS, "id"]),
                                     right=ast.Field(chain=["mrr_agg", "customer_id"]),
                                 ),
                             ),
@@ -181,21 +174,6 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         return queries[0]
     else:
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
-
-
-def _base_view_args_from_saved_query(saved_query: SavedQuery) -> dict[str, Any]:
-    return {
-        "id": saved_query.id,
-        "query": saved_query.query,
-        "name": saved_query.name,
-        "fields": saved_query.fields,
-        "metadata": saved_query.metadata,
-        # :KLUDGE: None of these properties below are great but it's all we can do to figure this one out for now
-        # We'll be able to come up with a better solution we don't need to support the old managed views anymore
-        "prefix": ".".join(saved_query.name.split(".")[:-1]),
-        "source_id": None,  # Not used so just ignore it
-        "event_name": saved_query.name.split(".")[2] if "revenue_analytics.events" in saved_query.name else None,
-    }
 
 
 class PersonsRevenueAnalyticsTable(LazyTable):
