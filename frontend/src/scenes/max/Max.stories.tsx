@@ -1990,7 +1990,7 @@ ThreadWithMultiQuestionFormNoCustomAnswer.parameters = {
     },
 }
 
-/** In this story "Open report" should be visible twice. */
+/** In this story "Open report" should be visible twice */
 export const ThreadWithSessionSummaryLink: StoryFn = () => {
     // First assistant message with the "Open report" button linking to session summaries
     const sessionSummaryFormMessage: AssistantMessage = {
