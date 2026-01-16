@@ -79,12 +79,18 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             () => [(_, props) => props],
             (props): SidePanelSceneContext | null => {
                 const cleanId = props.id.replace('self-managed-', '').replace('managed-', '')
+                const isManagedSource = props.id.startsWith('managed-')
                 return cleanId
                     ? {
                           activity_scope: ActivityScope.EXTERNAL_DATA_SOURCE,
                           activity_item_id: cleanId,
-                          access_control_resource: 'external_data_source',
-                          access_control_resource_id: cleanId,
+                          // Only managed sources have access control, self-managed sources do not
+                          ...(isManagedSource
+                              ? {
+                                    access_control_resource: 'external_data_source',
+                                    access_control_resource_id: cleanId,
+                                }
+                              : {}),
                       }
                     : null
             },
