@@ -776,8 +776,10 @@ export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
 export type ExperimentIdType = number | 'new' | 'web'
+
 /* sync with posthog-js */
 export interface ToolbarParams {
+    /** @deprecated, not needed if `posthog` is passed as prop instead */
     apiURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
