@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                     models.CharField(choices=[("android", "Android"), ("ios", "Ios"), ("web", "Web")], max_length=16),
                 ),
                 ("is_active", models.BooleanField(db_index=True, default=True)),
-                ("last_used_at", models.DateTimeField(blank=True, null=True)),
+                ("last_successfully_used_at", models.DateTimeField(blank=True, null=True)),
                 ("disabled_reason", models.CharField(blank=True, max_length=128, null=True)),
                 (
                     "team",

@@ -34,6 +34,11 @@ export class HogInputsService {
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
 
+        // Check if function has push subscription inputs
+        const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
+            (schema) => schema.type === 'push_subscription'
+        )
+
         const inputs: HogFunctionType['inputs'] = {
             // Include the inputs from the hog function
             ...hogFunction.inputs,
@@ -42,9 +47,8 @@ export class HogInputsService {
             ...additionalInputs,
             // and decode any integration inputs
             ...(await this.loadIntegrationInputs(hogFunction)),
-            // and resolve any push subscription inputs
-            // TODOdin: Is this the right place to load these?
-            ...(await this.loadPushSubscriptionInputs(hogFunction)),
+            // and resolve any push subscription inputs (only if function has push subscription inputs)
+            ...(hasPushSubscriptionInputs ? await this.loadPushSubscriptionInputs(hogFunction) : {}),
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -82,8 +86,13 @@ export class HogInputsService {
             }
         }
 
-        // Load push subscriptions for the event's distinct_id
-        if (globals.event?.distinct_id) {
+        // Only load push_subscriptions globals if function uses push subscriptions
+        // Check if function has push subscription inputs or uses push_subscriptions in templates
+        const usesPushSubscriptionsInTemplates = hogFunction.inputs_schema?.some(
+            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
+        )
+
+        if ((hasPushSubscriptionInputs || usesPushSubscriptionsInTemplates) && globals.event?.distinct_id) {
             try {
                 const pushSubscriptions = await this.pushSubscriptionsManager.get({
                     teamId: hogFunction.team_id,
@@ -94,7 +103,7 @@ export class HogInputsService {
                     token: sub.token,
                     platform: sub.platform,
                     is_active: sub.is_active,
-                    last_used_at: sub.last_used_at,
+                    last_successfully_used_at: sub.last_successfully_used_at,
                 }))
             } catch (error) {
                 // Log error but don't fail the function execution
@@ -204,33 +213,25 @@ export class HogInputsService {
             return {}
         }
 
+        // Batch fetch all subscriptions at once
+        const subscriptionIds = Object.values(inputsToLoad)
+        // TODOdin: getManyById doens't exist
+        const subscriptions = await this.pushSubscriptionsManager.getManyById(hogFunction.team_id, subscriptionIds)
+
         const returnInputs: Record<string, { value: string | null }> = {}
 
-        await Promise.all(
-            Object.entries(inputsToLoad).map(async ([key, subscriptionId]) => {
-                returnInputs[key] = {
-                    value: null,
-                }
+        for (const [key, subscriptionId] of Object.entries(inputsToLoad)) {
+            returnInputs[key] = {
+                value: null,
+            }
 
-                try {
-                    const subscription = await this.pushSubscriptionsManager.getById(
-                        hogFunction.team_id,
-                        subscriptionId
-                    )
-                    if (subscription && subscription.is_active) {
-                        returnInputs[key] = {
-                            value: subscription.token,
-                        }
-                    }
-                } catch (error) {
-                    logger.warn('[HogInputsService]', 'Failed to load push subscription', {
-                        error,
-                        teamId: hogFunction.team_id,
-                        subscriptionId,
-                    })
+            const subscription = subscriptions[subscriptionId]
+            if (subscription && subscription.is_active) {
+                returnInputs[key] = {
+                    value: subscription.token,
                 }
-            })
-        )
+            }
+        }
 
         return returnInputs
     }

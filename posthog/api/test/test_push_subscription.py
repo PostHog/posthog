@@ -353,8 +353,8 @@ class TestPushSubscriptionViewSet(APIBaseTest):
         self.assertFalse(subscription.is_active)
         self.assertEqual(subscription.disabled_reason, "unregistered")
 
-    def test_viewset_list_safe_excludes_token(self):
-        """Test list_safe action excludes token from response."""
+    def test_viewset_list_excludes_token(self):
+        """Test list action excludes token from response."""
         PushSubscription.objects.create(
             team=self.team,
             distinct_id="user-123",
@@ -364,14 +364,17 @@ class TestPushSubscriptionViewSet(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/push_subscriptions/list_safe/",
+            f"/api/environments/{self.team.id}/push_subscriptions/list/",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("results", data)
         if data["results"]:
-            self.assertNotIn("token", data["results"][0])  # Security: token must never be exposed
+            result = data["results"][0]
+            self.assertNotIn("token", result)  # Security: token must never be exposed
+            self.assertNotIn("is_active", result)  # Should not return is_active
+            self.assertNotIn("person_id", result)  # Should not return person_id
 
 
 class TestPushSubscriptionSerializer(APIBaseTest):

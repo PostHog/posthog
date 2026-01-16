@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from django.db import IntegrityError
-
 from products.workflows.backend.models.push_subscription import PushPlatform, PushSubscription
 
 
@@ -62,32 +60,6 @@ class TestPushSubscription(BaseTest):
         self.assertEqual(subscription1.id, subscription2.id)
         self.assertTrue(subscription2.is_active)
         self.assertEqual(subscription2.platform, PushPlatform.IOS)
-
-    # TODOdin: Weed out tests a bit; I think we can trust our unique constraints without a test
-    def test_unique_constraint(self):
-        PushSubscription.objects.create(
-            team=self.team,
-            distinct_id="user-123",
-            token="fcm-token-abc123",
-            platform=PushPlatform.ANDROID,
-        )
-
-        # Same token can be associated with multiple distinct_ids (shared device / merged identities).
-        PushSubscription.objects.create(
-            team=self.team,
-            distinct_id="user-456",
-            token="fcm-token-abc123",
-            platform=PushPlatform.ANDROID,
-        )
-
-        # But the same (team, distinct_id, token) should not be duplicated.
-        with self.assertRaises(IntegrityError):
-            PushSubscription.objects.create(
-                team=self.team,
-                distinct_id="user-123",
-                token="fcm-token-abc123",
-                platform=PushPlatform.ANDROID,
-            )
 
     def test_get_active_tokens_for_distinct_id(self):
         PushSubscription.objects.create(
@@ -189,8 +161,8 @@ class TestPushSubscription(BaseTest):
         self.assertIn("android", str(subscription).lower())
         self.assertIn("active", str(subscription).lower())
 
-    def test_update_last_used_at(self):
-        """Test update_last_used_at updates timestamp for given subscription IDs."""
+    def test_update_last_successfully_used_at(self):
+        """Test update_last_successfully_used_at updates timestamp for given subscription IDs."""
         from django.utils import timezone
 
         subscription_1 = PushSubscription.objects.create(
@@ -206,17 +178,17 @@ class TestPushSubscription(BaseTest):
             platform=PushPlatform.IOS,
         )
 
-        self.assertIsNone(subscription_1.last_used_at)
-        self.assertIsNone(subscription_2.last_used_at)
+        self.assertIsNone(subscription_1.last_successfully_used_at)
+        self.assertIsNone(subscription_2.last_successfully_used_at)
 
-        count = PushSubscription.update_last_used_at([str(subscription_1.id), str(subscription_2.id)])
+        count = PushSubscription.update_last_successfully_used_at([str(subscription_1.id), str(subscription_2.id)])
         self.assertEqual(count, 2)
 
         subscription_1.refresh_from_db()
         subscription_2.refresh_from_db()
 
-        self.assertIsNotNone(subscription_1.last_used_at)
-        self.assertIsNotNone(subscription_2.last_used_at)
+        self.assertIsNotNone(subscription_1.last_successfully_used_at)
+        self.assertIsNotNone(subscription_2.last_successfully_used_at)
         # Verify timestamps are recent
         now = timezone.now()
-        self.assertLess((now - subscription_1.last_used_at).total_seconds(), 60)
+        self.assertLess((now - subscription_1.last_successfully_used_at).total_seconds(), 60)
