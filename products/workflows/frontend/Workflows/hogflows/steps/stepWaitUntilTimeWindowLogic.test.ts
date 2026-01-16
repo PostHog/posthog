@@ -164,8 +164,17 @@ describe('stepWaitUntilTimeWindowLogic', () => {
     })
 
     it('should update the description with fallback timezone when use_person_timezone is enabled', async () => {
-        const initialDesc = getWaitUntilTimeWindowDescription('weekday', ['09:00', '17:00'], 'UTC', true, 'Europe/London')
-        const action = await setupInitialAction(initialDesc, { use_person_timezone: true, fallback_timezone: 'Europe/London' })
+        const initialDesc = getWaitUntilTimeWindowDescription(
+            'weekday',
+            ['09:00', '17:00'],
+            'UTC',
+            true,
+            'Europe/London'
+        )
+        const action = await setupInitialAction(initialDesc, {
+            use_person_timezone: true,
+            fallback_timezone: 'Europe/London',
+        })
 
         await expectLogic(logic, () => {
             logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { fallback_timezone: 'America/New_York' })
@@ -222,7 +231,8 @@ describe('getWaitUntilTimeWindowDescription', () => {
             timezone: 'Asia/Tokyo',
             usePersonTimezone: true,
             fallbackTimezone: 'Asia/Tokyo',
-            expected: "Wait until Monday, Wednesday, Friday between 08:00 and 12:00 (person's timezone, fallback: Asia/Tokyo).",
+            expected:
+                "Wait until Monday, Wednesday, Friday between 08:00 and 12:00 (person's timezone, fallback: Asia/Tokyo).",
         },
     ])('$name', ({ day, time, timezone, usePersonTimezone, fallbackTimezone, expected }) => {
         const result = getWaitUntilTimeWindowDescription(day, time, timezone, usePersonTimezone, fallbackTimezone)

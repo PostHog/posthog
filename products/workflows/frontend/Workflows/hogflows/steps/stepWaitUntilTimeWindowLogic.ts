@@ -130,7 +130,9 @@ export const stepWaitUntilTimeWindowLogic = kea<stepWaitUntilTimeWindowLogicType
             const newTime = config.time ?? currentConfig.time
             const newTimezone = config.timezone !== undefined ? config.timezone : currentConfig.timezone
             const newUsePersonTimezone =
-                config.use_person_timezone !== undefined ? config.use_person_timezone : currentConfig.use_person_timezone
+                config.use_person_timezone !== undefined
+                    ? config.use_person_timezone
+                    : currentConfig.use_person_timezone
             const newFallbackTimezone =
                 config.fallback_timezone !== undefined ? config.fallback_timezone : currentConfig.fallback_timezone
 
