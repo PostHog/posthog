@@ -129,6 +129,7 @@
         color: var(--text-primary);
         text-transform: uppercase;
         letter-spacing: 0.025em;
+        white-space: nowrap;
     }
 
     &__content {
