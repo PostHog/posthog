@@ -18,7 +18,7 @@ import { logsLogic } from './logsLogic'
 export const scene: SceneExport = {
     component: LogsScene,
     logic: logsLogic,
-    settingSectionId: 'product-logs',
+    settingSectionId: 'environment-logs',
 }
 
 export function LogsScene(): JSX.Element {

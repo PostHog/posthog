@@ -21,7 +21,9 @@ import {
     ProductTourStep,
     ProductTourStepType,
     ProductTourSurveyQuestion,
+    ScreenPosition,
     StepOrderVersion,
+    SurveyPosition,
 } from '~/types'
 
 import { inferSelector } from './elementInference'
@@ -176,8 +178,9 @@ export const productToursLogic = kea<productToursLogicType>([
             selector?: string,
             survey?: ProductTourSurveyQuestion,
             progressionTrigger?: ProductTourProgressionTriggerType,
-            maxWidth?: number
-        ) => ({ content, selector, survey, progressionTrigger, maxWidth }),
+            maxWidth?: number,
+            modalPosition?: ScreenPosition
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth, modalPosition }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -216,6 +219,7 @@ export const productToursLogic = kea<productToursLogicType>([
             promise,
         }),
         clearPendingScreenshotPromise: true,
+        setLaunchedForPreview: (value: boolean) => ({ value }),
     }),
 
     loaders(() => ({
@@ -349,6 +353,13 @@ export const productToursLogic = kea<productToursLogicType>([
                 clearPendingScreenshotPromise: () => null,
                 cancelEditing: () => null,
                 selectTour: () => null,
+            },
+        ],
+        launchedForPreview: [
+            false,
+            {
+                setLaunchedForPreview: (_, { value }) => value,
+                selectTour: () => false,
             },
         ],
     }),
@@ -572,7 +583,14 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: async ({ content, selector: selectorOverride, survey, progressionTrigger, maxWidth }) => {
+        confirmStep: async ({
+            content,
+            selector: selectorOverride,
+            survey,
+            progressionTrigger,
+            maxWidth,
+            modalPosition,
+        }) => {
             const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
@@ -613,6 +631,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 ...(progressionTrigger ? { progressionTrigger } : {}),
                 ...(maxWidth ? { maxWidth } : {}),
                 ...(screenshotMediaId ? { screenshotMediaId } : {}),
+                ...(stepType !== 'element' ? { modalPosition: modalPosition ?? SurveyPosition.MiddleCenter } : {}),
             }
 
             if (stepIndex < steps.length) {
@@ -691,6 +710,17 @@ export const productToursLogic = kea<productToursLogicType>([
             productTours.previewTour(tour)
         },
         stopPreview: () => {
+            const { selectedTourId, tours, launchedForPreview } = values
+            const selectedTour = tours.find((t: ProductTour) => t.id === selectedTourId)
+            const isAnnouncement = selectedTour?.content?.type === 'announcement'
+
+            if (isAnnouncement) {
+                if (launchedForPreview) {
+                    window.close() // go back to posthog app
+                    return
+                }
+                actions.selectTour(null)
+            }
             toolbarLogic.actions.toggleMinimized(false)
         },
         updateRects: () => {
@@ -842,6 +872,11 @@ export const productToursLogic = kea<productToursLogicType>([
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-product-tour') {
                 actions.startCreation()
+                toolbarConfigLogic.actions.clearUserIntent()
+            } else if (userIntent === 'preview-product-tour' && productTourId) {
+                actions.setLaunchedForPreview(true)
+                actions.selectTour(productTourId)
+                actions.previewTour()
                 toolbarConfigLogic.actions.clearUserIntent()
             }
         },

@@ -31,6 +31,7 @@ import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOper
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
 import { ToolRegistration } from './max-constants'
+import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
@@ -1989,6 +1990,107 @@ ThreadWithMultiQuestionFormNoCustomAnswer.parameters = {
     },
 }
 
+/** In this story "Open report" should be visible twice. */
+export const ThreadWithSessionSummaryLink: StoryFn = () => {
+    // First assistant message with the "Open report" button linking to session summaries
+    const sessionSummaryFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I've analyzed your session recordings and prepared a summary report.",
+        id: 'session-summary-1',
+        meta: {
+            form: {
+                options: [
+                    {
+                        value: 'Open report',
+                        variant: 'primary',
+                        href: '/session-summaries/test-session-group-123',
+                    },
+                ],
+            },
+        },
+    }
+
+    // Second assistant message - form will be carried over automatically by maxThreadLogic
+    const sessionSummaryFollowUpMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: `Here's a summary of the key findings from your session recordings:
+
+**User Behavior Patterns**
+- Users spent an average of 3 minutes and 42 seconds on the checkout page, which is 45% longer than your industry benchmark
+- The most common navigation path was: Homepage → Product List → Product Detail → Cart → Checkout
+- 68% of users who reached the checkout page completed their purchase
+
+**Drop-off Analysis**
+- The highest drop-off rate (34%) occurred when users were presented with shipping options
+- Users who abandoned at this stage spent an average of 2 minutes reviewing shipping costs before leaving
+- Mobile users had a 23% higher drop-off rate compared to desktop users at this step
+
+**Rage Clicks and Frustration Signals**
+- 12% of sessions contained rage clicks, primarily on the "Apply Coupon" button
+- The shipping calculator triggered confusion, with users clicking it an average of 3.2 times per session
+- Error messages related to address validation appeared in 8% of checkout sessions
+
+**Recommendations**
+1. Simplify the shipping selection UI by showing fewer options upfront and using progressive disclosure
+2. Add real-time shipping cost estimation earlier in the funnel (e.g., on the cart page)
+3. Fix the coupon application flow - users expect immediate feedback after clicking "Apply"
+4. Consider implementing address autocomplete to reduce validation errors
+5. Optimize the mobile checkout experience, particularly the shipping selection step
+
+**Next Steps**
+I can help you create specific A/B tests to validate these recommendations, or dive deeper into any particular segment of users. Would you like me to analyze a specific user cohort or time period in more detail?`,
+        id: 'session-summary-2',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Summarize my session recordings',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummaryFormMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sessionSummaryFollowUpMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Summarize my session recordings')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithSessionSummaryLink.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 function generateChunk(events: string[]): string {
     return events.map((event) => (event.startsWith('event:') ? `${event}\n` : `${event}\n\n`)).join('')
 }
@@ -2345,4 +2447,141 @@ export const NotebookArtifactWithLoadingAndErrors: StoryFn = () => {
     }
 
     return <Template />
+}
+
+// Changelog Stories
+
+const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        title: 'SQL generation',
+        description: 'Max can now write and run SQL queries for you',
+        tag: 'new',
+    },
+    {
+        title: 'Faster responses',
+        description: 'Improved response times by up to 40%',
+        tag: 'improved',
+    },
+    {
+        title: 'Chart editing',
+        description: 'Edit visualization settings directly in conversation',
+        tag: 'beta',
+    },
+]
+
+const SAMPLE_WARNING_ALERT: AlertEntry = {
+    title: 'Service degraded',
+    description: 'Some AI features may be slower than usual',
+    severity: 'warning',
+}
+
+const SAMPLE_OUTAGE_ALERT: AlertEntry = {
+    title: 'Service outage',
+    description: 'AI features are temporarily unavailable. We are working on a fix.',
+    severity: 'error',
+}
+
+export const ChangelogOnly: StoryFn = () => {
+    const { setEntries, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, openChangelog])
+
+    return <Template />
+}
+ChangelogOnly.parameters = {
+    featureFlags: ['posthog-ai-changelog'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsOnly: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsOnly.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageAlert: StoryFn = () => {
+    const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageAlert.parameters = {
+    featureFlags: ['posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const AlertsWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+AlertsWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const OutageWithChangelog: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+OutageWithChangelog.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MultipleAlerts: StoryFn = () => {
+    const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
+
+    useEffect(() => {
+        setEntries(SAMPLE_CHANGELOG_ENTRIES)
+        setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
+        setTimeout(() => openChangelog(), 100)
+    }, [setEntries, setAlerts, openChangelog])
+
+    return <Template />
+}
+MultipleAlerts.parameters = {
+    featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }

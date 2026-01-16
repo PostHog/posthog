@@ -6,7 +6,8 @@ while maintaining backwards compatibility with existing data that may have mixed
 import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -16,8 +17,6 @@ from django.db.models import QuerySet
 import requests
 import structlog
 import posthoganalytics
-
-from posthog.settings.web import TWO_FACTOR_REMEMBER_COOKIE_AGE
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -115,8 +114,10 @@ class EmailValidationHelper:
         return EmailLookupHandler.get_user_by_email(email) is not None
 
 
-ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = TWO_FACTOR_REMEMBER_COOKIE_AGE  # 30 days, aligned with remember-me cookie
-ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS = 60  # Short TTL for errors to prevent thundering herd during outages
+ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day
+ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS = (
+    60  # Short TTL for errors/rate-limits to prevent thundering herd during outages
+)
 ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS = 5
 
 
@@ -146,7 +147,11 @@ def _esp_suppression_api_failure_fallback(
 
     We cache the error state briefly to prevent thundering herd during outages.
     """
-    cache.set(_get_esp_suppression_error_cache_key(email), True, ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS)
+    cache.set(
+        _get_esp_suppression_error_cache_key(email),
+        True,
+        ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
+    )
 
     logger.warning(
         "ESP suppression API failure - allowing user through",
@@ -162,7 +167,11 @@ def _esp_suppression_api_failure_fallback(
         api_status_code=api_status_code,
         error_type=error_type,
     )
-    return ESPSuppressionResult(is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.API_FAILURE_FALLBACK)
+    return ESPSuppressionResult(
+        is_suppressed=True,
+        from_cache=False,
+        reason=ESPSuppressionReason.API_FAILURE_FALLBACK,
+    )
 
 
 def _hash_email(email: str) -> str:
@@ -185,6 +194,7 @@ def _capture_esp_suppression_analytics(
     api_called: bool = False,
     api_status_code: Optional[int] = None,
     error_type: Optional[str] = None,
+    suppressions: Optional[list[dict]] = None,
 ) -> None:
     try:
         posthoganalytics.capture(
@@ -197,6 +207,7 @@ def _capture_esp_suppression_analytics(
                 "api_called": api_called,
                 "api_status_code": api_status_code,
                 "error_type": error_type,
+                "suppressions": suppressions,
             },
         )
     except Exception as e:
@@ -206,7 +217,11 @@ def _capture_esp_suppression_analytics(
 def check_esp_suppression(email: str) -> ESPSuppressionResult:
     """Check if an email address is on the ESP suppression list."""
     if not email:
-        return ESPSuppressionResult(is_suppressed=False, from_cache=False, reason=ESPSuppressionReason.EMPTY_EMAIL)
+        return ESPSuppressionResult(
+            is_suppressed=False,
+            from_cache=False,
+            reason=ESPSuppressionReason.EMPTY_EMAIL,
+        )
 
     cache_key = _get_esp_suppression_cache_key(email)
     cached_result = cache.get(cache_key)
@@ -237,18 +252,22 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
             cache_type="error_cache",
         )
         return ESPSuppressionResult(
-            is_suppressed=True, from_cache=True, reason=ESPSuppressionReason.API_FAILURE_FALLBACK
+            is_suppressed=True,
+            from_cache=True,
+            reason=ESPSuppressionReason.API_FAILURE_FALLBACK,
         )
 
     try:
         api_response = _fetch_esp_suppression_from_api(email)
-        cache.set(cache_key, api_response.is_suppressed, ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS)
+        cache_ttl = api_response.cache_ttl
+        cache.set(cache_key, api_response.is_suppressed, cache_ttl)
         _capture_esp_suppression_analytics(
             email=email,
             outcome="suppressed" if api_response.is_suppressed else "not_suppressed",
             from_cache=False,
             api_called=True,
             api_status_code=api_response.status_code,
+            suppressions=api_response.suppressions,
         )
         return ESPSuppressionResult(
             is_suppressed=api_response.is_suppressed,
@@ -262,24 +281,21 @@ def check_esp_suppression(email: str) -> ESPSuppressionResult:
         return _esp_suppression_api_failure_fallback(email, "unexpected_error", str(e))
 
 
-def _parse_esp_suppression_response(data: Any) -> bool:
-    if not data:
-        return False
-    if isinstance(data, list):
-        return len(data) > 0
-    if isinstance(data, dict):
-        return bool(data.get("suppressed", False)) or bool(data.get("suppressions", []))
-    return False
-
-
 @dataclass
 class ESPSuppressionAPIResponse:
     is_suppressed: bool
     status_code: int
+    suppressions: Optional[list[dict]] = None
+    cache_ttl: Optional[int] = ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS
 
 
 class ESPSuppressionAPIError(Exception):
-    def __init__(self, error_type: str, error_details: Optional[str] = None, status_code: Optional[int] = None):
+    def __init__(
+        self,
+        error_type: str,
+        error_details: Optional[str] = None,
+        status_code: Optional[int] = None,
+    ):
         self.error_type = error_type
         self.error_details = error_details
         self.status_code = status_code
@@ -295,20 +311,27 @@ def _fetch_esp_suppression_from_api(email: str) -> ESPSuppressionAPIResponse:
 
     try:
         response = requests.get(
-            f"{settings.CUSTOMER_IO_API_URL}/v1/esp/suppressions",
-            params={"email": email},
+            f"{settings.CUSTOMER_IO_API_URL}/v1/esp/search_suppression/{quote(email, safe='')}",
             headers=headers,
             timeout=ESP_SUPPRESSION_API_TIMEOUT_IN_SECONDS,
         )
 
         if response.status_code == 200:
             data = response.json()
+            suppressions = data.get("suppressions") if data else None
+            is_suppressed = bool(suppressions)
             return ESPSuppressionAPIResponse(
-                is_suppressed=_parse_esp_suppression_response(data),
+                is_suppressed=is_suppressed,
                 status_code=200,
+                suppressions=suppressions if is_suppressed else None,
             )
-        elif response.status_code == 404:
-            return ESPSuppressionAPIResponse(is_suppressed=False, status_code=404)
+        elif response.status_code == 429:
+            # Rate limited, determine as not suppressed but cache for short TTL
+            return ESPSuppressionAPIResponse(
+                is_suppressed=False,
+                status_code=429,
+                cache_ttl=ESP_SUPPRESSION_ERROR_CACHE_TTL_IN_SECONDS,
+            )
         else:
             raise ESPSuppressionAPIError(
                 "http_error",

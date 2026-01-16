@@ -113,19 +113,23 @@ class UsageReportCounters:
     mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
+
     # Persons and Groups
     group_types_total: int
+
     # Dashboards
     dashboard_count: int
     dashboard_template_count: int
     dashboard_shared_count: int
     dashboard_tagged_count: int
+
     # Feature flags
     ff_count: int
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
+
     # Queries
     query_app_bytes_read: int
     query_app_rows_read: int
@@ -145,22 +149,24 @@ class UsageReportCounters:
     event_explorer_api_bytes_read: int
     event_explorer_api_rows_read: int
     event_explorer_api_duration_ms: int
+
     # Surveys
     survey_responses_count_in_period: int
+
     # Data Warehouse
     rows_synced_in_period: int
     free_historical_rows_synced_in_period: int
 
     # Data Warehouse metadata
     active_external_data_schemas_in_period: int
+    dwh_total_storage_in_s3_in_mib: float
+    dwh_tables_storage_in_s3_in_mib: float
+    dwh_mat_views_storage_in_s3_in_mib: float
 
     # Batch Exports metadata
     rows_exported_in_period: int
     active_batch_exports_in_period: int
 
-    dwh_total_storage_in_s3_in_mib: float
-    dwh_tables_storage_in_s3_in_mib: float
-    dwh_mat_views_storage_in_s3_in_mib: float
     # Error Tracking
     issues_created_total: int
     symbol_sets_count: int
@@ -181,12 +187,15 @@ class UsageReportCounters:
 
     # LLM Analytics
     ai_event_count_in_period: int
+
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
+
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
     cdp_billable_invocations_in_period: int
+
     # SDK usage
     web_events_count_in_period: int
     web_lite_events_count_in_period: int
@@ -205,11 +214,13 @@ class UsageReportCounters:
     unity_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
+
     # Workflow metrics
     workflow_emails_sent_in_period: int
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
+
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
@@ -1608,7 +1619,9 @@ def capture_report(
             organization_id=organization_id,
             properties=full_report_dict,
             timestamp=at_date,
+            set_on_organization=True,
         )
+
     except Exception as err:
         logger.exception(
             f"UsageReport sent to PostHog for organization {organization_id} failed: {str(err)}",
@@ -2123,7 +2136,10 @@ def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: Instanc
 
 
 def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str, Any]:
-    return dataclasses.asdict(full_report)
+    return {
+        **dataclasses.asdict(full_report),
+        "has_non_zero_usage": has_non_zero_usage(full_report),
+    }
 
 
 def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[str, Any]) -> None:

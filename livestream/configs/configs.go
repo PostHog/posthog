@@ -68,36 +68,36 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-
+	
 	// Core settings
-	viper.BindEnv("debug")       // LIVESTREAM_DEBUG
-	viper.BindEnv("parallelism") // LIVESTREAM_PARALLELISM
-	viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
+	_ = viper.BindEnv("debug")       // LIVESTREAM_DEBUG
+	_ = viper.BindEnv("parallelism") // LIVESTREAM_PARALLELISM
+	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
 
 	// GEO settings
-	viper.BindEnv("mmdb.path") // LIVESTREAM_MMDB_PATH
+	_ = viper.BindEnv("mmdb.path") // LIVESTREAM_MMDB_PATH
 
 	// Kafka settings
-	viper.BindEnv("kafka.brokers")                             // LIVESTREAM_KAFKA_BROKERS
-	viper.BindEnv("kafka.topic")                               // LIVESTREAM_KAFKA_TOPIC
-	viper.BindEnv("kafka.group_id")                            // LIVESTREAM_KAFKA_GROUP_ID
-	viper.BindEnv("kafka.security_protocol")                   // LIVESTREAM_KAFKA_SECURITY_PROTOCOL
-	viper.BindEnv("kafka.session_recording_enabled")           // LIVESTREAM_KAFKA_SESSION_RECORDING_ENABLED
-	viper.BindEnv("kafka.session_recording_topic")             // LIVESTREAM_KAFKA_SESSION_RECORDING_TOPIC
-	viper.BindEnv("kafka.session_recording_brokers")           // LIVESTREAM_KAFKA_SESSION_RECORDING_BROKERS
-	viper.BindEnv("kafka.session_recording_security_protocol") // LIVESTREAM_KAFKA_SESSION_RECORDING_SECURITY_PROTOCOL
-	viper.BindEnv("kafka.session_timeout_ms")                  // LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS
-	viper.BindEnv("kafka.heartbeat_interval_ms")               // LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS
-	viper.BindEnv("kafka.max_poll_interval_ms")                // LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS
+	_ = viper.BindEnv("kafka.brokers")                             // LIVESTREAM_KAFKA_BROKERS
+	_ = viper.BindEnv("kafka.topic")                               // LIVESTREAM_KAFKA_TOPIC
+	_ = viper.BindEnv("kafka.group_id")                            // LIVESTREAM_KAFKA_GROUP_ID
+	_ = viper.BindEnv("kafka.security_protocol")                   // LIVESTREAM_KAFKA_SECURITY_PROTOCOL
+	_ = viper.BindEnv("kafka.session_recording_enabled")           // LIVESTREAM_KAFKA_SESSION_RECORDING_ENABLED
+	_ = viper.BindEnv("kafka.session_recording_topic")             // LIVESTREAM_KAFKA_SESSION_RECORDING_TOPIC
+	_ = viper.BindEnv("kafka.session_recording_brokers")           // LIVESTREAM_KAFKA_SESSION_RECORDING_BROKERS
+	_ = viper.BindEnv("kafka.session_recording_security_protocol") // LIVESTREAM_KAFKA_SESSION_RECORDING_SECURITY_PROTOCOL
+	_ = viper.BindEnv("kafka.session_timeout_ms")                  // LIVESTREAM_KAFKA_SESSION_TIMEOUT_MS
+	_ = viper.BindEnv("kafka.heartbeat_interval_ms")               // LIVESTREAM_KAFKA_HEARTBEAT_INTERVAL_MS
+	_ = viper.BindEnv("kafka.max_poll_interval_ms")                // LIVESTREAM_KAFKA_MAX_POLL_INTERVAL_MS
 
 	// Postgres settings
-	viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL
+	_ = viper.BindEnv("postgres.url") // LIVESTREAM_POSTGRES_URL
 
 	// JWT settings
-	viper.BindEnv("jwt.secret") // LIVESTREAM_JWT_SECRET
+	_ = viper.BindEnv("jwt.secret") // LIVESTREAM_JWT_SECRET
 
 	// Session recording settings
-	viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
+	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 }
 
 func LoadConfig() (*Config, error) {
