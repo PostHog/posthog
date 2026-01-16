@@ -48,7 +48,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     A project typically represents a repository or test suite.
     """
 
-    scope_object = "INTERNAL"
+    # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
+    scope_object = "project"
+    scope_object_write_actions = ["create", "get_upload_url", "register_artifact"]
+    scope_object_read_actions = ["list", "retrieve"]
 
     @extend_schema(responses={200: ProjectSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -123,7 +126,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     A run represents a single CI execution that captures screenshots.
     """
 
-    scope_object = "INTERNAL"
+    # TODO: Add "visual_review" to APIScopeObject in posthog/scopes.py
+    scope_object = "project"
+    scope_object_write_actions = ["create", "complete", "approve"]
+    scope_object_read_actions = ["retrieve", "snapshots"]
 
     @extend_schema(request=CreateRunInputSerializer, responses={201: CreateRunResultSerializer})
     def create(self, request: Request, **kwargs) -> Response:
