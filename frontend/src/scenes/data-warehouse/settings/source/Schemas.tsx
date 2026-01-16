@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
@@ -18,7 +18,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -33,6 +33,7 @@ import {
     DataWarehouseSyncInterval,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
+    ExternalDataSource,
     ExternalDataSourceSchema,
 } from '~/types'
 
@@ -40,6 +41,28 @@ import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
+
+/**
+ * Wrapper component for AccessControlAction with common external data source editor props.
+ * Reduces repetition when checking editor access for source operations.
+ */
+const SourceEditorAction = ({
+    source,
+    children,
+}: {
+    source: ExternalDataSource | null
+    children:
+        | React.ComponentType<AccessControlActionChildrenProps>
+        | React.ReactElement<AccessControlActionChildrenProps>
+}): JSX.Element => (
+    <AccessControlAction
+        resourceType={AccessControlResourceType.ExternalDataSource}
+        minAccessLevel={AccessControlLevel.Editor}
+        userAccessLevel={source?.user_access_level}
+    >
+        {children}
+    </AccessControlAction>
+)
 
 interface SchemasProps {
     id: string
@@ -156,15 +179,11 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         key: 'sync_time_of_day',
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
                             return (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.ExternalDataSource}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={source?.user_access_level}
-                                >
+                                <SourceEditorAction source={source}>
                                     {({ disabledReason }) => (
                                         <AnchorTime schema={schema} disabledReason={disabledReason} />
                                     )}
-                                </AccessControlAction>
+                                </SourceEditorAction>
                             )
                         },
                     },
@@ -174,11 +193,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         className: 'px-1',
                         render: function RenderFrequency(_, schema) {
                             return (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.ExternalDataSource}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={source?.user_access_level}
-                                >
+                                <SourceEditorAction source={source}>
                                     <LemonSelect
                                         className="my-1"
                                         size="xsmall"
@@ -201,7 +216,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                             { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
                                         ]}
                                     />
-                                </AccessControlAction>
+                                </SourceEditorAction>
                             )
                         },
                     },
@@ -217,11 +232,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (!schema.sync_type) {
                                 return (
                                     <>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.ExternalDataSource}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={source?.user_access_level}
-                                        >
+                                        <SourceEditorAction source={source}>
                                             <LemonButton
                                                 className="my-1"
                                                 type="primary"
@@ -230,7 +241,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                             >
                                                 Set up
                                             </LemonButton>
-                                        </AccessControlAction>
+                                        </SourceEditorAction>
                                         <SyncMethodModal schema={schema} />
                                     </>
                                 )
@@ -238,11 +249,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 
                             return (
                                 <>
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.ExternalDataSource}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={source?.user_access_level}
-                                    >
+                                    <SourceEditorAction source={source}>
                                         <LemonButton
                                             className="my-1"
                                             size="xsmall"
@@ -251,7 +258,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         >
                                             {SyncTypeLabelMap[schema.sync_type]}
                                         </LemonButton>
-                                    </AccessControlAction>
+                                    </SourceEditorAction>
                                     <SyncMethodModal schema={schema} />
                                 </>
                             )
@@ -263,11 +270,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                         render: function RenderShouldSync(_, schema) {
                             return (
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.ExternalDataSource}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={source?.user_access_level}
-                                >
+                                <SourceEditorAction source={source}>
                                     <LemonSwitch
                                         disabledReason={
                                             schema.sync_type === null
@@ -279,7 +282,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                             updateSchema({ ...schema, should_sync: active })
                                         }}
                                     />
-                                </AccessControlAction>
+                                </SourceEditorAction>
                             )
                         },
                     },
@@ -377,117 +380,81 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 
                             return (
                                 <div className="flex flex-row justify-end">
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.ExternalDataSource}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={source?.user_access_level}
-                                    >
+                                    <SourceEditorAction source={source}>
                                         {({ disabledReason }) => (
                                             <More
                                                 disabledReason={disabledReason}
                                                 overlay={
                                                     <>
-                                                        <AccessControlAction
-                                                            resourceType={AccessControlResourceType.ExternalDataSource}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                            userAccessLevel={source?.user_access_level}
+                                                        <Tooltip
+                                                            title={
+                                                                schema.incremental
+                                                                    ? 'Sync incremental data since the last run.'
+                                                                    : 'Sync all data.'
+                                                            }
                                                         >
-                                                            {({ disabledReason }) => (
-                                                                <Tooltip
-                                                                    title={
-                                                                        schema.incremental
-                                                                            ? 'Sync incremental data since the last run.'
-                                                                            : 'Sync all data.'
-                                                                    }
-                                                                >
-                                                                    <LemonButton
-                                                                        type="tertiary"
-                                                                        size="xsmall"
-                                                                        fullWidth
-                                                                        key={`reload-data-warehouse-schema-${schema.id}`}
-                                                                        id="data-warehouse-schema-reload"
-                                                                        onClick={() => {
-                                                                            reloadSchema(schema)
-                                                                        }}
-                                                                        disabledReason={disabledReason}
-                                                                    >
-                                                                        Sync now
-                                                                    </LemonButton>
-                                                                </Tooltip>
-                                                            )}
-                                                        </AccessControlAction>
-                                                        {schema.incremental && (
-                                                            <AccessControlAction
-                                                                resourceType={
-                                                                    AccessControlResourceType.ExternalDataSource
-                                                                }
-                                                                minAccessLevel={AccessControlLevel.Editor}
-                                                                userAccessLevel={source?.user_access_level}
+                                                            <LemonButton
+                                                                type="tertiary"
+                                                                size="xsmall"
+                                                                fullWidth
+                                                                key={`reload-data-warehouse-schema-${schema.id}`}
+                                                                id="data-warehouse-schema-reload"
+                                                                onClick={() => reloadSchema(schema)}
+                                                                disabledReason={disabledReason}
                                                             >
-                                                                {({ disabledReason }) => (
-                                                                    <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
-                                                                        <LemonButton
-                                                                            type="tertiary"
-                                                                            size="xsmall"
-                                                                            fullWidth
-                                                                            key={`resync-data-warehouse-schema-${schema.id}`}
-                                                                            id="data-warehouse-schema-resync"
-                                                                            onClick={() => {
-                                                                                resyncSchema(schema)
-                                                                            }}
-                                                                            status="danger"
-                                                                            disabledReason={disabledReason}
-                                                                        >
-                                                                            Delete table and resync
-                                                                        </LemonButton>
-                                                                    </Tooltip>
-                                                                )}
-                                                            </AccessControlAction>
+                                                                Sync now
+                                                            </LemonButton>
+                                                        </Tooltip>
+                                                        {schema.incremental && (
+                                                            <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
+                                                                <LemonButton
+                                                                    type="tertiary"
+                                                                    size="xsmall"
+                                                                    fullWidth
+                                                                    key={`resync-data-warehouse-schema-${schema.id}`}
+                                                                    id="data-warehouse-schema-resync"
+                                                                    onClick={() => resyncSchema(schema)}
+                                                                    status="danger"
+                                                                    disabledReason={disabledReason}
+                                                                >
+                                                                    Delete table and resync
+                                                                </LemonButton>
+                                                            </Tooltip>
                                                         )}
                                                         {schema.table && (
-                                                            <AccessControlAction
-                                                                resourceType={
-                                                                    AccessControlResourceType.ExternalDataSource
-                                                                }
-                                                                minAccessLevel={AccessControlLevel.Editor}
-                                                                userAccessLevel={source?.user_access_level}
+                                                            <Tooltip
+                                                                title={`Delete this table from PostHog. ${
+                                                                    source?.source_type
+                                                                        ? `This will not delete the data in ${source.source_type}`
+                                                                        : ''
+                                                                }`}
                                                             >
-                                                                {({ disabledReason }) => (
-                                                                    <Tooltip
-                                                                        title={`Delete this table from PostHog. ${
-                                                                            source?.source_type
-                                                                                ? `This will not delete the data in ${source.source_type}`
-                                                                                : ''
-                                                                        }`}
-                                                                    >
-                                                                        <LemonButton
-                                                                            status="danger"
-                                                                            id="data-warehouse-schema-delete"
-                                                                            type="tertiary"
-                                                                            fullWidth
-                                                                            size="xsmall"
-                                                                            onClick={() => {
-                                                                                if (
-                                                                                    window.confirm(
-                                                                                        `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
-                                                                                    )
-                                                                                ) {
-                                                                                    deleteTable(schema)
-                                                                                }
-                                                                            }}
-                                                                            disabledReason={disabledReason}
-                                                                        >
-                                                                            Delete table from PostHog
-                                                                        </LemonButton>
-                                                                    </Tooltip>
-                                                                )}
-                                                            </AccessControlAction>
+                                                                <LemonButton
+                                                                    status="danger"
+                                                                    id="data-warehouse-schema-delete"
+                                                                    type="tertiary"
+                                                                    fullWidth
+                                                                    size="xsmall"
+                                                                    onClick={() => {
+                                                                        if (
+                                                                            window.confirm(
+                                                                                `Are you sure you want to delete the table ${schema?.table?.name} from PostHog?`
+                                                                            )
+                                                                        ) {
+                                                                            deleteTable(schema)
+                                                                        }
+                                                                    }}
+                                                                    disabledReason={disabledReason}
+                                                                >
+                                                                    Delete table from PostHog
+                                                                </LemonButton>
+                                                            </Tooltip>
                                                         )}
                                                     </>
                                                 }
                                             />
                                         )}
-                                    </AccessControlAction>
+                                    </SourceEditorAction>
                                 </div>
                             )
                         },
