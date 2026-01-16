@@ -104,13 +104,16 @@ DB_POOL_EXHAUSTED = Counter(
     "Database pool exhaustion events",
 )
 
-STREAMING_USAGE_EXTRACTION = Counter(
-    "llm_gateway_streaming_usage_extraction_total",
-    "Streaming usage extraction results",
-    labelnames=[
-        "provider",
-        "status",
-    ],  # status: success, partial_input_only, partial_output_only, missing, no_chunks, error
+CALLBACK_SUCCESS = Counter(
+    "llm_gateway_callback_success_total",
+    "Callback successful executions",
+    labelnames=["callback"],
+)
+
+CALLBACK_ERRORS = Counter(
+    "llm_gateway_callback_errors_total",
+    "Callback errors",
+    labelnames=["callback", "error_type"],
 )
 
 
