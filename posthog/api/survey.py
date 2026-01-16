@@ -240,17 +240,19 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Check for unsupported schemes
         if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
             raise serializers.ValidationError(
-                f"{context}: Link must use one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
             )
 
         # Validate mailto links
         if parsed_url.scheme == "mailto":
             if not re.match(EMAIL_REGEX, link):
-                raise serializers.ValidationError(f"{context}: Invalid mailto link")
+                raise serializers.ValidationError(
+                    "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
+                )
         # Validate HTTPS URLs
         elif parsed_url.scheme == "https":
             if not parsed_url.netloc:
-                raise serializers.ValidationError(f"{context}: Invalid HTTPS URL")
+                raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
 
         # Sanitize HTML if present
         if nh3.is_html(link):
@@ -262,9 +264,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         cleaned_choices = []
         for choice in choices:
             if not isinstance(choice, str):
-                raise serializers.ValidationError(f"{context}: Choices must be strings")
+                raise serializers.ValidationError("Question choices must be strings")
             if not choice.strip():
-                raise serializers.ValidationError(f"{context}: Choices cannot be empty")
+                raise serializers.ValidationError("Question choices cannot be empty")
 
             if nh3.is_html(choice):
                 cleaned_choices.append(nh3_clean_with_allow_list(choice))
@@ -501,6 +503,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if description and nh3.is_html(description):
                 cleaned_question["description"] = nh3_clean_with_allow_list(description)
 
+            # Validate choices first before translation validation to provide clearer error messages
+            choices = raw_question.get("choices")
+            if choices:
+                if not isinstance(choices, list):
+                    raise serializers.ValidationError("Question choices must be a list of strings")
+                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices, "Question")
+
+            description_content_type = raw_question.get("descriptionContentType")
+            if description_content_type and description_content_type not in ["text", "html"]:
+                raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
+
             # Validate and sanitize inline translations
             if "translations" in raw_question:
                 cleaned_translations = self._validate_question_translations(raw_question["translations"], index)
@@ -523,16 +536,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                             )
 
                 cleaned_question["translations"] = cleaned_translations
-
-            description_content_type = raw_question.get("descriptionContentType")
-            if description_content_type and description_content_type not in ["text", "html"]:
-                raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
-
-            choices = raw_question.get("choices")
-            if choices:
-                if not isinstance(choices, list):
-                    raise serializers.ValidationError("Question choices must be a list of strings")
-                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices, "Question")
 
             link = raw_question.get("link")
             if link:
