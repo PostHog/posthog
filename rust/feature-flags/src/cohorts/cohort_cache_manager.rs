@@ -1,8 +1,8 @@
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::metrics::consts::{
-    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_MISS_COUNTER, COHORT_CACHE_SIZE_BYTES_GAUGE,
-    DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
+    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER,
+    COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
 };
 use common_database::PostgresReader;
 use common_types::TeamId;
@@ -12,10 +12,14 @@ use std::time::Duration;
 /// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
 /// Features:
-/// - **TTL**: Each cache entry expires after 5 minutes.
+/// - **TTL**: Each cache entry expires after 5 minutes (configurable).
 /// - **Memory-based eviction**: The cache estimates memory usage per entry and evicts
 ///   least recently used entries when the total estimated memory exceeds the configured limit.
 ///   This prevents unbounded memory growth from large cohort filter definitions.
+/// - **Per-key coalescing**: Uses moka's `try_get_with` to ensure that concurrent requests
+///   for the same team coalesce into a single database fetch, while requests for different
+///   teams proceed in parallel. This prevents thundering herd on cache miss without
+///   introducing cross-team blocking.
 ///
 /// ```text
 /// CohortCacheManager {
@@ -29,8 +33,7 @@ use std::time::Duration;
 ///         5: [
 ///             Cohort { id: 3, name: "Beta Users", filters: {...} }
 ///         ]
-///     },
-///     fetch_lock: Mutex<()> // Manager-wide lock
+///     }
 /// }
 /// ```
 ///
@@ -103,18 +106,26 @@ impl CohortCacheManager {
 
     /// Retrieves cohorts for a given team.
     ///
-    /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
-    /// caches the result upon successful retrieval, and then returns it.
+    /// Uses moka's `try_get_with` for per-key coalescing:
+    /// - If cached: returns immediately (cache hit)
+    /// - If not cached: only one caller fetches from DB, others wait for the result
+    /// - Different teams fetch in parallel (no cross-team blocking)
     pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
+        if let Some(cached) = self.cache.get(&team_id).await {
+            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
+            return Ok(cached);
+        }
+
+        let reader = self.reader.clone();
+
         self.cache
             .try_get_with(team_id, async move {
                 common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
 
-                match Cohort::list_from_pg(self.reader.clone(), team_id).await {
-                    Ok(fetched_cohorts) => {
+                match Cohort::list_from_pg(reader, team_id).await {
+                    Ok(cohorts) => {
                         common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
-
-                        Ok(fetched_cohorts)
+                        Ok(cohorts)
                     }
                     Err(e) => {
                         common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
@@ -123,11 +134,13 @@ impl CohortCacheManager {
                 }
             })
             .await
-            .map_err(|err| FlagError::from((*err).clone()))
-            .map(|cohorts| {
+            .map_err(|arc_err| FlagError::from((*arc_err).clone()))
+            .inspect(|_| {
+                // Report cache metrics after successful fetch
+                // Note: This runs for all callers (fetcher + coalesced waiters),
+                // but that's fine - it just reports current cache state
                 self.report_cache_metrics();
-                Ok(cohorts)
-            })?
+            })
     }
 
     /// Starts periodic monitoring of cache metrics.
