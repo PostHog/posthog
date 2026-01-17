@@ -27,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
+import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
@@ -95,16 +96,29 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
     if (!type) {
         return null
     }
-    const typeDisplayNames: Record<string, string> = {
-        dashboard: 'Dashboard',
-        insight: 'Insight',
-        'insight/funnels': 'Funnel',
-        'insight/trends': 'Trend',
-        'insight/retention': 'Retention',
-        'insight/paths': 'Paths',
-        'insight/lifecycle': 'Lifecycle',
-        'insight/stickiness': 'Stickiness',
-        'insight/hog': 'SQL insight',
+
+    // Check fileSystemTypes manifest first
+    if (type in fileSystemTypes) {
+        return (fileSystemTypes as Record<string, { name?: string }>)[type]?.name ?? null
+    }
+
+    // Handle insight subtypes (e.g., 'insight/funnels' -> 'Funnel')
+    if (type.startsWith('insight/')) {
+        const subtype = type.slice(8) // Remove 'insight/' prefix
+        const insightDisplayNames: Record<string, string> = {
+            funnels: 'Funnel',
+            trends: 'Trend',
+            retention: 'Retention',
+            paths: 'Paths',
+            lifecycle: 'Lifecycle',
+            stickiness: 'Stickiness',
+            hog: 'SQL insight',
+        }
+        return insightDisplayNames[subtype] ?? null
+    }
+
+    // Fallback for types not in the manifest
+    const fallbackDisplayNames: Record<string, string> = {
         query: 'SQL query',
         product_analytics: 'Product analytics',
         web_analytics: 'Web analytics',
@@ -112,41 +126,37 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         revenue_analytics: 'Revenue analytics',
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
-        session_recording_playlist: 'Session recording filter',
         error_tracking: 'Error tracking',
-        feature_flag: 'Feature flag',
-        experiment: 'Experiment',
-        early_access_feature: 'Early access feature',
-        survey: 'Survey',
-        product_tour: 'Product tour',
-        user_interview: 'User interview',
-        notebook: 'Notebook',
-        cohort: 'Cohort',
-        action: 'Action',
+        data_warehouse: 'Data warehouse',
+        data_pipeline: 'Data pipeline',
         annotation: 'Annotation',
         event_definition: 'Event',
         property_definition: 'Property',
-        data_warehouse: 'Data warehouse',
-        data_pipeline: 'Data pipeline',
+        person: 'Person',
         persons: 'Person',
         user: 'User',
         group: 'Group',
         heatmap: 'Heatmap',
-        link: 'Link',
-        workflows: 'Workflow',
         sql_editor: 'SQL query',
         logs: 'Logs',
         alert: 'Alert',
         folder: 'Folder',
+        hog_flow: 'Workflow',
     }
-    return typeDisplayNames[type] || null
+    return fallbackDisplayNames[type] ?? null
 }
 
 const getIconForItem = (item: SearchItem): ReactNode => {
     if (item.icon) {
         return item.icon
     }
-    const itemType = item.itemType || item.record?.type
+    let itemType = item.itemType || item.record?.type
+    // Normalize types for icon lookup
+    if (itemType === 'person') {
+        itemType = 'persons'
+    } else if (itemType === 'hog_flow') {
+        itemType = 'workflows'
+    }
     if (itemType) {
         return (
             <ProductIconWrapper type={itemType as string}>

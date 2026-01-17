@@ -350,6 +350,14 @@ export const searchLogic = kea<searchLogicType>([
                             name = (result.extra_fields.name as string) || result.result_id
                             href = `/experiments/${result.result_id}`
                             break
+                        case 'early_access_feature':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/early_access_features/${result.result_id}`
+                            break
+                        case 'hog_flow':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/workflows/${result.result_id}/workflow`
+                            break
                         case 'survey':
                             name = (result.extra_fields.name as string) || result.result_id
                             href = `/surveys/${result.result_id}`
@@ -433,10 +441,12 @@ export const searchLogic = kea<searchLogicType>([
                         'dashboard',
                         'feature_flag',
                         'experiment',
+                        'early_access_feature',
                         'survey',
                         'notebook',
                         'cohort',
                         'action',
+                        'hog_flow',
                     ]
 
                     for (const category of categoryOrder) {

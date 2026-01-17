@@ -6,6 +6,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',
+        early_access_feature: 'Early access features',
         recents: 'Recents',
         folders: 'Folders',
         persons: 'Persons',
@@ -22,7 +23,9 @@ export const getCategoryDisplayName = (category: string): string => {
         cohort: 'Cohorts',
         action: 'Actions',
         session_recording_playlist: 'Session recording filter',
+        hog_flow: 'Workflows',
     }
+
     return displayNames[category] || category
 }
 
