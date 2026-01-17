@@ -2,10 +2,10 @@ UPSERT_DASHBOARD_TOOL_PROMPT = """
 Use this tool to create or update a dashboard with provided insights.
 
 # How to use this tool
-- Proactively use search and read_data tools to check if the dashboard already exists. The user might provide you the dashboard.
+- Proactively use search and list_data tools to check if the dashboard already exists. The user might provide you the dashboard.
 - If the request is ambiguous whether you need to create a new dashboard or update an existing one, ask for clarification.
 - If the dashboard exists, understand its structure by using the read_data tool.
-- Proactively use search and read_data tools to find existing insights. If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
+- Proactively use search and list_data tools to find existing insights. If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
 - Create new insights with the create_insight tool.
 - Call this tool when you have enough information to create or update the dashboard.
 
