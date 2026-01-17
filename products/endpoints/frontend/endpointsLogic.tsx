@@ -93,9 +93,13 @@ export const endpointsLogic = kea<endpointsLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.endpoints()]: () => {
+        [urls.endpoints()]: (_params, _searchParams, _hashParams, currentLocation, previousLocation) => {
             actions.setActiveTab('endpoints')
-            actions.loadEndpoints()
+            // Only reload endpoints when the pathname actually changed (not on hash-only changes like sidebar state updates)
+            const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
+            if (didPathChange) {
+                actions.loadEndpoints()
+            }
         },
         [urls.endpointsUsage()]: () => {
             actions.setActiveTab('usage')
