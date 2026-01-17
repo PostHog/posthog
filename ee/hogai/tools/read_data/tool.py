@@ -372,6 +372,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                     description=insight.description,
                     short_id=insight.short_id,
                     db_id=insight.id,
+                    layout=tile.layouts,
                 )
             )
 
