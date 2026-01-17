@@ -17,34 +17,6 @@ use crate::storage::{
 /// keeping the implementation simple for other data types that don't benefit
 /// as much from caching.
 ///
-/// # Architecture
-///
-/// ```text
-/// ┌─────────────────────────────────────────────────────────────┐
-/// │                     CachedStorage                           │
-/// │  ┌──────────────────┐    ┌────────────────────────────────┐ │
-/// │  │  PersonCache     │    │  Inner Storage                 │ │
-/// │  │  (for persons)   │    │  (for groups, cohorts, etc.)   │ │
-/// │  └────────┬─────────┘    └────────────────────────────────┘ │
-/// │           │                             │                   │
-/// │           │ (delegates on cache miss)   │                   │
-/// │           └─────────────────────────────┘                   │
-/// └─────────────────────────────────────────────────────────────┘
-/// ```
-///
-/// # Usage
-///
-/// ```ignore
-/// // With caching disabled (passthrough):
-/// let storage = Arc::new(PostgresStorage::new(pool));
-/// let person_cache = Arc::new(NoopPersonCache::new(storage.clone()));
-/// let cached = CachedStorage::new(storage, person_cache);
-///
-/// // With caching enabled (future):
-/// let storage = Arc::new(PostgresStorage::new(pool));
-/// let person_cache = Arc::new(RedisPersonCache::new(redis_client, storage.clone()));
-/// let cached = CachedStorage::new(storage, person_cache);
-/// ```
 pub struct CachedStorage<S, C>
 where
     S: DistinctIdLookup + GroupStorage + CohortStorage + FeatureFlagStorage,

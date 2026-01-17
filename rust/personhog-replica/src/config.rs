@@ -8,7 +8,6 @@ use std::time::Duration;
 pub enum PersonCacheBackend {
     /// No caching - all requests pass through directly to storage.
     None,
-    // Future: Redis, etc.
 }
 
 impl FromStr for PersonCacheBackend {
@@ -28,13 +27,11 @@ pub struct Config {
     pub grpc_address: SocketAddr,
 
     /// Storage backend to use. Currently supported: "postgres"
-    /// Future options may include other databases or caching layers.
     #[envconfig(default = "postgres")]
     pub storage_backend: String,
 
     /// Person cache backend. Controls whether person lookups are cached.
     /// Currently supported: "none" (passthrough, no caching)
-    /// Future options: "redis"
     #[envconfig(default = "none")]
     pub person_cache_backend: String,
 

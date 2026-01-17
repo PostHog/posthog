@@ -40,7 +40,7 @@ async fn shutdown_signal() {
 
 async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
     // Create the underlying storage backend
-    let postgres_storage = match config.storage_backend.as_str() {
+    let storage = match config.storage_backend.as_str() {
         "postgres" => {
             let pool_config = PoolConfig {
                 min_connections: config.min_pg_connections,
@@ -67,9 +67,9 @@ async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
     match config.person_cache() {
         PersonCacheBackend::None => {
             tracing::info!("Person cache: disabled (passthrough)");
-            let person_cache = Arc::new(NoopPersonCache::new(postgres_storage.clone()));
-            Arc::new(CachedStorage::new(postgres_storage, person_cache))
-        } // Future: PersonCacheBackend::Redis => { ... }
+            let person_cache = Arc::new(NoopPersonCache::new(storage.clone()));
+            Arc::new(CachedStorage::new(storage, person_cache))
+        }
     }
 }
 
