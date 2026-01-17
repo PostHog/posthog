@@ -56,6 +56,12 @@
             color: var(--text-3000);
         }
 
+        // Page title (first h1) gets extra emphasis
+        &:first-child h1.DraggableTextNode__content {
+            margin-top: 0;
+            font-size: 2rem;
+        }
+
         h2.DraggableTextNode__content {
             font-size: 1.25rem;
         }
