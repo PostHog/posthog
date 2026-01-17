@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
@@ -92,6 +92,12 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
     ) -> VisualizationArtifactContent:
         """No enrichment needed for visualizations."""
         return content
+
+    def get_metadata(self, content: VisualizationArtifactContent) -> dict[str, Any]:
+        return {
+            "name": content.name,
+            "description": content.description,
+        }
 
     def _from_state(
         self, artifact_id: str, messages: Sequence[AssistantMessageUnion]
