@@ -113,10 +113,6 @@ impl CohortCacheManager {
                 match Cohort::list_from_pg(self.reader.clone(), team_id).await {
                     Ok(fetched_cohorts) => {
                         common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
-                        self.cache.insert(team_id, fetched_cohorts.clone()).await;
-
-                        // Report cache metrics for observability
-                        self.report_cache_metrics();
 
                         Ok(fetched_cohorts)
                     }
@@ -127,7 +123,11 @@ impl CohortCacheManager {
                 }
             })
             .await
-            .map_err(|err| (*err).clone().into())
+            .map_err(|err| FlagError::from((*err).clone()))
+            .map(|cohorts| {
+                self.report_cache_metrics();
+                Ok(cohorts)
+            })?
     }
 
     /// Starts periodic monitoring of cache metrics.
