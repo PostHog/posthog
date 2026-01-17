@@ -48,6 +48,13 @@ const PLACEHOLDER_OPTIONS = [
     'cohorts...',
     'persons...',
     'recordings filters...',
+    'workflows...',
+    'early access features...',
+    'events...',
+    'properties...',
+    'actions...',
+    'groups...',
+    'cohorts...',
 ]
 
 const PLACEHOLDER_CYCLE_INTERVAL = 3000
@@ -548,9 +555,11 @@ function SearchResults({
                                                     onClick={() => handleItemClick(item)}
                                                     render={(props) => (
                                                         <div className="px-1">
-                                                            <ButtonPrimitive
-                                                                fullWidth
-                                                                onClick={() => handleItemClick(item)}
+                                                            <Link
+                                                                to={item.href}
+                                                                buttonProps={{
+                                                                    fullWidth: true,
+                                                                }}
                                                                 {...props}
                                                                 tabIndex={-1}
                                                             >
@@ -572,7 +581,7 @@ function SearchResults({
                                                                         {formatRelativeTimeShort(item.lastViewedAt)}
                                                                     </span>
                                                                 )}
-                                                            </ButtonPrimitive>
+                                                            </Link>
                                                         </div>
                                                     )}
                                                 />

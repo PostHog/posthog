@@ -11,7 +11,17 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
+from posthog.models import (
+    Action,
+    Cohort,
+    Dashboard,
+    EventDefinition,
+    Experiment,
+    FeatureFlag,
+    Insight,
+    PropertyDefinition,
+    Survey,
+)
 from posthog.models.hog_flow.hog_flow import HogFlow
 
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -61,6 +71,11 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     },
     "event_definition": {
         "klass": EventDefinition,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+    },
+    "property_definition": {
+        "klass": PropertyDefinition,
         "search_fields": {"name": "A"},
         "extra_fields": ["name"],
     },

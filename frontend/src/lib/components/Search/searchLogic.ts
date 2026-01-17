@@ -366,6 +366,14 @@ export const searchLogic = kea<searchLogicType>([
                             name = (result.extra_fields.name as string) || result.result_id
                             href = `/data-management/actions/${result.result_id}`
                             break
+                        case 'event_definition':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/data-management/events/${result.result_id}`
+                            break
+                        case 'property_definition':
+                            name = (result.extra_fields.name as string) || result.result_id
+                            href = `/data-management/properties/${result.result_id}`
+                            break
                     }
 
                     categoryItems[category].push({
@@ -438,6 +446,8 @@ export const searchLogic = kea<searchLogicType>([
                         'notebook',
                         'cohort',
                         'action',
+                        'event_definition',
+                        'property_definition',
                         'hog_flow',
                     ]
 

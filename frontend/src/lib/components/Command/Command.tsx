@@ -1,9 +1,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback } from 'react'
-
-import { SearchItem } from 'lib/components/Search/searchLogic'
 
 import { Search } from '../Search/Search'
 import { commandLogic } from './commandLogic'
@@ -12,15 +9,9 @@ export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
     const { closeCommand } = useActions(commandLogic)
 
-    const handleItemSelect = useCallback(
-        (item: SearchItem) => {
-            if (item.href) {
-                router.actions.push(item.href)
-                closeCommand()
-            }
-        },
-        [closeCommand]
-    )
+    const handleItemSelect = useCallback(() => {
+        closeCommand()
+    }, [closeCommand])
 
     const handleAskAiClick = useCallback(() => {
         closeCommand()
