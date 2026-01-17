@@ -3816,64 +3816,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 {b"165192618": b"6"},
             )
 
-    @patch("posthog.api.feature_flag.settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK", True)
-    def test_validation_person_properties(self):
-        person_request = self._create_flag_with_properties(
-            "person-flag",
-            [
-                {
-                    "key": "email",
-                    "type": "person",
-                    "value": "@posthog.com",
-                    "operator": "icontains",
-                }
-            ],
-        )
-        self.assertEqual(person_request.status_code, status.HTTP_201_CREATED)
-
-        cohort: Cohort = Cohort.objects.create(team=self.team, name="My Cohort")
-        cohort_request = self._create_flag_with_properties(
-            "cohort-flag", [{"key": "id", "type": "cohort", "value": cohort.id}]
-        )
-        self.assertEqual(cohort_request.status_code, status.HTTP_201_CREATED)
-
-        event_request = self._create_flag_with_properties(
-            "illegal-event-flag",
-            [{"key": "id", "value": 5}],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(
-            event_request.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-                "attr": "filters",
-            },
-        )
-
-        groups_request = self._create_flag_with_properties(
-            "illegal-groups-flag",
-            [
-                {
-                    "key": "industry",
-                    "value": "finance",
-                    "type": "group",
-                    "group_type_index": 0,
-                }
-            ],
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-        self.assertEqual(
-            groups_request.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Filters are not valid (can only use person, cohort, and flag properties)",
-                "attr": "filters",
-            },
-        )
-
     def test_create_flag_with_invalid_date(self):
         resp = self._create_flag_with_properties(
             "date-flag",

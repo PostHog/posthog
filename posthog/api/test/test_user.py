@@ -1239,13 +1239,22 @@ class TestUserAPI(APIBaseTest):
         assert_allowed_url("https://sub.subdomain.otherexample.com")
 
     @patch("posthog.api.user.secrets.token_urlsafe")
-    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, patched_token):
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_with_feature_flags(self, mock_get_flags, patched_token):
         """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
         from django.core.cache import cache
 
         from posthog.models import FeatureFlag
 
         patched_token.return_value = "test-cache-key-123"
+
+        # Mock the Rust service response
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag-1": True,
+                "test-flag-2": "test-variant",
+            }
+        }
 
         # Create some feature flags
         FeatureFlag.objects.create(team=self.team, key="test-flag-1", created_by=self.user, rollout_percentage=100)
