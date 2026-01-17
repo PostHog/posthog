@@ -20,7 +20,6 @@ use personhog_replica::storage::{
     postgres::PostgresStorage,
     FullStorage,
 };
-use personhog_replica::vnode::RoutingConfig;
 
 common_alloc::used!();
 

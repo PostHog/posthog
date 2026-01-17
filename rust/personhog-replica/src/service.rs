@@ -51,6 +51,7 @@ impl PersonHogReplicaService {
     ///
     /// In Observe mode, misrouted requests are logged and metrics are emitted,
     /// but the request is still processed.
+    #[allow(clippy::result_large_err)]
     fn check_routing(&self, team_id: i64, person_id: i64, operation: &str) -> Result<(), Status> {
         match self.routing_config.check_routing(team_id, person_id) {
             RoutingCheckResult::Ok => Ok(()),
@@ -74,8 +75,7 @@ impl PersonHogReplicaService {
 
                 if should_reject {
                     Err(Status::failed_precondition(format!(
-                        "Request for vnode {} should not be handled by pod {}",
-                        vnode, pod_name
+                        "Request for vnode {vnode} should not be handled by pod {pod_name}"
                     )))
                 } else {
                     Ok(())
@@ -88,6 +88,7 @@ impl PersonHogReplicaService {
     ///
     /// Returns the count of misrouted items. In Enforce mode, returns an error
     /// if ANY item is misrouted.
+    #[allow(clippy::result_large_err)]
     fn check_routing_batch(
         &self,
         team_id: i64,

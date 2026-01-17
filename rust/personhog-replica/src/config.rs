@@ -1,7 +1,7 @@
 use envconfig::Envconfig;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use crate::vnode::{RoutingConfig, RoutingMode, VnodeConfigError, VnodeOwnership};
@@ -112,7 +112,7 @@ impl Config {
     /// Parse the routing mode configuration.
     /// Panics if the configured value is not recognized.
     pub fn routing_mode(&self) -> RoutingMode {
-        RoutingMode::from_str(&self.routing_mode).unwrap_or_else(|| {
+        self.routing_mode.parse().unwrap_or_else(|_| {
             panic!(
                 "Unknown routing mode: {}. Supported: disabled, observe, enforce",
                 self.routing_mode

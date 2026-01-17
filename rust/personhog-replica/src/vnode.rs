@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::str::FromStr;
 
 /// Total number of vnodes in the system.
 pub const VNODE_COUNT: u32 = 64;
@@ -19,13 +20,15 @@ pub enum RoutingMode {
     Enforce,
 }
 
-impl RoutingMode {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for RoutingMode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "disabled" | "off" | "none" => Some(Self::Disabled),
-            "observe" | "monitor" | "warn" => Some(Self::Observe),
-            "enforce" | "reject" | "strict" => Some(Self::Enforce),
-            _ => None,
+            "disabled" | "off" | "none" => Ok(Self::Disabled),
+            "observe" | "monitor" | "warn" => Ok(Self::Observe),
+            "enforce" | "reject" | "strict" => Ok(Self::Enforce),
+            _ => Err(()),
         }
     }
 }
@@ -35,7 +38,7 @@ impl RoutingMode {
 /// Uses xxHash3 (64-bit) for fast, high-quality hashing.
 /// The vnode is computed as: hash(team_id:person_id) % 64
 pub fn compute_vnode(team_id: i64, person_id: i64) -> u32 {
-    let key = format!("{}:{}", team_id, person_id);
+    let key = format!("{team_id}:{person_id}");
     let hash = xxhash_rust::xxh3::xxh3_64(key.as_bytes());
     (hash % VNODE_COUNT as u64) as u32
 }
@@ -75,8 +78,9 @@ impl VnodeOwnership {
         let content = std::fs::read_to_string(config_path)
             .map_err(|e| VnodeConfigError::Io(config_path.display().to_string(), e.to_string()))?;
 
-        let config: VnodeConfigFile = serde_json::from_str(&content)
-            .map_err(|e| VnodeConfigError::Parse(config_path.display().to_string(), e.to_string()))?;
+        let config: VnodeConfigFile = serde_json::from_str(&content).map_err(|e| {
+            VnodeConfigError::Parse(config_path.display().to_string(), e.to_string())
+        })?;
 
         let owned_vnodes = config
             .vnodes
@@ -214,7 +218,13 @@ impl RoutingCheckResult {
     }
 
     pub fn should_reject(&self) -> bool {
-        matches!(self, Self::Misrouted { should_reject: true, .. })
+        matches!(
+            self,
+            Self::Misrouted {
+                should_reject: true,
+                ..
+            }
+        )
     }
 }
 
@@ -244,7 +254,7 @@ mod tests {
         for team_id in 1..100 {
             for person_id in 1..100 {
                 let vnode = compute_vnode(team_id, person_id);
-                assert!(vnode < VNODE_COUNT, "vnode {} >= {}", vnode, VNODE_COUNT);
+                assert!(vnode < VNODE_COUNT, "vnode {vnode} >= {VNODE_COUNT}");
             }
         }
     }
@@ -267,24 +277,20 @@ mod tests {
             let diff = (*count as i32 - expected_per_vnode).abs();
             assert!(
                 diff < tolerance,
-                "vnode {} has count {} (expected ~{}, diff {})",
-                vnode,
-                count,
-                expected_per_vnode,
-                diff
+                "vnode {vnode} has count {count} (expected ~{expected_per_vnode}, diff {diff})"
             );
         }
     }
 
     #[test]
     fn test_routing_mode_from_str() {
-        assert_eq!(RoutingMode::from_str("disabled"), Some(RoutingMode::Disabled));
-        assert_eq!(RoutingMode::from_str("off"), Some(RoutingMode::Disabled));
-        assert_eq!(RoutingMode::from_str("observe"), Some(RoutingMode::Observe));
-        assert_eq!(RoutingMode::from_str("monitor"), Some(RoutingMode::Observe));
-        assert_eq!(RoutingMode::from_str("enforce"), Some(RoutingMode::Enforce));
-        assert_eq!(RoutingMode::from_str("reject"), Some(RoutingMode::Enforce));
-        assert_eq!(RoutingMode::from_str("invalid"), None);
+        assert_eq!("disabled".parse::<RoutingMode>(), Ok(RoutingMode::Disabled));
+        assert_eq!("off".parse::<RoutingMode>(), Ok(RoutingMode::Disabled));
+        assert_eq!("observe".parse::<RoutingMode>(), Ok(RoutingMode::Observe));
+        assert_eq!("monitor".parse::<RoutingMode>(), Ok(RoutingMode::Observe));
+        assert_eq!("enforce".parse::<RoutingMode>(), Ok(RoutingMode::Enforce));
+        assert_eq!("reject".parse::<RoutingMode>(), Ok(RoutingMode::Enforce));
+        assert!("invalid".parse::<RoutingMode>().is_err());
     }
 
     #[test]
@@ -398,6 +404,6 @@ mod tests {
                 }
             }
         }
-        panic!("Could not find pair for vnode {}", target_vnode);
+        panic!("Could not find pair for vnode {target_vnode}");
     }
 }
