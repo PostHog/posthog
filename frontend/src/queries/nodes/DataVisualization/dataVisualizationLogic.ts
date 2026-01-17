@@ -417,18 +417,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         settings: {
                             ...(existingSettings?.formatting || settings?.formatting
                                 ? {
-                                    formatting: {
-                                        ...existingSettings?.formatting,
-                                        ...settings?.formatting,
-                                    },
+                                      formatting: {
+                                          ...existingSettings?.formatting,
+                                          ...settings?.formatting,
+                                      },
                                   }
                                 : {}),
                             ...(existingSettings?.display || settings?.display
                                 ? {
-                                    display: {
-                                        ...existingSettings?.display,
-                                        ...settings?.display,
-                                    },
+                                      display: {
+                                          ...existingSettings?.display,
+                                          ...settings?.display,
+                                      },
                                   }
                                 : {}),
                         },
@@ -496,10 +496,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     ySeries[seriesIndex] = {
                         name: columnName,
-                    const existingSettings = ySeries[seriesIndex]?.settings
-
-                    ySeries[seriesIndex] = {
-                        name: columnName,
                         settings: {
                             ...(existingSettings?.formatting || settings?.formatting
                                 ? {
@@ -518,7 +514,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                   }
                                 : {}),
                         },
-                    }
                     }
                     return ySeries
                 },
@@ -537,9 +532,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     const existingSettings = ySeries[index]?.settings
                     ySeries[index] = {
                         name: columnName,
-                    const existingSettings = ySeries[index]?.settings
-                    ySeries[index] = {
-                        name: columnName,
                         settings: {
                             ...(existingSettings?.formatting || settings?.formatting
                                 ? {
@@ -558,7 +550,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                   }
                                 : {}),
                         },
-                    }
                     }
                     return ySeries
                 },
