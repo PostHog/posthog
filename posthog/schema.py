@@ -334,6 +334,7 @@ class AssistantTool(StrEnum):
     UPSERT_DASHBOARD = "upsert_dashboard"
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
+    LIST_DATA = "list_data"
 
 
 class AssistantToolCall(BaseModel):
