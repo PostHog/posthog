@@ -52,7 +52,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        reloadData: async () => {
+        reloadData: () => {
             actions.loadData('force_blocking')
         },
         // optimistically update local results
@@ -159,7 +159,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     })),
 
     afterMount(({ values, actions }) => {
-        // Check immediately on mount if we need to reload
         if (values.needsReload) {
             actions.clearNeedsReload()
             actions.reloadData()

@@ -41,9 +41,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         needsReload: [
             false,
             {
-                mutationSuccess: () => {
-                    return true
-                },
+                mutationSuccess: () => true,
                 clearNeedsReload: () => false,
             },
         ],
