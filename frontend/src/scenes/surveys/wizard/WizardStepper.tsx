@@ -30,7 +30,7 @@ const STEP_ORDER: Record<WizardStep, number> = {
 interface WizardStepperProps {
     currentStep: WizardStep
     onStepClick: (step: WizardStep) => void
-    stepErrors?: Record<WizardStep, string[]>
+    stepErrors?: Partial<Record<WizardStep, string[]>>
 }
 
 export function WizardStepper({ currentStep, onStepClick, stepErrors = {} }: WizardStepperProps): JSX.Element {
