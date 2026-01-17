@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { LinkSurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
+import { SurveyQuestionBranchingType } from '~/types'
 
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { NewSurvey } from '../constants'
@@ -44,22 +44,21 @@ function SurveyWizardComponent({ id }: SurveyWizardLogicProps): JSX.Element {
 }
 
 function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
-    const { currentStep, createdSurvey, surveyLaunching, surveySaving, surveyLoading, selectedTemplate } =
-        useValues(surveyWizardLogic)
+    const {
+        currentStep,
+        createdSurvey,
+        surveyLaunching,
+        surveySaving,
+        surveyLoading,
+        selectedTemplate,
+        stepValidationErrors,
+        currentStepHasErrors,
+    } = useValues(surveyWizardLogic)
     const isEditing = id !== 'new'
     const { nextStep, setStep, launchSurvey, saveDraft, updateSurvey } = useActions(surveyWizardLogic)
 
     // Survey form state from surveyLogic
     const { survey } = useValues(surveyLogic)
-
-    // Validate Link questions have valid URLs
-    const hasInvalidLinkUrl = survey.questions.some((q) => {
-        if (q.type === SurveyQuestionType.Link) {
-            const link = (q as LinkSurveyQuestion).link || ''
-            return link && !link.startsWith('https://') && !link.startsWith('mailto:')
-        }
-        return false
-    })
 
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -183,7 +182,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
         <div className="space-y-4">
             {backButton}
             <div className="flex justify-center">
-                <WizardStepper currentStep={currentStep} onStepClick={setStep} />
+                <WizardStepper currentStep={currentStep} onStepClick={setStep} stepErrors={stepValidationErrors} />
             </div>
         </div>
     )
@@ -211,9 +210,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                     type="primary"
                                     loading={surveyLaunching}
                                     disabled={surveySaving}
-                                    disabledReason={
-                                        hasInvalidLinkUrl ? 'Fix invalid link URLs before launching' : undefined
-                                    }
+                                    disabledReason={currentStepHasErrors ? 'Fix errors before launching' : undefined}
                                     onClick={handleLaunchClick}
                                 >
                                     Launch survey
@@ -266,7 +263,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                             loading={surveyLaunching}
                                             disabled={surveySaving}
                                             disabledReason={
-                                                hasInvalidLinkUrl ? 'Fix invalid link URLs before launching' : undefined
+                                                currentStepHasErrors ? 'Fix errors before launching' : undefined
                                             }
                                             onClick={handleLaunchClick}
                                         >
@@ -278,7 +275,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                                         type="primary"
                                         onClick={nextStep}
                                         disabledReason={
-                                            hasInvalidLinkUrl ? 'Fix invalid link URLs before continuing' : undefined
+                                            currentStepHasErrors ? 'Fix errors before continuing' : undefined
                                         }
                                     >
                                         Continue

@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveySchedule, SurveyType } from '~/types'
+import { LinkSurveyQuestion, Survey, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
 
 import { SurveyTemplate, defaultSurveyAppearance, defaultSurveyTemplates, surveyThemes } from '../constants'
 import { surveyLogic } from '../surveyLogic'
@@ -141,6 +141,41 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                 const index = WIZARD_STEPS.indexOf(currentStep)
                 // Template step is step 0, so questions is step 1
                 return index
+            },
+        ],
+        stepValidationErrors: [
+            (s) => [s.survey],
+            (survey: Survey): Record<WizardStep, string[]> => {
+                const errors: Record<WizardStep, string[]> = {
+                    template: [],
+                    questions: [],
+                    where: [],
+                    when: [],
+                    appearance: [],
+                    success: [],
+                }
+
+                // Validate questions step
+                if (survey.questions) {
+                    for (const question of survey.questions) {
+                        if (question.type === SurveyQuestionType.Link) {
+                            const linkQuestion = question as LinkSurveyQuestion
+                            const link = linkQuestion.link || ''
+                            if (link && !link.startsWith('https://') && !link.startsWith('mailto:')) {
+                                errors.questions.push('Link URLs must start with https:// or mailto:')
+                                break // Only show one error
+                            }
+                        }
+                    }
+                }
+
+                return errors
+            },
+        ],
+        currentStepHasErrors: [
+            (s) => [s.stepValidationErrors, s.currentStep],
+            (errors: Record<WizardStep, string[]>, currentStep: WizardStep): boolean => {
+                return errors[currentStep]?.length > 0
             },
         ],
         recommendedFrequency: [
