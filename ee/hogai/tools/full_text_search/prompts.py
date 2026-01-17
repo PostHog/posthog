@@ -20,6 +20,6 @@ Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for the tool
 NO_ENTITIES_FOUND_PROMPT = """
 No entities found matching the query '{{{query}}}' for entity types.
 <system_reminder>
-You may try again with a rewritten query, or use the `list` mode to paginate through entities.
+You may try again with a rewritten query, or use the `list_data` tool to paginate through entities.
 </system_reminder>
 """.strip()
