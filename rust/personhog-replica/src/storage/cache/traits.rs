@@ -7,7 +7,7 @@ use crate::storage::{Person, StorageResult};
 ///
 /// Implementations can provide different caching behaviors:
 /// - `NoopPersonCache`: Pass through directly to storage (no caching)
-/// - Future: `RedisPersonCache`: Cache-aside pattern with Redis
+/// - `SomeFutureCacheImplementation...
 ///
 /// The trait mirrors `PersonLookup` but with an explicit focus on caching.
 /// Implementations wrap an underlying storage and can add caching logic

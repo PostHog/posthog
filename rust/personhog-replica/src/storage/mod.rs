@@ -4,16 +4,13 @@ pub mod postgres;
 pub mod traits;
 pub mod types;
 
-// Re-export error types at storage level for convenience
 pub use error::{StorageError, StorageResult};
 
-// Re-export all domain types at storage level for convenience
 pub use types::{
     CohortMembership, DistinctIdMapping, DistinctIdWithVersion, Group, GroupIdentifier, GroupKey,
     GroupTypeMapping, HashKeyOverride, Person, PersonIdWithOverrideKeys, PersonIdWithOverrides,
 };
 
-// Re-export all traits at storage level for convenience
 pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};
 
 /// Combined storage trait that includes all sub-traits.

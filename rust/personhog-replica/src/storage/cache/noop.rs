@@ -11,11 +11,6 @@ use crate::storage::{Person, PersonLookup, StorageResult};
 /// This is used when caching is disabled. It implements the `PersonCache` trait
 /// but performs no caching - all operations delegate immediately to the wrapped
 /// `PersonLookup` implementation.
-///
-/// This serves as:
-/// 1. The default when no cache is configured
-/// 2. A reference implementation showing the expected behavior
-/// 3. A useful baseline for testing
 pub struct NoopPersonCache<S: PersonLookup> {
     storage: Arc<S>,
 }
