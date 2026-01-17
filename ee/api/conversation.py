@@ -8,7 +8,6 @@ from django.http import StreamingHttpResponse
 
 import pydantic
 import structlog
-import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -33,7 +32,6 @@ from posthog.temporal.ai.chat_agent import (
     ChatAgentWorkflow,
     ChatAgentWorkflowInputs,
 )
-from posthog.utils import get_instance_region
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationSerializer
@@ -52,27 +50,6 @@ STREAM_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "Time between iterations in the async stream loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
-
-
-def is_team_exempt_from_rate_limits(team_id: int) -> bool:
-    """
-    Check if a team is exempt from AI rate limits using feature flag configuration.
-    Expected payload format: {"EU": [x, y, z], "US": [a, b, c]}
-    """
-    region = get_instance_region()
-    if not region:
-        return False
-
-    payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
-        "posthog-ai-rate-limit-exemptions", "posthog-ai-rate-limits"
-    )
-
-    if not isinstance(payload, dict):
-        # Hardcoded fallback
-        return region == "US" and team_id in (2, 87921, 41124, 103224)
-
-    region_config = payload.get(region, [])
-    return isinstance(region_config, list) and team_id in region_config
 
 
 class MessageMinimalSerializer(serializers.Serializer):
@@ -164,8 +141,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             not settings.DEBUG
             # Only for streaming
             and self.action == "create"
-            # Strict limits are skipped for exempt teams
-            and not is_team_exempt_from_rate_limits(self.team_id)
+            # No limits for customers
+            and not self.organization.customer_id
         ):
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
 
