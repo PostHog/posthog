@@ -92,8 +92,6 @@ export const searchLogic = kea<searchLogicType>([
                         return null
                     }
 
-                    await breakpoint(300)
-
                     const response = await api.search.list({ q: trimmed })
                     breakpoint()
 
@@ -115,8 +113,6 @@ export const searchLogic = kea<searchLogicType>([
                     if (groupTypesList.length === 0) {
                         return {}
                     }
-
-                    await breakpoint(200)
 
                     const responses = await Promise.all(
                         groupTypesList.map((groupType) =>
@@ -149,8 +145,6 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    await breakpoint(200)
-
                     const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
                     breakpoint()
 
@@ -167,8 +161,6 @@ export const searchLogic = kea<searchLogicType>([
                     if (trimmed === '') {
                         return []
                     }
-
-                    await breakpoint(200)
 
                     const response = await api.fileSystem.list({
                         search: trimmed,
