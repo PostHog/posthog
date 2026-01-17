@@ -418,7 +418,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                         to={urls.ai(undefined, searchValue || undefined)}
                     >
                         <KeyboardShortcut tab minimal />
-                        Ask AI
+                        {searchValue ? 'Ask PostHog' : 'Open PostHog AI'}
                     </Link>
                 )}
 
@@ -539,6 +539,7 @@ function SearchResults({
                                                                 fullWidth
                                                                 onClick={() => handleItemClick(item)}
                                                                 {...props}
+                                                                tabIndex={-1}
                                                             >
                                                                 {icon}
                                                                 <span className="truncate">
@@ -603,7 +604,7 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                 <>
                     {filteredItems.length > 1 && (
                         <span>
-                            <KeyboardShortcut arrowup arrowdown preserveOrder /> to navigate •{' '}
+                            <KeyboardShortcut arrowup arrowdown preserveOrder /> to navigate
                         </span>
                     )}
                     <span>
@@ -611,6 +612,9 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     </span>
                     <span>
                         <KeyboardShortcut shift enter /> to open in new tab
+                    </span>
+                    <span>
+                        <KeyboardShortcut tab /> to ask AI
                     </span>
                     <span>
                         <KeyboardShortcut escape /> to close

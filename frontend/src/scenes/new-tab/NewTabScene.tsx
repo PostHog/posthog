@@ -30,16 +30,16 @@ export const scene: SceneExport = {
 }
 
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const isAiFirst = useFeatureFlag('AI_FIRST')
+    const isNewSearchUx = useFeatureFlag('NEW_SEARCH_UX')
 
-    if (isAiFirst) {
-        return <AiFirstNewTabScene />
+    if (isNewSearchUx) {
+        return <NewSearchTabScene />
     }
 
     return <DefaultNewTabScene tabId={tabId} />
 }
 
-function AiFirstNewTabScene(): JSX.Element {
+function NewSearchTabScene(): JSX.Element {
     const handleItemSelect = useCallback((item: SearchItem) => {
         if (item.href) {
             router.actions.push(item.href)
@@ -53,7 +53,11 @@ function AiFirstNewTabScene(): JSX.Element {
                 <Search.Status />
             </div>
             <Search.Separator className="-mx-4" />
-            <Search.Results className="w-full mx-auto grow overflow-y-auto" listClassName="max-w-[640px] mx-auto" />
+            <Search.Results
+                className="w-full mx-auto grow overflow-y-auto"
+                listClassName="max-w-[640px] mx-auto"
+                groupLabelClassName="bg-(--scene-layout-background)"
+            />
         </Search.Root>
     )
 }
