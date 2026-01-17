@@ -586,7 +586,7 @@ function SearchResults({
                                                     )}
                                                 />
                                             </ContextMenuTrigger>
-                                            <ContextMenuContent loop className="max-w-[250px]">
+                                            <ContextMenuContent loop className="max-w-[250px] z-top">
                                                 <ContextMenuGroup>
                                                     <MenuItems
                                                         item={commandItemToTreeDataItem(item)}
