@@ -292,7 +292,7 @@ class UpsertDashboardTool(MaxTool):
 
         # Track tiles that will be active after update
         active_tile_ids: set[int] = set()
-        tiles_to_update: list[tuple[DashboardTile, Insight]] = []
+        tiles_to_update: list[DashboardTile] = []
 
         # 2. Create new tiles or restore soft deleted
         for insight_id, insight in zip(insight_ids, resolved_insights):
@@ -303,7 +303,7 @@ class UpsertDashboardTool(MaxTool):
                 if existing_tile.deleted:
                     existing_tile.deleted = False
                 active_tile_ids.add(existing_tile.id)
-                tiles_to_update.append((existing_tile, insight))
+                tiles_to_update.append(existing_tile)
             else:
                 # Create new tile
                 new_tile = DashboardTile.objects.create(
@@ -312,7 +312,7 @@ class UpsertDashboardTool(MaxTool):
                     layouts={},
                 )
                 active_tile_ids.add(new_tile.id)
-                tiles_to_update.append((new_tile, insight))
+                tiles_to_update.append(new_tile)
 
         # 3. Soft delete tiles not in the new list
         tiles_to_delete = [t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted]
@@ -326,7 +326,7 @@ class UpsertDashboardTool(MaxTool):
         right_y = 0  # Column at x=6
         xs_y = 0  # For xs breakpoint (single column)
 
-        for tile, _ in tiles_to_update:
+        for tile in tiles_to_update:
             sm_layout = (tile.layouts or {}).get("sm", {})
 
             # Keep original sizes, use defaults if not set
