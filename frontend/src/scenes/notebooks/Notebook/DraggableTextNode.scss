@@ -1,0 +1,84 @@
+.DraggableTextNode {
+    position: relative;
+
+    .DraggableTextNode__handle {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.25rem;
+        height: 1.5rem;
+        cursor: grab;
+        opacity: 0;
+        transition: opacity 150ms ease-in-out;
+        transform: translateX(-100%);
+        user-select: none;
+
+        &:active {
+            cursor: grabbing;
+        }
+    }
+
+    .DraggableTextNode__handle-icon {
+        color: var(--text-3000);
+        opacity: 0.4;
+    }
+
+    &:hover .DraggableTextNode__handle {
+        opacity: 1;
+    }
+
+    .DraggableTextNode__content {
+        margin: 0.8rem 0;
+        line-height: 1.7;
+    }
+
+    // Override the margin rules from Notebook.scss since NodeViewWrapper adds an extra wrapper
+    & + .DraggableTextNode {
+        .DraggableTextNode__content {
+            margin-top: 0;
+        }
+    }
+
+    // Heading-specific styles
+    &--heading {
+        .DraggableTextNode__content {
+            margin: 0 0 0.5em;
+            font-weight: 600;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+        }
+
+        h1.DraggableTextNode__content {
+            font-size: 1.75rem;
+            color: var(--text-3000);
+        }
+
+        h2.DraggableTextNode__content {
+            font-size: 1.25rem;
+        }
+
+        h3.DraggableTextNode__content {
+            font-size: 1.0625rem;
+        }
+
+        h4.DraggableTextNode__content {
+            font-size: 0.875rem;
+        }
+
+        // Non-first headings need top margin
+        &:not(:first-child) {
+            h1.DraggableTextNode__content,
+            h2.DraggableTextNode__content {
+                margin-top: 0.9em;
+            }
+
+            h3.DraggableTextNode__content,
+            h4.DraggableTextNode__content {
+                margin-top: 0.6em;
+            }
+        }
+    }
+}
