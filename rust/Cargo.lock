@@ -5794,8 +5794,10 @@ dependencies = [
  "common-database",
  "common-metrics",
  "envconfig",
+ "metrics",
  "personhog-proto",
  "rand 0.8.5",
+ "serde",
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",
@@ -5805,6 +5807,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -9967,6 +9970,12 @@ name = "xmlparser"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
 
 [[package]]
 name = "yoke"

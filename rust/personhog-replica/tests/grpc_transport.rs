@@ -12,6 +12,7 @@ use personhog_proto::personhog::types::v1::{
     GetPersonByUuidRequest, GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
+use personhog_replica::vnode::RoutingConfig;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tonic::transport::{Channel, Server};
@@ -32,7 +33,7 @@ impl std::ops::Deref for GrpcTestContext {
 impl GrpcTestContext {
     pub async fn new() -> Self {
         let ctx = TestContext::new().await;
-        let service = PersonHogReplicaService::new(ctx.storage.clone());
+        let service = PersonHogReplicaService::new(ctx.storage.clone(), RoutingConfig::disabled());
 
         // Bind to a random available port
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

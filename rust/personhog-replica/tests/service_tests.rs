@@ -13,6 +13,7 @@ use personhog_proto::personhog::types::v1::{
     GroupKey, TeamDistinctId,
 };
 use personhog_replica::service::PersonHogReplicaService;
+use personhog_replica::vnode::RoutingConfig;
 use tonic::Request;
 
 /// Test context that wraps TestContext and adds a service instance.
@@ -31,7 +32,7 @@ impl std::ops::Deref for ServiceTestContext {
 impl ServiceTestContext {
     pub async fn new() -> Self {
         let ctx = TestContext::new().await;
-        let service = PersonHogReplicaService::new(ctx.storage.clone());
+        let service = PersonHogReplicaService::new(ctx.storage.clone(), RoutingConfig::disabled());
         Self { ctx, service }
     }
 

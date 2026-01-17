@@ -1,7 +1,10 @@
 use envconfig::Envconfig;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::path::PathBuf;
 use std::time::Duration;
+
+use crate::vnode::{RoutingConfig, RoutingMode, VnodeConfigError, VnodeOwnership};
 
 /// Person cache backend options.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +58,26 @@ pub struct Config {
 
     #[envconfig(default = "9100")]
     pub metrics_port: u16,
+
+    /// Routing awareness mode. Controls how the service handles requests for vnodes
+    /// it doesn't own.
+    /// - "disabled" (default): No routing checks, serve all requests
+    /// - "observe": Check routing, emit metrics on misroutes, still serve requests
+    /// - "enforce": Check routing, emit metrics and reject misrouted requests
+    #[envconfig(default = "disabled")]
+    pub routing_mode: String,
+
+    /// Path to the vnode configuration file (JSON format).
+    /// Required when routing_mode is "observe" or "enforce".
+    /// Example: /etc/personhog/vnodes.json
+    #[envconfig(default = "")]
+    pub vnode_config_path: String,
+
+    /// Pod name for vnode ownership lookup.
+    /// Typically set from the Kubernetes downward API (metadata.name).
+    /// Required when routing_mode is "observe" or "enforce".
+    #[envconfig(default = "")]
+    pub pod_name: String,
 }
 
 impl Config {
@@ -84,5 +107,50 @@ impl Config {
         self.person_cache_backend
             .parse()
             .unwrap_or_else(|e: String| panic!("{}", e))
+    }
+
+    /// Parse the routing mode configuration.
+    /// Panics if the configured value is not recognized.
+    pub fn routing_mode(&self) -> RoutingMode {
+        RoutingMode::from_str(&self.routing_mode).unwrap_or_else(|| {
+            panic!(
+                "Unknown routing mode: {}. Supported: disabled, observe, enforce",
+                self.routing_mode
+            )
+        })
+    }
+
+    /// Build the routing configuration from environment settings.
+    ///
+    /// Returns a disabled config if routing_mode is "disabled".
+    /// Otherwise, loads the vnode ownership from the config file.
+    ///
+    /// Panics if routing is enabled but config file or pod name is missing/invalid.
+    pub fn routing_config(&self) -> Result<RoutingConfig, VnodeConfigError> {
+        let mode = self.routing_mode();
+
+        if mode == RoutingMode::Disabled {
+            return Ok(RoutingConfig::disabled());
+        }
+
+        // Routing is enabled, we need config file and pod name
+        if self.vnode_config_path.is_empty() {
+            panic!(
+                "VNODE_CONFIG_PATH is required when routing_mode is '{}'",
+                self.routing_mode
+            );
+        }
+
+        if self.pod_name.is_empty() {
+            panic!(
+                "POD_NAME is required when routing_mode is '{}'",
+                self.routing_mode
+            );
+        }
+
+        let config_path = PathBuf::from(&self.vnode_config_path);
+        let ownership = VnodeOwnership::load(&config_path, &self.pod_name)?;
+
+        Ok(RoutingConfig::new(mode, ownership))
     }
 }

@@ -20,6 +20,7 @@ use personhog_replica::storage::{
     postgres::PostgresStorage,
     FullStorage,
 };
+use personhog_replica::vnode::RoutingConfig;
 
 common_alloc::used!();
 
@@ -97,6 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Storage backend: {}", config.storage_backend);
     tracing::info!("Person cache backend: {}", config.person_cache_backend);
+    tracing::info!("Routing mode: {}", config.routing_mode);
 
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;
@@ -117,7 +119,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let storage = create_storage(&config).await;
-    let service = PersonHogReplicaService::new(storage);
+    let routing_config = config
+        .routing_config()
+        .expect("Failed to load routing configuration");
+
+    if let Some(pod_name) = routing_config.pod_name() {
+        tracing::info!("Routing enabled for pod '{}'", pod_name);
+    }
+
+    let service = PersonHogReplicaService::new(storage, routing_config);
 
     tracing::info!("Starting gRPC server on {}", config.grpc_address);
 

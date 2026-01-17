@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use metrics::counter;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, CohortMembershipResponse,
@@ -21,18 +22,122 @@ use personhog_proto::personhog::types::v1::{
     PersonsResponse, TeamDistinctId,
 };
 use tonic::{Request, Response, Status};
-use tracing::error;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
+use crate::vnode::{RoutingCheckResult, RoutingConfig, RoutingMode};
+
+/// Metric name for misrouted requests (request sent to wrong pod).
+const METRIC_MISROUTED_REQUESTS: &str = "personhog_replica_misrouted_requests_total";
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
+    routing_config: RoutingConfig,
 }
 
 impl PersonHogReplicaService {
-    pub fn new(storage: Arc<dyn FullStorage>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<dyn FullStorage>, routing_config: RoutingConfig) -> Self {
+        Self {
+            storage,
+            routing_config,
+        }
+    }
+
+    /// Check routing for a request with (team_id, person_id).
+    ///
+    /// Returns Ok(()) if the request should be processed.
+    /// Returns Err(Status) if the request should be rejected (Enforce mode).
+    ///
+    /// In Observe mode, misrouted requests are logged and metrics are emitted,
+    /// but the request is still processed.
+    fn check_routing(&self, team_id: i64, person_id: i64, operation: &str) -> Result<(), Status> {
+        match self.routing_config.check_routing(team_id, person_id) {
+            RoutingCheckResult::Ok => Ok(()),
+            RoutingCheckResult::Misrouted {
+                vnode,
+                pod_name,
+                should_reject,
+                ..
+            } => {
+                counter!(METRIC_MISROUTED_REQUESTS, "operation" => operation.to_string(), "pod" => pod_name.clone()).increment(1);
+
+                warn!(
+                    team_id,
+                    person_id,
+                    vnode,
+                    pod = %pod_name,
+                    operation,
+                    reject = should_reject,
+                    "Request routed to wrong pod"
+                );
+
+                if should_reject {
+                    Err(Status::failed_precondition(format!(
+                        "Request for vnode {} should not be handled by pod {}",
+                        vnode, pod_name
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// Check routing for a batch of (team_id, person_id) pairs.
+    ///
+    /// Returns the count of misrouted items. In Enforce mode, returns an error
+    /// if ANY item is misrouted.
+    fn check_routing_batch(
+        &self,
+        team_id: i64,
+        person_ids: &[i64],
+        operation: &str,
+    ) -> Result<(), Status> {
+        if self.routing_config.mode() == RoutingMode::Disabled {
+            return Ok(());
+        }
+
+        let mut misrouted_count = 0;
+        let mut should_reject = false;
+
+        for &person_id in person_ids {
+            if let RoutingCheckResult::Misrouted {
+                should_reject: reject,
+                ..
+            } = self.routing_config.check_routing(team_id, person_id)
+            {
+                misrouted_count += 1;
+                should_reject = should_reject || reject;
+            }
+        }
+
+        if misrouted_count > 0 {
+            let pod_name = self.routing_config.pod_name().unwrap_or("unknown");
+            counter!(METRIC_MISROUTED_REQUESTS, "operation" => operation.to_string(), "pod" => pod_name.to_string())
+                .increment(misrouted_count);
+
+            warn!(
+                team_id,
+                misrouted_count,
+                total_count = person_ids.len(),
+                pod = %pod_name,
+                operation,
+                reject = should_reject,
+                "Batch request contains misrouted items"
+            );
+
+            if should_reject {
+                return Err(Status::failed_precondition(format!(
+                    "{} of {} items in batch should not be handled by pod {}",
+                    misrouted_count,
+                    person_ids.len(),
+                    pod_name
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -130,6 +235,8 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetPersonResponse>, Status> {
         let req = request.into_inner();
 
+        self.check_routing(req.team_id, req.person_id, "get_person")?;
+
         let person = self
             .storage
             .get_person_by_id(req.team_id, req.person_id)
@@ -146,6 +253,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetPersonsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
+
+        self.check_routing_batch(req.team_id, &req.person_ids, "get_persons")?;
 
         let persons = self
             .storage
@@ -299,6 +408,8 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
         let req = request.into_inner();
 
+        self.check_routing(req.team_id, req.person_id, "get_distinct_ids_for_person")?;
+
         let distinct_ids = self
             .storage
             .get_distinct_ids_for_person(req.team_id, req.person_id)
@@ -321,6 +432,8 @@ impl PersonHogReplica for PersonHogReplicaService {
         request: Request<GetDistinctIdsForPersonsRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
         let req = request.into_inner();
+
+        self.check_routing_batch(req.team_id, &req.person_ids, "get_distinct_ids_for_persons")?;
 
         let mappings = self
             .storage
@@ -857,7 +970,7 @@ mod tests {
     #[tokio::test]
     async fn test_connection_error_returns_unavailable() {
         let storage = Arc::new(FailingStorage::with_connection_error());
-        let service = PersonHogReplicaService::new(storage);
+        let service = PersonHogReplicaService::new(storage, RoutingConfig::disabled());
 
         let result = service
             .get_person(Request::new(GetPersonRequest {
@@ -875,7 +988,7 @@ mod tests {
     #[tokio::test]
     async fn test_pool_exhausted_returns_unavailable() {
         let storage = Arc::new(FailingStorage::with_pool_exhausted());
-        let service = PersonHogReplicaService::new(storage);
+        let service = PersonHogReplicaService::new(storage, RoutingConfig::disabled());
 
         let result = service
             .get_person(Request::new(GetPersonRequest {
@@ -892,7 +1005,7 @@ mod tests {
     #[tokio::test]
     async fn test_query_error_returns_internal() {
         let storage = Arc::new(FailingStorage::with_query_error());
-        let service = PersonHogReplicaService::new(storage);
+        let service = PersonHogReplicaService::new(storage, RoutingConfig::disabled());
 
         let result = service
             .get_person(Request::new(GetPersonRequest {
@@ -910,7 +1023,7 @@ mod tests {
     #[tokio::test]
     async fn test_connection_error_on_batch_operation_returns_unavailable() {
         let storage = Arc::new(FailingStorage::with_connection_error());
-        let service = PersonHogReplicaService::new(storage);
+        let service = PersonHogReplicaService::new(storage, RoutingConfig::disabled());
 
         let result = service
             .get_persons_by_distinct_ids_in_team(Request::new(
@@ -928,7 +1041,7 @@ mod tests {
     #[tokio::test]
     async fn test_query_error_on_group_operation_returns_internal() {
         let storage = Arc::new(FailingStorage::with_query_error());
-        let service = PersonHogReplicaService::new(storage);
+        let service = PersonHogReplicaService::new(storage, RoutingConfig::disabled());
 
         let result = service
             .get_group(Request::new(GetGroupRequest {
