@@ -7,13 +7,17 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
-from posthog.schema import InsightVizNode, NotebookArtifactContent, VisualizationArtifactContent
+from posthog.schema import ArtifactContentType, InsightVizNode
 
-from posthog.api.search import EntityConfig, search_entities
+from posthog.api.search import (
+    EntityConfig,
+    search_entities as search_entities_fts,
+)
 from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, Insight, Survey, Team, User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
 
 ENTITY_MAP: dict[str, EntityConfig] = {
@@ -106,7 +110,7 @@ class EntitySearchContext:
         if entity_types == "all":
             entity_types = set(ENTITY_MAP.keys())
 
-        results, counts, _ = await database_sync_to_async(search_entities, thread_sensitive=False)(
+        results, counts, _ = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
             entity_types,
             query,
             self._team.project_id,
@@ -143,22 +147,13 @@ class EntitySearchContext:
             # Convert artifacts to the same format as database entities
             for artifact in artifacts:
                 try:
-                    extra_fields: dict[str, Any] = {}
                     content = artifact.content
-                    match content:
-                        case VisualizationArtifactContent():
-                            extra_fields = {
-                                "name": content.name,
-                                "description": content.description,
-                            }
-                        case NotebookArtifactContent():
-                            extra_fields = {
-                                "title": content.title,
-                            }
+                    handler = get_handler_for_content_type(ArtifactContentType(content.content_type))
+                    extra_fields = handler.get_metadata(content) if handler else {}
                     all_entities.append(
                         {
                             "type": "artifact",
-                            "result_id": artifact.id,
+                            "result_id": artifact.artifact_id,
                             "extra_fields": extra_fields,
                         }
                     )
@@ -170,7 +165,7 @@ class EntitySearchContext:
             return await self._list_insights(limit, offset)
         else:
             # Fetch database entities
-            db_results, _, total_count = await database_sync_to_async(search_entities, thread_sensitive=False)(
+            db_results, _, total_count = await database_sync_to_async(search_entities_fts, thread_sensitive=False)(
                 entities={entity_type},
                 query=None,  # No search query, just listing
                 project_id=self._team.project_id,

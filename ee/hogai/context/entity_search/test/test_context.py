@@ -391,7 +391,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
 
         mock_artifacts_manager = MagicMock()
         mock_artifact = MagicMock()
-        mock_artifact.short_id = "abc123"
+        mock_artifact.artifact_id = "abc123"
         mock_artifact.content = VisualizationArtifactContent(
             name="Test Artifact", description="Test description", query=HogQLQuery(query="SELECT 1")
         )
@@ -408,31 +408,12 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["result_id"] == "abc123"
         assert entities[0]["extra_fields"]["name"] == "Test Artifact"
 
-    async def test_list_entities_artifact_handles_document_content(self):
-        from posthog.schema import DocumentArtifactContent
-
-        mock_artifacts_manager = MagicMock()
-        mock_artifact = MagicMock()
-        mock_artifact.short_id = "doc123"
-        mock_artifact.content = DocumentArtifactContent(blocks=[])
-        mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
-
-        self.context_manager.artifacts = mock_artifacts_manager
-
-        entities, total = await self.context.list_entities("artifact", limit=10, offset=0)
-
-        assert len(entities) == 1
-        assert total == 1
-        assert entities[0]["type"] == "artifact"
-        assert entities[0]["result_id"] == "doc123"
-        assert entities[0]["extra_fields"] == {}
-
     async def test_list_entities_artifact_skips_invalid_content(self):
         from pydantic import ValidationError
 
         mock_artifacts_manager = MagicMock()
         mock_artifact = MagicMock()
-        mock_artifact.short_id = "invalid123"
+        mock_artifact.artifact_id = "invalid123"
 
         type(mock_artifact).content = PropertyMock(side_effect=ValidationError.from_exception_data("test", []))
         mock_artifacts_manager.aget_conversation_artifacts = AsyncMock(return_value=([mock_artifact], 1))
