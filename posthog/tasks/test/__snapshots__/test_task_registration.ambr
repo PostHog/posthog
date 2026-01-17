@@ -40,6 +40,7 @@
     'posthog.tasks.email.send_password_changed_email',
     'posthog.tasks.email.send_password_reset',
     'posthog.tasks.email.send_personal_api_key_exposed',
+    'posthog.tasks.email.send_project_secret_api_key_exposed',
     'posthog.tasks.email.send_team_hog_functions_digest',
     'posthog.tasks.email.send_two_factor_auth_backup_code_used_email',
     'posthog.tasks.email.send_two_factor_auth_disabled_email',
