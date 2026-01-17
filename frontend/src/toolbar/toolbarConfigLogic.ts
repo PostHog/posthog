@@ -39,9 +39,41 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     selectors({
         posthog: [(s) => [s.props], (props) => props.posthog ?? null],
-        apiURL: [
+        // UI host for navigation links (actions, feature flags, experiments, etc.)
+        // Uses posthog.config.ui_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        uiHost: [
             (s) => [s.props],
-            (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
+            (props: ToolbarProps): string => {
+                if (props.posthog?.config?.ui_host) {
+                    return props.posthog.config.ui_host.replace(/\/+$/, '')
+                }
+
+                // Fallback: if apiURL prop is set, use it (backwards compatibility)
+                if (props.apiURL) {
+                    return props.apiURL.replace(/\/+$/, '')
+                }
+
+                // Final fallback: current origin
+                return window.location.origin
+            },
+        ],
+        // API host for API calls and static assets (CSS)
+        // Uses posthog.config.api_host if available, otherwise falls back to props.apiURL for backwards compatibility
+        apiHost: [
+            (s) => [s.props],
+            (props: ToolbarProps): string => {
+                if (props.posthog?.config?.api_host) {
+                    return props.posthog.config.api_host.replace(/\/+$/, '')
+                }
+
+                // Fallback: if apiURL prop is set, use it (backwards compatibility)
+                if (props.apiURL) {
+                    return props.apiURL.replace(/\/+$/, '')
+                }
+
+                // Final fallback: current origin
+                return window.location.origin
+            },
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
@@ -53,7 +85,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
             actions.persistConfig()
-            window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
+            // Use UI host for auth redirects (SSO/login)
+            window.location.href = `${values.uiHost}/authorize_and_redirect/?redirect=${encodedUrl}`
         },
         logout: () => {
             toolbarPosthogJS.capture('toolbar logout')
@@ -94,6 +127,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 toolbarPosthogJS.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
             }
         }
+
         toolbarPosthogJS.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
 ])
@@ -111,7 +145,7 @@ export async function toolbarFetch(
     urlConstruction: 'full' | 'use-as-provided' = 'full'
 ): Promise<Response> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
+    const apiHost = toolbarConfigLogic.findMounted()?.values.apiHost
 
     let fullUrl: string
     if (urlConstruction === 'use-as-provided') {
@@ -119,7 +153,7 @@ export async function toolbarFetch(
     } else {
         const { pathname, searchParams } = combineUrl(url)
         const params = { ...searchParams, temporary_token: temporaryToken }
-        fullUrl = `${apiURL}${pathname}${encodeParams(params, '?')}`
+        fullUrl = `${apiHost}${pathname}${encodeParams(params, '?')}`
     }
 
     const payloadData = payload
@@ -160,16 +194,16 @@ export interface ToolbarMediaUploadResponse {
  */
 export async function toolbarUploadMedia(file: File): Promise<{ id: string; url: string; fileName: string }> {
     const temporaryToken = toolbarConfigLogic.findMounted()?.values.temporaryToken
-    const apiURL = toolbarConfigLogic.findMounted()?.values.apiURL
+    const apiHost = toolbarConfigLogic.findMounted()?.values.apiHost
 
-    if (!temporaryToken || !apiURL) {
+    if (!temporaryToken || !apiHost) {
         throw new Error('Toolbar not authenticated')
     }
 
     const formData = new FormData()
     formData.append('image', file)
 
-    const url = `${apiURL}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
+    const url = `${apiHost}/api/projects/@current/uploaded_media/${encodeParams({ temporary_token: temporaryToken }, '?')}`
 
     const response = await fetch(url, {
         method: 'POST',

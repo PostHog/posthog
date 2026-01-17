@@ -21,10 +21,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
@@ -131,10 +133,8 @@ const _buildToolbarUserIntent = (options?: BuildToolbarParamsOptions): ToolbarUs
 function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams {
     return {
         userIntent: _buildToolbarUserIntent(options),
-        // Make sure to pass the app url, otherwise the api_host will be used by
-        // the toolbar, which isn't correct when used behind a reverse proxy as
-        // we require e.g. SSO login to the app, which will not work when placed
-        // behind a proxy unless we register each domain with the OAuth2 client.
+        // Keeping this as backward compatibility, but we don't use it anymore in the toolbar
+        // and instead depend on the `posthog`'s instance configuration
         apiURL: apiHostOrigin(),
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
@@ -424,6 +424,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         removeUrl: sharedListeners.saveUrls,
         updateUrl: sharedListeners.saveUrls,
         launchAtUrl: ({ url }) => {
+            void addProductIntent({
+                product_type: ProductKey.TOOLBAR,
+                intent_context: ProductIntentContext.TOOLBAR_LAUNCHED,
+            })
             window.location.href = values.launchUrl(url)
         },
         cancelProposingUrl: () => {
