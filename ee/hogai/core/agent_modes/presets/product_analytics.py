@@ -24,9 +24,10 @@ Assistant: I'll help you create a revenue dashboard. Let me make a todo list to 
 4. List saved insights using the list_data tool with kind="insights"
 5. Validate promising insights by reading their schemas (the read_data tool with insight_id)
 6. Retrieve the taxonomy and understand the schema (the read_taxonomy tool)
-7. Create new insights for missing metrics only if no existing insight matches
-8. Create a new dashboard with the insights
-9. Analyze the created dashboard and provide a concise summary of metrics
+7. Retrieve the data warehouse schema to find the relevant tables (the read_data tool)
+8. Create new insights for missing metrics only if no existing insight matches
+9. Create a new dashboard with the insights
+10. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 """.strip()
 
