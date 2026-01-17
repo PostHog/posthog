@@ -114,7 +114,7 @@ export const searchLogic = kea<searchLogicType>([
                         return {}
                     }
 
-                    const responses = await Promise.all(
+                    const results = await Promise.allSettled(
                         groupTypesList.map((groupType) =>
                             api.groups.listClickhouse({
                                 group_type_index: groupType.group_type_index,
@@ -127,10 +127,13 @@ export const searchLogic = kea<searchLogicType>([
                     breakpoint()
 
                     return Object.fromEntries(
-                        responses.map((response, index) => [
-                            groupTypesList[index].group_type_index,
-                            mapGroupQueryResponse(response),
-                        ])
+                        results
+                            .map((result, index) => [groupTypesList[index], result] as const)
+                            .filter(([, result]) => result.status === 'fulfilled')
+                            .map(([groupType, result]) => [
+                                groupType.group_type_index,
+                                mapGroupQueryResponse((result as PromiseFulfilledResult<GroupsQueryResponse>).value),
+                            ])
                     ) as Record<GroupTypeIndex, GroupQueryResult[]>
                 },
             },
