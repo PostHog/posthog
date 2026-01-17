@@ -2,12 +2,19 @@ UPSERT_DASHBOARD_TOOL_PROMPT = """
 Use this tool to create or update a dashboard with provided insights.
 
 # How to use this tool
-- Proactively use search and list_data tools to check if the dashboard already exists. The user might provide you the dashboard.
-- If the request is ambiguous whether you need to create a new dashboard or update an existing one, ask for clarification.
-- If the dashboard exists, understand its structure by using the read_data tool.
-- Proactively use search and list_data tools to find existing insights. If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
-- Create new insights with the create_insight tool.
-- Call this tool when you have enough information to create or update the dashboard.
+
+## Create vs update
+Proactively use search and list_data tools to check if the dashboard already exists.
+The user might provide you the dashboard–read its data and understand the structure of the dashboard.
+You should ask for clarification if the request is ambiguous whether you need to create a new dashboard or update an existing one.
+
+## Insights selection
+Proactively use list_data and search tools to find existing insights.
+If there are matching insights, read their insight schemas to understand whether they match the user's intent and have data.
+Next, read the data schema and data warehouse schema and create new insights or SQL queries.
+
+## Finalize
+Call this tool when you have enough information to create or update the dashboard.
 
 # Understanding dashboard update with insight_ids
 
@@ -27,13 +34,20 @@ Result: A' takes A's layout, C' takes B's layout, B is removed.
 User: create a dashboard for file activity metrics
 Assistant: I'll create a new dashboard for file activity metrics.
 <reasoning>The user clearly wants to create a new dashboard.</reasoning>
-<example>
+</example>
 
 <example>
 User: I want a dashboard of how my business is doing
 Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
 User: I want you to add MRR to that dashboard.
 <reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>
+</example>
+
+<example>
+User: get my financial metrics together
+Assistant: I'll search for existing dashboards. I didn't find any relevant dashboards. Let me search for related insights. I found some insights, but I should list the existing insights to make sure I haven't missed due to different naming. Perfect! I found more relevant insights.
+<reasoning>The assistant has to list the existing insights to make sure it hasn't missed any relevant insights due to specifics of the search tool using full-text search.</reasoning>
+</example>
 
 # When NOT to use this tool
 - The user wants to save a single insight.

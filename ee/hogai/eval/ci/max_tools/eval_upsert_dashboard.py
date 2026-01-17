@@ -62,11 +62,13 @@ Error: {{output.error}}
 </actual_output>
 
 Evaluate:
-1. Did the agent call the upsert_dashboard tool?
-2. Was the correct action (create/update/no action) chosen?
-3. Does the tool output confirm a dashboard was created/updated?
-4. Do the insight titles in the tool output match the expected ones BY MEANING? Titles don't need to be exact - they should be semantically equivalent (e.g. "File activity" matches "File interactions", "User journey funnel" matches "Homepage view to signup conversion"). If expected is null/None, skip this check.
-5. If error expected, was it returned?
+1. If expected action is "No action": The agent should NOT have called upsert_dashboard. Pass if no tool was called, fail otherwise.
+2. If expected action is create/update:
+   a. Did the agent call the upsert_dashboard tool?
+   b. Was the correct action (create/update) chosen?
+   c. Does the tool output confirm a dashboard was created/updated?
+   d. Do the insight titles in the tool output match the expected ones BY MEANING? Titles don't need to be exact - they should be semantically equivalent (e.g. "File activity" matches "File interactions", "User journey funnel" matches "Homepage view to signup conversion"). If expected is null/None, skip this check.
+3. If error expected, was it returned?
 
 Choose: pass (all requirements met) or fail (any requirement not met)
 """.strip()
@@ -91,6 +93,10 @@ class DashboardOperationAccuracy(LLMClassifier):
             "dashboard_name": None,
             **(expected or {}),
         }
+        if normalized_expected["action"] is None:
+            normalized_expected["action"] = "No action"
+        if normalized_output["action"] is None:
+            normalized_output["action"] = "No action"
         return normalized_output, normalized_expected
 
     async def _run_eval_async(self, output: dict | None, expected: dict | None = None, **kwargs):
@@ -120,8 +126,11 @@ class DashboardOperationAccuracy(LLMClassifier):
 @pytest.fixture
 def call_agent_for_dashboard(demo_org_team_user):
     """Run full agent graph with natural language dashboard requests."""
-    with patch(
-        "ee.hogai.core.agent_modes.presets.product_analytics.has_upsert_dashboard_feature_flag", return_value=True
+    with (
+        patch(
+            "ee.hogai.core.agent_modes.presets.product_analytics.has_upsert_dashboard_feature_flag", return_value=True
+        ),
+        patch("ee.hogai.tools.upsert_dashboard.tool.UpsertDashboardTool.is_dangerous_operation", return_value=False),
     ):
         _, team, user = demo_org_team_user
 
@@ -192,7 +201,7 @@ async def _create_dashboard(team, user, title: str, description: str):
     return dashboard
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True)
 async def clear_dashboards():
     start_dt = datetime.now()
     yield
@@ -290,11 +299,3 @@ async def eval_update_dashboard(call_agent_for_dashboard, demo_org_team_user, py
         data=data,
         pytestconfig=pytestconfig,
     )
-
-    # clean up
-    for case in data:
-        if dashboard := case.input.get("dashboard"):
-            tile_qs = DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard).select_related("insight")
-            insight_ids = [tile.insight_id async for tile in tile_qs]
-            await Insight.objects.filter(id__in=insight_ids).adelete()
-            await dashboard.adelete()
