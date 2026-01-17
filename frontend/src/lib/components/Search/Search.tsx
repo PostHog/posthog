@@ -30,7 +30,7 @@ import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { SearchItem, searchLogic } from './searchLogic'
+import { SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -202,6 +202,8 @@ const useSearchContext = (): SearchContextValue => {
 
 export interface SearchRootProps {
     children: ReactNode
+    /** Unique key to identify this search instance (e.g., 'command', 'new-tab') */
+    logicKey?: SearchLogicProps['logicKey']
     /** Whether the search is active (for placeholder animation) */
     isActive?: boolean
     /** Callback when an item is selected */
@@ -216,14 +218,15 @@ export interface SearchRootProps {
 
 function SearchRoot({
     children,
+    logicKey = 'default',
     isActive = true,
     onItemSelect,
     showAskAiLink = true,
     onAskAiClick,
     className = '',
 }: SearchRootProps): JSX.Element {
-    const { allCategories, isSearching } = useValues(searchLogic)
-    const { setSearch } = useActions(searchLogic)
+    const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
+    const { setSearch } = useActions(searchLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState('')
     const [filteredItems, setFilteredItems] = useState<SearchItem[]>([])

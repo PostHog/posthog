@@ -47,7 +47,13 @@ function NewSearchTabScene(): JSX.Element {
     }, [])
 
     return (
-        <Search.Root isActive onItemSelect={handleItemSelect} showAskAiLink className="size-full grow">
+        <Search.Root
+            logicKey="new-tab"
+            isActive
+            onItemSelect={handleItemSelect}
+            showAskAiLink
+            className="size-full grow"
+        >
             <div className="sticky top-0 w-full max-w-[640px] mx-auto">
                 <Search.Input autoFocus className="pt-8" />
                 <Search.Status />

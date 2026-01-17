@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -32,6 +32,10 @@ export interface SearchCategory {
     isLoading: boolean
 }
 
+export interface SearchLogicProps {
+    logicKey: string
+}
+
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
 const RECENTS_LIMIT = 5
@@ -47,7 +51,9 @@ function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[
 }
 
 export const searchLogic = kea<searchLogicType>([
-    path(['lib', 'components', 'Search', 'searchLogic']),
+    path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
+    props({} as SearchLogicProps),
+    key((props) => props.logicKey),
     connect({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], commandLogic, ['isCommandOpen']],
     }),
