@@ -1,15 +1,13 @@
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::metrics::consts::{
-    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER,
-    COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
+    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER,
+    DB_COHORT_READS_COUNTER,
 };
 use common_database::PostgresReader;
 use common_types::TeamId;
 use moka::future::Cache;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 /// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
@@ -40,7 +38,31 @@ use tokio::sync::Mutex;
 pub struct CohortCacheManager {
     reader: PostgresReader,
     cache: Cache<TeamId, Vec<Cohort>>,
-    fetch_lock: Arc<Mutex<()>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum CohortFetchError {
+    DatabaseUnavailable,
+    QueryFailed(String),
+}
+
+impl From<FlagError> for CohortFetchError {
+    fn from(e: FlagError) -> Self {
+        match e {
+            FlagError::DatabaseUnavailable => CohortFetchError::DatabaseUnavailable,
+            FlagError::Internal(msg) => CohortFetchError::QueryFailed(msg),
+            _ => CohortFetchError::QueryFailed(String::default()),
+        }
+    }
+}
+
+impl From<CohortFetchError> for FlagError {
+    fn from(value: CohortFetchError) -> Self {
+        match value {
+            CohortFetchError::DatabaseUnavailable => FlagError::DatabaseUnavailable,
+            CohortFetchError::QueryFailed(msg) => FlagError::Internal(msg),
+        }
+    }
 }
 
 /// Calculates the total estimated memory weight of a slice of cohorts.
@@ -76,11 +98,7 @@ impl CohortCacheManager {
             .max_capacity(capacity_bytes.unwrap_or(Self::DEFAULT_CAPACITY_BYTES))
             .build();
 
-        Self {
-            reader,
-            cache,
-            fetch_lock: Arc::new(Mutex::new(())),
-        }
+        Self { reader, cache }
     }
 
     /// Retrieves cohorts for a given team.
@@ -88,40 +106,26 @@ impl CohortCacheManager {
     /// If the cohorts are not present in the cache or have expired, it fetches them from the database,
     /// caches the result upon successful retrieval, and then returns it.
     pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
-        // First check cache before acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
-            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached_cohorts.clone());
-        }
+        self.cache
+            .try_get_with(team_id, async move {
+                match Cohort::list_from_pg(self.reader.clone(), team_id).await {
+                    Ok(fetched_cohorts) => {
+                        common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
+                        self.cache.insert(team_id, fetched_cohorts.clone()).await;
 
-        // Acquire the lock before fetching
-        let _lock = self.fetch_lock.lock().await;
+                        // Report cache metrics for observability
+                        self.report_cache_metrics();
 
-        // Double-check the cache after acquiring lock
-        if let Some(cached_cohorts) = self.cache.get(&team_id).await {
-            common_metrics::inc(COHORT_CACHE_HIT_COUNTER, &[], 1);
-            return Ok(cached_cohorts.clone());
-        }
-
-        // If we get here, we have a cache miss
-        common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
-
-        // Attempt to fetch from DB
-        match Cohort::list_from_pg(self.reader.clone(), team_id).await {
-            Ok(fetched_cohorts) => {
-                common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
-                self.cache.insert(team_id, fetched_cohorts.clone()).await;
-
-                // Report cache metrics for observability
-                self.report_cache_metrics();
-
-                Ok(fetched_cohorts)
-            }
-            Err(e) => {
-                common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
-                Err(e)
-            }
-        }
+                        Ok(fetched_cohorts)
+                    }
+                    Err(e) => {
+                        common_metrics::inc(DB_COHORT_ERRORS_COUNTER, &[], 1);
+                        Err(e)
+                    }
+                }
+            })
+            .await
+            .map_err(|err| (*err).clone().into())
     }
 
     /// Starts periodic monitoring of cache metrics.
@@ -171,6 +175,7 @@ impl CohortCacheManager {
 mod tests {
     use super::*;
     use crate::utils::test_utils::TestContext;
+    use std::sync::Arc;
     use tokio::time::{sleep, Duration};
 
     fn create_test_cohort(filters: Option<serde_json::Value>) -> Cohort {
