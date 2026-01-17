@@ -180,7 +180,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration = time.time() - start_time
             capture_session_summary_generated(
                 user=user,
                 team=self.team,
@@ -191,11 +191,11 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_ids=session_ids,
                 video_validation_enabled=video_validation_enabled,
                 success=True,
-                duration_ms=duration_ms,
+                duration=duration,
             )
             return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
         except Exception as err:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration = time.time() - start_time
             logger.exception(
                 f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
                 team_id=self.team.id,
@@ -212,7 +212,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_ids=session_ids,
                 video_validation_enabled=video_validation_enabled,
                 success=False,
-                duration_ms=duration_ms,
+                duration=duration,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
@@ -308,7 +308,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 video_validation_enabled=video_validation_enabled,
                 extra_summary_context=extra_summary_context,
             )
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration = time.time() - start_time
             capture_session_summary_generated(
                 user=user,
                 team=self.team,
@@ -319,11 +319,11 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_ids=session_ids,
                 video_validation_enabled=video_validation_enabled,
                 success=True,
-                duration_ms=duration_ms,
+                duration=duration,
             )
             return Response(summaries, status=status.HTTP_200_OK)
         except Exception as err:
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration = time.time() - start_time
             logger.exception(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
                 team_id=self.team.id,
@@ -340,7 +340,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 session_ids=session_ids,
                 video_validation_enabled=video_validation_enabled,
                 success=False,
-                duration_ms=duration_ms,
+                duration=duration,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )

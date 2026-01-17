@@ -147,10 +147,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(generated_kwargs["session_ids"], ["session1", "session2"])
         self.assertTrue(generated_kwargs["success"])
         self.assertIsNone(generated_kwargs.get("error_type"))
-        # Verify duration_ms is tracked
-        self.assertIsNotNone(generated_kwargs.get("duration_ms"))
-        self.assertIsInstance(generated_kwargs["duration_ms"], int)
-        self.assertGreaterEqual(generated_kwargs["duration_ms"], 0)
+        # Verify duration is tracked
+        self.assertIsNotNone(generated_kwargs.get("duration"))
+        self.assertIsInstance(generated_kwargs["duration"], float)
+        self.assertGreaterEqual(generated_kwargs["duration"], 0)
         # Tracking IDs should match
         self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
 
@@ -290,13 +290,13 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Failed to generate session summaries", str(error))
 
-        # Verify duration_ms is tracked even on failure
+        # Verify duration is tracked even on failure
         mock_capture_generated.assert_called_once()
         generated_kwargs = mock_capture_generated.call_args[1]
         self.assertFalse(generated_kwargs["success"])
-        self.assertIsNotNone(generated_kwargs.get("duration_ms"))
-        self.assertIsInstance(generated_kwargs["duration_ms"], int)
-        self.assertGreaterEqual(generated_kwargs["duration_ms"], 0)
+        self.assertIsNotNone(generated_kwargs.get("duration"))
+        self.assertIsInstance(generated_kwargs["duration"], float)
+        self.assertGreaterEqual(generated_kwargs["duration"], 0)
 
     def test_wrong_http_method(self) -> None:
         """Test that only POST is allowed"""

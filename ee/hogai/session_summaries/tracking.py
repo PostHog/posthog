@@ -52,7 +52,7 @@ def capture_session_summary_generated(
     session_ids: list[str],
     video_validation_enabled: bool | None,
     success: bool | None,
-    duration_ms: int | None = None,
+    duration: float | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -69,8 +69,8 @@ def capture_session_summary_generated(
         "video_validation_enabled": video_validation_enabled,
         "success": success,
     }
-    if duration_ms is not None:
-        properties["duration_ms"] = duration_ms
+    if duration is not None:
+        properties["duration"] = duration
     if error_type is not None:
         properties["error_type"] = error_type
     if error_message is not None:

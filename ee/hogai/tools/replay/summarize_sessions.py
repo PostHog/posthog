@@ -194,7 +194,7 @@ class SummarizeSessionsTool(MaxTool):
                 content, artifact = summaries_content, None
         except Exception as err:
             # The session summarization failed
-            duration_ms = int((time.time() - start_time) * 1000)
+            duration = time.time() - start_time
             capture_session_summary_generated(
                 user=self._user,
                 team=self._team,
@@ -205,13 +205,13 @@ class SummarizeSessionsTool(MaxTool):
                 session_ids=session_ids,
                 video_validation_enabled=video_validation_enabled,
                 success=False,
-                duration_ms=duration_ms,
+                duration=duration,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
             raise
         # The session successfully summarized
-        duration_ms = int((time.time() - start_time) * 1000)
+        duration = time.time() - start_time
         capture_session_summary_generated(
             user=self._user,
             team=self._team,
@@ -222,7 +222,7 @@ class SummarizeSessionsTool(MaxTool):
             session_ids=session_ids,
             video_validation_enabled=video_validation_enabled,
             success=True,
-            duration_ms=duration_ms,
+            duration=duration,
         )
         return content, artifact
 
