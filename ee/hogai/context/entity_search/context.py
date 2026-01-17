@@ -1,4 +1,5 @@
 from datetime import timedelta
+from enum import StrEnum
 from typing import Any, Literal
 
 from django.conf import settings
@@ -19,6 +20,30 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.artifacts.handlers.base import get_handler_for_content_type
 from ee.hogai.context.context import AssistantContextManager
+
+
+class EntityKind(StrEnum):
+    INSIGHTS = "insights"
+    DASHBOARDS = "dashboards"
+    COHORTS = "cohorts"
+    ACTIONS = "actions"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "feature_flags"
+    NOTEBOOKS = "notebooks"
+    SURVEYS = "surveys"
+    ALL = "all"
+
+
+SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[EntityKind, str] = {
+    EntityKind.INSIGHTS: "insight",
+    EntityKind.DASHBOARDS: "dashboard",
+    EntityKind.EXPERIMENTS: "experiment",
+    EntityKind.FEATURE_FLAGS: "feature_flag",
+    EntityKind.NOTEBOOKS: "notebook",
+    EntityKind.ACTIONS: "action",
+    EntityKind.COHORTS: "cohort",
+    EntityKind.SURVEYS: "survey",
+}
 
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
