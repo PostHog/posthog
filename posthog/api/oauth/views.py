@@ -440,9 +440,69 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     which is allowed to access the scope `introspection`. Alternatively,
     if the client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
+
+    Self-introspection: A token can always introspect itself without requiring
+    the `introspection` scope. This allows MCP clients to discover their own
+    token's scopes and permissions during initialization.
     """
 
     required_scopes = ["introspection"]
+
+    def _get_bearer_token(self, request) -> str | None:
+        """Extract the bearer token from the Authorization header."""
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+        return None
+
+    def _get_token_to_introspect(self, request) -> str | None:
+        """Extract the token to introspect from the request."""
+        if request.method == "GET":
+            return request.GET.get("token")
+
+        token = request.POST.get("token")
+        if not token and request.content_type == "application/json" and request.body:
+            try:
+                json_data = json.loads(request.body)
+                token = json_data.get("token")
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return token
+
+    def _is_self_introspection(self, request) -> bool:
+        """Check if the request is a self-introspection (token introspecting itself)."""
+        bearer_token = self._get_bearer_token(request)
+        token_to_introspect = self._get_token_to_introspect(request)
+
+        if not bearer_token or not token_to_introspect:
+            return False
+
+        return bearer_token == token_to_introspect
+
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Override dispatch to allow self-introspection without the introspection scope.
+        If a token is introspecting itself, bypass the scope check.
+        """
+        if self._is_self_introspection(request):
+            # For self-introspection, we still need to verify the bearer token is valid,
+            # but we don't require the introspection scope.
+            bearer_token = self._get_bearer_token(request)
+            if bearer_token:
+                try:
+                    token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
+                    token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                    if token.is_valid():
+                        # Token is valid, allow self-introspection
+                        if request.method == "GET":
+                            return self.get(request, *args, **kwargs)
+                        elif request.method == "POST":
+                            return self.post(request, *args, **kwargs)
+                except ObjectDoesNotExist:
+                    pass
+
+        # Fall back to standard behavior (requires introspection scope)
+        return super().dispatch(request, *args, **kwargs)
 
     @staticmethod
     def get_token_response(token_value=None):
