@@ -1,8 +1,8 @@
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::metrics::consts::{
-    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER,
-    DB_COHORT_READS_COUNTER,
+    COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_MISS_COUNTER, COHORT_CACHE_SIZE_BYTES_GAUGE,
+    DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
 };
 use common_database::PostgresReader;
 use common_types::TeamId;
@@ -108,6 +108,8 @@ impl CohortCacheManager {
     pub async fn get_cohorts(&self, team_id: TeamId) -> Result<Vec<Cohort>, FlagError> {
         self.cache
             .try_get_with(team_id, async move {
+                common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
+
                 match Cohort::list_from_pg(self.reader.clone(), team_id).await {
                     Ok(fetched_cohorts) => {
                         common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
