@@ -603,6 +603,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.Experiment,
         flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized experiment results'
@@ -731,6 +732,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create a feature flag in seconds',
         product: Scene.FeatureFlags,
         icon: iconForType('feature_flag'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created feature flag'
@@ -743,6 +745,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create an experiment in seconds',
         product: Scene.Experiments,
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created experiment'
@@ -990,6 +993,12 @@ export const MODE_DEFINITIONS: Record<
         description: 'Creates and analyzes surveys to collect user feedback.',
         icon: iconForType('survey'),
         scenes: new Set([Scene.Surveys, Scene.Survey]),
+    },
+    [AgentMode.Flags]: {
+        name: 'Feature flags',
+        description: 'Creates and manages feature flags and A/B test experiments.',
+        icon: iconForType('feature_flag'),
+        scenes: new Set([Scene.FeatureFlags, Scene.Experiment, Scene.Experiments]),
     },
 }
 

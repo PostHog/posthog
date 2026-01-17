@@ -43,6 +43,7 @@ class AgentMode(StrEnum):
     EXECUTION = "execution"
     SURVEY = "survey"
     RESEARCH = "research"
+    FLAGS = "flags"
 
 
 class AggregationAxisFormat(StrEnum):

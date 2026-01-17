@@ -361,7 +361,8 @@
                 "plan",
                 "execution",
                 "survey",
-                "research"
+                "research",
+                "flags"
             ],
             "type": "string"
         },

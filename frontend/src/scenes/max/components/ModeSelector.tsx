@@ -147,6 +147,7 @@ interface GetModeOptionsParams {
     errorTrackingModeEnabled: boolean
     surveyModeEnabled: boolean
     hasExistingMessages: boolean
+    flagsModeEnabled: boolean
 }
 
 function getModeOptions({
@@ -156,6 +157,7 @@ function getModeOptions({
     errorTrackingModeEnabled,
     surveyModeEnabled,
     hasExistingMessages,
+    flagsModeEnabled,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
@@ -208,6 +210,9 @@ function getModeOptions({
         if (mode === AgentMode.Survey && !surveyModeEnabled) {
             return false
         }
+        if (mode === AgentMode.Flags && !flagsModeEnabled) {
+            return false
+        }
         return true
     })
 
@@ -241,6 +246,7 @@ export function ModeSelector(): JSX.Element | null {
     const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
     const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
     const surveyModeEnabled = useFeatureFlag('PHAI_SURVEY_MODE')
+    const flagsModeEnabled = useFeatureFlag('PHAI_FLAGS_MODE')
 
     const currentValue: ModeValue =
         agentMode === AgentMode.Research ? 'deep_research' : agentMode === AgentMode.Plan ? 'plan' : agentMode
@@ -253,6 +259,7 @@ export function ModeSelector(): JSX.Element | null {
                 deepResearchEnabled,
                 webSearchEnabled,
                 errorTrackingModeEnabled,
+                flagsModeEnabled,
                 surveyModeEnabled,
                 hasExistingMessages,
             }),
@@ -263,6 +270,8 @@ export function ModeSelector(): JSX.Element | null {
             errorTrackingModeEnabled,
             surveyModeEnabled,
             hasExistingMessages,
+            flagsModeEnabled,
+            surveyModeEnabled,
         ]
     )
 
