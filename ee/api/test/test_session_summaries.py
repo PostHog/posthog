@@ -147,6 +147,10 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(generated_kwargs["session_ids"], ["session1", "session2"])
         self.assertTrue(generated_kwargs["success"])
         self.assertIsNone(generated_kwargs.get("error_type"))
+        # Verify duration_ms is tracked
+        self.assertIsNotNone(generated_kwargs.get("duration_ms"))
+        self.assertIsInstance(generated_kwargs["duration_ms"], int)
+        self.assertGreaterEqual(generated_kwargs["duration_ms"], 0)
         # Tracking IDs should match
         self.assertEqual(started_kwargs["tracking_id"], generated_kwargs["tracking_id"])
 
@@ -254,6 +258,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
 
+    @patch("ee.api.session_summaries.capture_session_summary_generated")
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.find_sessions_timestamps")
     @patch("ee.api.session_summaries.execute_summarize_session_group")
@@ -262,6 +267,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_execute: Mock,
         mock_find_sessions: Mock,
         mock_feature_enabled: Mock,
+        mock_capture_generated: Mock,
     ) -> None:
         """Test handling of execution failures"""
         # Setup mocks
@@ -283,6 +289,14 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(response.status_code, 500)
         error: dict[str, Any] = response.json()  # type: ignore[attr-defined]
         self.assertIn("Failed to generate session summaries", str(error))
+
+        # Verify duration_ms is tracked even on failure
+        mock_capture_generated.assert_called_once()
+        generated_kwargs = mock_capture_generated.call_args[1]
+        self.assertFalse(generated_kwargs["success"])
+        self.assertIsNotNone(generated_kwargs.get("duration_ms"))
+        self.assertIsInstance(generated_kwargs["duration_ms"], int)
+        self.assertGreaterEqual(generated_kwargs["duration_ms"], 0)
 
     def test_wrong_http_method(self) -> None:
         """Test that only POST is allowed"""
