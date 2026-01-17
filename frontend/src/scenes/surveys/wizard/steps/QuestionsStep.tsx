@@ -392,13 +392,13 @@ function SortableQuestionCard({
     onChangeType,
     onDelete,
 }: SortableQuestionCardProps): JSX.Element {
-    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
         id: index.toString(),
+        animateLayoutChanges: () => false,
     })
 
     const style = {
         transform: CSS.Translate.toString(transform),
-        transition,
     }
 
     return (
