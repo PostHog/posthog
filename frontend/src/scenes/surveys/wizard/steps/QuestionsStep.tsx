@@ -1,8 +1,10 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import { AnimatePresence, motion } from 'motion/react'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { IconEmoji, IconPlusSmall, IconRevert, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -345,6 +347,32 @@ function ConfirmationScreenEditor({ appearance, onUpdate }: ConfirmationScreenEd
     )
 }
 
+interface QuestionCardProps {
+    question: SurveyQuestion
+    index: number
+    canReorder: boolean
+}
+
+function QuestionCardOverlay({ question, index, canReorder }: QuestionCardProps): JSX.Element {
+    return (
+        <div className="border border-border rounded-lg p-4 bg-bg-light shadow-lg cursor-grabbing">
+            <div className="flex items-start gap-2">
+                {canReorder && (
+                    <span className="text-secondary mt-0.5">
+                        <SortableDragIcon />
+                    </span>
+                )}
+                <span className="font-medium text-base shrink-0 w-6">{index + 1}.</span>
+                <div className="flex-1 min-w-0 space-y-2">
+                    <div className="font-medium text-base">{question.question || 'Enter your question'}</div>
+                    {question.description && <div className="text-secondary text-sm">{question.description}</div>}
+                    <QuestionTypeChip type={question.type} onChange={() => {}} />
+                </div>
+            </div>
+        </div>
+    )
+}
+
 interface SortableQuestionCardProps {
     question: SurveyQuestion
     index: number
@@ -369,9 +397,8 @@ function SortableQuestionCard({
     })
 
     const style = {
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition,
-        zIndex: isDragging ? 1 : undefined,
     }
 
     return (
@@ -379,7 +406,9 @@ function SortableQuestionCard({
             ref={setNodeRef}
             style={style}
             {...attributes}
-            className="group border border-border rounded-lg p-4 bg-bg-light hover:border-border-bold transition-colors"
+            className={`group border border-border rounded-lg p-4 bg-bg-light hover:border-border-bold transition-colors ${
+                isDragging ? 'opacity-50' : ''
+            }`}
         >
             <div className="flex items-start gap-2">
                 {/* Drag handle */}
@@ -448,6 +477,8 @@ export function QuestionsStep(): JSX.Element {
     const { selectedTemplate } = useValues(surveyWizardLogic)
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
+    const [activeId, setActiveId] = useState<string | null>(null)
+
     const questions = survey.questions as SurveyQuestion[]
     const sortedItemIds = questions.map((_, index) => index.toString())
 
@@ -485,8 +516,14 @@ export function QuestionsStep(): JSX.Element {
         setSurveyValue('questions', newQuestions)
     }
 
+    const handleDragStart = (event: DragStartEvent): void => {
+        setActiveId(event.active.id.toString())
+    }
+
     const handleDragEnd = (event: DragEndEvent): void => {
         const { active, over } = event
+        setActiveId(null)
+
         if (over && active.id !== over.id) {
             const oldIndex = sortedItemIds.indexOf(active.id.toString())
             const newIndex = sortedItemIds.indexOf(over.id.toString())
@@ -502,6 +539,9 @@ export function QuestionsStep(): JSX.Element {
     const canReorder = questions.length > 1
     const hasChanges = selectedTemplate && JSON.stringify(questions) !== JSON.stringify(selectedTemplate.questions)
 
+    const activeIndex = activeId ? parseInt(activeId, 10) : null
+    const activeQuestion = activeIndex !== null ? questions[activeIndex] : null
+
     return (
         <div className="space-y-6">
             <div className="flex items-start justify-between gap-4">
@@ -516,7 +556,7 @@ export function QuestionsStep(): JSX.Element {
                 )}
             </div>
 
-            <DndContext onDragEnd={handleDragEnd}>
+            <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortedItemIds} strategy={verticalListSortingStrategy} disabled={!canReorder}>
                     <div className="space-y-3">
                         {questions.map((question: SurveyQuestion, index: number) => (
@@ -533,6 +573,19 @@ export function QuestionsStep(): JSX.Element {
                         ))}
                     </div>
                 </SortableContext>
+
+                {createPortal(
+                    <DragOverlay>
+                        {activeQuestion && activeIndex !== null ? (
+                            <QuestionCardOverlay
+                                question={activeQuestion}
+                                index={activeIndex}
+                                canReorder={canReorder}
+                            />
+                        ) : null}
+                    </DragOverlay>,
+                    document.body
+                )}
             </DndContext>
 
             <AddQuestionButton onAdd={addQuestion} />
