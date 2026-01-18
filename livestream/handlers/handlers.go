@@ -93,9 +93,12 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 
 		var columns []string
 		if _, hasColumns := c.QueryParams()["columns"]; hasColumns {
-			columnsParam := c.QueryParam("columns")
+			columnsParam := strings.TrimSpace(c.QueryParam("columns"))
 			if columnsParam != "" {
 				columns = strings.Split(columnsParam, ",")
+				for i, col := range columns {
+					columns[i] = strings.TrimSpace(col)
+				}
 			} else {
 				columns = []string{}
 			}
