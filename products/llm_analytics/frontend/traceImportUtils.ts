@@ -23,7 +23,7 @@ export interface MinimalTraceExport {
     name?: string
     timestamp: string
     total_cost?: number
-    total_tokens: TokenUsage
+    total_tokens?: TokenUsage
     events: MinimalEventExport[]
 }
 
