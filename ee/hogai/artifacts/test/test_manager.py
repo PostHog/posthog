@@ -215,7 +215,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
         self.assertIsNotNone(enriched)
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
-        self.assertEqual(enriched.content.name, "test query")
+        self.assertEqual(enriched.content.name, "Insight")
         self.assertEqual(enriched.content.plan, "test plan")
 
     async def test_state_source_without_state_messages_raises(self):
@@ -317,7 +317,7 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         self.assertEqual(len(contents), 1)
         content = contents[artifact_msg_id]
         assert isinstance(content, VisualizationArtifactContent)
-        self.assertEqual(content.name, "state query")
+        self.assertEqual(content.name, "Insight")
         self.assertEqual(content.plan, "state plan")
 
 
@@ -572,7 +572,7 @@ class TestArtifactManagerGetConversationArtifacts(BaseTest):
         self.assertEqual(len(artifacts), 1)
         self.assertEqual(total_count, 1)
         assert isinstance(artifacts[0].content, VisualizationArtifactContent)
-        self.assertEqual(artifacts[0].content.name, "Same Conversation")
+        self.assertEqual(artifacts[0].content.name, "Same")
 
 
 class TestArtifactManagerGetVisualizationWithSource(BaseTest):

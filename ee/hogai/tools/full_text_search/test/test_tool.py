@@ -29,7 +29,7 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
 
         assert "No search query was provided" in result
 
-    @patch("ee.hogai.context.entity_search.context.search_entities")
+    @patch("ee.hogai.context.entity_search.context.search_entities_fts")
     async def test_search_no_entity_types(self, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
@@ -48,7 +48,7 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
             set(ENTITY_MAP.keys()), "test query", self.team.project_id, ANY, ENTITY_MAP
         )
 
-    @patch("ee.hogai.context.entity_search.context.search_entities")
+    @patch("ee.hogai.context.entity_search.context.search_entities_fts")
     async def test_arun_with_results(self, mock_search_entities):
         all_results: list[dict] = [
             {
@@ -93,11 +93,12 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
 
         mock_db_sync.return_value = raise_error
 
-        result = await self.toolkit.execute(query="test query", search_kind=EntityKind.DASHBOARDS)
+        with self.assertRaises(Exception) as context:
+            await self.toolkit.execute(query="test query", search_kind=EntityKind.DASHBOARDS)
 
-        assert "Database error" in result
+        assert "Database error" in str(context.exception)
 
     async def test_search_entities_invalid_entity_type(self):
         result = await self.toolkit.execute(query="test query", search_kind="invalid_type")  # type: ignore
 
-        assert "Invalid entity kind: invalid_type. Will not perform search for it." in result
+        assert "Invalid entity kind: invalid_type. Please provide a valid entity kind for the tool." in result

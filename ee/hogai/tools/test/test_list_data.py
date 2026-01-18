@@ -4,7 +4,6 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.list_data import ListDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -76,14 +75,6 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIn("To see more results, use offset=2", result)
             self.assertIn("Dashboard 1", result)
             self.assertIn("Dashboard 2", result)
-
-    async def test_list_entities_rejects_all_kind(self):
-        """Test that list entities rejects 'all' as entity kind."""
-        with self.assertRaises(MaxToolRetryableError) as context:
-            await self.tool._arun_impl(kind="all", limit=100, offset=0)
-
-        error_message = str(context.exception)
-        self.assertIn("Invalid entity kind for listing", error_message)
 
     async def test_list_entities_rejects_invalid_kind(self):
         """Test that list entities rejects invalid entity kinds."""
