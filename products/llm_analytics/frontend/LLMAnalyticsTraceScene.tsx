@@ -771,7 +771,7 @@ function ShareTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrac
     const [visible, setVisible] = useState(false)
 
     const currentUrl = window.location.href
-    const previewUrl = `${window.location.origin}/llm-analytics/trace-preview`
+    const previewUrl = `${window.location.origin}${urls.llmAnalyticsTracePreview()}`
 
     const handleCopyInternalLink = async (): Promise<void> => {
         await copyToClipboard(currentUrl, 'trace link')
