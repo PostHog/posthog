@@ -207,10 +207,10 @@ export const TreeNodeBase = React.memo(function TreeNodeBase({
                                 <SearchHighlight
                                     string={formatLLMEventTitle(item)}
                                     substring={searchQuery}
-                                    className="flex-1"
+                                    className="flex-1 text-link"
                                 />
                             ) : (
-                                <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                                <span className="flex-1 truncate text-link">{formatLLMEventTitle(item)}</span>
                             )}
                         </Tooltip>
                     )}
