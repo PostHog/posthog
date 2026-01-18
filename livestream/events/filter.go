@@ -148,7 +148,7 @@ func (c *Filter) Run() {
 					if responseEvent == nil {
 						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
 					}
-T
+
 					select {
 					case sub.EventChan <- *responseEvent:
 					default:
