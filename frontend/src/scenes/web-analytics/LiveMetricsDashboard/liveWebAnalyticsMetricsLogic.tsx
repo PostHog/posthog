@@ -203,7 +203,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
 
             // Filter for only the columns we need
-            url.searchParams.append('columns', '$pathname,$device_type')
+            url.searchParams.append('columns', '$pathname,$device_type,$device_id')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
