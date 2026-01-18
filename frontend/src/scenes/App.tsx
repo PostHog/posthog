@@ -2,6 +2,7 @@ import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { KeaDevtools } from 'lib/KeaDevTools'
+import { Command } from 'lib/components/Command/Command'
 import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -139,6 +140,7 @@ function AppScene(): JSX.Element | null {
             {toastContainer}
             <GlobalModals />
             <GlobalShortcuts />
+            <Command />
             <ImpersonationNotice />
         </div>
     )
