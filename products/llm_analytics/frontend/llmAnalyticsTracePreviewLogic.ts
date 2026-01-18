@@ -9,7 +9,7 @@ import {
     getInitialFocusEventId,
 } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode } from './llmAnalyticsTraceLogic'
-import { parseTraceExportJson, validateTraceExport } from './traceImportUtils'
+import { parseTraceExportJson } from './traceImportUtils'
 import { isLLMEvent } from './utils'
 
 export interface ParsedTraceData {
@@ -258,15 +258,6 @@ export const llmAnalyticsTracePreviewLogic = kea([
             }
 
             try {
-                const data = JSON.parse(rawJson)
-                const validation = validateTraceExport(data)
-
-                if (!validation.valid) {
-                    actions.setValidationError(validation.error || 'Invalid trace data')
-                    actions.setParsedTraceData(null)
-                    return
-                }
-
                 const result = parseTraceExportJson(rawJson)
                 actions.setValidationError(null)
                 actions.setParsedTraceData(result)

@@ -54,6 +54,7 @@ import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { NoTopLevelTraceEmptyState } from './components/NoTopLevelTraceEmptyState'
 import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { useAIData } from './hooks/useAIData'
@@ -580,18 +581,7 @@ const EventContent = React.memo(
                                     content: (
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
-                                                <InsightEmptyState
-                                                    heading="No top-level trace event"
-                                                    detail={
-                                                        <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
-                                                            <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
-                                                        </>
-                                                    }
-                                                />
+                                                <NoTopLevelTraceEmptyState />
                                             ) : displayOption === DisplayOption.TextView &&
                                               (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
                                                   featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (

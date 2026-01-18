@@ -235,7 +235,13 @@ export function parseTraceExportJson(json: string): ParseResult {
     // Reset counter for each parse to ensure consistent IDs
     eventCounter = 0
 
-    const data = JSON.parse(json) as MinimalTraceExport
+    let data: MinimalTraceExport
+
+    try {
+        data = JSON.parse(json) as MinimalTraceExport
+    } catch (error) {
+        throw new Error(`Invalid JSON format: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
 
     const validation = validateTraceExport(data)
 

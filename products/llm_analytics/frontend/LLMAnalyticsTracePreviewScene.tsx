@@ -14,6 +14,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
+import { NoTopLevelTraceEmptyState } from './components/NoTopLevelTraceEmptyState'
 import { EventTypeTag, TraceSidebarBase } from './components/TraceSidebarBase'
 import { EnrichedTraceTreeNode, SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import { TraceViewMode } from './llmAnalyticsTraceLogic'
@@ -26,9 +27,8 @@ export const scene: SceneExport = {
 }
 
 export function LLMAnalyticsTracePreviewScene(): JSX.Element {
-    const { hasTrace, trace, enrichedTree, event, searchQuery, validationError } =
+    const { hasTrace, trace, enrichedTree, event, searchQuery, validationError, effectiveEventId } =
         useValues(llmAnalyticsTracePreviewLogic)
-    const { selectedEventId: eventId } = useValues(llmAnalyticsTracePreviewLogic)
 
     return (
         <div className="min-h-screen bg-bg-3000 p-4">
@@ -47,7 +47,7 @@ export function LLMAnalyticsTracePreviewScene(): JSX.Element {
                             <ClearTraceButton />
                         </div>
                         <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
-                            <PreviewTraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
+                            <PreviewTraceSidebar trace={trace} eventId={effectiveEventId} tree={enrichedTree} />
                             <PreviewEventContent event={event} tree={enrichedTree} searchQuery={searchQuery} />
                         </div>
                     </div>
@@ -59,7 +59,7 @@ export function LLMAnalyticsTracePreviewScene(): JSX.Element {
 
 function TraceInputArea({ validationError }: { validationError: string | null }): JSX.Element {
     const { rawJson } = useValues(llmAnalyticsTracePreviewLogic)
-    const { setRawJson, parseAndLoadTrace } = useActions(llmAnalyticsTracePreviewLogic)
+    const { setRawJson, setValidationError, parseAndLoadTrace } = useActions(llmAnalyticsTracePreviewLogic)
     const [isDragOver, setIsDragOver] = useState(false)
 
     const handleDragOver = (e: React.DragEvent): void => {
@@ -87,6 +87,11 @@ function TraceInputArea({ validationError }: { validationError: string | null })
                     setRawJson(content)
                 }
             }
+
+            reader.onerror = (): void => {
+                setValidationError('Failed to read file. Please try again.')
+            }
+
             reader.readAsText(file)
         }
     }
@@ -246,7 +251,7 @@ function PreviewEventContent({
 
     return (
         <main className="flex-1 min-w-0 bg-surface-primary max-h-fit border border-primary rounded flex flex-col p-4 overflow-y-auto">
-            <header className="deprecated-space-y-2">
+            <header className="space-y-2">
                 <div className="flex-row flex items-center gap-2">
                     <EventTypeTag event={event} />
                     <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">{formatLLMEventTitle(event)}</h3>
@@ -365,6 +370,13 @@ function ConversationTabContent({
                 raisedError={event.properties.$ai_is_error}
             />
         )
+    }
+
+    // Check if this is a top-level trace without actual content (no $ai_trace event)
+    const isTopLevelTraceWithoutContent = !event.inputState && !event.outputState
+
+    if (isTopLevelTraceWithoutContent) {
+        return <NoTopLevelTraceEmptyState />
     }
 
     return <EventContentDisplayAsync eventId={event.id} rawInput={event.inputState} rawOutput={event.outputState} />

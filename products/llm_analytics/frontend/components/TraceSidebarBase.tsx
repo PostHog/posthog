@@ -105,7 +105,7 @@ export function renderModelRow(event: LLMTrace | LLMTraceEvent, searchQuery?: st
             return searchQuery?.trim() ? (
                 <SearchHighlight string={model} substring={searchQuery} className="flex-1" />
             ) : (
-                <span className="flex-1 truncate"> {model} </span>
+                <span className="flex-1 truncate">{model}</span>
             )
         }
     }
@@ -155,11 +155,12 @@ export const TreeNodeBase = React.memo(function TreeNodeBase({
 
     const eventType = getEventType(item)
     const isCollapsedDueToFilter = !eventTypeExpanded(eventType)
+    const llmEvent = isLLMEvent(item) ? (item as LLMTraceEvent) : null
     const isBillable =
         showBillingInfo &&
-        isLLMEvent(item) &&
-        (item as LLMTraceEvent).event === '$ai_generation' &&
-        !!(item as LLMTraceEvent).properties?.$ai_billable
+        llmEvent !== null &&
+        llmEvent.event === '$ai_generation' &&
+        !!llmEvent.properties?.$ai_billable
 
     const children = [
         isLLMEvent(item) && item.properties.$ai_is_error && (
