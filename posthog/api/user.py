@@ -256,12 +256,16 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
         instance = cast(User, self.instance)
-        current_settings = {**NOTIFICATION_DEFAULTS, **(instance.partial_notification_settings or {})}
+        current_settings = {
+            **NOTIFICATION_DEFAULTS,
+            **(instance.partial_notification_settings or {}),
+        }
 
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
                 raise serializers.ValidationError(
-                    f"Key {key} is not valid as a key for notification settings", code="invalid_input"
+                    f"Key {key} is not valid as a key for notification settings",
+                    code="invalid_input",
                 )
 
             expected_type = Notifications.__annotations__[key]
@@ -280,7 +284,10 @@ class UserSerializer(serializers.ModelSerializer):
                             code="invalid_input",
                         )
                 # Merge with existing settings
-                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+                current_settings[key] = {
+                    **current_settings.get("project_weekly_digest_disabled", {}),
+                    **value,
+                }
             else:
                 # For non-dict settings, validate type directly
                 if not isinstance(value, expected_type):
@@ -437,7 +444,11 @@ class UserViewSet(
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -561,7 +572,8 @@ class UserViewSet(
 
         if not instance.pending_email:
             raise serializers.ValidationError(
-                "No active email change requests found.", code="email_change_request_not_found"
+                "No active email change requests found.",
+                code="email_change_request_not_found",
             )
 
         instance.pending_email = None
@@ -616,7 +628,12 @@ class UserViewSet(
 
         # Store for 10 minutes (same as django-two-factor-auth setup flow)
         session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
-        session_cache.set("django_two_factor-qr_secret_key", b32key, timeout=600, store_in_session=True)
+        session_cache.set(
+            "django_two_factor-qr_secret_key",
+            b32key,
+            timeout=600,
+            store_in_session=True,
+        )
 
         # Return the secret key so the frontend can generate QR code and show it for manual entry
         return Response(
@@ -638,7 +655,8 @@ class UserViewSet(
 
         if not hex_key:
             raise serializers.ValidationError(
-                "2FA setup session expired. Please start setup again.", code="setup_expired"
+                "2FA setup session expired. Please start setup again.",
+                code="setup_expired",
             )
 
         form = TOTPDeviceForm(
@@ -783,7 +801,10 @@ def prepare_toolbar_preloaded_flags(request):
         cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
 
         return JsonResponse({"key": key, "flag_count": len(flags)})
-    except (json.JSONDecodeError, ValueError, KeyError, requests.RequestException) as e:
+    except requests.RequestException as e:
+        logger.exception("Flags service unavailable", error=str(e))
+        return JsonResponse({"error": "Service temporarily unavailable"}, status=503)
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
         logger.exception("Error preparing toolbar launch", error=str(e))
         return JsonResponse({"error": "Invalid request"}, status=400)
 
@@ -800,7 +821,10 @@ def redirect_to_site(request):
     if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         logger.error(
-            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+            "can_only_redirect_to_permitted_domain",
+            permitted_domains=team.app_urls,
+            app_url=app_url,
+            team_id=team.id,
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
     request.user.temporary_token = secrets.token_urlsafe(32)
@@ -847,7 +871,10 @@ def redirect_to_website(request):
 
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
         logger.error(
-            "can_only_redirect_to_permitted_domain", permitted_domains=team.app_urls, app_url=app_url, team_id=team.id
+            "can_only_redirect_to_permitted_domain",
+            permitted_domains=team.app_urls,
+            app_url=app_url,
+            team_id=team.id,
         )
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 

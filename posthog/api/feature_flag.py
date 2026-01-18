@@ -1270,24 +1270,6 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
-def _evaluate_flags_with_fallback(
-    team: Any,
-    distinct_id: str,
-    groups: dict[str, Any] | None,
-) -> dict:
-    """
-    Proxy to the Rust flags service for feature flag evaluation.
-
-    Returns:
-        dict[str, Any]: Rust service response with structure {"flags": {...}, ...}
-    """
-    return get_flags_from_service(
-        token=team.api_token,
-        distinct_id=distinct_id,
-        groups=groups,
-    )
-
-
 @extend_schema(tags=[ProductKey.FEATURE_FLAGS])
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
@@ -1731,8 +1713,8 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError("User distinct_id is required")
 
-        result = _evaluate_flags_with_fallback(
-            team=self.team,
+        result = get_flags_from_service(
+            token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
         )
@@ -2008,8 +1990,8 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
-        result = _evaluate_flags_with_fallback(
-            team=self.team,
+        result = get_flags_from_service(
+            token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
         )

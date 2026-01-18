@@ -33,12 +33,6 @@ RATE_LIMIT_BYPASSED_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, LABEL_PATH, LABEL_ROUTE],
 )
 
-DECIDE_RATE_LIMIT_EXCEEDED_COUNTER = Counter(
-    "decide_rate_limit_exceeded_total",
-    "Dropped requests due to rate-limiting, per token.",
-    labelnames=["token"],
-)
-
 
 @lru_cache(maxsize=1)
 def get_team_allow_list(_ttl: int) -> list[str]:
