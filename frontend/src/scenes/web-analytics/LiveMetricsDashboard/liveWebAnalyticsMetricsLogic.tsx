@@ -22,6 +22,7 @@ import { ChartDataPoint, DeviceBreakdownItem, PathItem, SlidingWindowBucket } fr
 import type { liveWebAnalyticsMetricsLogicType } from './liveWebAnalyticsMetricsLogicType'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
+const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const BUCKET_WINDOW_MINUTES = 30
 const BATCH_FLUSH_INTERVAL_MS = 300
 const BATCH_SIZE_THRESHOLD = 10
@@ -40,6 +41,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         loadInitialData: true,
         updateConnection: true,
         tickCurrentMinute: true,
+        pauseStream: true,
+        resumeStream: true,
     })),
     reducers({
         slidingWindow: [
@@ -115,28 +118,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         ],
         deviceBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
-            (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => {
-                const totals = slidingWindow.getDeviceTotals()
-
-                // TODO: We should keep track of this data as we ingest events into the SlidingWindow
-                //  so we don't need to iterate over a bunch of data
-                let total = 0
-                for (const count of totals.values()) {
-                    total += count
-                }
-
-                if (total === 0) {
-                    return []
-                }
-
-                return [...totals.entries()]
-                    .map(([device, count]) => ({
-                        device,
-                        count,
-                        percentage: (count / total) * 100,
-                    }))
-                    .sort((a, b) => b.count - a.count)
-            },
+            (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
         ],
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -146,8 +128,32 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalPageviews(),
         ],
+        totalUniqueVisitors: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalUniqueUsers(),
+        ],
+        totalDevices: [
+            (s) => [s.slidingWindow, s.windowVersion],
+            (slidingWindow: LiveMetricsSlidingWindow): number => slidingWindow.getTotalDeviceCount(),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
+        pauseStream: () => {
+            cache.eventSourceController?.abort()
+            if (cache.retryTimeout) {
+                clearTimeout(cache.retryTimeout)
+                cache.retryTimeout = null
+            }
+        },
+        resumeStream: () => {
+            if (cache.hasInitialized) {
+                lemonToast.info('Refreshing live data...', {
+                    toastId: RECONNECT_TOAST_ID,
+                    autoClose: 2000,
+                })
+            }
+            actions.loadInitialData()
+        },
         loadInitialData: async () => {
             actions.setIsLoading(true)
 
@@ -175,6 +181,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 lemonToast.error('Failed to load initial data')
             } finally {
                 actions.setIsLoading(false)
+                cache.hasInitialized = true
             }
         },
         updateConnection: async () => {
