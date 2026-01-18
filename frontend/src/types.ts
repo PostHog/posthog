@@ -1388,10 +1388,13 @@ export type SearchableEntity =
     | 'cohort'
     | 'insight'
     | 'dashboard'
+    | 'early_access_feature'
     | 'event_definition'
     | 'experiment'
     | 'feature_flag'
+    | 'hog_flow'
     | 'notebook'
+    | 'property_definition'
     | 'survey'
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
