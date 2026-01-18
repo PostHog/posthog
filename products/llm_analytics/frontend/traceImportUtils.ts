@@ -74,6 +74,22 @@ export function validateTraceExport(data: unknown): ValidationResult {
         return { valid: false, error: 'Events array is empty' }
     }
 
+    for (const event of trace.events) {
+        if (!event || typeof event !== 'object') {
+            return { valid: false, error: 'Invalid event in events array' }
+        }
+
+        const eventObj = event as Record<string, unknown>
+
+        if (!eventObj.type || typeof eventObj.type !== 'string') {
+            return { valid: false, error: 'Event missing required type field' }
+        }
+
+        if (!eventObj.name || typeof eventObj.name !== 'string') {
+            return { valid: false, error: 'Event missing required name field' }
+        }
+    }
+
     return { valid: true }
 }
 
