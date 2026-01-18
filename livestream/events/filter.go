@@ -115,7 +115,6 @@ func (c *Filter) Run() {
 
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
-					log.Println("User has unsubscribed, but not been removed from the slice of subs")
 					continue
 				}
 
@@ -149,7 +148,7 @@ func (c *Filter) Run() {
 					if responseEvent == nil {
 						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
 					}
-
+T
 					select {
 					case sub.EventChan <- *responseEvent:
 					default:
