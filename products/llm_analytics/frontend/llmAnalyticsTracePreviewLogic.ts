@@ -9,6 +9,7 @@ import {
     getInitialFocusEventId,
 } from './llmAnalyticsTraceDataLogic'
 import { DisplayOption, TraceViewMode } from './llmAnalyticsTraceLogic'
+import type { llmAnalyticsTracePreviewLogicType } from './llmAnalyticsTracePreviewLogicType'
 import { parseTraceExportJson } from './traceImportUtils'
 import { isLLMEvent } from './utils'
 
@@ -17,7 +18,7 @@ export interface ParsedTraceData {
     enrichedTree: EnrichedTraceTreeNode[]
 }
 
-export const llmAnalyticsTracePreviewLogic = kea([
+export const llmAnalyticsTracePreviewLogic = kea<llmAnalyticsTracePreviewLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsTracePreviewLogic']),
 
     actions({
