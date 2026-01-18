@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
@@ -8,11 +8,12 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeAttributeProperties, NotebookNodeType } from '../types'
-import { VariableUsage } from './notebookNodeContent'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import type { NotebookDependencyUsage } from './notebookNodeContent'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { PythonExecutionResult } from './pythonExecution'
-import { renderAnsiText } from './utils'
+import { PythonExecutionMedia, PythonExecutionResult } from './pythonExecution'
+import { buildMediaSource, renderAnsiText } from './utils'
 
 export type NotebookNodePythonAttributes = {
     code: string
@@ -21,6 +22,9 @@ export type NotebookNodePythonAttributes = {
     globalsAnalysisHash?: string | null
     pythonExecution?: PythonExecutionResult | null
     pythonExecutionCodeHash?: number | null
+    pythonExecutionSandboxId?: string | null
+    showSettings?: boolean
+    autoHeight?: boolean
 }
 
 const VariableUsageOverlay = ({
@@ -31,20 +35,20 @@ const VariableUsageOverlay = ({
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
-    const groupedUsageEntries = usages.reduce<Record<string, VariableUsage>>((acc, usage) => {
+    const groupedUsageEntries = usages.reduce<Record<string, NotebookDependencyUsage>>((acc, usage) => {
         if (!acc[usage.nodeId]) {
             acc[usage.nodeId] = usage
         }
         return acc
     }, {})
-    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.pythonIndex - b.pythonIndex)
+    const sortedUsageEntries = Object.values(groupedUsageEntries).sort((a, b) => a.nodeIndex - b.nodeIndex)
 
-    const usageLabel = (usage: VariableUsage): string => {
+    const usageLabel = (usage: NotebookDependencyUsage): string => {
         const trimmedTitle = usage.title.trim()
-        return trimmedTitle ? trimmedTitle : `Python cell ${usage.pythonIndex}`
+        return trimmedTitle ? trimmedTitle : `Python cell ${usage.nodeIndex}`
     }
 
     return (
@@ -58,7 +62,7 @@ const VariableUsageOverlay = ({
                     <div className="text-muted text-[10px] uppercase tracking-wide">Used in</div>
                     <div className="mt-1 space-y-1 max-h-48 overflow-y-auto">
                         {sortedUsageEntries.map((usage) => (
-                            <div key={`usage-${usage.pythonIndex}`}>
+                            <div key={`usage-${usage.nodeIndex}`}>
                                 {onNavigateToNode ? (
                                     <button
                                         type="button"
@@ -89,7 +93,7 @@ const VariableDependencyBadge = ({
 }: {
     name: string
     type: string
-    usages: VariableUsage[]
+    usages: NotebookDependencyUsage[]
     onNavigateToNode?: (nodeId: string) => void
 }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)
@@ -148,37 +152,135 @@ const OutputBlock = ({
     )
 }
 
-const Component = (): JSX.Element | null => {
-    const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { expanded, displayedGlobals, exportedGlobals, usageByVariable, pythonExecution } = useValues(nodeLogic)
-    const { navigateToNode } = useActions(nodeLogic)
-
-    if (!expanded) {
+const MediaBlock = ({ media }: { media: PythonExecutionMedia }): JSX.Element | null => {
+    const source = buildMediaSource(media)
+    if (!source) {
         return null
     }
 
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted">Image</div>
+            <img
+                src={source}
+                alt="Python output"
+                className="mt-2 max-w-full border border-border rounded bg-bg-light"
+            />
+        </div>
+    )
+}
+
+const DEFAULT_PYTHON_NODE_HEIGHT = 100
+const MAX_PYTHON_NODE_HEIGHT = 500
+
+const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const {
+        dataframePage,
+        dataframePageSize,
+        dataframeLoading,
+        dataframeResult,
+        dataframeVariableName,
+        displayedGlobals,
+        expanded,
+        exportedGlobals,
+        pythonExecution,
+        usageByVariable,
+    } = useValues(nodeLogic)
+    const { navigateToNode, setDataframePage, setDataframePageSize } = useActions(nodeLogic)
+    const outputRef = useRef<HTMLDivElement | null>(null)
+    const footerRef = useRef<HTMLDivElement | null>(null)
+
+    const hasResult = pythonExecution?.result !== undefined && pythonExecution?.result !== null
     const hasExecution =
         pythonExecution &&
         (pythonExecution.stdout ||
             pythonExecution.stderr ||
-            pythonExecution.result ||
+            hasResult ||
+            pythonExecution.media?.length ||
             pythonExecution.traceback?.length ||
             pythonExecution.variables?.length)
 
+    useLayoutEffect(() => {
+        if (!hasExecution || attributes.autoHeight === false) {
+            return
+        }
+        const output = outputRef.current
+        if (!output) {
+            return
+        }
+        const footerHeight = footerRef.current?.offsetHeight ?? 0
+        const desiredHeight = Math.min(MAX_PYTHON_NODE_HEIGHT, output.scrollHeight + footerHeight)
+        const currentHeight = typeof attributes.height === 'number' ? attributes.height : DEFAULT_PYTHON_NODE_HEIGHT
+
+        if (desiredHeight !== currentHeight) {
+            updateAttributes({ height: desiredHeight })
+        }
+    }, [
+        attributes.height,
+        hasExecution,
+        pythonExecution?.media?.length,
+        pythonExecution?.result,
+        pythonExecution?.stderr,
+        pythonExecution?.stdout,
+        pythonExecution?.traceback?.length,
+        pythonExecution?.variables?.length,
+        updateAttributes,
+    ])
+
+    if (!expanded) {
+        return null
+    }
+    const showDataframeTable = !!dataframeVariableName
+
     return (
         <div data-attr="notebook-node-python" className="flex h-full flex-col gap-2">
-            <div className="p-3 overflow-y-auto h-full space-y-3">
+            <div
+                ref={outputRef}
+                className="p-2 overflow-y-auto h-full space-y-3"
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
                 {hasExecution ? (
                     <>
                         {pythonExecution?.stdout ? (
-                            <OutputBlock title="Output" toneClassName="text-default" value={pythonExecution.stdout} />
+                            <OutputBlock
+                                title="Output"
+                                toneClassName="text-default"
+                                value={pythonExecution.stdout ?? ''}
+                            />
                         ) : null}
                         {pythonExecution?.stderr ? (
-                            <OutputBlock title="stderr" toneClassName="text-danger" value={pythonExecution.stderr} />
+                            <OutputBlock
+                                title="stderr"
+                                toneClassName="text-danger"
+                                value={pythonExecution.stderr ?? ''}
+                            />
                         ) : null}
-                        {pythonExecution?.result ? (
-                            <OutputBlock title="Result" toneClassName="text-default" value={pythonExecution.result} />
+                        {hasResult && !showDataframeTable ? (
+                            <OutputBlock
+                                title="Result"
+                                toneClassName="text-default"
+                                value={pythonExecution.result ?? ''}
+                            />
                         ) : null}
+                        {showDataframeTable ? (
+                            <NotebookDataframeTable
+                                result={dataframeResult}
+                                loading={dataframeLoading}
+                                page={dataframePage}
+                                pageSize={dataframePageSize}
+                                onNextPage={() => setDataframePage(dataframePage + 1)}
+                                onPreviousPage={() => setDataframePage(Math.max(1, dataframePage - 1))}
+                                onPageSizeChange={setDataframePageSize}
+                            />
+                        ) : null}
+                        {pythonExecution?.media?.map((media, index) => (
+                            <MediaBlock key={`python-media-${index}`} media={media} />
+                        ))}
                         {pythonExecution?.status === 'error' && pythonExecution.traceback?.length ? (
                             <OutputBlock
                                 title="Error"
@@ -192,7 +294,7 @@ const Component = (): JSX.Element | null => {
                 )}
             </div>
             {exportedGlobals.length > 0 ? (
-                <div className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
+                <div ref={footerRef} className="flex items-start flex-wrap gap-2 text-xs text-muted border-t p-2">
                     <span className="font-mono mt-1">
                         <IconCornerDownRight />
                     </span>
@@ -217,11 +319,17 @@ const Settings = ({
     attributes,
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { runPythonNodeWithMode } = useActions(nodeLogic)
+
     return (
         <CodeEditorResizeable
             language="python"
             value={attributes.code}
             onChange={(value) => updateAttributes({ code: value ?? '' })}
+            onPressCmdEnter={() => {
+                void runPythonNodeWithMode({ mode: 'auto' })
+            }}
             allowManualResize={false}
             minHeight={160}
             embedded
@@ -255,6 +363,15 @@ export const NotebookNodePython = createPostHogWidgetNode<NotebookNodePythonAttr
         },
         pythonExecutionCodeHash: {
             default: null,
+        },
+        pythonExecutionSandboxId: {
+            default: null,
+        },
+        showSettings: {
+            default: false,
+        },
+        autoHeight: {
+            default: true,
         },
     },
     Settings,

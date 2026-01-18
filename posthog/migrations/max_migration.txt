@@ -1,1 +1,1 @@
-0973_alter_integration_kind
+0974_alter_scheduledchange_recurrence_interval

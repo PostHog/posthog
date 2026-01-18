@@ -53,6 +53,8 @@ export interface EditableFieldProps {
     clickToEdit?: boolean
     /** If true, uses a smaller pencil icon. */
     compactIcon?: boolean
+    /** If true, hides the edit icon until hover. */
+    showEditIconOnHover?: boolean
 }
 
 export function EditableField({
@@ -79,6 +81,7 @@ export function EditableField({
     notice,
     clickToEdit = false,
     compactIcon = false,
+    showEditIconOnHover = false,
 }: EditableFieldProps): JSX.Element {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
@@ -183,6 +186,7 @@ export function EditableField({
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
                 editingIndication === 'underlined' && 'EditableField--underlined',
+                showEditIconOnHover && 'group/editable',
                 className
             )}
             data-attr={dataAttr}
@@ -288,7 +292,13 @@ export function EditableField({
                             </Tooltip>
                         )}
                         {(!mode || !!onModeToggle) && (
-                            <div className="EditableField__actions">
+                            <div
+                                className={clsx(
+                                    'EditableField__actions',
+                                    showEditIconOnHover &&
+                                        'opacity-0 group-hover/editable:opacity-100 transition-opacity'
+                                )}
+                            >
                                 <LemonButton
                                     title="Edit"
                                     icon={<IconPencil className={compactIcon ? 'w-3 h-3' : undefined} />}
