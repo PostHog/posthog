@@ -102,6 +102,7 @@ function generateEventId(): string {
 function convertEventToInternal(
     event: MinimalEventExport,
     traceId: string,
+    traceTimestamp: string,
     parentId?: string
 ): { event: LLMTraceEvent; childEvents: LLMTraceEvent[] } {
     const eventId = generateEventId()
@@ -202,7 +203,7 @@ function convertEventToInternal(
         id: eventId,
         event: eventType,
         properties,
-        createdAt: new Date().toISOString(),
+        createdAt: traceTimestamp,
     }
 
     // Process children recursively
@@ -210,7 +211,7 @@ function convertEventToInternal(
 
     if (event.children && event.children.length > 0) {
         for (const child of event.children) {
-            const { event: childEvent, childEvents } = convertEventToInternal(child, traceId, eventId)
+            const { event: childEvent, childEvents } = convertEventToInternal(child, traceId, traceTimestamp, eventId)
             allChildEvents.push(childEvent, ...childEvents)
         }
     }
@@ -246,7 +247,7 @@ export function parseTraceExportJson(json: string): ParseResult {
     const allEvents: LLMTraceEvent[] = []
 
     for (const event of data.events) {
-        const { event: internalEvent, childEvents } = convertEventToInternal(event, data.trace_id)
+        const { event: internalEvent, childEvents } = convertEventToInternal(event, data.trace_id, data.timestamp)
         allEvents.push(internalEvent, ...childEvents)
     }
 
