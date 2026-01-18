@@ -629,6 +629,64 @@ mod tests {
         }
     }
 
+    mod hash_key_override_status_tests {
+        use super::*;
+        use rstest::rstest;
+
+        #[rstest]
+        #[case(None, "no experience continuity flags")]
+        #[case(Some("skipped"), "optimization applied - 100% rollout")]
+        #[case(Some("error"), "query failed")]
+        #[case(Some("empty"), "query succeeded, no overrides")]
+        #[case(Some("found"), "query succeeded, overrides returned")]
+        fn test_hash_key_override_status_values(
+            #[case] status: Option<&'static str>,
+            #[case] _description: &str,
+        ) {
+            let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+            log.hash_key_override_status = status;
+            // Verify the value can be set and emit doesn't panic
+            assert_eq!(log.hash_key_override_status, status);
+            log.emit();
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_skipped_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("skipped"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("skipped"));
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_error_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("error"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("error"));
+        }
+
+        #[tokio::test]
+        async fn test_hash_key_override_status_empty_in_scope() {
+            let log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
+
+            let (_, final_log) = run_with_canonical_log(log, async {
+                with_canonical_log(|l| l.hash_key_override_status = Some("empty"));
+            })
+            .await;
+
+            assert_eq!(final_log.hash_key_override_status, Some("empty"));
+        }
+    }
+
     mod truncate_chars_tests {
         use super::*;
         use rstest::rstest;
