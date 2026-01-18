@@ -198,35 +198,35 @@ func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
 
 	eventChan1 := make(chan interface{}, 1)
 	sub1 := Subscription{
-		SubID:             1,
-		TeamId:            1,
-		Token:             "token1",
-		EventChan:         eventChan1,
-		ShouldClose:       &atomic.Bool{},
-		DroppedEvents:     &atomic.Uint64{},
-		IncludeProperties: &[]string{"url"},
+		SubID:         1,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan1,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    []string{"url"},
 	}
 
 	eventChan2 := make(chan interface{}, 1)
 	sub2 := Subscription{
-		SubID:             2,
-		TeamId:            1,
-		Token:             "token1",
-		EventChan:         eventChan2,
-		ShouldClose:       &atomic.Bool{},
-		DroppedEvents:     &atomic.Uint64{},
-		IncludeProperties: &[]string{"url", "$browser"},
+		SubID:         2,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan2,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    []string{"url", "$browser"},
 	}
 
 	eventChan3 := make(chan interface{}, 1)
 	sub3 := Subscription{
-		SubID:             3,
-		TeamId:            1,
-		Token:             "token1",
-		EventChan:         eventChan3,
-		ShouldClose:       &atomic.Bool{},
-		DroppedEvents:     &atomic.Uint64{},
-		IncludeProperties: nil,
+		SubID:         3,
+		TeamId:        1,
+		Token:         "token1",
+		EventChan:     eventChan3,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
+		Columns:    nil,
 	}
 
 	subChan <- sub1
@@ -337,7 +337,7 @@ func TestIncludeProperties_EmptySliceIncludesNoProperties(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, &[]string{})
+	result := convertToResponsePostHogEvent(event, 1, []string{})
 
 	assert.Equal(t, map[string]interface{}{}, result.Properties)
 }
@@ -355,7 +355,7 @@ func TestIncludeProperties_SpecificPropertiesFiltersCorrectly(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, &[]string{"url", "$device_type"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "$device_type"})
 
 	assert.Equal(t, map[string]interface{}{
 		"url":          "https://example.com",
@@ -374,7 +374,7 @@ func TestIncludeProperties_NonExistentPropertiesAreIgnored(t *testing.T) {
 		},
 	}
 
-	result := convertToResponsePostHogEvent(event, 1, &[]string{"url", "nonexistent"})
+	result := convertToResponsePostHogEvent(event, 1, []string{"url", "nonexistent"})
 
 	assert.Equal(t, map[string]interface{}{
 		"url": "https://example.com",

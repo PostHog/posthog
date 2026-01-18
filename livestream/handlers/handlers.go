@@ -91,15 +91,14 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			geoOnly = true
 		}
 
-		var includeProperties *[]string
-		if _, hasIncludeProperties := c.QueryParams()["includeProperties"]; hasIncludeProperties {
-			includeProps := c.QueryParam("includeProperties")
-			var props []string
-			if includeProps != "" {
-				props = strings.Split(includeProps, ",")
+		var columns []string
+		if _, hasColumns := c.QueryParams()["columns"]; hasColumns {
+			columnsParam := c.QueryParam("columns")
+			if columnsParam != "" {
+				columns = strings.Split(columnsParam, ",")
+			} else {
+				columns = []string{}
 			}
-
-			includeProperties = &props
 		}
 
 		var eventTypes []string
@@ -108,16 +107,16 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		}
 
 		subscription := events.Subscription{
-			SubID:         atomic.AddUint64(&subID, 1),
-			TeamId:        teamID,
-			Token:         token,
-			DistinctId:    distinctId,
-			Geo:           geoOnly,
-			IncludeProperties: includeProperties,
-			EventTypes:    eventTypes,
-			EventChan:     make(chan interface{}, 100),
-			ShouldClose:   &atomic.Bool{},
-			DroppedEvents: &atomic.Uint64{},
+			SubID:      atomic.AddUint64(&subID, 1),
+			TeamId:     teamID,
+			Token:      token,
+			DistinctId: distinctId,
+			Geo:        geoOnly,
+			Columns:    columns,
+			EventTypes: eventTypes,
+			EventChan:        make(chan interface{}, 100),
+			ShouldClose:      &atomic.Bool{},
+			DroppedEvents:    &atomic.Uint64{},
 		}
 
 		subChan <- subscription

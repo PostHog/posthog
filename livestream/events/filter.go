@@ -20,8 +20,8 @@ type Subscription struct {
 	DistinctId string
 	EventTypes []string
 
-	Geo               bool
-	IncludeProperties *[]string
+	Geo        bool
+	Columns []string
 
 	// Channels
 	EventChan   chan interface{}
@@ -67,13 +67,13 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId int, includeProperties *[]string) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []string) *ResponsePostHogEvent {
 	var properties map[string]interface{}
-	if includeProperties == nil {
+	if columns == nil {
 		properties = event.Properties
 	} else {
 		properties = make(map[string]interface{})
-		for _, key := range *includeProperties {
+		for _, key := range columns {
 			if val, ok := event.Properties[key]; ok {
 				properties[key] = val
 			}
@@ -123,7 +123,6 @@ func (c *Filter) Run() {
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
-			var responseEvent *ResponsePostHogEvent
 			var responseGeoEvent *ResponseGeoEvent
 
 			for _, sub := range c.subs {
@@ -157,19 +156,8 @@ func (c *Filter) Run() {
 							metrics.DroppedEvents.With(prometheus.Labels{"channel": "geo"}).Inc()
 						}
 					}
-				} else if sub.IncludeProperties != nil {
-					filteredEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.IncludeProperties)
-
-					select {
-					case sub.EventChan <- *filteredEvent:
-					default:
-						sub.DroppedEvents.Add(1)
-						metrics.DroppedEvents.With(prometheus.Labels{"channel": "events"}).Inc()
-					}
 				} else {
-					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId, nil)
-					}
+					responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
 
 					select {
 					case sub.EventChan <- *responseEvent:
