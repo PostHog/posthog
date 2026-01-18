@@ -40,8 +40,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -56,8 +76,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -72,8 +112,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -88,8 +148,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -104,8 +184,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -120,8 +220,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -136,8 +256,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -365,8 +505,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -381,8 +541,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---
@@ -397,8 +577,28 @@
          "posthog_datamodelingnode"."dag_id",
          "posthog_datamodelingnode"."name",
          "posthog_datamodelingnode"."type",
-         "posthog_datamodelingnode"."properties"
+         "posthog_datamodelingnode"."properties",
+         "posthog_datawarehousesavedquery"."created_by_id",
+         "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."deleted",
+         "posthog_datawarehousesavedquery"."deleted_at",
+         "posthog_datawarehousesavedquery"."id",
+         "posthog_datawarehousesavedquery"."name",
+         "posthog_datawarehousesavedquery"."team_id",
+         "posthog_datawarehousesavedquery"."latest_error",
+         "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."external_tables",
+         "posthog_datawarehousesavedquery"."query",
+         "posthog_datawarehousesavedquery"."status",
+         "posthog_datawarehousesavedquery"."last_run_at",
+         "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."table_id",
+         "posthog_datawarehousesavedquery"."is_materialized",
+         "posthog_datawarehousesavedquery"."deleted_name",
+         "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin"
   FROM "posthog_datamodelingnode"
+  INNER JOIN "posthog_datawarehousesavedquery" ON ("posthog_datamodelingnode"."saved_query_id" = "posthog_datawarehousesavedquery"."id")
   WHERE "posthog_datamodelingnode"."saved_query_id" = '00000000000000000000000000000000'::uuid
   '''
 # ---

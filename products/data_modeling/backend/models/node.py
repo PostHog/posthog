@@ -45,4 +45,9 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 name="saved_query_unique_within_team_dag",
                 fields=["team", "dag_id", "saved_query"],
             ),
+            models.UniqueConstraint(
+                condition=models.Q(saved_query__isnull=True),
+                name="name_unique_within_team_dag_for_tables",
+                fields=["team", "dag_id", "name"],
+            ),
         ]
