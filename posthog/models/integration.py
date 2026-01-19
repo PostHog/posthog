@@ -38,6 +38,7 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
@@ -109,6 +110,7 @@ class Integration(models.Model):
         VERCEL = "vercel"
         DATABRICKS = "databricks"
         AZURE_BLOB = "azure-blob"
+        FIREBASE = "firebase"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -1107,6 +1109,91 @@ class GoogleCloudIntegration:
         logger.info(f"Refreshed access token for {self}")
 
 
+class FirebaseIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "firebase":
+            raise Exception("FirebaseIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+
+        try:
+            credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        project_id = key_info.get("project_id")
+        if not project_id:
+            raise ValidationError("Service account key must contain a project_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="firebase",
+            integration_id=project_id,
+            defaults={
+                "config": {
+                    "project_id": project_id,
+                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                    "refreshed_at": int(time.time()),
+                },
+                "sensitive_config": {
+                    "key_info": key_info,
+                    "access_token": credentials.token,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @property
+    def project_id(self) -> str:
+        return self.integration.config.get("project_id", "")
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be really safe we refresh if its half way through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        scope = "https://www.googleapis.com/auth/firebase.messaging"
+        key_info = self.integration.sensitive_config.get("key_info", {})
+
+        credentials = service_account.Credentials.from_service_account_info(key_info, scopes=[scope])
+
+        try:
+            credentials.refresh(GoogleRequest())
+        except Exception:
+            raise ValidationError("Failed to authenticate with provided Firebase service account key")
+
+        self.integration.config["expires_in"] = credentials.expiry.timestamp() - int(time.time())
+        self.integration.config["refreshed_at"] = int(time.time())
+        self.integration.sensitive_config["access_token"] = credentials.token
+        self.integration.save()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+
+        logger.info(f"Refreshed access token for FirebaseIntegration {self.integration.id}")
+
+    def get_access_token(self) -> str:
+        if self.access_token_expired():
+            self.refresh_access_token()
+        return self.integration.sensitive_config.get("access_token", "")
+
+
 class LinkedInAdsIntegration:
     integration: Integration
 
@@ -1806,24 +1893,42 @@ class GitHubIntegration:
             }
 
 
+class GitLabIntegrationError(Exception):
+    pass
+
+
 class GitLabIntegration:
     integration: Integration
 
     @staticmethod
     def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.get(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
 
     @staticmethod
     def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        url = f"{hostname}/api/v4/{endpoint}"
+        allowed, error = is_url_allowed(url)
+        if not allowed:
+            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+
         response = requests.post(
-            f"{hostname}/api/v4/{endpoint}",
+            url,
             json=json,
             headers={"PRIVATE-TOKEN": project_access_token},
+            # disallow redirects to prevent SSRF on redirected host
+            allow_redirects=False,
         )
 
         return response.json()
@@ -2103,8 +2208,8 @@ class AzureBlobIntegration:
 
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
-        except KeyError as e:
-            raise AzureBlobIntegrationError(f"Azure Blob integration is missing required field: {e}")
+        except KeyError:
+            raise AzureBlobIntegrationError("Azure Blob integration is missing required field: 'connection_string'")
 
     @classmethod
     def integration_from_config(

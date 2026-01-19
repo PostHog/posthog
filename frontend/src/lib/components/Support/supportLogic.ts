@@ -99,7 +99,7 @@ function getDjangoAdminLink(
     if (!user || !cloudRegion) {
         return ''
     }
-    const link = `http://go/admin${cloudRegion}/${user.email}`
+    const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
     return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 

@@ -117,6 +117,7 @@ export interface ModeDefinition {
 export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
+    'list_data',
     'search',
     'switch_mode',
 ]
@@ -439,6 +440,22 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return isExecuting() ? 'Analyzing a dashboard...' : 'Retrieving a dashboard...'
                 },
             },
+        },
+    },
+    list_data: {
+        name: 'List data',
+        description: 'List data with pagination to browse PostHog entities',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const kind = typeof toolCall.args?.kind === 'string' ? toolCall.args.kind : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const entityLabel = (kind ? kind.replace(/_/g, ' ') : 'entities').toLowerCase()
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+
+            if (toolCall.status === 'completed') {
+                return `Listed ${entityLabel}${pageInfo}`
+            }
+            return `Listing ${entityLabel}${pageInfo}...`
         },
     },
     create_insight: {
@@ -859,6 +876,28 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
         flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
+    manage_memories: {
+        name: 'Manage memories',
+        description: 'Manage memories to store and retrieve persistent information',
+        icon: <IconMemory />,
+    },
+    create_notebook: {
+        name: 'Create a document',
+        description: 'Create a document to write down your thoughts',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.args.draft_content) {
+                if (toolCall.status === 'completed') {
+                    return 'Created a draft document'
+                }
+                return 'Creating a draft document...'
+            }
+            if (toolCall.status === 'completed') {
+                return 'Created a document'
+            }
+            return 'Creating a document...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
@@ -939,8 +978,12 @@ export const AI_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
-    const identifier = toolCall.args.kind ?? toolCall.name
-    return getToolDefinition(identifier as string)
+    const definition = getToolDefinition(toolCall.name)
+    // Only use args.kind for subtool lookup if the parent tool has subtools
+    if (definition?.subtools && typeof toolCall.args.kind === 'string') {
+        return definition.subtools[toolCall.args.kind] ?? definition
+    }
+    return definition
 }
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {

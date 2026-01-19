@@ -31,11 +31,13 @@ const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
 }
 
 function getPasskeyErrorMessage(error: any): string {
+    // handle SimpleWebAuthn errors
     if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
         return WEBAUTHN_ERROR_MESSAGES[error.name]
     }
 
-    return error?.detail || 'Passkey authentication failed. Please try again.'
+    // handle API errors
+    return error?.detail || error?.data?.error || error?.message || 'Passkey authentication failed. Please try again.'
 }
 
 export const passkeyLogic = kea<passkeyLogicType>([

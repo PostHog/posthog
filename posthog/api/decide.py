@@ -215,6 +215,10 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
     response["productTours"] = has_active_tours
     response["errorTracking"] = _error_tracking_config_response(team, skip_db)
 
+    logs_settings = team.logs_settings or {}
+    response["logs"] = {}
+    response["logs"]["captureConsoleLogs"] = logs_settings.get("capture_console_logs", False)
+
     site_apps = []
     # errors mean the database is unavailable, bail in this case
     with tracer.start_as_current_span("site_apps"):

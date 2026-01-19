@@ -242,10 +242,6 @@ export const workflowLogic = kea<workflowLogicType>([
     })),
     selectors({
         logicProps: [() => [(_, props: WorkflowLogicProps) => props], (props): WorkflowLogicProps => props],
-        isTemplateEditMode: [
-            () => [(_, props: WorkflowLogicProps) => props],
-            (props: WorkflowLogicProps): boolean => !!props.editTemplateId,
-        ],
         workflowLoading: [(s) => [s.originalWorkflowLoading], (originalWorkflowLoading) => originalWorkflowLoading],
         edgesByActionId: [
             (s) => [s.workflow],
@@ -270,8 +266,12 @@ export const workflowLogic = kea<workflowLogicType>([
         ],
 
         actionValidationErrorsById: [
-            (s) => [s.workflow, s.hogFunctionTemplatesById],
-            (workflow, hogFunctionTemplatesById): Record<string, HogFlowActionValidationResult | null> => {
+            (s) => [s.workflow, s.hogFunctionTemplatesById, s.hogFunctionTemplatesByIdLoading],
+            (
+                workflow,
+                hogFunctionTemplatesById,
+                hogFunctionTemplatesByIdLoading
+            ): Record<string, HogFlowActionValidationResult | null> => {
                 return workflow.actions.reduce(
                     (acc, action) => {
                         const result: HogFlowActionValidationResult = {
@@ -317,7 +317,10 @@ export const workflowLogic = kea<workflowLogicType>([
                             }
                         }
 
-                        if (isFunctionAction(action) || isTriggerFunction(action)) {
+                        if (
+                            (isFunctionAction(action) || isTriggerFunction(action)) &&
+                            !hogFunctionTemplatesByIdLoading
+                        ) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {
                                 result.valid = false

@@ -482,11 +482,12 @@ export interface CreateGroupApi {
  * `vercel` - Vercel
  * `databricks` - Databricks
  * `azure-blob` - Azure Blob
+ * `firebase` - Firebase
  */
-export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export type Kind9f6EnumApi = (typeof Kind9f6EnumApi)[keyof typeof Kind9f6EnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const KindEnumApi = {
+export const Kind9f6EnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -510,6 +511,7 @@ export const KindEnumApi = {
     vercel: 'vercel',
     databricks: 'databricks',
     'azure-blob': 'azure-blob',
+    firebase: 'firebase',
 } as const
 
 /**
@@ -517,7 +519,7 @@ export const KindEnumApi = {
  */
 export interface IntegrationApi {
     readonly id: number
-    kind: KindEnumApi
+    kind: Kind9f6EnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -2439,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2478,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
@@ -2942,6 +2944,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2950,6 +2953,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
@@ -3240,6 +3244,8 @@ export interface UserApi {
     /** @nullable */
     readonly is_impersonated_until: string | null
     /** @nullable */
+    readonly is_impersonated_read_only: boolean | null
+    /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
@@ -3303,6 +3309,8 @@ export interface PatchedUserApi {
     readonly is_impersonated?: boolean | null
     /** @nullable */
     readonly is_impersonated_until?: string | null
+    /** @nullable */
+    readonly is_impersonated_read_only?: boolean | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
@@ -3924,7 +3932,7 @@ export type GroupsUpdatePropertyCreateParams = {
     group_type_index: number
 }
 
-export type IntegrationsListParams = {
+export type IntegrationsList2Params = {
     /**
      * Number of results to return per page.
      */

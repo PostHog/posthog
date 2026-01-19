@@ -3,7 +3,7 @@ from typing import Literal, Self
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantTool, AssistantToolCallMessage
+from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationArtifactContent
 
 from posthog.models import Team, User
 
@@ -603,8 +603,8 @@ class CreateInsightTool(MaxTool):
         if not is_visualization_artifact_message(maybe_viz_message):
             return "", ToolMessagesArtifact(messages=[tool_call_message])
 
-        visualization_content = await self._context_manager.artifacts.aget_content_by_short_id(
-            maybe_viz_message.artifact_id
+        visualization_content = await self._context_manager.artifacts.aget(
+            maybe_viz_message.artifact_id, VisualizationArtifactContent
         )
         # If the contextual tool is available, we're editing an insight.
         # Add the UI payload to the tool call message.

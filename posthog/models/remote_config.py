@@ -185,6 +185,12 @@ class RemoteConfig(UUIDTModel):
             **error_tracking_policy,
         }
 
+        # MARK: Logs
+        logs_settings = team.logs_settings or {}
+        config["logs"] = {
+            "captureConsoleLogs": logs_settings.get("capture_console_logs", False),
+        }
+
         # MARK: Session recording
         session_recording_config_response: bool | dict = False
 
@@ -319,7 +325,6 @@ class RemoteConfig(UUIDTModel):
                 pass
 
         config["siteApps"] = site_apps
-
         # Array of JS objects to be included when building the final JS
         config["siteAppsJS"] = self._build_site_apps_js()
 

@@ -22,7 +22,6 @@ procs:
         shell: |-
             bin/check_kafka_clickhouse_up && \
             bin/check_temporal_up && \
-            bin/check_video_deps && \
             bin/check_ducklake_up && \
             if [ -n "$TEMPORAL_WATCH" ]; then \
                 nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
@@ -63,6 +62,12 @@ procs:
             bin/check_postgres_up posthog && \
             bin/start-rust-service feature-flags
 
+    livestream:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-go-service livestream
+
     property-defs-rs:
         shell: |-
             bin/check_postgres_up && \
@@ -96,6 +101,8 @@ procs:
     llm-gateway:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
+        env:
+            LLM_GATEWAY_DEBUG: 'true'
 
     mcp:
         shell: 'bin/start-mcp-server'

@@ -1927,9 +1927,9 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_parametrized_f
 
     # using datetime partition mode with created_at - formatted to day, week, or month
     for expected_partition in expected_partitions:
-        assert any(
-            f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]
-        ), f"Expected partition {expected_partition} not found in S3 objects"
+        assert any(f"{PARTITION_KEY}={expected_partition}" in obj["Key"] for obj in s3_objects["Contents"]), (
+            f"Expected partition {expected_partition} not found in S3 objects"
+        )
 
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
@@ -2216,7 +2216,7 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     await postgres_connection.commit()
 
     with (
-        mock.patch("posthog.temporal.data_imports.pipelines.pipeline.pipeline.decrement_rows") as mock_decrement_rows,
+        mock.patch("posthog.temporal.data_imports.pipelines.common.extract.decrement_rows") as mock_decrement_rows,
         mock.patch("posthog.temporal.data_imports.external_data_job.finish_row_tracking") as mock_finish_row_tracking,
     ):
         _, inputs = await _run(
