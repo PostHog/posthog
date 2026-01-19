@@ -33,34 +33,7 @@ FetchContent_Populate(boost)
 add_subdirectory(${antlr4_SOURCE_DIR}/runtime/Cpp EXCLUDE_FROM_ALL)
 
 # boost/algorithm/string.hpp requires multiple Boost libraries
-set(BOOST_INCLUDE_DIRS
-    ${boost_SOURCE_DIR}/libs/algorithm/include
-    ${boost_SOURCE_DIR}/libs/assert/include
-    ${boost_SOURCE_DIR}/libs/bind/include
-    ${boost_SOURCE_DIR}/libs/concept_check/include
-    ${boost_SOURCE_DIR}/libs/config/include
-    ${boost_SOURCE_DIR}/libs/container_hash/include
-    ${boost_SOURCE_DIR}/libs/core/include
-    ${boost_SOURCE_DIR}/libs/describe/include
-    ${boost_SOURCE_DIR}/libs/detail/include
-    ${boost_SOURCE_DIR}/libs/exception/include
-    ${boost_SOURCE_DIR}/libs/function/include
-    ${boost_SOURCE_DIR}/libs/functional/include
-    ${boost_SOURCE_DIR}/libs/io/include
-    ${boost_SOURCE_DIR}/libs/iterator/include
-    ${boost_SOURCE_DIR}/libs/move/include
-    ${boost_SOURCE_DIR}/libs/mp11/include
-    ${boost_SOURCE_DIR}/libs/mpl/include
-    ${boost_SOURCE_DIR}/libs/preprocessor/include
-    ${boost_SOURCE_DIR}/libs/range/include
-    ${boost_SOURCE_DIR}/libs/regex/include
-    ${boost_SOURCE_DIR}/libs/smart_ptr/include
-    ${boost_SOURCE_DIR}/libs/static_assert/include
-    ${boost_SOURCE_DIR}/libs/throw_exception/include
-    ${boost_SOURCE_DIR}/libs/type_index/include
-    ${boost_SOURCE_DIR}/libs/type_traits/include
-    ${boost_SOURCE_DIR}/libs/utility/include
-)
+set(BOOST_INCLUDE_DIR ${boost_SOURCE_DIR})
 set(ANTLR_INCLUDE_DIR ${antlr4_SOURCE_DIR}/runtime/Cpp/runtime/src/)
 
 set(PARSER_SOURCES
@@ -79,7 +52,7 @@ add_library(
 
 target_include_directories(
     hogql_parser
-    PRIVATE ${BOOST_INCLUDE_DIRS} ${ANTLR_INCLUDE_DIR}
+    PRIVATE ${BOOST_INCLUDE_DIR} ${ANTLR_INCLUDE_DIR}
 )
 
 target_link_libraries(hogql_parser
@@ -88,7 +61,7 @@ target_link_libraries(hogql_parser
 
 if(EMSCRIPTEN)
     add_executable(hogql_parser_wasm parser_wasm.cpp)
-    target_include_directories(hogql_parser_wasm PRIVATE ${BOOST_INCLUDE_DIRS} ${ANTLR_INCLUDE_DIR})
+    target_include_directories(hogql_parser_wasm PRIVATE ${BOOST_INCLUDE_DIR} ${ANTLR_INCLUDE_DIR})
     target_link_libraries(hogql_parser_wasm PRIVATE hogql_parser antlr4_static)
 
     set(CMAKE_EXECUTABLE_SUFFIX ".js")
