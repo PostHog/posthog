@@ -131,7 +131,7 @@ jobs:
                   echo "Finding latest CI run with migrated-schema artifact..."
                   RUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10' --jq '[.artifacts[] | select(.expired == false and .size_in_bytes > 10000)] | .[0].workflow_run.id')
                   if [ -z "$RUN_ID" ]; then
-                      echo "❌ No migrated-schema artifact found. Falling back to running migrations..."
+                      echo "❌ No migrated-schema artifact found. CI job cannot continue without it."
                       exit 1
                   fi
                   echo "Downloading from run $RUN_ID..."
