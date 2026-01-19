@@ -1,5 +1,7 @@
 """Per-team video segment clustering workflow."""
 
+import json
+
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -39,6 +41,12 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
     4. Label: Generate LLM-based labels for new clusters
     5. Persist: Create/update Tasks and TaskReferences
     """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> ClusteringWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return ClusteringWorkflowInputs(**loaded)
 
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> WorkflowResult:
