@@ -6,6 +6,9 @@ on:
     pull_request:
     merge_group:
 
+permissions:
+    contents: read
+
 jobs:
     changes:
         runs-on: ubuntu-24.04
