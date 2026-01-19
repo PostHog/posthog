@@ -13,7 +13,7 @@ import { createApplyCookielessProcessingStep, createRateLimitToOverflowStep } fr
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
+import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
@@ -32,11 +32,11 @@ export interface PreprocessingPipelineConfig {
     personsStore: PersonsStore
     hogTransformer: HogTransformerService
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowRateLimiter: MemoryRateLimiter
     overflowEnabled: boolean
     overflowTopic: string
     dlqTopic: string
     promiseScheduler: PromiseScheduler
+    overflowRedirectService?: OverflowRedirectService
 }
 
 export interface PreprocessingPipelineInput {
@@ -57,11 +57,11 @@ export function createPreprocessingPipeline<
         personsStore,
         hogTransformer,
         eventIngestionRestrictionManager,
-        overflowRateLimiter,
         overflowEnabled,
         overflowTopic,
         dlqTopic,
         promiseScheduler,
+        overflowRedirectService,
     } = config
 
     const pipelineConfig: PipelineConfig = {
@@ -122,10 +122,9 @@ export function createPreprocessingPipeline<
                             // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
                             .pipeBatch(
                                 createRateLimitToOverflowStep(
-                                    overflowRateLimiter,
-                                    overflowEnabled,
                                     overflowTopic,
-                                    hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+                                    hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                                    overflowRedirectService
                                 )
                             )
                             // Prefetch must run after cookieless, as cookieless changes distinct IDs

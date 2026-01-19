@@ -1,6 +1,6 @@
 import { EventHeaders, IncomingEventWithTeam } from '../../types'
 import { PipelineResult, ok, redirect } from '../pipelines/results'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
+import { OverflowEventBatch, OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 
 export interface RateLimitToOverflowStepInput {
     headers: EventHeaders
@@ -8,14 +8,13 @@ export interface RateLimitToOverflowStepInput {
 }
 
 export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
-    overflowRateLimiter: MemoryRateLimiter,
-    overflowEnabled: boolean,
     overflowTopic: string,
-    preservePartitionLocality: boolean
+    preservePartitionLocality: boolean,
+    overflowRedirectService?: OverflowRedirectService
 ) {
     return async function rateLimitToOverflowStep(inputs: T[]): Promise<PipelineResult<T>[]> {
-        if (!overflowEnabled) {
-            return Promise.resolve(inputs.map((input) => ok(input)))
+        if (!overflowRedirectService) {
+            return inputs.map((input) => ok(input))
         }
 
         // Count events by token:distinct_id and track first timestamp
@@ -38,13 +37,18 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             }
         }
 
-        // Check rate limiter for each key
-        const shouldRedirectKey = new Map<string, boolean>()
-
+        // Service handles all overflow logic (rate limiting + optional Redis coordination)
+        const batches: OverflowEventBatch[] = []
         for (const [eventKey, stats] of keyStats) {
-            const isBelowRateLimit = overflowRateLimiter.consume(eventKey, stats.count, stats.firstTimestamp)
-            shouldRedirectKey.set(eventKey, !isBelowRateLimit)
+            const [token, ...distinctIdParts] = eventKey.split(':')
+            const distinctId = distinctIdParts.join(':')
+            batches.push({
+                key: { token, distinctId },
+                eventCount: stats.count,
+                firstTimestamp: stats.firstTimestamp,
+            })
         }
+        const keysToRedirect = await overflowRedirectService.handleEventBatch('events', batches)
 
         // Build results in original order
         return inputs.map((input) => {
@@ -53,7 +57,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
             const distinctId = eventWithTeam.event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
-            if (shouldRedirectKey.get(eventKey)) {
+            if (keysToRedirect.has(eventKey)) {
                 return redirect('rate_limit_exceeded', overflowTopic, preservePartitionLocality)
             } else {
                 return ok(input)

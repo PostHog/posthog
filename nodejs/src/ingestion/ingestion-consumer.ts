@@ -42,7 +42,8 @@ import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { ok } from './pipelines/results'
-import { MemoryRateLimiter } from './utils/overflow-detector'
+import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
 
 /**
  * Narrowed Hub type for IngestionConsumer.
@@ -136,7 +137,7 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
-    private overflowRateLimiter: MemoryRateLimiter
+    private overflowRedirectService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -190,10 +191,19 @@ export class IngestionConsumer {
         })
 
         this.name = `ingestion-consumer-${this.topic}`
-        this.overflowRateLimiter = new MemoryRateLimiter(
-            this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
-            this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
-        )
+
+        // Create overflow redirect service only when overflow is enabled
+        if (this.overflowEnabled()) {
+            this.overflowRedirectService = new MainLaneOverflowRedirect({
+                redisPool: this.hub.redisPool,
+                redisTTLSeconds: 300, // 5 minutes
+                localCacheTTLSeconds: 60, // 1 minute
+                bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                statefulEnabled: false, // TODO: Add config flag for stateful overflow
+            })
+        }
+
         this.hogTransformer = new HogTransformerService(hub)
 
         this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.kafkaProducer, {
@@ -245,11 +255,11 @@ export class IngestionConsumer {
                 personsStore: this.personsStore,
                 hogTransformer: this.hogTransformer,
                 eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-                overflowRateLimiter: this.overflowRateLimiter,
                 overflowEnabled: this.overflowEnabled(),
                 overflowTopic: this.overflowTopic || '',
                 dlqTopic: this.dlqTopic,
                 promiseScheduler: this.promiseScheduler,
+                overflowRedirectService: this.overflowRedirectService,
             }).build()
         )
 
@@ -290,11 +300,11 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             hogTransformer: this.hogTransformer,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowRateLimiter: this.overflowRateLimiter,
             overflowEnabled: this.overflowEnabled(),
             overflowTopic: this.overflowTopic || '',
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
+            overflowRedirectService: this.overflowRedirectService,
             perDistinctIdOptions,
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,
