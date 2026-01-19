@@ -4,6 +4,7 @@ import { expectLogic, partial, testUtilsPlugin } from 'kea-test-utils'
 import { uuid } from 'lib/utils'
 
 import { initKeaTests } from '~/test/init'
+import { WeekdayType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
@@ -226,7 +227,7 @@ describe('getWaitUntilTimeWindowDescription', () => {
         },
         {
             name: 'handles custom days with person timezone',
-            day: ['monday', 'wednesday', 'friday'] as const,
+            day: ['monday', 'wednesday', 'friday'] as WeekdayType[],
             time: ['08:00', '12:00'] as [string, string],
             timezone: 'Asia/Tokyo',
             usePersonTimezone: true,
