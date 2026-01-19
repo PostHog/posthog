@@ -611,5 +611,5 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # EQ should not have the null-safe wrapping
         self.assertIn(Operation.EQ, bytecode_eq)
         # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
-        bytecode_str = str(bytecode_eq)
-        self.assertNotIn("isNull", bytecode_str)
+        # Should NOT have the wrapping pattern (no isNull function for null checks)
+        self.assertNotIn("isNull", bytecode_eq)
