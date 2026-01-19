@@ -37,27 +37,31 @@ class CDPProducer:
         if settings.USE_LOCAL_SETUP:
             ensure_bucket_exists(
                 f"s3://{self._get_path_prefix()}",
-                settings.AIRBYTE_BUCKET_KEY,
-                settings.AIRBYTE_BUCKET_SECRET,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 settings.OBJECT_STORAGE_ENDPOINT,
             )
 
             return pa_fs.S3FileSystem(
-                access_key=settings.AIRBYTE_BUCKET_KEY,
-                secret_key=settings.AIRBYTE_BUCKET_SECRET,
+                access_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
+                secret_key=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
                 endpoint_override=settings.OBJECT_STORAGE_ENDPOINT,
             )
 
-        return pa_fs.S3FileSystem(access_key=settings.AIRBYTE_BUCKET_KEY, secret_key=settings.AIRBYTE_BUCKET_SECRET)
+        return pa_fs.S3FileSystem()
 
     def _get_path_prefix(self) -> str:
         return f"{settings.DATAWAREHOUSE_BUCKET}/cdp_producer/{self.team_id}/{self.schema_id}/{self.job_id}"
 
     def _list_files_to_produce(self) -> list[str]:
         s3_client = get_s3_client()
-        ls_res = s3_client.ls(f"s3://{self._get_path_prefix()}/", detail=True)
-        ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
-        files = [f["Key"] for f in ls_values if f["type"] != "directory"]
+
+        try:
+            ls_res = s3_client.ls(f"s3://{self._get_path_prefix()}/", detail=True)
+            ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
+            files = [f["Key"] for f in ls_values if f["type"] != "directory"]
+        except FileNotFoundError:
+            return []
 
         return files
 
@@ -98,7 +102,12 @@ class CDPProducer:
     def clear_s3_chunks(self):
         fs = self._get_fs()
         self.logger.debug(f"Clearing S3 chunks at path prefix {self._get_path_prefix()}")
-        fs.delete_dir(self._get_path_prefix())
+
+        if len(self._list_files_to_produce()) > 0:
+            try:
+                fs.delete_dir(self._get_path_prefix())
+            except FileNotFoundError:
+                pass
 
     def write_chunk_for_cdp_producer(self, chunk: int, table: pa.Table) -> None:
         s3_fs = self._get_fs()
