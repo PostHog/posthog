@@ -421,8 +421,11 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             table_type = node.type.resolve_table_type(self.context)
             if isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
-            table = table_type.table
-            if resolved_field and isinstance(resolved_field, DatabaseField):
+            # SelectQueryAliasType and other types without .table don't represent actual database tables
+            if isinstance(table_type, ast.SelectQueryAliasType) or not hasattr(table_type, "table"):
+                pass  # Fall through to field name check below
+            elif resolved_field and isinstance(resolved_field, DatabaseField):
+                table = table_type.table
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
                     or (
@@ -468,8 +471,13 @@ def is_session_id_string_expr(node: ast.Expr, context: HogQLContext) -> bool:
                 table_type = table_type.table_type
             if isinstance(table_type, ast.LazyJoinType):
                 table = table_type.lazy_join.join_table
-            else:
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                # Subquery aliases don't represent actual database tables
+                return False
+            elif hasattr(table_type, "table"):
                 table = table_type.table
+            else:
+                return False
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "$session_id")

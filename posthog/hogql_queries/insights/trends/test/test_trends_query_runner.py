@@ -1019,6 +1019,73 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
 
+    def test_trends_avg_session_duration_with_cohort_breakdown(self):
+        # Regression test: queries with avg session_duration and multiple cohort
+        # breakdowns should not crash with AttributeError on SelectQueryAliasType
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+            name="cohort p2",
+        )
+        cohort2.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, cohort2.pk]),
+        )
+
+        assert len(response.results) == 2
+
+        assert response.results[0]["label"] == "cohort p1"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 0
+        assert len(response.results[0]["data"]) == 12
+        assert len(response.results[0]["days"]) == 12
+
+        assert response.results[1]["label"] == "cohort p2"
+        assert response.results[1]["breakdown_value"] == cohort2.pk
+        assert response.results[1]["count"] == 0
+        assert len(response.results[1]["data"]) == 12
+        assert len(response.results[1]["days"]) == 12
+
+    def test_trends_avg_session_duration_with_event_breakdown(self):
+        # Regression test: queries with avg session_duration and event property
+        # breakdown should not crash with AttributeError on SelectQueryAliasType
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview", math=PropertyMathType.AVG, math_property="$session_duration")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
+        )
+
+        assert len(response.results) == 4
+
+        breakdown_values = [result["breakdown_value"] for result in response.results]
+        assert "Chrome" in breakdown_values
+        assert "Firefox" in breakdown_values
+        assert "Edge" in breakdown_values
+        assert "Safari" in breakdown_values
+
+        for result in response.results:
+            assert result["count"] == 0
+            assert len(result["data"]) == 2
+            assert len(result["days"]) == 2
+
     def test_formula_with_multi_cohort_all_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
