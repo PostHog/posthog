@@ -1,7 +1,7 @@
 import { combineUrl, router } from 'kea-router'
 
 import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { JudgeHog } from 'lib/components/hedgehogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -90,6 +90,7 @@ interface TemplateGridProps {
     description: string
     showBackButton?: boolean
     showHog?: boolean
+    learnMoreUrl?: string
     minHeight?: '60vh' | '80vh'
 }
 
@@ -98,6 +99,7 @@ function TemplateGrid({
     description,
     showBackButton = false,
     showHog = false,
+    learnMoreUrl,
     minHeight = '60vh',
 }: TemplateGridProps): JSX.Element {
     return (
@@ -123,7 +125,17 @@ function TemplateGrid({
                             </div>
                         )}
                         <h1 className="text-3xl font-bold">{title}</h1>
-                        <p className="text-base text-secondary max-w-2xl mx-auto">{description}</p>
+                        <p className="text-base text-secondary max-w-2xl mx-auto">
+                            {description}
+                            {learnMoreUrl && (
+                                <>
+                                    {' '}
+                                    <Link to={learnMoreUrl} target="_blank">
+                                        Learn more
+                                    </Link>
+                                </>
+                            )}
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -156,6 +168,7 @@ export function EvaluationTemplatesEmptyState(): JSX.Element {
             description="Automatically score your LLM outputs for quality, safety, and accuracy. Choose a template or build your own."
             showBackButton={false}
             showHog
+            learnMoreUrl="https://posthog.com/docs/llm-analytics/evaluations"
             minHeight="60vh"
         />
     )
