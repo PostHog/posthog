@@ -211,6 +211,3 @@ FROM {database}.{kafka_table}
         kafka_table=KAFKA_ERROR_TRACKING_FINGERPRINT_EMBEDDINGS_TABLE,
         database=settings.CLICKHOUSE_DATABASE,
     )
-
-
-
