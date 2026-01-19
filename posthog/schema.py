@@ -5750,6 +5750,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show a button to configure the table's columns if possible"
     )
     showCorrelationTable: bool | None = None
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
@@ -17059,6 +17060,7 @@ class DataTableNode(BaseModel):
     showColumnConfigurator: bool | None = Field(
         default=None, description="Show a button to configure the table's columns if possible"
     )
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
