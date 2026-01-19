@@ -161,9 +161,7 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityButton =
-        surveyOpportunity &&
-        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
-        isSurveyableFunnelInsight(insight) ? (
+        surveyOpportunity && isSurveyableFunnelInsight(insight) ? (
             <SurveyOpportunityButton
                 insight={insight}
                 disableAutoPromptSubmit={true}

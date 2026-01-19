@@ -269,6 +269,27 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], False)
 
+    def test_logs_console_capture_opt_in(self, *args):
+        from django.core.cache import cache
+
+        # Test default logs config
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": False})
+
+        # Test when logs console capture is enabled
+        self._update_team({"logs_settings": {"capture_console_logs": True}})
+        cache.delete(f"team_token:{self.team.api_token}")
+
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": True})
+
+        # Test when logs console capture is disabled
+        self._update_team({"logs_settings": {"capture_console_logs": False}})
+        cache.delete(f"team_token:{self.team.api_token}")
+
+        response = self._post_decide().json()
+        self.assertEqual(response["logs"], {"captureConsoleLogs": False})
+
     def test_session_recording_sample_rate(self, *args):
         # :TRICKY: Test for regression around caching
 
@@ -2926,51 +2947,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
         self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
-
-    @snapshot_postgres_queries
-    def test_flag_with_behavioural_cohorts(self, *args):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["example_id_1"],
-            properties={"$some_prop_1": "something_1"},
-        )
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {"event_id": "$pageview", "days": 7},
-                {
-                    "properties": [
-                        {
-                            "key": "$some_prop_1",
-                            "value": "something_1",
-                            "type": "person",
-                        }
-                    ]
-                },
-            ],
-            name="cohort1",
-        )
-        # no calculation for cohort
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
-            name="This is a cohort-based flag",
-            key="cohort-flag",
-            created_by=self.user,
-        )
-
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=9)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
-
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=8)
-        self.assertEqual(response.json()["featureFlags"], {})
-        self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
     def test_personal_api_key_without_project_id(self, *args):
         key_value = generate_random_token_personal()

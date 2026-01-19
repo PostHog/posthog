@@ -145,3 +145,4 @@ clickhouse = { version = "0.13.2", features = [
 fernet = "0.2"
 tiktoken-rs = "0.7.0"
 sha2 = "0.10"
+testcontainers = "0.23"

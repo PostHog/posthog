@@ -198,6 +198,8 @@ export interface SessionRecordingApi {
     readonly recording_ttl: string
     /** @nullable */
     readonly snapshot_source: string | null
+    /** @nullable */
+    readonly snapshot_library: string | null
     readonly ongoing: boolean
     /** @nullable */
     readonly activity_score: number | null
@@ -252,6 +254,8 @@ export interface PatchedSessionRecordingApi {
     readonly recording_ttl?: string
     /** @nullable */
     readonly snapshot_source?: string | null
+    /** @nullable */
+    readonly snapshot_library?: string | null
     readonly ongoing?: boolean
     /** @nullable */
     readonly activity_score?: number | null

@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from types import UnionType
-from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args
+from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import structlog
 import posthoganalytics
@@ -1595,7 +1595,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
         if dashboard_filter.properties:
             if self.query.properties:
-                try:
+                # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
+                properties_field = self.query.__class__.model_fields.get("properties")
+                expects_only_list = properties_field and get_origin(properties_field.annotation) is list
+
+                if expects_only_list and isinstance(self.query.properties, list):
+                    # Concatenate lists to avoid TypeError when query does: properties + other_list
+                    self.query.properties = list(self.query.properties) + list(dashboard_filter.properties)
+                else:
+                    # Wrap in PropertyGroupFilter with AND
                     self.query.properties = PropertyGroupFilter(
                         type=FilterLogicalOperator.AND_,
                         values=[
@@ -1609,12 +1617,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             ),
                         ],
                     )
-                except:
-                    # If pydantic is unhappy about the shape of data, let's ignore property filters and carry on
-                    capture_exception()
-                    logger.exception("Failed to apply dashboard property filters")
             else:
-                self.query.properties = dashboard_filter.properties
+                self.query.properties = list(dashboard_filter.properties)
         if dashboard_filter.date_from or dashboard_filter.date_to:
             if self.query.dateRange is None:
                 self.query.dateRange = DateRange()
