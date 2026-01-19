@@ -14,7 +14,14 @@ export const availableSourcesDataLogic = kea<availableSourcesDataLogicType>([
             null as Record<string, SourceConfig> | null,
             {
                 load: async () => {
-                    return await api.externalDataSources.wizard()
+                    try {
+                        return await api.externalDataSources.wizard()
+                    } catch (e: any) {
+                        if (e.status === 403) {
+                            return null
+                        }
+                        throw e
+                    }
                 },
             },
         ],

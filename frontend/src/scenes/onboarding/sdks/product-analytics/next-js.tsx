@@ -1,14 +1,25 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 
-import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { NextJSInstallation } from '@posthog/shared-onboarding/product-analytics'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsNextJSInstructions(): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+
     return (
         <>
-            <SDKInstallNextJSInstructions />
-            <LemonDivider thick dashed className="my-4" />
-            <ProductAnalyticsAllJSFinalSteps />
+            {isCloudOrDev && (
+                <>
+                    <h2>Automated installation</h2>
+                    <SetupWizardBanner integrationName="Next.js" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual installation</h2>
+                </>
+            )}
+            <NextJSInstallation />
         </>
     )
 }

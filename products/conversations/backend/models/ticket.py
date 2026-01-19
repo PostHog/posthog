@@ -1,12 +1,36 @@
-from django.db import models
+from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, Priority, Status
 
 
+class TicketManager(models.Manager):
+    def create_with_number(self, **kwargs):
+        """
+        Create a ticket with an auto-incrementing ticket_number.
+        Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
+        """
+        from posthog.models import Team
+
+        team = kwargs.get("team")
+        if not team:
+            raise ValueError("team is required")
+
+        with transaction.atomic():
+            # Lock team row to serialize ticket creation for this team
+            Team.objects.select_for_update().get(id=team.id)
+
+            max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
+            kwargs["ticket_number"] = max_num + 1
+            return self.create(**kwargs)
+
+
 class Ticket(UUIDTModel):
+    objects = TicketManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel.choices, default=Channel.WIDGET)
     widget_session_id = models.CharField(max_length=64, db_index=True)  # Random UUID for access control
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
@@ -30,6 +54,10 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "widget_session_id"]),  # Access control queries
             models.Index(fields=["team", "distinct_id"]),  # Person linking queries
             models.Index(fields=["team", "status"]),
+            models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),
         ]
 
     def __str__(self):

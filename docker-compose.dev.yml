@@ -44,6 +44,10 @@ services:
                         path /capture*
                     }
 
+                    @capture-logs {
+                        path /i/v1/logs
+                    }
+
                     @flags {
                         path /flags
                         path /flags*
@@ -62,6 +66,10 @@ services:
 
                     handle @capture {
                         reverse_proxy capture:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @replay-capture {
@@ -183,6 +191,11 @@ services:
             - '19000:19000'
             - '19001:19001'
 
+    objectstorage-azure:
+        extends:
+            file: docker-compose.base.yml
+            service: objectstorage-azure
+
     maildev:
         extends:
             file: docker-compose.base.yml
@@ -216,17 +229,6 @@ services:
             FLAGS_REDIS_URL: 'redis://redis:6379/1'
             FLAGS_REDIS_ENABLED: 'false' # Warming but not reading yet
             REDIS_COMPRESSION_ENABLED: 'true'
-
-    livestream:
-        extends:
-            file: docker-compose.base.yml
-            service: livestream
-        environment:
-            - LIVESTREAM_JWT_SECRET=${SECRET_KEY}
-        ports:
-            - '8666:8080'
-        volumes:
-            - ./docker/livestream/configs-dev.yml:/configs/configs.yml
 
     # Temporal containers
     elasticsearch:

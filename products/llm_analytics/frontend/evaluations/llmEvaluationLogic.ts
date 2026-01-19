@@ -21,7 +21,7 @@ export interface LLMEvaluationLogicProps {
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => props.evaluationId || 'new'),
+    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
     actions({
         // Evaluation configuration actions
@@ -295,9 +295,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     urlToAction(({ actions, props }) => ({
-        '/llm-analytics/evaluations/:id': (_, __, ___, { method }) => {
-            // Only reload when user clicked link, not on browser back/forward
-            if (method === 'PUSH') {
+        '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
+            // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
+            const newEvaluationId = id && id !== 'new' ? id : 'new'
+            if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {
                 actions.loadEvaluation()
                 if (props.evaluationId !== 'new') {
                     actions.loadEvaluationRuns()

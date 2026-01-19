@@ -82,6 +82,7 @@ function EmbedNodeView({ node }: { node: { attrs: Record<string, any> } }): JSX.
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     referrerPolicy="origin"
+                    sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
                 />
             </div>
         </NodeViewWrapper>
@@ -130,7 +131,32 @@ export const EmbedExtension = Node.create<EmbedOptions>({
     },
 
     renderHTML({ HTMLAttributes }) {
-        return ['div', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, { 'data-embed': '' })]
+        const src = HTMLAttributes.src as string
+        const parsed = parseEmbedUrl(src)
+        const embedUrl = parsed?.embedUrl || src
+
+        return [
+            'div',
+            mergeAttributes(this.options.HTMLAttributes, {
+                class: 'ph-tour-embed',
+                'data-provider': HTMLAttributes.provider,
+            }),
+            [
+                'div',
+                { class: 'ph-tour-embed-container' },
+                [
+                    'iframe',
+                    {
+                        src: embedUrl,
+                        frameborder: '0',
+                        allowfullscreen: 'true',
+                        allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
+                        referrerpolicy: 'origin',
+                        sandbox: 'allow-scripts allow-same-origin allow-popups allow-presentation',
+                    },
+                ],
+            ],
+        ]
     },
 
     addNodeView() {

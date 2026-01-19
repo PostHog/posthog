@@ -16,7 +16,12 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
-import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
+import {
+    NotebookExpandButton,
+    NotebookKernelInfoButton,
+    NotebookSyncInfo,
+    NotebookTableOfContentsButton,
+} from './Notebook/NotebookMeta'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookMenu } from './NotebookMenu'
@@ -142,6 +147,7 @@ export function NotebookScene(): JSX.Element {
                         Guide
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />
+                    <NotebookKernelInfoButton type="secondary" size="small" />
                     <NotebookExpandButton type="secondary" size="small" />
                     <LemonButton
                         type="secondary"

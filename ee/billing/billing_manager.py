@@ -262,9 +262,10 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/billing/deactivate?products={products}",
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
+            json={"products": products},
         )
 
         handle_billing_service_error(res)

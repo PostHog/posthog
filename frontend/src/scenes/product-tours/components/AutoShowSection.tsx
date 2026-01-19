@@ -8,6 +8,7 @@ import {
     LemonCollapse,
     LemonInput,
     LemonInputSelect,
+    LemonSegmentedButton,
     LemonSelect,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -28,11 +29,15 @@ import {
     ActionType,
     AnyPropertyFilter,
     ProductTourDisplayConditions,
+    ProductTourDisplayFrequency,
     PropertyDefinitionType,
     PropertyType,
     SurveyEventsWithProperties,
     SurveyMatchType,
 } from '~/types'
+
+import { productTourLogic } from '../productTourLogic'
+import { getDefaultDisplayFrequency, getDisplayFrequencyOptions, isAnnouncement } from '../productToursLogic'
 
 type TourTriggerType = 'immediate' | 'event' | 'action'
 
@@ -177,7 +182,10 @@ function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JS
     )
 }
 
-export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
+export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element | null {
+    const { productTourForm, productTour } = useValues(productTourLogic)
+    const { setProductTourFormValue } = useActions(productTourLogic)
+
     // Load recent URLs from property definitions
     const { options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -234,10 +242,16 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
         { value: 'action' as const, label: 'When user performs an action' },
     ]
 
+    if (!productTour) {
+        return null
+    }
+
+    const displayFrequency = productTourForm.content?.displayFrequency
+
     return (
         <div className="space-y-4">
             <div>
-                <h5 className="font-semibold mb-2">URL targeting</h5>
+                <h5 className="font-semibold mb-2">Where to show</h5>
                 <div className="flex gap-2 items-center">
                     <span className="text-sm whitespace-nowrap">URL</span>
                     <LemonSelect
@@ -365,6 +379,28 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
                     />
                     <span className="text-sm">seconds before showing the tour after the conditions are met</span>
                 </div>
+            </div>
+
+            <div>
+                <h5 className="font-semibold mb-2">How often to show</h5>
+                {isAnnouncement(productTour) ? (
+                    <LemonSegmentedButton
+                        value={displayFrequency ?? getDefaultDisplayFrequency(productTour).value}
+                        onChange={(value) =>
+                            setProductTourFormValue('content', {
+                                ...productTourForm.content,
+                                displayFrequency: value as ProductTourDisplayFrequency,
+                            })
+                        }
+                        options={getDisplayFrequencyOptions(productTour)}
+                        fullWidth
+                    />
+                ) : (
+                    <p>
+                        <IconInfo /> Product tours display once per user, until they interact (complete any steps, or
+                        dismiss the tour).
+                    </p>
+                )}
             </div>
         </div>
     )

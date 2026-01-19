@@ -205,7 +205,7 @@ describe('PersonsManager', () => {
 
             jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(mockPersons)
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: {
                     teamId: team.id,
@@ -218,13 +218,15 @@ describe('PersonsManager', () => {
                         },
                     ],
                 },
-                onPerson,
+                onPersonBatch,
             })
 
-            expect(onPerson).toHaveBeenCalledTimes(3)
-            expect(onPerson).toHaveBeenNthCalledWith(1, { personId: 'person-1', distinctId: 'distinct-1' })
-            expect(onPerson).toHaveBeenNthCalledWith(2, { personId: 'person-2', distinctId: 'distinct-2' })
-            expect(onPerson).toHaveBeenNthCalledWith(3, { personId: 'person-3', distinctId: 'distinct-3' })
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
+            expect(onPersonBatch).toHaveBeenCalledWith([
+                { personId: 'person-1', distinctId: 'distinct-1' },
+                { personId: 'person-2', distinctId: 'distinct-2' },
+                { personId: 'person-3', distinctId: 'distinct-3' },
+            ])
         })
 
         it('handles pagination correctly with multiple batches', async () => {
@@ -266,10 +268,10 @@ describe('PersonsManager', () => {
                     return callCount === 1 ? batch1 : batch2
                 })
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy).toHaveBeenCalledTimes(2)
@@ -283,7 +285,7 @@ describe('PersonsManager', () => {
                 properties: [],
                 options: { limit: 500, cursor: '499' },
             })
-            expect(onPerson).toHaveBeenCalledTimes(800)
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
         })
 
         it('stops paginating when batch is not full', async () => {
@@ -304,26 +306,26 @@ describe('PersonsManager', () => {
 
             const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy).toHaveBeenCalledTimes(1)
-            expect(onPerson).toHaveBeenCalledTimes(200)
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
         })
 
         it('handles empty results', async () => {
             jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce([])
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
-                onPerson,
+                onPersonBatch,
             })
 
-            expect(onPerson).not.toHaveBeenCalled()
+            expect(onPersonBatch).not.toHaveBeenCalled()
         })
 
         it('respects custom limit option', async () => {
@@ -364,11 +366,11 @@ describe('PersonsManager', () => {
                     return callCount === 1 ? batch1 : batch2
                 })
 
-            const onPerson = jest.fn()
+            const onPersonBatch = jest.fn()
             await manager.streamMany({
                 filters: { teamId: team.id, properties: [] },
                 options: { limit: 100 },
-                onPerson,
+                onPersonBatch,
             })
 
             expect(fetchSpy.mock.calls[0][0]).toEqual({
@@ -381,7 +383,7 @@ describe('PersonsManager', () => {
                 properties: [],
                 options: { limit: 100, cursor: '99' },
             })
-            expect(onPerson).toHaveBeenCalledTimes(150)
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
         })
     })
 })

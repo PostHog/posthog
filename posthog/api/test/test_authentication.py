@@ -26,7 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -61,7 +61,9 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "any_user_name_here@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_sso_enforced_with_invalid_license(self):
         # Note no Enterprise license can be found
@@ -75,7 +77,93 @@ class TestLoginPrecheckAPI(APIBaseTest):
 
         response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
+
+    def test_login_precheck_returns_webauthn_credentials_for_user_with_verified_passkey(self):
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        user = User.objects.create_and_join(self.organization, "passkey_user@posthog.com", self.CONFIG_PASSWORD)
+        WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"test-credential-id-123",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal", "hybrid"],
+            verified=True,
+        )
+
+        response = self.client.post("/api/login/precheck", {"email": "passkey_user@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["sso_enforcement"], None)
+        self.assertEqual(response_data["saml_available"], False)
+        self.assertEqual(len(response_data["webauthn_credentials"]), 1)
+        self.assertEqual(response_data["webauthn_credentials"][0]["type"], "public-key")
+        self.assertEqual(response_data["webauthn_credentials"][0]["transports"], ["internal", "hybrid"])
+
+    def test_login_precheck_does_not_return_unverified_webauthn_credentials(self):
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        user = User.objects.create_and_join(self.organization, "unverified_passkey@posthog.com", self.CONFIG_PASSWORD)
+        WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"unverified-credential-id",
+            label="Unverified Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+
+        response = self.client.post("/api/login/precheck", {"email": "unverified_passkey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["webauthn_credentials"], [])
+
+    def test_login_precheck_returns_empty_webauthn_credentials_for_unknown_user(self):
+        response = self.client.post("/api/login/precheck", {"email": "nonexistent@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["webauthn_credentials"], [])
+
+    def test_login_precheck_returns_multiple_webauthn_credentials(self):
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        user = User.objects.create_and_join(self.organization, "multi_passkey@posthog.com", self.CONFIG_PASSWORD)
+        WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"credential-1",
+            label="Passkey 1",
+            public_key=b"public-key-1",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        WebauthnCredential.objects.create(
+            user=user,
+            credential_id=b"credential-2",
+            label="Passkey 2",
+            public_key=b"public-key-2",
+            algorithm=-7,
+            counter=0,
+            transports=["usb"],
+            verified=True,
+        )
+
+        response = self.client.post("/api/login/precheck", {"email": "multi_passkey@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(len(response_data["webauthn_credentials"]), 2)
 
 
 class TestLoginAPI(APIBaseTest):

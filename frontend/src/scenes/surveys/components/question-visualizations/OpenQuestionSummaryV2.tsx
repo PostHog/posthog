@@ -165,7 +165,11 @@ export function OpenQuestionSummaryV2({
                             <IconSparkles className="text-warning" />
                             <span className="font-semibold">Response summary</span>
                         </div>
-                        <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
+                        <AIConsentPopoverWrapper
+                            showArrow
+                            onDismiss={handleDismissPopover}
+                            hidden={!showConsentPopover}
+                        >
                             <LemonButton
                                 type="secondary"
                                 size="small"

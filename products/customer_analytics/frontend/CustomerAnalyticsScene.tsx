@@ -1,4 +1,4 @@
-import { BindLogic, useActions } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -6,7 +6,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,6 +37,8 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
+    const { businessType } = useValues(customerAnalyticsSceneLogic)
+    const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
@@ -43,6 +47,17 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
     })
+
+    const content =
+        businessType === 'b2b' && shouldShowGroupsIntroduction ? (
+            <GroupsIntroduction />
+        ) : (
+            <>
+                <ActiveUsersInsights />
+                <SignupInsights />
+                <SessionInsights />
+            </>
+        )
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -83,11 +98,7 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                 />
                 <FeedbackBanner feedbackButtonId="dashboard" />
                 <CustomerAnalyticsFilters />
-                <div className="space-y-2">
-                    <ActiveUsersInsights />
-                    <SignupInsights />
-                    <SessionInsights />
-                </div>
+                <div className="space-y-2">{content}</div>
             </SceneContent>
         </BindLogic>
     )
