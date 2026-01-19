@@ -3,6 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { JudgeHog } from 'lib/components/hedgehogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -88,6 +89,7 @@ interface TemplateGridProps {
     title: string
     description: string
     showBackButton?: boolean
+    showHog?: boolean
     minHeight?: '60vh' | '80vh'
 }
 
@@ -95,6 +97,7 @@ function TemplateGrid({
     title,
     description,
     showBackButton = false,
+    showHog = false,
     minHeight = '60vh',
 }: TemplateGridProps): JSX.Element {
     return (
@@ -114,6 +117,11 @@ function TemplateGrid({
                 )}
                 <div className="space-y-8">
                     <div className="text-center space-y-3">
+                        {showHog && (
+                            <div className="flex justify-center mb-4">
+                                <JudgeHog className="w-32 h-32" />
+                            </div>
+                        )}
                         <h1 className="text-3xl font-bold">{title}</h1>
                         <p className="text-base text-secondary max-w-2xl mx-auto">{description}</p>
                     </div>
@@ -145,8 +153,9 @@ export function EvaluationTemplatesEmptyState(): JSX.Element {
     return (
         <TemplateGrid
             title="Create your first evaluation"
-            description="Select a pre-configured template to get started quickly, or create your own from scratch"
+            description="Automatically score your LLM outputs for quality, safety, and accuracy. Choose a template or build your own."
             showBackButton={false}
+            showHog
             minHeight="60vh"
         />
     )
