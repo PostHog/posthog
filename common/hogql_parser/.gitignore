@@ -4,4 +4,3 @@ build/
 *.so
 dist/
 .cache/
-build_wasm/
