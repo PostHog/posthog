@@ -52,7 +52,7 @@ export function TaskReferenceModal({ isOpen, onClose, reference }: TaskReference
             const timeToSeekTo = Math.max(startTimeMs - 2000, 0)
             seekToTime(timeToSeekTo)
         }
-    }, [isOpen, reference, sessionPlayerData?.start, sessionPlayerData?.durationMs, seekToTime])
+    }, [isOpen, reference?.start_time, sessionPlayerData?.start, sessionPlayerData?.durationMs, seekToTime])
 
     if (!reference) {
         return <></>
