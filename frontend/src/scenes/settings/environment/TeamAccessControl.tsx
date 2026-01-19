@@ -5,16 +5,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
+import { ResourcesAccessControlsV2 } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2'
 import { ResourcesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourcesAccessControls'
-import { ResourcesAccessControlsV2 } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourcesAccessControlsV2'
 
 export function TeamAccessControl(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const useNewUI = featureFlags[FEATURE_FLAGS.RBAC_UI_REDESIGN]
+    const useAccessControlRedesign = featureFlags[FEATURE_FLAGS.RBAC_UI_REDESIGN]
 
-    if (useNewUI) {
+    if (useAccessControlRedesign) {
         return (
             <div className="space-y-6">
                 <div className="space-y-2">
