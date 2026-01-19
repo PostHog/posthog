@@ -56,10 +56,14 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
     let json_str = std::str::from_utf8(json_bytes)?;
 
     // Check if this is JSONL by looking for multiple complete JSON objects
-    let lines: Vec<&str> = json_str.lines().filter(|line| !line.trim().is_empty()).collect();
-    let is_jsonl = lines.len() > 1 && lines.iter().all(|line| {
-        line.trim().starts_with('{') && line.trim().ends_with('}')
-    });
+    let lines: Vec<&str> = json_str
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let is_jsonl = lines.len() > 1
+        && lines
+            .iter()
+            .all(|line| line.trim().starts_with('{') && line.trim().ends_with('}'));
 
     if is_jsonl {
         // Handle JSONL format - parse each line and merge them
