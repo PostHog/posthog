@@ -82,7 +82,7 @@ class TestSESProvider(TestCase):
             mock_ses_v2_client.get_caller_identity.return_value = {"Account": "123456789012"}
             mock_ses_v2_client.create_tenant_resource_association.return_value = {}
 
-            provider.create_email_domain(TEST_DOMAIN, team_id=1)
+            provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
@@ -91,7 +91,7 @@ class TestSESProvider(TestCase):
         ):
             provider = SESProvider()
             with pytest.raises(Exception, match="Please enter a valid domain"):
-                provider.create_email_domain("invalid-domain", team_id=1)
+                provider.create_email_domain("invalid-domain", mail_from_subdomain="mail", team_id=1)
 
     def test_verify_email_domain_initial_setup(self):
         provider = SESProvider()
@@ -121,7 +121,7 @@ class TestSESProvider(TestCase):
             mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
             mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
-            result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
 
         # Should return pending status with DNS records
         assert result == {
@@ -183,6 +183,6 @@ class TestSESProvider(TestCase):
             }
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
 
-            result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
         # Should return verified status with no DNS records needed
         assert result == {"status": "success", "dnsRecords": []}
