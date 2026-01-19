@@ -382,7 +382,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                             "operator": "icontains",
                         },
                     ],
-                }
+                },
             ],
         }
 
