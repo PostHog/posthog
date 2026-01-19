@@ -96,7 +96,7 @@ def find_materialized_column(table: str, column_name: str) -> MaterializedColumn
 def add_indexes_to_columns(
     context: dagster.OpExecutionContext,
     config: AddIndexConfig,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
+    cluster: ClickhouseCluster = dagster.ResourceParam[ClickhouseCluster](),
 ):
     if not config.add_minmax_index and not config.add_bloom_filter_index and not config.add_ngram_lower_index:
         context.log.warning("No index types selected. Nothing to do.")
