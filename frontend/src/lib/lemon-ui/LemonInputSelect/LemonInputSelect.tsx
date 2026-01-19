@@ -411,6 +411,10 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
+        // In single mode, when focusing with a selected value, enter edit mode right away
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            setInputValue(getStringKey(values[0]))
+        }
         onFocus?.()
         setShowPopover(true)
         popoverFocusRef.current = true
@@ -459,6 +463,18 @@ export function LemonInputSelect<T = string>({
     )
 
     const valuesPrefix = useMemo(() => {
+        // For single mode with a selected value and no active input, show the value as prefix since
+        // showing the entered value as placeholder was unintuitive
+        if (mode === 'single' && values.length > 0 && !inputValue) {
+            return (
+                <PopoverReferenceContext.Provider value={null}>
+                    <span className="font-medium truncate">
+                        {allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])}
+                    </span>
+                </PopoverReferenceContext.Provider>
+            )
+        }
+
         if (mode !== 'multiple' || values.length === 0 || displayMode !== 'snacks') {
             return null
         }
@@ -481,16 +497,18 @@ export function LemonInputSelect<T = string>({
             </PopoverReferenceContext.Provider>
         )
     }, [
-        allOptionsMap,
-        allowCustomValues,
-        disableEditing,
-        itemBeingEditedIndex,
-        getStringKey,
-        displayMode,
+        mode,
         values,
         values.length,
-        mode,
+        inputValue,
+        allOptionsMap,
+        getStringKey,
+        getDisplayLabel,
+        displayMode,
+        itemBeingEditedIndex,
         options,
+        allowCustomValues,
+        disableEditing,
         _onActionItem,
         sortable,
         handleDragEnd,
@@ -849,7 +867,7 @@ export function LemonInputSelect<T = string>({
                         : values.length === 0
                           ? placeholder
                           : mode === 'single'
-                            ? (allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0]))
+                            ? undefined // When value is selected in single mode, no placeholder (value shown but rendered as prefix)
                             : allowCustomValues
                               ? 'Add value'
                               : disablePrompting
