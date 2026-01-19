@@ -25,18 +25,9 @@ BEHAVIORAL_SETTINGS = [
     # Experimental features that affect query syntax/semantics
     "allow_experimental_window_functions",
     "allow_suspicious_low_cardinality_types",
-    "allow_experimental_analyzer",
-    "allow_experimental_lightweight_delete",
     # INSERT behavior
     "insert_distributed_sync",
     "throw_on_max_partitions_per_insert_block",
-    # JOIN behavior
-    "join_use_nulls",
-    "any_join_distinct_right_table_keys",
-    "join_algorithm",
-    # NULL handling
-    "transform_null_in",
-    "cast_keep_nullable",
 ]
 
 # Settings to skip when scanning for unknown settings (performance-only, not behavioral)
