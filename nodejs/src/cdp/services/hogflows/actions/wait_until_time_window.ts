@@ -62,12 +62,14 @@ function isValidTimezone(timezone: string): boolean {
 export function resolveTimezone(config: Action['config'], person?: CyclotronPerson): string {
     const fallback = config.fallback_timezone || config.timezone || 'UTC'
 
-    if (config.use_person_timezone && person?.properties) {
-        const personTimezone = person.properties[GEOIP_TIMEZONE_PROPERTY]
-        if (personTimezone && typeof personTimezone === 'string' && isValidTimezone(personTimezone)) {
-            return personTimezone
+    if (config.use_person_timezone) {
+        if (person?.properties) {
+            const personTimezone = person.properties[GEOIP_TIMEZONE_PROPERTY]
+            if (personTimezone && typeof personTimezone === 'string' && isValidTimezone(personTimezone)) {
+                return personTimezone
+            }
         }
-        // Fall back if person doesn't have a timezone or it's invalid
+        // Fall back if person doesn't exist, doesn't have a timezone, or timezone is invalid
         return fallback
     }
     // Use the configured timezone or default to UTC
