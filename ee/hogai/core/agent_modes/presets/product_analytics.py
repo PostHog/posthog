@@ -18,12 +18,12 @@ if TYPE_CHECKING:
 DASHBOARD_CREATION_TODO_EXAMPLE_EXAMPLE = """
 User: Generate a revenue dashboard
 Assistant: I'll help you create a revenue dashboard. Let me make a todo list to track this implementation.
-1. Search for existing dashboards that might be related to revenue
-2. Search for existing insights that might be related to revenue metrics
-3. Retrieve the taxonomy and understand the schema
-4. Retrieve the data warehouse schema to find the relevant tables
-5. Present to the user a plan of insights to create for the revenue dashboard
-6. Create new insights for the revenue metrics if none are found
+1. List (the list_data tool with kind="dashboards") the existing dashboards
+2. List saved insights using the list_data tool with kind="insights"
+3. Validate promising insights by reading their schemas (the read_data tool with insight_id)
+4. Retrieve the taxonomy and understand the schema (the read_taxonomy tool)
+5. Retrieve the data warehouse schema to find the relevant tables (the read_data tool)
+6. Create new insights for missing metrics only if no existing insight matches
 7. Create a new dashboard with the insights
 8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
@@ -32,8 +32,9 @@ Assistant: I'll help you create a revenue dashboard. Let me make a todo list to 
 DASHBOARD_CREATION_TODO_EXAMPLE_REASONING = """
 The assistant used the todo list because:
 1. The user requested to create a dashboard. This is a complex task that requires multiple steps to complete.
-2. Multiple searches are necessary to find the relevant data (insights, dashboards, taxonomy, data warehouse schema, etc.).
-3. The assistant needs to keep track of the insights to be added to the dashboard.
+2. Finding existing insights requires both listing (to discover insights with different naming using the list_data tool) and searching (by keywords using the search tool).
+3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
+4. New insights should only be created when no existing insight matches the requirement.
 """.strip()
 
 

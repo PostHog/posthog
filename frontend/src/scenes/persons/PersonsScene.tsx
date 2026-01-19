@@ -41,7 +41,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
 
     useOnMountEffect(() => {
@@ -122,6 +122,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             to get things moving
                         </>
                     ),
+                    baseCurrency,
                 }}
                 dataAttr="persons-table"
             />

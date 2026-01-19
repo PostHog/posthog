@@ -347,6 +347,7 @@ order by count() desc
                     columns: defaultDataTableColumns(NodeKind.ActorsQuery),
                     source: {
                         kind: NodeKind.ActorsQuery,
+                        select: defaultDataTableColumns(NodeKind.ActorsQuery),
                         properties: [],
                     },
                 })

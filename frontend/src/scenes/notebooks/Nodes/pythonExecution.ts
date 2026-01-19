@@ -56,6 +56,12 @@ export type PythonKernelExecuteResponse = {
     variables?: Record<string, PythonKernelVariableResponse> | null
     started_at?: string
     completed_at?: string
+    kernel_runtime?: {
+        id: string
+        status: string
+        last_used_at?: string | null
+        sandbox_id?: string | null
+    }
 }
 
 const extractTextValue = (data?: Record<string, any> | null): string | undefined => {

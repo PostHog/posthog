@@ -28,6 +28,7 @@ def make_user(
         user_id=user_id,
         team_id=team_id,
         auth_method=auth_method,
+        distinct_id=f"test-distinct-id-{user_id}",
         scopes=scopes or ["llm_gateway:read"],
         application_id=application_id,
     )
