@@ -611,8 +611,6 @@ posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag |
 posthog/tasks/update_survey_iteration.py:0: error: Item "None" of "FeatureFlag | None" has no attribute "save"  [union-attr]
 posthog/tasks/warehouse.py:0: error: Item "None" of "Any | None" has no attribute "keys"  [union-attr]
 posthog/tasks/warehouse.py:0: error: Value of type "Any | None" is not indexable  [index]
-posthog/temporal/ai/session_summary/activities/a3_analyze_video_segment.py:0: error: "_GenAI" has no attribute "AsyncClient"  [attr-defined]
-posthog/temporal/ai/session_summary/activities/a4_consolidate_video_segments.py:0: error: "_GenAI" has no attribute "AsyncClient"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/hogql_schema.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/test/test_pipeline_utils.py:0: error: Argument 1 to "schema" has incompatible type "list[object]"; expected "Iterable[Field[Any]] | Iterable[tuple[str, DataType]] | Mapping[str, DataType]"  [arg-type]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
