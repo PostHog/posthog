@@ -310,7 +310,8 @@ The "oldest_supported" version is the minimum across production environments and
 This PR was automatically created by the daily sync workflow."""
 
 
-def test_cmd_build_pr_body_generates_complete_output(tmp_path, sample_versions_json, capsys):
+def test_cmd_build_pr_body_generates_complete_output(tmp_path, sample_versions_json, capsys, monkeypatch):
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     versions_file = tmp_path / "versions.json"
     versions_file.write_text(json.dumps(sample_versions_json))
 

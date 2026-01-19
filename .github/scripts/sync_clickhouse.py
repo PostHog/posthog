@@ -6,9 +6,10 @@ import re
 import sys
 import json
 import argparse
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+
+import defusedxml.ElementTree as ET
 
 # Settings that affect query behavior - which we want to be kept in sync between prod and local
 BEHAVIORAL_SETTINGS = [
