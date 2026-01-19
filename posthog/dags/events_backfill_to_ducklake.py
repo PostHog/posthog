@@ -62,12 +62,12 @@ CONCURRENCY_TAG = {
 
 def get_ducklake_bucket() -> str:
     config = get_config()
-    return config.get("DUCKLAKE_BUCKET", "posthog-ducklake-dev")
+    return config["DUCKLAKE_BUCKET"]
 
 
 def get_ducklake_region() -> str:
     config = get_config()
-    return config.get("DUCKLAKE_BUCKET_REGION", "us-east-1")
+    return config["DUCKLAKE_BUCKET_REGION"]
 
 
 BACKFILL_S3_PREFIX = "backfill/events"
@@ -159,12 +159,6 @@ EXPECTED_DUCKLAKE_COLUMNS = {
     "person_mode",
     "historical_migration",
 }
-
-
-class SchemaValidationError(Exception):
-    """Raised when the DuckLake schema doesn't match expected columns."""
-
-    pass
 
 
 def tags_for_events_partition(partition_key: str) -> dict[str, str]:
@@ -296,26 +290,6 @@ def get_s3_path_for_partition(
         return f"{OBJECT_STORAGE_ENDPOINT}/{bucket}/{filename}"
     else:
         return f"https://{bucket}.s3.{region}.amazonaws.com/{filename}"
-
-
-def get_s3_prefix_for_partition(
-    bucket: str,
-    region: str,
-    date: datetime,
-    is_local: bool = False,
-) -> str:
-    """Build S3 prefix for all files in a partition date (for cleanup)."""
-    year = date.strftime("%Y")
-    month = date.strftime("%m")
-    day = date.strftime("%d")
-
-    # Prefix that matches all team_id partitions for this date
-    prefix = f"{BACKFILL_S3_PREFIX}/*/year={year}/month={month}/day={day}/"
-
-    if is_local:
-        return f"{OBJECT_STORAGE_ENDPOINT}/{bucket}/{prefix}"
-    else:
-        return f"s3://{bucket}/{prefix}"
 
 
 def get_s3_function_args(s3_path: str, is_local: bool = False) -> tuple[str, str]:
@@ -616,13 +590,19 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
 
     cluster = get_cluster()
     tags = dagster_tags(context)
+    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
     all_s3_paths: list[str] = []
 
-    def run_export_on_coordinator(client: Client) -> list[str]:
-        exported_paths: list[str] = []
+    def export_single_chunk(chunk_i: int) -> list[str]:
+        """Export a single chunk with its own client connection.
 
-        def export_chunk(chunk_i: int) -> list[str]:
+        Each thread gets its own ClickHouse client via any_host_by_role() because
+        clickhouse-driver is NOT thread-safe - concurrent queries from different
+        threads cannot use the same Client instance.
+        """
+
+        def do_export(client: Client) -> list[str]:
             with tags_context(kind="dagster", dagster=tags):
                 return export_events_to_s3(
                     context=context,
@@ -636,39 +616,31 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
                     settings=merged_settings,
                 )
 
-        if parallel_chunks > 1:
-            # Parallel execution
-            context.log.info(f"Exporting {team_id_chunks} chunks with {parallel_chunks} parallel workers")
-            with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
-                futures = {executor.submit(export_chunk, i): i for i in range(team_id_chunks)}
-                for future in as_completed(futures):
-                    chunk_i = futures[future]
-                    try:
-                        paths = future.result()
-                        exported_paths.extend(paths)
-                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
-                    except Exception:
-                        context.log.exception(f"Chunk {chunk_i + 1}/{team_id_chunks} failed")
-                        raise
-        else:
-            # Sequential execution
-            for chunk_i in range(team_id_chunks):
-                context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
-                paths = export_chunk(chunk_i)
-                exported_paths.extend(paths)
-                context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+        return cluster.any_host_by_role(
+            fn=do_export,
+            workload=workload,
+            node_role=NodeRole.COORDINATOR,
+        ).result()
 
-        return exported_paths
-
-    workload = Workload.OFFLINE if is_cloud() else Workload.DEFAULT
-
-    result = cluster.any_host_by_role(
-        fn=run_export_on_coordinator,
-        workload=workload,
-        node_role=NodeRole.COORDINATOR,
-    ).result()
-
-    all_s3_paths.extend(result)
+    if parallel_chunks > 1:
+        context.log.info(f"Exporting {team_id_chunks} chunks with {parallel_chunks} parallel workers")
+        with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
+            futures = {executor.submit(export_single_chunk, i): i for i in range(team_id_chunks)}
+            for future in as_completed(futures):
+                chunk_i = futures[future]
+                try:
+                    paths = future.result()
+                    all_s3_paths.extend(paths)
+                    context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                except Exception:
+                    context.log.exception(f"Chunk {chunk_i + 1}/{team_id_chunks} failed")
+                    raise
+    else:
+        for chunk_i in range(team_id_chunks):
+            context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
+            paths = export_single_chunk(chunk_i)
+            all_s3_paths.extend(paths)
+            context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
 
     context.log.info(f"Exported {len(all_s3_paths)} files to S3")
     logger.info("export_complete", files_exported=len(all_s3_paths))
