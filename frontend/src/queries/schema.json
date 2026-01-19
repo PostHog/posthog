@@ -1954,7 +1954,8 @@
                 "task",
                 "upsert_dashboard",
                 "manage_memories",
-                "create_notebook"
+                "create_notebook",
+                "list_data"
             ],
             "type": "string"
         },
@@ -17213,6 +17214,13 @@
                 "debug": {
                     "type": "boolean"
                 },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
@@ -20746,6 +20754,10 @@
         "MaxExperimentMetricResult": {
             "additionalProperties": false,
             "properties": {
+                "goal": {
+                    "enum": ["increase", "decrease", null],
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20763,7 +20775,7 @@
                     "type": "array"
                 }
             },
-            "required": ["name", "variant_results"],
+            "required": ["name", "goal", "variant_results"],
             "type": "object"
         },
         "MaxExperimentSummaryContext": {
@@ -20844,6 +20856,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20851,7 +20866,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "required": ["key", "chance_to_win", "credible_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxExperimentVariantResultFrequentist": {
@@ -20870,6 +20885,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20880,7 +20898,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "required": ["key", "p_value", "confidence_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {

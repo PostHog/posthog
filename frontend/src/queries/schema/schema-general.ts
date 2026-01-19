@@ -412,6 +412,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -2947,6 +2949,7 @@ export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
     credible_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
@@ -2954,11 +2957,13 @@ export interface MaxExperimentVariantResultFrequentist {
     key: string
     p_value: number | null
     confidence_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 
