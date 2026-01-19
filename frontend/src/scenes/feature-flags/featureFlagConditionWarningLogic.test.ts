@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, PropertyFilterType, PropertyOperator } from '~/types'
@@ -398,21 +397,6 @@ describe('featureFlagConditionWarningLogic', () => {
 
     describe('client runtime - static cohorts', () => {
         it('warns when static cohort is used', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/cohorts/': {
-                        results: [
-                            {
-                                id: 1,
-                                name: 'Test Static Cohort',
-                                is_static: true,
-                                filters: { properties: { type: 'AND', values: [] } },
-                            },
-                        ],
-                    },
-                },
-            })
-
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'id',
@@ -422,8 +406,14 @@ describe('featureFlagConditionWarningLogic', () => {
                 },
             ]
 
+            // Mount cohortsModel and add a static cohort
             cohortsModel.mount()
-            await expectLogic(cohortsModel).toDispatchActions(['loadAllCohortsSuccess'])
+            cohortsModel.actions.cohortCreated({
+                id: 1,
+                name: 'Test Static Cohort',
+                is_static: true,
+                filters: { properties: { type: 'AND', values: [] } },
+            } as any)
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
@@ -457,22 +447,7 @@ describe('featureFlagConditionWarningLogic', () => {
             })
         })
 
-        it('does not warn for non-static cohorts', async () => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/cohorts/': {
-                        results: [
-                            {
-                                id: 1,
-                                name: 'Test Dynamic Cohort',
-                                is_static: false,
-                                filters: { properties: { type: 'AND', values: [] } },
-                            },
-                        ],
-                    },
-                },
-            })
-
+        it('does not warn for non-static cohorts', () => {
             const properties: AnyPropertyFilter[] = [
                 {
                     key: 'id',
@@ -482,8 +457,14 @@ describe('featureFlagConditionWarningLogic', () => {
                 },
             ]
 
+            // Mount cohortsModel and add a non-static cohort
             cohortsModel.mount()
-            await expectLogic(cohortsModel).toDispatchActions(['loadAllCohortsSuccess'])
+            cohortsModel.actions.cohortCreated({
+                id: 1,
+                name: 'Test Dynamic Cohort',
+                is_static: false,
+                filters: { properties: { type: 'AND', values: [] } },
+            } as any)
 
             const logic = featureFlagConditionWarningLogic({
                 properties,
