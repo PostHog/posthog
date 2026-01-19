@@ -260,9 +260,7 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             object_storage.write_from_file(object_path, file_path)
             exported_asset.content_location = object_path
             exported_asset.save(update_fields=["content_location"])
-        else:
-            with open(file_path, "rb") as f:
-                save_content_to_exported_asset(exported_asset, f.read())
+            return
     except ObjectStorageError as ose:
         capture_exception(ose)
         logger.error(
@@ -271,5 +269,5 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             exception=ose,
             exc_info=True,
         )
-        with open(file_path, "rb") as f:
-            save_content_to_exported_asset(exported_asset, f.read())
+    with open(file_path, "rb") as f:
+        save_content_to_exported_asset(exported_asset, f.read())

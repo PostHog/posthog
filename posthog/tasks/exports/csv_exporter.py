@@ -3,10 +3,10 @@ import csv
 import json
 import datetime
 import tempfile
+from collections import OrderedDict
 from collections.abc import Generator
 from typing import Any, Optional
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
-from uuid import UUID
 
 from django.http import QueryDict
 
@@ -15,6 +15,7 @@ import structlog
 from openpyxl import Workbook
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
+from rest_framework_csv.renderers import CSVRenderer
 
 from posthog.api.services.query import process_query_dict
 from posthog.exceptions_capture import capture_exception
@@ -33,22 +34,29 @@ from ...hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_STRING_LABEL,
 )
 from ..exporter import EXPORT_TIMER
-from .ordered_csv_renderer import OrderedCsvRenderer
 
 logger = structlog.get_logger(__name__)
 
 
-class _ExportEncoder(json.JSONEncoder):
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, UUID):
-            return str(obj)
-        if isinstance(obj, datetime.datetime | datetime.date):
-            return str(obj)
-        return super().default(obj)
-
-
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
+
+
+def _group_columns_by_prefix(all_keys: list[str]) -> list[str]:
+    """Group columns by their top-level prefix.
+
+    Ensures all 'properties.*' columns are grouped together, all 'distinct_ids.*'
+    columns are together, etc. Maintains insertion order within each group.
+    """
+    ordered_fields: OrderedDict[str, list[str]] = OrderedDict()
+    for key in all_keys:
+        prefix = key.split(".")[0]
+        if prefix in ordered_fields:
+            ordered_fields[prefix].append(key)
+        else:
+            ordered_fields[prefix] = [key]
+
+    return [key for group in ordered_fields.values() for key in group]
 
 
 def add_query_params(url: str, params: dict[str, str]) -> str:
@@ -314,7 +322,7 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
 QUERY_PAGE_SIZE = 10000
 
 # Query kinds that support offset/limit pagination via schema parameters.
-# HogQLQuery doesn't support these yet - it uses the limit in the SQL string itself.
+# HogQLQuery doesn't support these yet
 PAGINATED_QUERY_KINDS = {"EventsQuery", "ActorsQuery", "GroupsQuery"}
 
 
@@ -381,40 +389,32 @@ def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None
         yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
 
 
-def _write_rows_to_jsonl(exported_asset: ExportedAsset, limit: int) -> tuple[str, int, list[str], set[str]]:
-    """Write flattened rows to a JSON lines temp file, discovering columns as we go.
+def _write_rows_to_jsonl(jsonl_file: Any, exported_asset: ExportedAsset, limit: int) -> tuple[int, list[str], set[str]]:
+    """Write flattened rows to a JSON lines file, discovering columns as we go.
 
     Returns:
-        Tuple of (jsonl_path, row_count, all_keys, seen_keys)
+        Tuple of (row_count, all_keys, seen_keys)
     """
-    renderer = OrderedCsvRenderer()
+    renderer = CSVRenderer()
     all_keys: list[str] = []
     seen_keys: set[str] = set()
+    row_count = 0
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as jsonl_tmp:
-        jsonl_path = jsonl_tmp.name
-        row_count = 0
+    for row in _iter_rows(exported_asset, limit):
+        flat_row = dict(renderer.flatten_item(row))
 
-        try:
-            for row in _iter_rows(exported_asset, limit):
-                flat_row = dict(renderer.flatten_item(row))
+        for key in flat_row.keys():
+            if key not in seen_keys:
+                seen_keys.add(key)
+                all_keys.append(key)
 
-                for key in flat_row.keys():
-                    if key not in seen_keys:
-                        seen_keys.add(key)
-                        all_keys.append(key)
+        json.dump(flat_row, jsonl_file, default=str)
+        jsonl_file.write("\n")
+        row_count += 1
 
-                json.dump(flat_row, jsonl_tmp, cls=_ExportEncoder)
-                jsonl_tmp.write("\n")
-                row_count += 1
-        except:
-            os.unlink(jsonl_path)
-            raise
+    grouped_keys = _group_columns_by_prefix(all_keys)
 
-    # Group columns by their top-level prefix to match expected CSV column ordering
-    grouped_keys = OrderedCsvRenderer.group_columns_by_prefix(all_keys)
-
-    return jsonl_path, row_count, grouped_keys, seen_keys
+    return row_count, grouped_keys, seen_keys
 
 
 def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: set[str]) -> list[str]:
@@ -446,47 +446,41 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
     resource = exported_asset.export_context or {}
     user_columns = resource.get("columns", [])
 
-    jsonl_path = None
-    csv_path = None
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
+        # Pass 1: write rows, collect columns
+        row_count, all_keys, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
 
-    try:
-        jsonl_path, row_count, all_keys, seen_keys = _write_rows_to_jsonl(exported_asset, limit)
+        # Pass 2: read back and write CSV
+        jsonl_file.seek(0)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as csv_tmp:
             csv_path = csv_tmp.name
 
-        if row_count == 0:
-            if user_columns:
-                # Have columns but no data - write header with empty row
-                with open(csv_path, "w", newline="") as f:
-                    dict_writer = csv.DictWriter(f, fieldnames=user_columns, extrasaction="ignore")
+            if row_count == 0:
+                if user_columns:
+                    # Have columns but no data - write header with empty row
+                    dict_writer = csv.DictWriter(csv_tmp, fieldnames=user_columns, extrasaction="ignore")
                     dict_writer.writeheader()
                     dict_writer.writerow({})  # Empty row with empty values
-            else:
-                # No columns and no data - show error
-                with open(csv_path, "w", newline="") as f:
-                    error_writer = csv.writer(f)
+                else:
+                    # No columns and no data - show error
+                    error_writer = csv.writer(csv_tmp)
                     error_writer.writerow(["error"])
                     error_writer.writerow(["No data available or unable to format for export."])
-        else:
-            columns = _determine_columns(user_columns, all_keys, seen_keys)
-
-            with open(csv_path, "w", newline="") as csv_file:
-                dict_writer = csv.DictWriter(csv_file, fieldnames=columns, extrasaction="ignore")
+            else:
+                columns = _determine_columns(user_columns, all_keys, seen_keys)
+                dict_writer = csv.DictWriter(csv_tmp, fieldnames=columns, extrasaction="ignore")
                 dict_writer.writeheader()
 
-                with open(jsonl_path) as jsonl_file:
-                    for line in jsonl_file:
-                        if line.strip():
-                            row = json.loads(line)
-                            dict_writer.writerow(row)
+                for line in jsonl_file:
+                    if line.strip():
+                        row = json.loads(line)
+                        dict_writer.writerow(row)
 
+    try:
         save_content_from_file(exported_asset, csv_path)
     finally:
-        if jsonl_path and os.path.exists(jsonl_path):
-            os.unlink(jsonl_path)
-        if csv_path and os.path.exists(csv_path):
-            os.unlink(csv_path)
+        os.unlink(csv_path)
 
 
 def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
@@ -498,11 +492,12 @@ def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
     resource = exported_asset.export_context or {}
     user_columns = resource.get("columns", [])
 
-    jsonl_path = None
-    xlsx_path = None
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
+        # Pass 1: write rows, collect columns
+        row_count, all_keys, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
 
-    try:
-        jsonl_path, row_count, all_keys, seen_keys = _write_rows_to_jsonl(exported_asset, limit)
+        # Pass 2: read back and write Excel
+        jsonl_file.seek(0)
 
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as xlsx_tmp:
             xlsx_path = xlsx_tmp.name
@@ -526,26 +521,23 @@ def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
             worksheet = workbook.create_sheet()
             worksheet.append(columns)
 
-            with open(jsonl_path) as jsonl_file:
-                for line in jsonl_file:
-                    if line.strip():
-                        row_dict = json.loads(line)
-                        row_values = []
-                        for col in columns:
-                            value = row_dict.get(col)
-                            if value is not None and not isinstance(value, str | int | float | bool):
-                                value = str(value)
-                            row_values.append(value)
-                        worksheet.append(row_values)
+            for line in jsonl_file:
+                if line.strip():
+                    row_dict = json.loads(line)
+                    row_values = []
+                    for col in columns:
+                        value = row_dict.get(col)
+                        if value is not None and not isinstance(value, str | int | float | bool):
+                            value = str(value)
+                        row_values.append(value)
+                    worksheet.append(row_values)
 
             workbook.save(xlsx_path)
 
+    try:
         save_content_from_file(exported_asset, xlsx_path)
     finally:
-        if jsonl_path and os.path.exists(jsonl_path):
-            os.unlink(jsonl_path)
-        if xlsx_path and os.path.exists(xlsx_path):
-            os.unlink(xlsx_path)
+        os.unlink(xlsx_path)
 
 
 def get_limit_param_key(path: str) -> str:
