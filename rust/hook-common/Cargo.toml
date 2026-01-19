@@ -18,7 +18,6 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
-tracing = { workspace = true }
 common-kafka = { path = "../common/kafka" }
 
 [dev-dependencies]

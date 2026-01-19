@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -745,3 +746,88 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
     def test_invalid_bearer_token(self):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["llm_gateway:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "LLM gateway scope is not available. Contact support to enable this feature.",
+            "attr": "scopes",
+        }
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_llm_gateway_scope_allowed_when_flag_enabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["llm_gateway:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_update_existing_key_with_llm_gateway_scope_allowed_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["llm_gateway:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"label": "updated label", "scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200
+        assert response.json()["label"] == "updated label"
+        assert response.json()["scopes"] == ["llm_gateway:read"]
+        mock_feature_enabled.assert_not_called()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_update_adding_llm_gateway_scope_blocked_when_flag_disabled(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"scopes": ["insight:read", "llm_gateway:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "LLM gateway scope is not available. Contact support to enable this feature.",
+            "attr": "scopes",
+        }
+        mock_feature_enabled.assert_called_once()
+
+    @patch("posthog.api.personal_api_key.posthoganalytics.feature_enabled")
+    def test_create_other_scopes_unaffected_by_flag(self, mock_feature_enabled):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {"label": "test key", "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+        )
+        assert response.status_code == 201
+        assert response.json()["scopes"] == ["insight:read"]
+        mock_feature_enabled.assert_not_called()

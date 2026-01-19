@@ -88,6 +88,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         """
         user = cast(User, request.user)
 
+        self._raise_if_sso_enforced(user)
+
         # Get existing credentials to exclude
         existing_credentials = WebauthnCredential.objects.filter(user=user, verified=True)
         exclude_credentials = [
@@ -133,6 +135,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         The credential is stored but marked as unverified until the user proves they can use it.
         """
         user = cast(User, request.user)
+
+        self._raise_if_sso_enforced(user)
 
         # Get challenge from session
         challenge_b64 = request.session.pop(WEBAUTHN_REGISTRATION_CHALLENGE_KEY, None)
@@ -198,108 +202,21 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=False, methods=["POST"], url_path="verify")
-    def verify(self, request: Request) -> Response:
-        """
-        Begin verification of the newly created passkey.
+    def _raise_if_sso_enforced(self, user: User) -> None:
+        organization = user.current_organization
+        if not organization:
+            return
 
-        Generates an authentication challenge for the specific credential.
-        """
-        user = cast(User, request.user)
-
-        credential_id = request.session.get(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY)
-        if not credential_id:
-            return Response(
-                {"error": "No pending credential verification. Please register a new passkey."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            credential = WebauthnCredential.objects.get(pk=credential_id, user=user, verified=False)
-        except WebauthnCredential.DoesNotExist:
-            return Response(
-                {"error": "Credential not found or already verified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Generate authentication options for this specific credential
-        options = generate_authentication_options(
-            rp_id=get_webauthn_rp_id(),
-            allow_credentials=[
-                PublicKeyCredentialDescriptor(
-                    id=credential.credential_id,
-                    transports=[AuthenticatorTransport(t) for t in credential.transports if t],
-                )
-            ],
-            user_verification=UserVerificationRequirement.REQUIRED,
-            timeout=CHALLENGE_TIMEOUT_MS,
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(
+            user.email, organization=organization
         )
+        if not sso_enforcement:
+            return
 
-        # Store challenge in session
-        request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
-        request.session.save()
-
-        logger.info(
-            "webauthn_verification_begin", user_id=user.pk, credential_id=credential.pk, rp_id=get_webauthn_rp_id()
+        raise serializers.ValidationError(
+            "Passkeys can't be added because your organization requires SSO.",
+            code="sso_enforced",
         )
-
-        return Response(json.loads(options_to_json(options)))
-
-    @action(detail=False, methods=["POST"], url_path="verify_complete")
-    def verify_complete(self, request: Request) -> Response:
-        """
-        Complete verification of the passkey by verifying the assertion.
-
-        Marks the credential as verified on success.
-        """
-        user = cast(User, request.user)
-
-        challenge_b64 = request.session.pop(WEBAUTHN_VERIFICATION_CHALLENGE_KEY, None)
-        credential_id = request.session.pop(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY, None)
-        request.session.save()
-
-        if not challenge_b64 or not credential_id:
-            return Response(
-                {"error": "No pending verification. Please start registration again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            credential = WebauthnCredential.objects.get(pk=credential_id, user=user, verified=False)
-        except WebauthnCredential.DoesNotExist:
-            return Response(
-                {"error": "Credential not found or already verified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            expected_challenge = base64url_to_bytes(challenge_b64)
-
-            verification = verify_authentication_response(
-                credential=request.data,
-                expected_challenge=expected_challenge,
-                expected_rp_id=get_webauthn_rp_id(),
-                expected_origin=get_webauthn_rp_origin(),
-                credential_public_key=credential.public_key,
-                credential_current_sign_count=credential.counter,
-                require_user_verification=True,
-            )
-
-            # Mark credential as verified
-            credential.verified = True
-            credential.counter = verification.new_sign_count
-            credential.save()
-
-            logger.info("webauthn_verification_complete", user_id=user.pk, credential_id=credential.pk)
-
-            return Response({"success": True, "message": "Passkey verified and ready to use."})
-
-        except Exception as e:
-            logger.exception("webauthn_verification_error", user_id=user.pk, error=str(e))
-            return Response(
-                {"error": f"Verification failed: could not complete verification"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
 
 class WebAuthnLoginViewSet(viewsets.ViewSet):

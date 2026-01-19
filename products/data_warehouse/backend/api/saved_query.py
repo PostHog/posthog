@@ -47,6 +47,7 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
+    unpause_saved_query_schedule,
 )
 from products.data_warehouse.backend.models import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -367,12 +368,11 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                 )
                 self.context["activity_log"] = latest_activity_log
             # update the temporal schedule if it exists
-            view_id = str(view.id)
-            temporal_schedule_exists = saved_query_workflow_exists(view_id)
+            temporal_schedule_exists = saved_query_workflow_exists(view)
             if temporal_schedule_exists:
                 try:
                     if sync_frequency == "never":
-                        pause_saved_query_schedule(view_id)
+                        pause_saved_query_schedule(view)
                     elif sync_frequency:
                         sync_saved_query_workflow(view, create=not temporal_schedule_exists)
                 except Exception as e:
@@ -606,6 +606,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             )
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False)
+    def resume_schedules(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Resume paused materialization schedules for multiple matviews.
+
+        Accepts a list of view IDs in the request body: {"view_ids": ["id1", "id2", ...]}
+        This endpoint is idempotent - calling it on already running or non-existent schedules is safe.
+        """
+        view_ids = request.data.get("view_ids", [])
+        if not view_ids:
+            return response.Response({"error": "view_ids is required"}, status=status.HTTP_400_BAD_REQUEST)
+        saved_queries = DataWarehouseSavedQuery.objects.filter(id__in=view_ids, team_id=self.team_id)
+        for saved_query in saved_queries:
+            if saved_query_workflow_exists(saved_query):
+                unpause_saved_query_schedule(saved_query)
+        return response.Response(status=status.HTTP_202_ACCEPTED)
 
     @action(methods=["POST"], detail=True)
     def ancestors(self, request: request.Request, *args, **kwargs) -> response.Response:

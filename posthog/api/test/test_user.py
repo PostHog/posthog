@@ -1385,6 +1385,7 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "project_api_key_exposed": True,
             },
         )
 
@@ -1397,6 +1398,7 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
+                "project_api_key_exposed": True,
             },
         )
 
@@ -1463,6 +1465,7 @@ class TestUserAPI(APIBaseTest):
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
+                "project_api_key_exposed": True,  # Default value
             },
         )
 

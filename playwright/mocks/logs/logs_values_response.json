@@ -1,0 +1,1 @@
+[{ "name": "api-service" }, { "name": "web-frontend" }, { "name": "worker-service" }, { "name": "ingestion-pipeline" }]

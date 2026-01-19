@@ -78,7 +78,9 @@ MAX_CACHE_AGE_SECONDS = 86400
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 
-def _endpoint_refresh_mode_to_refresh_type(mode: EndpointRefreshMode | None) -> RefreshType:
+def _endpoint_refresh_mode_to_refresh_type(
+    mode: EndpointRefreshMode | None,
+) -> RefreshType:
     """
     Map EndpointRefreshMode to RefreshType.
 
@@ -252,7 +254,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 detail=Detail(name=endpoint.name),
             )
 
-            # Report endpoint created event
             report_user_action(
                 user=cast(User, request.user),
                 event="endpoint created",
@@ -263,6 +264,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 },
                 team=self.team,
             )
+
+            can_materialize, _ = endpoint.can_materialize()
+            if can_materialize and endpoint.query.get("kind") == "HogQLQuery":
+                try:
+                    sync_frequency = data.sync_frequency or DataWarehouseSyncInterval.FIELD_24HOUR
+                    self._enable_materialization(endpoint, sync_frequency, request)
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        {
+                            "product": Product.ENDPOINTS,
+                            "team_id": self.team_id,
+                            "endpoint_name": endpoint.name,
+                            "message": "Failed to auto-enable materialization on endpoint creation",
+                        },
+                    )
 
             return Response(
                 self._serialize_endpoint(endpoint, request),
