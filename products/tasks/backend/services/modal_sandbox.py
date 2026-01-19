@@ -251,6 +251,27 @@ class ModalSandbox:
                 cause=e,
             )
 
+    def execute_background(self, command: str) -> None:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        try:
+            bg_command = f"nohup {command} > /tmp/agent-server.log 2>&1 &"
+            process = self._sandbox.exec("bash", "-c", bg_command, timeout=10)
+            process.wait()
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Failed to execute background command: {e}")
+            raise SandboxExecutionError(
+                f"Failed to execute background command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
     def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError(f"Sandbox not in running state.")

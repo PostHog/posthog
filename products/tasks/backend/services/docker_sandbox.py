@@ -177,7 +177,7 @@ class DockerSandbox:
             if config.environment_variables:
                 for key, value in config.environment_variables.items():
                     if value is not None:
-                        if key == "POSTHOG_API_URL":
+                        if key in ("POSTHOG_API_URL", "REDIS_URL"):
                             value = DockerSandbox._transform_url_for_docker(value)
                         env_args.extend(["-e", f"{key}={value}"])
 
@@ -185,6 +185,9 @@ class DockerSandbox:
             runagent_path = os.path.join(settings.BASE_DIR, "products/tasks/scripts/runAgent.mjs")
             if os.path.exists(runagent_path):
                 volume_args.extend(["-v", f"{runagent_path}:/scripts/runAgent.mjs:ro"])
+            runagentserver_path = os.path.join(settings.BASE_DIR, "products/tasks/scripts/runAgentServer.mjs")
+            if os.path.exists(runagentserver_path):
+                volume_args.extend(["-v", f"{runagentserver_path}:/scripts/runAgentServer.mjs:ro"])
 
             docker_args = [
                 "docker",
@@ -300,6 +303,29 @@ class DockerSandbox:
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
                 "Failed to execute command",
+                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                cause=e,
+            )
+
+    def execute_background(self, command: str) -> None:
+        if not self.is_running():
+            raise SandboxExecutionError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        try:
+            logger.debug(f"Executing in background in sandbox {self.id}: {command[:100]}...")
+            bg_command = f"nohup {command} > /tmp/agent-server.log 2>&1 &"
+            DockerSandbox._run(
+                ["docker", "exec", "-d", self._container_id, "bash", "-c", bg_command],
+                timeout=10,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to execute background command: {e}")
+            raise SandboxExecutionError(
+                "Failed to execute background command",
                 {"sandbox_id": self.id, "command": command, "error": str(e)},
                 cause=e,
             )

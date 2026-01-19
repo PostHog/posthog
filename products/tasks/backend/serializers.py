@@ -107,6 +107,11 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Current execution status",
     )
+    environment = serializers.ChoiceField(
+        choices=["local", "cloud"],
+        required=False,
+        help_text="Execution environment - switching to 'cloud' triggers sandbox provisioning",
+    )
     branch = serializers.CharField(
         required=False, allow_null=True, help_text="Git branch name to associate with the task"
     )

@@ -70,17 +70,21 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 # Agent SDK
 ###
 
-# Set up /scripts as a Node.js project and install @posthog/agent
+# Set up /scripts as a Node.js project and install @posthog/agent + dependencies
+# Note: @agentclientprotocol/sdk is a dependency of @posthog/agent but we install it
+# explicitly for direct imports in runAgentServer.mjs
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent@1.27.0
+    npm install @posthog/agent@latest @agentclientprotocol/sdk@latest ioredis
 
-# Download agent runner script from GitHub
+# Download agent runner scripts from GitHub (fallback to empty files for local dev - scripts mounted via volumes)
 RUN cd /scripts && \
     curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
-    -o runAgent.mjs && \
-    chmod +x runAgent.mjs
+    -o runAgent.mjs || touch runAgent.mjs && \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgentServer.mjs \
+    -o runAgentServer.mjs || touch runAgentServer.mjs && \
+    chmod +x runAgent.mjs runAgentServer.mjs
 
 # Configure git for commits - TODO: Use user's email and name
 RUN git config --global user.email "array@posthog.com" && \

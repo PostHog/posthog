@@ -5,6 +5,12 @@
 FROM posthog-sandbox-base
 
 COPY local-agent /local-agent
-RUN cd /local-agent && npm pack && \
+
+# Build the agent package (install deps including devDeps for TypeScript, compile TypeScript)
+# --include=dev ensures @types/node is installed for DTS generation
+RUN cd /local-agent && \
+    npm install --include=dev && \
+    npm run build && \
+    npm pack && \
     cd /scripts && npm install /local-agent/*.tgz && \
     rm -rf /local-agent
