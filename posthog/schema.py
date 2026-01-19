@@ -3179,15 +3179,6 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
-class ReplayInactivityPeriod(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    active: bool
-    ts_from_s: float
-    ts_to_s: float | None = None
-
-
 class ResolvedDateRangeResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5686,6 +5677,15 @@ class QueryStatusResponse(BaseModel):
         extra="forbid",
     )
     query_status: QueryStatus
+
+
+class ReplayInactivityPeriod(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    active: bool
+    ts_from_s: int
+    ts_to_s: int | None = None
 
 
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):

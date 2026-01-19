@@ -27855,10 +27855,10 @@
                     "type": "boolean"
                 },
                 "ts_from_s": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 },
                 "ts_to_s": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": ["ts_from_s", "active"],
