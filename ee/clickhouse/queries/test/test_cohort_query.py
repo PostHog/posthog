@@ -963,12 +963,12 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         _make_event_sequence(self.team, "p1", 3, [1, 1, 1, 1])
         flush_persons_and_events()
-        
+
         # Ensure ClickHouse tables are fully synced before querying
         # This prevents race conditions where the query executes before data is available
         sync_execute("OPTIMIZE TABLE person FINAL")
         sync_execute("OPTIMIZE TABLE events FINAL")
-        
+
         # Filter for:
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [3] of the last [3] periods
