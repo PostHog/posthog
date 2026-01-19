@@ -73,12 +73,11 @@ class WidgetMessageSerializer(serializers.Serializer):
             if not isinstance(val, str | int | float | bool | type(None)):
                 continue
 
-            # Convert to string and validate length
-            str_value = str(val) if val is not None else None
-            if str_value and len(str_value) > 2000:  # URLs can be long
+            # Validate string length for string values
+            if isinstance(val, str) and len(val) > 2000:  # URLs can be long
                 raise serializers.ValidationError(f"Session context value too long for '{key}' (max 2000 chars)")
 
-            validated[key] = str_value
+            validated[key] = val
 
         return validated
 

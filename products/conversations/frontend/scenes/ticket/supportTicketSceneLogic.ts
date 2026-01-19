@@ -8,6 +8,7 @@ import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
@@ -21,7 +22,7 @@ function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt
         ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
         : undefined
 
-    const query: DataTableNode = {
+    return {
         kind: NodeKind.DataTableNode,
         full: false,
         showEventsFilter: false,
@@ -32,22 +33,19 @@ function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt
             personId: personId,
             after,
             before,
+            // Filter by session_id if available (shows events from the exact session)
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
         },
     }
-
-    // Filter by session_id if available (shows events from the exact session)
-    if (sessionId) {
-        query.source.properties = [
-            {
-                type: 'event',
-                key: '$session_id',
-                value: sessionId,
-                operator: 'exact',
-            },
-        ]
-    }
-
-    return query
 }
 
 function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): DataTableNode {
@@ -57,7 +55,7 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
         ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
         : undefined
 
-    const query: DataTableNode = {
+    return {
         kind: NodeKind.DataTableNode,
         full: false,
         showEventFilter: false,
@@ -68,22 +66,19 @@ function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): Da
             event: '$exception',
             after,
             before,
+            // Filter by session_id if available
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
         },
     }
-
-    // Filter by session_id if available
-    if (sessionId) {
-        query.source.properties = [
-            {
-                type: 'event',
-                key: '$session_id',
-                value: sessionId,
-                operator: 'exact',
-            },
-        ]
-    }
-
-    return query
 }
 
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
@@ -154,14 +149,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // Load all tickets for any of this person's distinct_ids
-                        const allTickets: Ticket[] = []
-                        for (const distinctId of person.distinct_ids) {
-                            const response = await api.conversationsTickets.list({
-                                distinct_id: distinctId,
-                            })
-                            allTickets.push(...(response.results || []))
-                        }
+                        // Load all tickets for any of this person's distinct_ids (in parallel)
+                        const responses = await Promise.all(
+                            person.distinct_ids.map((distinctId: string) =>
+                                api.conversationsTickets.list({ distinct_id: distinctId })
+                            )
+                        )
+                        const allTickets = responses.flatMap((r) => r.results || [])
 
                         // Deduplicate by ID and exclude current ticket
                         const uniqueTickets = Array.from(

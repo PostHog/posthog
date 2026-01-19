@@ -17,7 +17,7 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
     // Extract recording ID from session_replay_url
     // URL format: /replay/:recordingId or similar
     const recordingId = sessionContext?.session_replay_url
-        ? sessionContext.session_replay_url.split('/').pop()?.split('?')[0]
+        ? sessionContext.session_replay_url.split('/').filter(Boolean).pop()?.split('?')[0]
         : null
 
     return (
