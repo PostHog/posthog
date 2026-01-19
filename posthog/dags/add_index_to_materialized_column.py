@@ -96,7 +96,7 @@ def find_materialized_column(table: str, column_name: str) -> MaterializedColumn
 def add_indexes_to_columns(
     context: dagster.OpExecutionContext,
     config: AddIndexConfig,
-    cluster: ClickhouseCluster = dagster.ResourceParam[ClickhouseCluster](),
+    cluster: dagster.ResourceParam[ClickhouseCluster],
 ):
     if not config.add_minmax_index and not config.add_bloom_filter_index and not config.add_ngram_lower_index:
         context.log.warning("No index types selected. Nothing to do.")
@@ -110,8 +110,9 @@ def add_indexes_to_columns(
 
         column = find_materialized_column(config.table, column_name)
         if column is None:
-            context.log.error(f"Column {column_name} does not exist as a materialized column in table {config.table}")
-            continue
+            raise ValueError(
+                f"Column '{column_name}' does not exist as a materialized column in table '{config.table}'"
+            )
 
         context.log.info(f"Column {column_name} exists (nullable={column.is_nullable})")
 
