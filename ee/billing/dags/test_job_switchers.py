@@ -282,7 +282,7 @@ class TestClayWebhookResource:
     def test_send_makes_post_request(self):
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
@@ -305,7 +305,7 @@ class TestClayWebhookResource:
     def test_send_raises_on_error_status(self):
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
             mock_response = MagicMock()
             mock_response.raise_for_status.side_effect = Exception("HTTP 500")
             mock_session.post.return_value = mock_response
@@ -333,7 +333,7 @@ class TestClayWebhookResource:
     def test_send_batched_single_batch(self):
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
@@ -354,7 +354,7 @@ class TestClayWebhookResource:
     def test_send_batched_multiple_batches(self):
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_session.post.return_value = mock_response
@@ -380,7 +380,7 @@ class TestClayWebhookResource:
         """Transient 503 that recovers after retry should succeed."""
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
 
             # First two calls fail with 503, third succeeds
             fail_response = MagicMock()
@@ -410,7 +410,7 @@ class TestClayWebhookResource:
         """Persistent failures should exhaust retries and raise."""
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
 
             # Always fail with 503
             fail_response = MagicMock()
@@ -436,7 +436,7 @@ class TestClayWebhookResource:
         """400 Bad Request should not be retried."""
         with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
             mock_session = MagicMock()
-            mock_session_class.return_value = mock_session
+            mock_session_class.return_value.__enter__.return_value = mock_session
 
             fail_response = MagicMock()
             fail_response.status_code = 400

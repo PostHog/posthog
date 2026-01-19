@@ -188,16 +188,16 @@ class ClayWebhookResource(dagster.ConfigurableResource):
 
     def send(self, data: list[dict]) -> requests.Response:
         """Send data to Clay webhook."""
-        session = requests.Session()
-        return self._send_with_retry(session, data)
+        with requests.Session() as session:
+            return self._send_with_retry(session, data)
 
     def send_batched(self, data: list[dict]) -> list[requests.Response]:
         """Send data to Clay webhook in batches to avoid payload size limits."""
         if not data:
             return []
-        session = requests.Session()
-        responses = []
-        for i in range(0, len(data), self.batch_size):
-            batch = data[i : i + self.batch_size]
-            responses.append(self._send_with_retry(session, batch))
-        return responses
+        with requests.Session() as session:
+            responses = []
+            for i in range(0, len(data), self.batch_size):
+                batch = data[i : i + self.batch_size]
+                responses.append(self._send_with_retry(session, batch))
+            return responses
