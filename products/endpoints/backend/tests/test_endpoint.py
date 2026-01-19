@@ -1395,17 +1395,67 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
 
     def test_openapi_spec_version_reflects_endpoint_version(self):
         """Test that the spec version matches the endpoint's current version."""
-        create_endpoint_with_version(
+        endpoint = create_endpoint_with_version(
             name="versioned-endpoint",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
-            current_version=3,
         )
+        # Create additional versions to reach version 3
+        endpoint.create_new_version(self.sample_hogql_query, self.user)
+        endpoint.create_new_version(self.sample_hogql_query, self.user)
 
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/versioned-endpoint/openapi.json/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         spec = response.json()
         self.assertEqual(spec["info"]["version"], "3")
+
+    def test_openapi_spec_for_specific_version(self):
+        """Test that ?version=N generates spec for that specific version."""
+        endpoint = create_endpoint_with_version(
+            name="multi-version",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+        # Update version 1 with a specific description
+        v1 = endpoint.get_version(1)
+        v1.description = "Version 1 description"
+        v1.save()
+
+        # Create version 2 with different description
+        endpoint.create_new_version({"kind": "HogQLQuery", "query": "SELECT 2"}, self.user)
+        v2 = endpoint.get_version(2)
+        v2.description = "Version 2 description"
+        v2.save()
+
+        # Default should return current version (2)
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/multi-version/openapi.json/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+        self.assertEqual(spec["info"]["version"], "2")
+        self.assertEqual(spec["info"]["description"], "Version 2 description")
+
+        # Requesting version 1 should return that version's spec
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/multi-version/openapi.json/?version=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spec = response.json()
+        self.assertEqual(spec["info"]["version"], "1")
+        self.assertEqual(spec["info"]["description"], "Version 1 description")
+
+    def test_openapi_spec_invalid_version_returns_404(self):
+        """Test that requesting a non-existent version returns 404."""
+        create_endpoint_with_version(
+            name="single-version",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/single-version/openapi.json/?version=999"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["error"], "Version 999 not found")
