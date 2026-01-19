@@ -15,7 +15,6 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
-    AgentMode,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -63,7 +62,13 @@ def _create_agent_node(
     if node_path is None:
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
     node = mode_manager.node
     # Set the node's config and context_manager to use the one with the config
     node._config = config or RunnableConfig(configurable={})
@@ -82,7 +87,13 @@ def _create_agent_tools_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
     node = mode_manager.tools_node
     # Set the node's config and context_manager to use the one with the config
     node._config = config or RunnableConfig(configurable={})
@@ -108,15 +119,13 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
-            # (create_form_flag, tasks_flag, expected_tools, unexpected_tools)
+            # (tasks_flag, expected_tools, unexpected_tools)
             [
-                False,
                 False,
                 ["read_taxonomy", "read_data", "search", "todo_write", "switch_mode"],
                 ["create_form", "create_task", "run_task", "list_tasks"],
             ],
             [
-                True,
                 True,
                 [
                     "read_taxonomy",
@@ -124,7 +133,6 @@ class TestAgentToolkit(BaseTest):
                     "search",
                     "todo_write",
                     "switch_mode",
-                    "create_form",
                     "create_task",
                     "run_task",
                     "get_task_run",
@@ -132,15 +140,12 @@ class TestAgentToolkit(BaseTest):
                     "list_tasks",
                     "list_task_runs",
                 ],
-                [],
+                ["create_form"],
             ],
         ]
     )
-    def test_toolkit_tools_based_on_feature_flags(self, create_form_flag, tasks_flag, expected_tools, unexpected_tools):
-        with (
-            patch("ee.hogai.chat_agent.mode_manager.has_create_form_tool_feature_flag", return_value=create_form_flag),
-            patch("ee.hogai.chat_agent.mode_manager.has_phai_tasks_feature_flag", return_value=tasks_flag),
-        ):
+    def test_toolkit_tools_based_on_feature_flags(self, tasks_flag, expected_tools, unexpected_tools):
+        with patch("ee.hogai.chat_agent.toolkit.has_phai_tasks_feature_flag", return_value=tasks_flag):
             context_manager = AssistantContextManager(
                 team=self.team, user=self.user, config=RunnableConfig(configurable={})
             )
@@ -168,7 +173,11 @@ class TestAgentToolkit(BaseTest):
                 team=self.team, user=self.user, config=RunnableConfig(configurable={})
             )
             mode_manager = ChatAgentModeManager(
-                team=self.team, user=self.user, node_path=node_path, context_manager=context_manager
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=AssistantState(messages=[HumanMessage(content="Test")]),
             )
             mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
 
@@ -176,21 +185,6 @@ class TestAgentToolkit(BaseTest):
                 self.assertIn(expected, mode_names)
             for unexpected in unexpected_modes:
                 self.assertNotIn(unexpected, mode_names)
-
-    def test_unavailable_mode_falls_back_to_product_analytics(self):
-        with patch("ee.hogai.chat_agent.mode_manager.has_error_tracking_mode_feature_flag", return_value=False):
-            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
-            context_manager = AssistantContextManager(
-                team=self.team, user=self.user, config=RunnableConfig(configurable={})
-            )
-            mode_manager = ChatAgentModeManager(
-                team=self.team,
-                user=self.user,
-                node_path=node_path,
-                context_manager=context_manager,
-                mode=AgentMode.ERROR_TRACKING,
-            )
-            self.assertEqual(mode_manager.mode, AgentMode.PRODUCT_ANALYTICS)
 
 
 class TestAgentNode(ClickhouseTestMixin, BaseTest):

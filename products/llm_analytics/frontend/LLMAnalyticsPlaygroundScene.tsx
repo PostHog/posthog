@@ -14,6 +14,7 @@ import {
     LemonTableColumns,
     LemonTag,
     LemonTextArea,
+    Link,
 } from '@posthog/lemon-ui'
 
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
@@ -63,10 +64,29 @@ function RateLimitBanner(): JSX.Element | null {
     )
 }
 
+function SubscriptionRequiredBanner(): JSX.Element | null {
+    const { subscriptionRequired } = useValues(llmAnalyticsPlaygroundLogic)
+
+    if (!subscriptionRequired) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="warning" className="mb-4">
+            The playground requires a{' '}
+            <Link to="/organization/billing" className="font-semibold">
+                valid payment method
+            </Link>{' '}
+            on file to prevent abuse.
+        </LemonBanner>
+    )
+}
+
 function PlaygroundLayout(): JSX.Element {
     return (
         <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
             <RateLimitBanner />
+            <SubscriptionRequiredBanner />
 
             {/* Main conversation area - full width */}
             <div className="flex flex-col border rounded overflow-hidden flex-1">

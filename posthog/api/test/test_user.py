@@ -1387,6 +1387,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
                 "data_pipeline_error_threshold": 0.1,
+                "project_api_key_exposed": True,
             },
         )
 
@@ -1400,6 +1401,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
                 "data_pipeline_error_threshold": 0.1,
+                "project_api_key_exposed": True,
             },
         )
 
@@ -1467,6 +1469,7 @@ class TestUserAPI(APIBaseTest):
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
                 "data_pipeline_error_threshold": 0.0,  # Default value
+                "project_api_key_exposed": True,  # Default value
             },
         )
 

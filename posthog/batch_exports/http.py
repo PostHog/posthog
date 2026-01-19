@@ -428,6 +428,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
             existing_config = {}
         merged_config = recursive_dict_merge(existing_config, config)
 
+        # SSRF protection for HTTP batch exports
+        if destination_type == BatchExportDestination.Destination.HTTP:
+            url = merged_config.get("url")
+            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
+                raise serializers.ValidationError(f"Invalid destination URL: {url}")
+
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")

@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
-from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration, LinearIntegration
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 
@@ -29,7 +29,7 @@ class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSe
 class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     """
     Serializer for linking session recordings to external issue trackers.
-    Reuses error tracking's integration infrastructure (LinearIntegration)
+    Reuses error tracking's integration infrastructure
     """
 
     config = serializers.JSONField(write_only=True)
@@ -69,6 +69,10 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITLAB:
+            gitlab = GitLabIntegration(reference.integration)
+            issue_id = external_context.get("issue_id", "")
+            return f"{gitlab.hostname}/{gitlab.project_path}/-/issues/{issue_id}" if issue_id else ""
         else:
             return ""
 
@@ -150,6 +154,17 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
                 "title": title,
                 "repository": response.get("repository", ""),
             }
+        elif integration.kind == Integration.IntegrationKind.GITLAB:
+            title = config.get("title", "")
+            config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
+            response = GitLabIntegration(integration).create_issue(config)
+            if not response.get("issue_id"):
+                raise ValidationError("Failed to create GitLab issue")
+            external_context = {
+                "id": f"#{response.get('issue_id', '')}",
+                "title": title,
+                "issue_id": response.get("issue_id", ""),
+            }
         else:
             raise ValidationError(f"Integration kind '{integration.kind}' not supported")
 
@@ -175,7 +190,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 class SessionRecordingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     ViewSet for managing external references to session recordings.
-    Supports creating issues in Linear and GitHub from session replays.
+    Supports creating issues in Linear, GitHub, and Gitlab from session replays.
     """
 
     scope_object = "INTERNAL"

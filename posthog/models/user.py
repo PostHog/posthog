@@ -32,6 +32,7 @@ class Notifications(TypedDict, total=False):
     data_pipeline_error_threshold: (
         float  # Failure rate threshold (0.0 to 1.0) - only notify if failure rate exceeds this
     )
+    project_api_key_exposed: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -41,6 +42,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.0,  # Default: notify on any failure (0% threshold)
+    "project_api_key_exposed": True,  # Project API key exposure alerts enabled by default
 }
 
 # We don't ned the following attributes in most cases, so we defer them by default
