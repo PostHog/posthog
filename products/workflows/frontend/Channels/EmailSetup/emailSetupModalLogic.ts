@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -31,6 +31,7 @@ export interface EmailSenderFormType {
     email: string
     name: string
     provider: 'ses' | 'maildev'
+    mail_from_subdomain?: string
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i
@@ -49,9 +50,17 @@ export const parseHostname = (hostname: string, rootDomain: string): { subdomain
     return { subdomain: hostname, rootDomain: '' }
 }
 
+const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSenderFormType => {
+    return {
+        email: integration.config.email,
+        name: integration.config.name,
+        provider: integration.config.provider,
+        mail_from_subdomain: integration.config.mail_from_subdomain,
+    }
+}
+
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
-    props({} as EmailSetupModalLogicProps),
     key(({ integration }) => (integration ? `workflows-sender-setup-${integration.id}` : 'workflows-sender-setup-new')),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
@@ -130,8 +139,14 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 return emailSender.email.includes('@') ? emailSender.email.split('@')[1] : ''
             },
         ],
+        isDomainVerified: [
+            (s) => [s.verification],
+            (verification: { status: string } | null): boolean => {
+                return verification?.status === 'success'
+            },
+        ],
     }),
-    listeners(({ props, values, actions }) => ({
+    listeners(({ actions }) => ({
         submitEmailSenderSuccess: () => {
             // After creating the integration, verify the domain
             actions.verifyDomain()
@@ -140,13 +155,13 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             if (verification.status === 'success') {
                 lemonToast.success('Domain verified successfully!')
                 actions.loadIntegrations()
-                props.onComplete(values.integration.id)
             }
         },
     })),
     afterMount(({ props, actions }) => {
         if (props.integration) {
             actions.setIntegration(props.integration)
+            actions.setEmailSenderValues(getEmailSenderFromIntegration(props.integration))
             actions.verifyDomain()
         }
     }),

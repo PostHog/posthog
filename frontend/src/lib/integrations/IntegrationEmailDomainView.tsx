@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconLetter, IconWarning } from '@posthog/icons'
+import { IconGear, IconLetter, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
@@ -74,18 +74,30 @@ export function IntegrationEmailDomainView({
 
             <div className="flex flex-col">
                 {integrations.map((integration) => (
-                    <div key={integration.id} className="flex items-center px-4 py-2 border-t">
+                    <div key={integration.id} className="flex items-center px-4 py-2 border-t gap-2">
                         <span className="flex-1">
                             {integration.config.name} &lt;{integration.config.email}&gt;
                         </span>
                         <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => {
+                                openSetupModal(integration, integration.kind as ChannelType)
+                            }}
+                            icon={<IconGear />}
+                        >
+                            Configure
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
                             size="small"
                             status="danger"
                             onClick={() => {
                                 deleteIntegration(integration.id)
                             }}
+                            icon={<IconTrash />}
                         >
-                            Remove
+                            Disconnect
                         </LemonButton>
                     </div>
                 ))}

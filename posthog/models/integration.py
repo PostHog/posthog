@@ -1374,10 +1374,11 @@ class EmailIntegration:
     def verify(self):
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain")
 
         # Use the appropriate provider for verification
         if provider == "ses":
-            verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+            verification_result = self.ses_provider.verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
