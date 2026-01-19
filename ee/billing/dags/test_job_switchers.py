@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import polars as pl
+import requests
 from parameterized import parameterized
 
 from posthog.dags.common.resources import ClayWebhookResource
@@ -374,3 +375,84 @@ class TestClayWebhookResource:
             assert len(calls[0].kwargs["json"]) == 100
             assert len(calls[1].kwargs["json"]) == 100
             assert len(calls[2].kwargs["json"]) == 50
+
+    def test_retry_on_transient_failure_recovers(self):
+        """Transient 503 that recovers after retry should succeed."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+
+            # First two calls fail with 503, third succeeds
+            fail_response = MagicMock()
+            fail_response.status_code = 503
+            error = requests.exceptions.HTTPError("503 Service Unavailable")
+            error.response = fail_response
+            fail_response.raise_for_status.side_effect = error
+
+            success_response = MagicMock()
+            success_response.status_code = 200
+            success_response.raise_for_status.return_value = None
+
+            mock_session.post.side_effect = [fail_response, fail_response, success_response]
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_retries=3,
+            )
+
+            response = resource.send([{"domain": "example.com"}])
+
+            assert response.status_code == 200
+            assert mock_session.post.call_count == 3
+
+    def test_retry_exhausted_raises_error(self):
+        """Persistent failures should exhaust retries and raise."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+
+            # Always fail with 503
+            fail_response = MagicMock()
+            fail_response.status_code = 503
+            error = requests.exceptions.HTTPError("503 Service Unavailable")
+            error.response = fail_response
+            fail_response.raise_for_status.side_effect = error
+            mock_session.post.return_value = fail_response
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_retries=2,
+            )
+
+            with pytest.raises(requests.exceptions.HTTPError):
+                resource.send([{"domain": "example.com"}])
+
+            # Initial attempt + 2 retries = 3 total
+            assert mock_session.post.call_count == 3
+
+    def test_non_retryable_error_not_retried(self):
+        """400 Bad Request should not be retried."""
+        with patch("posthog.dags.common.resources.requests.Session") as mock_session_class:
+            mock_session = MagicMock()
+            mock_session_class.return_value = mock_session
+
+            fail_response = MagicMock()
+            fail_response.status_code = 400
+            error = requests.exceptions.HTTPError("400 Bad Request")
+            error.response = fail_response
+            fail_response.raise_for_status.side_effect = error
+            mock_session.post.return_value = fail_response
+
+            resource = ClayWebhookResource(
+                webhook_url="https://api.clay.com/webhook/123",
+                api_key="test-key",
+                max_retries=3,
+            )
+
+            with pytest.raises(requests.exceptions.HTTPError):
+                resource.send([{"domain": "example.com"}])
+
+            # Should only attempt once since 400 is not retryable
+            assert mock_session.post.call_count == 1

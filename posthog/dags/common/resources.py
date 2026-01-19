@@ -5,11 +5,10 @@ from urllib.parse import urlparse
 import dagster
 import psycopg2
 import requests
+import tenacity
 import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
@@ -144,6 +143,15 @@ def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_
         producer.flush()
 
 
+def _is_retryable_http_error(exception: BaseException) -> bool:
+    """Check if an HTTP error should be retried."""
+    if isinstance(exception, requests.exceptions.HTTPError):
+        response = exception.response
+        if response is not None and response.status_code in {429, 500, 502, 503, 504}:
+            return True
+    return isinstance(exception, requests.exceptions.ConnectionError)
+
+
 class ClayWebhookResource(dagster.ConfigurableResource):
     """Clay webhook client for sending enriched contact data."""
 
@@ -151,22 +159,10 @@ class ClayWebhookResource(dagster.ConfigurableResource):
     api_key: str
     timeout: int = 60
     batch_size: int = 100
+    max_retries: int = 3
 
-    def _create_session(self) -> requests.Session:
-        """Create a requests session with retry logic for transient failures."""
-        session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-        )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
-        return session
-
-    def _send_with_session(self, session: requests.Session, data: list[dict]) -> requests.Response:
-        """Send data using an existing session."""
+    def _post(self, session: requests.Session, data: list[dict]) -> requests.Response:
+        """Make a POST request to the webhook."""
         headers = {
             "x-clay-webhook-auth": self.api_key,
             "Content-Type": "application/json",
@@ -180,18 +176,28 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         response.raise_for_status()
         return response
 
+    def _send_with_retry(self, session: requests.Session, data: list[dict]) -> requests.Response:
+        """Send data with tenacity retry logic."""
+        retryer = tenacity.Retrying(
+            stop=tenacity.stop_after_attempt(self.max_retries + 1),
+            wait=tenacity.wait_exponential(multiplier=1, min=1, max=10),
+            retry=tenacity.retry_if_exception(_is_retryable_http_error),
+            reraise=True,
+        )
+        return retryer(self._post, session, data)
+
     def send(self, data: list[dict]) -> requests.Response:
         """Send data to Clay webhook."""
-        session = self._create_session()
-        return self._send_with_session(session, data)
+        session = requests.Session()
+        return self._send_with_retry(session, data)
 
     def send_batched(self, data: list[dict]) -> list[requests.Response]:
         """Send data to Clay webhook in batches to avoid payload size limits."""
         if not data:
             return []
-        session = self._create_session()
+        session = requests.Session()
         responses = []
         for i in range(0, len(data), self.batch_size):
             batch = data[i : i + self.batch_size]
-            responses.append(self._send_with_session(session, batch))
+            responses.append(self._send_with_retry(session, batch))
         return responses
