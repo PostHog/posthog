@@ -330,24 +330,6 @@ export class PushSubscriptionsManagerService {
         return result
     }
 
-    public async updateLastSuccessfullyUsedAt(subscriptionIds: string[]): Promise<void> {
-        if (subscriptionIds.length === 0) {
-            return
-        }
-
-        const placeholders = subscriptionIds.map((_, idx) => `$${idx + 1}`).join(', ')
-        const queryString = `UPDATE workflows_pushsubscription
-            SET last_successfully_used_at = NOW()
-            WHERE id IN (${placeholders})`
-
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            queryString,
-            subscriptionIds,
-            'updatePushSubscriptionLastSuccessfullyUsedAt'
-        )
-    }
-
     public async updateLastSuccessfullyUsedAtByToken(teamId: number, token: string): Promise<void> {
         const tokenHash = this.hashToken(token)
         const queryString = `UPDATE workflows_pushsubscription
