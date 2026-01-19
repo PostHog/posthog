@@ -24,7 +24,7 @@ def create_materialized_columns_op(
     if config.dry_run:
         context.log.warning("Dry run: No changes to the tables will be made!")
 
-    context.log.info(f"Materializing column. table={config.table}, property_name={config.properties}")
+    context.log.info(f"Materializing column. table={config.table}, properties={config.properties}")
 
     materialize_properties_task(
         properties_to_materialize=[(config.table, config.table_column, prop) for prop in config.properties],
