@@ -126,6 +126,28 @@ impl ConfigResponse {
         }
     }
 
+    /// Create a minimal fallback config for cache miss/error scenarios.
+    ///
+    /// This config disables optional features (session recording, surveys, heatmaps, etc.)
+    /// to ensure safe degradation when the full config from Python's HyperCache is unavailable.
+    pub fn fallback(api_token: &str, has_feature_flags: bool) -> Self {
+        let fallback = serde_json::json!({
+            "token": api_token,
+            "hasFeatureFlags": has_feature_flags,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": false,
+            "surveys": false,
+            "heatmaps": false,
+            "capturePerformance": false,
+            "autocaptureExceptions": false,
+            "isAuthenticated": false,
+            "toolbarParams": {},
+            "config": {"enable_collect_everything": true}
+        });
+
+        Self::from_value(fallback)
+    }
+
     /// Create from a raw JSON Value (must be an object)
     pub fn from_value(value: Value) -> Self {
         match value {

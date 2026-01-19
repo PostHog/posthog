@@ -208,7 +208,8 @@ async fn process_request_inner(
         };
 
         // Build the rest of the FlagsResponse with config from HyperCache.
-        // When config=true, tries to read pre-computed config from Python's RemoteConfig.
+        // When config=true, reads pre-computed config from Python's RemoteConfig.
+        // On cache miss, returns fallback config.
         let response =
             config_response_builder::build_response_from_cache(flags_response, &context, &team)
                 .await?;

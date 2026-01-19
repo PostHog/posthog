@@ -4,9 +4,11 @@ use crate::{
         types::{ConfigResponse, FlagsResponse},
     },
     config_cache::get_cached_config,
+    metrics::consts::TOMBSTONE_COUNTER,
     team::team_models::Team,
 };
 use limiters::redis::QuotaResource;
+use metrics::counter;
 use serde_json::{json, Value};
 
 use super::types::RequestContext;
@@ -26,14 +28,33 @@ pub async fn build_response_from_cache(
         return Ok(response);
     }
 
-    let cached_config = get_cached_config(&context.state.config_hypercache_reader, &team.api_token)
-        .await?
-        .ok_or_else(|| {
-            FlagError::Internal(format!(
-                "Config cache miss for team {} - Python has not populated the cache",
-                team.id
-            ))
-        })?;
+    let cached_config =
+        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await? {
+            Some(config) => config,
+            None => {
+                // Cache miss - Python hasn't populated the cache yet.
+                // Return minimal fallback config and increment tombstone metric for alerting.
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "array",
+                    "operation" => "config_hypercache_miss",
+                    "component" => "config_response_builder",
+                )
+                .increment(1);
+
+                tracing::warn!(
+                    team_id = team.id,
+                    api_token = %team.api_token,
+                    "Config cache miss - returning fallback config"
+                );
+
+                let has_flags = !response.flags.is_empty();
+                response.config = ConfigResponse::fallback(&team.api_token, has_flags);
+                return Ok(response);
+            }
+        };
+
+    response.config = ConfigResponse::from_value(cached_config.clone());
 
     let is_recordings_limited = if context.state.config.flags_session_replay_quota_check {
         context
@@ -44,8 +65,6 @@ pub async fn build_response_from_cache(
     } else {
         false
     };
-
-    response.config = ConfigResponse::from_value(cached_config.clone());
 
     if is_recordings_limited {
         apply_recordings_quota_limit(&mut response, &cached_config);

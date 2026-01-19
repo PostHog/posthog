@@ -2142,9 +2142,13 @@ async fn test_config_passthrough_preserves_unknown_fields() -> Result<()> {
     Ok(())
 }
 
-/// Test that config cache miss returns error when config=true is requested.
+/// Test that config cache miss returns minimal fallback config when config=true is requested.
+///
+/// On cache miss, the service gracefully degrades by returning a minimal config that
+/// disables optional features (session recording, surveys, heatmaps, etc.) rather than
+/// failing the entire request. This ensures clients always receive a valid config structure.
 #[tokio::test]
-async fn test_config_cache_miss_returns_error() -> Result<()> {
+async fn test_config_cache_miss_returns_minimal_fallback() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_distinct_id".to_string();
 
@@ -2168,11 +2172,28 @@ async fn test_config_cache_miss_returns_error() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Request with config=true should fail (500) due to cache miss
+    // Request with config=true should succeed with minimal fallback config
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), Some("true"))
         .await;
-    assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, res.status());
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify minimal fallback config fields are present
+    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert_eq!(json_data.get("hasFeatureFlags"), Some(&json!(false))); // no flags configured
+    assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
+    assert_eq!(json_data.get("surveys"), Some(&json!(false)));
+    assert_eq!(json_data.get("heatmaps"), Some(&json!(false)));
+    assert_eq!(json_data.get("capturePerformance"), Some(&json!(false)));
+    assert_eq!(json_data.get("autocaptureExceptions"), Some(&json!(false)));
+    assert_eq!(json_data.get("isAuthenticated"), Some(&json!(false)));
+    assert_eq!(
+        json_data.get("supportedCompression"),
+        Some(&json!(["gzip", "gzip-js"]))
+    );
+    assert!(json_data.get("flags").is_some());
 
     // Request with config=false should succeed (no config needed)
     let res = server
