@@ -339,55 +339,48 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         )}
                                     </LemonField>
 
-                                    {!isNewCohort &&
-                                        !cohort?.is_static &&
-                                        (() => {
-                                            return (
-                                                <div className="flex flex-col gap-y-2">
-                                                    <div className="flex items-center gap-x-2 my-0">
-                                                        <strong>Last calculated:</strong>
-                                                        {isCalculatingOrPending ? (
-                                                            <div className="flex items-center gap-x-2">
-                                                                <Spinner size="small" />
-                                                                <span className="text-muted">In progress...</span>
-                                                            </div>
-                                                        ) : cohort.last_calculation ? (
-                                                            <TZLabel time={cohort.last_calculation} />
-                                                        ) : (
-                                                            <span className="text-muted">Not yet calculated</span>
-                                                        )}
+                                    {!isNewCohort && !cohort?.is_static && (
+                                        <div className="flex flex-col gap-y-2">
+                                            <div className="flex items-center gap-x-2 my-0">
+                                                <strong>Last calculated:</strong>
+                                                {isCalculatingOrPending ? (
+                                                    <div className="flex items-center gap-x-2">
+                                                        <Spinner size="small" />
+                                                        <span className="text-muted">In progress...</span>
                                                     </div>
+                                                ) : cohort.last_calculation ? (
+                                                    <TZLabel time={cohort.last_calculation} />
+                                                ) : (
+                                                    <span className="text-muted">Not yet calculated</span>
+                                                )}
+                                            </div>
 
-                                                    {isCalculatingOrPending ? (
-                                                        <LemonBanner type="warning">
-                                                            {isPendingCalculation && !cohort.is_calculating
-                                                                ? cohort.last_calculation
-                                                                    ? "We're queuing a recalculation. The table below shows results from the previous calculation."
-                                                                    : "We're queuing the calculation. It should be ready in a few minutes."
-                                                                : cohort.last_calculation
-                                                                  ? "We're recalculating the cohort. The table below shows results from the previous calculation."
-                                                                  : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                        </LemonBanner>
-                                                    ) : cohort.errors_calculating ? (
-                                                        <LemonBanner
-                                                            type="error"
-                                                            action={{
-                                                                onClick: () =>
-                                                                    openSidePanel(
-                                                                        SidePanelTab.Support,
-                                                                        'bug:cohorts::true'
-                                                                    ),
-                                                                children: 'Contact support',
-                                                            }}
-                                                        >
-                                                            <strong>Calculation failed:</strong>{' '}
-                                                            {cohort.last_error_message ||
-                                                                'Unable to calculate this cohort. Please check your matching criteria and try again.'}
-                                                        </LemonBanner>
-                                                    ) : null}
-                                                </div>
-                                            )
-                                        })()}
+                                            {isCalculatingOrPending ? (
+                                                <LemonBanner type="warning">
+                                                    {isPendingCalculation && !cohort.is_calculating
+                                                        ? cohort.last_calculation
+                                                            ? "We're queuing a recalculation. The table below shows results from the previous calculation."
+                                                            : "We're queuing the calculation. It should be ready in a few minutes."
+                                                        : cohort.last_calculation
+                                                          ? "We're recalculating the cohort. The table below shows results from the previous calculation."
+                                                          : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                </LemonBanner>
+                                            ) : cohort.errors_calculating ? (
+                                                <LemonBanner
+                                                    type="error"
+                                                    action={{
+                                                        onClick: () =>
+                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
+                                                        children: 'Contact support',
+                                                    }}
+                                                >
+                                                    <strong>Calculation failed:</strong>{' '}
+                                                    {cohort.last_error_message ||
+                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}
+                                                </LemonBanner>
+                                            ) : null}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </SceneSection>
@@ -539,68 +532,64 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                         )}
 
                         {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
-                        {typeof cohort.id === 'number' &&
-                            (() => {
-                                return (
-                                    <>
-                                        <SceneDivider />
-                                        <SceneSection
-                                            title={
-                                                <>
-                                                    Persons in this cohort
-                                                    <span className="text-secondary ml-2">
-                                                        {!isCalculatingOrPending &&
-                                                            cohort.count != undefined &&
-                                                            `(${cohort.count})`}
-                                                    </span>
-                                                    {shouldShowCountWarning && (
-                                                        <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                            <IconWarning className="text-warning ml-2" />
-                                                        </Tooltip>
-                                                    )}
-                                                </>
-                                            }
-                                            description="Persons who match the following criteria will be part of the cohort."
-                                            hideTitleAndDescription
-                                        >
-                                            <div className="relative min-h-[400px]">
-                                                {isCalculatingOrPending && !cohort.last_calculation ? (
-                                                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
-                                                        <Spinner size="large" />
-                                                        <p className="text-muted mt-4">
-                                                            {isPendingCalculation && !cohort.is_calculating
-                                                                ? "We're queuing the calculation. It should be ready in a few minutes."
-                                                                : "We're calculating the cohort. It should be ready in a few minutes."}
-                                                        </p>
-                                                    </div>
-                                                ) : (
-                                                    <Query
-                                                        query={query}
-                                                        setQuery={setQuery}
-                                                        context={{
-                                                            refresh: 'force_blocking',
-                                                            fileNameForExport: cohort.name,
-                                                            cohortId: cohortId,
-                                                            dataNodeLogicKey: dataNodeLogicKey,
-                                                            columns: canRemovePersonFromCohort
-                                                                ? {
-                                                                      'person.$delete': {
-                                                                          render: renderRemovePersonFromCohortButton,
-                                                                      },
-                                                                  }
-                                                                : undefined,
-                                                            emptyStateHeading:
-                                                                'There are no matching persons for this cohort',
-                                                            emptyStateDetail:
-                                                                'Try adjusting your matching criteria or search to see more results.',
-                                                        }}
-                                                    />
-                                                )}
+                        {typeof cohort.id === 'number' && (
+                            <>
+                                <SceneDivider />
+                                <SceneSection
+                                    title={
+                                        <>
+                                            Persons in this cohort
+                                            <span className="text-secondary ml-2">
+                                                {!isCalculatingOrPending &&
+                                                    cohort.count != undefined &&
+                                                    `(${cohort.count})`}
+                                            </span>
+                                            {shouldShowCountWarning && (
+                                                <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                    <IconWarning className="text-warning ml-2" />
+                                                </Tooltip>
+                                            )}
+                                        </>
+                                    }
+                                    description="Persons who match the following criteria will be part of the cohort."
+                                    hideTitleAndDescription
+                                >
+                                    <div className="relative min-h-[400px]">
+                                        {isCalculatingOrPending && !cohort.last_calculation ? (
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-bg-light">
+                                                <Spinner size="large" />
+                                                <p className="text-muted mt-4">
+                                                    {isPendingCalculation && !cohort.is_calculating
+                                                        ? "We're queuing the calculation. It should be ready in a few minutes."
+                                                        : "We're calculating the cohort. It should be ready in a few minutes."}
+                                                </p>
                                             </div>
-                                        </SceneSection>
-                                    </>
-                                )
-                            })()}
+                                        ) : (
+                                            <Query
+                                                query={query}
+                                                setQuery={setQuery}
+                                                context={{
+                                                    refresh: 'force_blocking',
+                                                    fileNameForExport: cohort.name,
+                                                    cohortId: cohortId,
+                                                    dataNodeLogicKey: dataNodeLogicKey,
+                                                    columns: canRemovePersonFromCohort
+                                                        ? {
+                                                              'person.$delete': {
+                                                                  render: renderRemovePersonFromCohortButton,
+                                                              },
+                                                          }
+                                                        : undefined,
+                                                    emptyStateHeading: 'There are no matching persons for this cohort',
+                                                    emptyStateDetail:
+                                                        'Try adjusting your matching criteria or search to see more results.',
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                </SceneSection>
+                            </>
+                        )}
                     </SceneContent>
                 </Form>
             </div>
