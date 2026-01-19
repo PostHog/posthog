@@ -2420,6 +2420,12 @@ class MaxEventContext(BaseModel):
     type: Literal["event"] = "event"
 
 
+class Goal(Enum):
+    INCREASE = "increase"
+    DECREASE = "decrease"
+    NONE_TYPE_NONE = None
+
+
 class MaxExperimentVariantResultBayesian(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5221,8 +5227,8 @@ class MaxExperimentMetricResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    goal: Goal | None
     name: str
-    goal: ExperimentMetricGoal | None = None
     variant_results: list[MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist]
 
 
