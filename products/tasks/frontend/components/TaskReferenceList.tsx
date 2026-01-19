@@ -27,8 +27,8 @@ function ReferenceItem({ reference, onClick }: { reference: TaskReference; onCli
                     <p className="text-sm mb-1 line-clamp-2">{reference.content || 'No description available'}</p>
                     <div className="flex items-center gap-3 text-xs text-muted">
                         <PersonDisplay person={{ distinct_id: reference.distinct_id }} withIcon="xs" noPopover noLink />
-                        {reference.timestamp && (
-                            <TZLabel time={reference.timestamp} formatDate="MMM D" formatTime="HH:mm" />
+                        {reference.start_time && (
+                            <TZLabel time={reference.start_time} formatDate="MMM D" formatTime="HH:mm" />
                         )}
                         <span className="font-mono">
                             {colonDelimitedDuration(reference.start_time)} -{' '}
