@@ -45,6 +45,9 @@ export type CohortLogicProps = {
     tabId?: string
 }
 
+const checkIsPendingCalculation = (cohort: CohortType): boolean =>
+    cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => {
@@ -268,15 +271,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 return cohort.is_static && typeof cohort.id === 'number'
             },
         ],
-        isPendingCalculation: [
-            (s) => [s.cohort],
-            (cohort: CohortType) => {
-                return (
-                    cohort.pending_version != null &&
-                    (cohort.version == null || cohort.pending_version !== cohort.version)
-                )
-            },
-        ],
+        isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
         isCalculatingOrPending: [
             (s) => [s.cohort, s.isPendingCalculation],
             (cohort: CohortType, isPendingCalculation: boolean) => {
@@ -536,8 +531,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            const isPendingCalculation =
-                cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+            const isPendingCalculation = checkIsPendingCalculation(cohort)
             const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
 
             if (isCalculatingOrPending) {
