@@ -65,7 +65,7 @@
         "@monaco-editor/react": "4.7.0",
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
-        "@posthog/hogql-parser": "link:../common/hogql_parser",
+        "@posthog/hogql-parser": "workspace:*",
         "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "*",
         "@posthog/plugin-scaffold": "^1.4.4",

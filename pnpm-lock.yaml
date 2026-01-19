@@ -137,6 +137,8 @@ importers:
         specifier: 5.2.2
         version: 5.2.2
 
+  common/hogql_parser: {}
+
   common/hogvm/typescript:
     dependencies:
       luxon:
@@ -425,7 +427,7 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hogql-parser':
-        specifier: link:../common/hogql_parser
+        specifier: workspace:*
         version: link:../common/hogql_parser
       '@posthog/hogvm':
         specifier: workspace:*
