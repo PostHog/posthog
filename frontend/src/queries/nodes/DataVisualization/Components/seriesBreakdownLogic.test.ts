@@ -70,6 +70,88 @@ const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     dataNodeCollectionId: 'new-test-SQL',
 }
 
+describe('dataVisualizationLogic', () => {
+    let builtDataVizLogic: ReturnType<typeof dataVisualizationLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+
+        Object.defineProperty(window, 'matchMedia', {
+            writable: true,
+            value: jest.fn().mockImplementation((query) => ({
+                matches: false,
+                media: query,
+                onchange: null,
+                addEventListener: jest.fn(),
+                removeEventListener: jest.fn(),
+                addListener: jest.fn(),
+                removeListener: jest.fn(),
+                dispatchEvent: jest.fn(),
+            })),
+        })
+
+        featureFlagLogic.mount()
+    })
+
+    afterEach(() => {
+        builtDataVizLogic?.unmount()
+    })
+
+    it('initializes selectedXAxis and selectedYAxis from props.query.chartSettings', async () => {
+        const queryWithAxisSettings: DataVisualizationNode = {
+            ...initialQuery,
+            chartSettings: {
+                xAxis: { column: 'event' },
+                yAxis: [{ column: 'total_count', settings: { formatting: { prefix: '$', suffix: '' } } }],
+            },
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key: 'test-axis-init',
+            query: queryWithAxisSettings,
+            setQuery: jest.fn(),
+            editMode: false,
+            dataNodeCollectionId: 'test-axis-init-collection',
+        }
+
+        builtDataVizLogic = dataVisualizationLogic(props)
+        builtDataVizLogic.mount()
+
+        await expectLogic(builtDataVizLogic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [
+                {
+                    name: 'total_count',
+                    settings: { formatting: { prefix: '$', suffix: '' } },
+                },
+            ],
+        })
+    })
+
+    it('initializes selectedXAxis and selectedYAxis as null when not in props', async () => {
+        const queryWithoutAxisSettings: DataVisualizationNode = {
+            ...initialQuery,
+            chartSettings: {},
+        }
+
+        const props: DataVisualizationLogicProps = {
+            key: 'test-axis-init-null',
+            query: queryWithoutAxisSettings,
+            setQuery: jest.fn(),
+            editMode: false,
+            dataNodeCollectionId: 'test-axis-init-null-collection',
+        }
+
+        builtDataVizLogic = dataVisualizationLogic(props)
+        builtDataVizLogic.mount()
+
+        await expectLogic(builtDataVizLogic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+    })
+})
+
 describe('seriesBreakdownLogic', () => {
     let logic: ReturnType<typeof seriesBreakdownLogic.build>
     let builtDataVizLogic: ReturnType<typeof dataVisualizationLogic.build>
@@ -97,7 +179,10 @@ describe('seriesBreakdownLogic', () => {
         featureFlagLogic.mount()
 
         // ensure we reset the globalQuery state before each test
+        // We must also reset dummyDataVisualizationLogicProps.query to point to the new globalQuery
+        // otherwise the logic will initialize with stale props from previous tests
         globalQuery = { ...initialQuery }
+        dummyDataVisualizationLogicProps.query = globalQuery
 
         builtDataVizLogic = dataVisualizationLogic(dummyDataVisualizationLogicProps)
         builtDataVizLogic.mount()
@@ -171,13 +256,24 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
-        builtDataVizLogic.actions.setQuery((query) => ({
-            ...query,
+        // Unmount the default dataVisualizationLogic and create one with seriesBreakdownColumn in the initial query
+        builtDataVizLogic.unmount()
+
+        const queryWithBreakdown: DataVisualizationNode = {
+            ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
             },
-        }))
+        }
+
+        const propsWithBreakdown: DataVisualizationLogicProps = {
+            ...dummyDataVisualizationLogicProps,
+            query: queryWithBreakdown,
+        }
+
+        builtDataVizLogic = dataVisualizationLogic(propsWithBreakdown)
+        builtDataVizLogic.mount()
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
@@ -185,14 +281,6 @@ describe('seriesBreakdownLogic', () => {
         await expectLogic(logic).toMatchValues({
             selectedSeriesBreakdownColumn: 'test_column',
             showSeriesBreakdown: true,
-        })
-
-        expect(globalQuery).toEqual({
-            ...initialQuery,
-            chartSettings: {
-                goalLines: undefined,
-                seriesBreakdownColumn: 'test_column',
-            },
         })
     })
 
