@@ -12,7 +12,7 @@ use std::time::Duration;
 /// CohortCacheManager manages the in-memory cache of cohorts using `moka` for caching.
 ///
 /// Features:
-/// - **TTL**: Each cache entry expires after 5 minutes (configurable).
+/// - **TTL**: Each cache entry expires after 5 minutes.
 /// - **Memory-based eviction**: The cache estimates memory usage per entry and evicts
 ///   least recently used entries when the total estimated memory exceeds the configured limit.
 ///   This prevents unbounded memory growth from large cohort filter definitions.
@@ -47,16 +47,6 @@ pub struct CohortCacheManager {
 pub enum CohortFetchError {
     DatabaseUnavailable,
     QueryFailed(String),
-}
-
-impl From<FlagError> for CohortFetchError {
-    fn from(e: FlagError) -> Self {
-        match e {
-            FlagError::DatabaseUnavailable => CohortFetchError::DatabaseUnavailable,
-            FlagError::Internal(msg) => CohortFetchError::QueryFailed(msg),
-            _ => CohortFetchError::QueryFailed(String::default()),
-        }
-    }
 }
 
 impl From<CohortFetchError> for FlagError {
