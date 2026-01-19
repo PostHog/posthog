@@ -100,7 +100,7 @@ import {
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
-    EndpointVersion,
+    EndpointVersionType,
     EventDefinition,
     EventDefinitionMetrics,
     EventDefinitionType,
@@ -1942,11 +1942,17 @@ const api = {
         async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
             return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
         },
-        async listVersions(name: string): Promise<EndpointVersion[]> {
+        async listVersions(name: string): Promise<EndpointVersionType[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
-        async getVersion(name: string, version: number): Promise<EndpointVersion> {
+        async getVersion(name: string, version: number): Promise<EndpointVersionType> {
             return await new ApiRequest().endpointDetail(name).withAction(`versions/${version}`).get()
+        },
+        async updateVersionActivation(name: string, version: number, isActive: boolean): Promise<EndpointVersionType> {
+            return await new ApiRequest()
+                .endpointDetail(name)
+                .withAction(`versions/${version}/activate`)
+                .update({ data: { is_active: isActive } })
         },
     },
 
