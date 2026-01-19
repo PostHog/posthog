@@ -42,10 +42,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models import DataWarehouseTable
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -344,7 +347,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, CDPProducerJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -2952,7 +2955,7 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_cdp_producer(team, stripe_customer, mock_stripe_client, minio_client):
+async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client, minio_client):
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
@@ -2999,4 +3002,63 @@ async def test_cdp_producer(team, stripe_customer, mock_stripe_client, minio_cli
         task_queue=mock.ANY,
         parent_close_policy=mock.ANY,
         retry_policy=mock.ANY,
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_client, minio_client):
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "stripe.customer"}]},
+    )
+
+    with (
+        mock.patch.object(_KafkaProducer, "produce") as mock_produce,
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.time.time_ns", return_value=1768828644858352000
+        ),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+        )
+
+    mock_produce.assert_called_with(
+        topic=KAFKA_DWH_CDP_RAW_TABLE,
+        data={
+            "team_id": team.id,
+            "properties": {
+                "delinquent": False,
+                "object": "customer",
+                "tax_exempt": "none",
+                "address": None,
+                "invoice_prefix": "0759376C",
+                "balance": 0,
+                "currency": None,
+                "livemode": False,
+                "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',
+                "metadata": "{}",
+                "id": "cus_NffrFeUfNV2Hib",
+                "next_invoice_sequence": 1,
+                "email": "jennyrosen@example.com",
+                "phone": None,
+                "test_clock": None,
+                "discount": None,
+                "default_source": None,
+                "created": 1680893993,
+                "shipping": None,
+                "name": "Jenny Rosen",
+                "preferred_locales": "[]",
+                "description": None,
+                "_ph_debug": '{"load_id": 1768828644858352000}',
+                "_ph_partition_key": "2023-w14",
+            },
+        },
+        value_serializer=mock.ANY,
     )
