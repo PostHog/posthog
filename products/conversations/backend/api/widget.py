@@ -115,7 +115,7 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,

@@ -2441,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2480,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
@@ -2952,6 +2952,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2960,6 +2961,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
@@ -3250,6 +3252,8 @@ export interface UserApi {
     /** @nullable */
     readonly is_impersonated_until: string | null
     /** @nullable */
+    readonly is_impersonated_read_only: boolean | null
+    /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
@@ -3313,6 +3317,8 @@ export interface PatchedUserApi {
     readonly is_impersonated?: boolean | null
     /** @nullable */
     readonly is_impersonated_until?: string | null
+    /** @nullable */
+    readonly is_impersonated_read_only?: boolean | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
