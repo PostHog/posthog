@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -22,7 +21,8 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
 
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
-    const { updateWeeklyDigestForTeam, updateWeeklyDigestForAllTeams, updateUser } = useActions(userLogic)
+    const { updateWeeklyDigestForTeam, updateWeeklyDigestForAllTeams, updateDataPipelineErrorThreshold } =
+        useActions(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
@@ -33,33 +33,12 @@ export function UpdateEmailPreferences(): JSX.Element {
         dataPipelineErrorThresholdValue
     )
 
-    useEffect(() => {
-        setLocalDataPipelineErrorThreshold(dataPipelineErrorThresholdValue)
-    }, [dataPipelineErrorThresholdValue])
-
-    const isDataPipelineErrorThresholdValid =
+    const dataPipelineErrorThresholdError =
+        !isNaN(localDataPipelineErrorThreshold) &&
         localDataPipelineErrorThreshold >= 0 &&
-        localDataPipelineErrorThreshold <= 100 &&
-        !isNaN(localDataPipelineErrorThreshold)
-    const dataPipelineErrorThresholdError = !isDataPipelineErrorThresholdValid
-        ? 'Threshold must be between 0% and 100%'
-        : undefined
-
-    const debouncedUpdateDataPipelineErrorThreshold = useDebouncedCallback((value: number) => {
-        // Only update if value is valid
-        if (isNaN(value) || value < 0 || value > 100) {
-            return
-        }
-
-        const threshold = value / 100
-        user?.notification_settings &&
-            updateUser({
-                notification_settings: {
-                    ...user.notification_settings,
-                    data_pipeline_error_threshold: threshold,
-                },
-            })
-    }, 500)
+        localDataPipelineErrorThreshold <= 100
+            ? undefined
+            : 'Threshold must be between 0% and 100%'
 
     return (
         <div className="deprecated-space-y-4">
@@ -188,7 +167,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                                                 onChange={(value) => {
                                                     const numValue = value != null && !isNaN(value) ? value : 0
                                                     setLocalDataPipelineErrorThreshold(numValue)
-                                                    debouncedUpdateDataPipelineErrorThreshold(numValue)
+                                                    updateDataPipelineErrorThreshold(numValue)
                                                 }}
                                                 disabledReason={userLoading ? 'Loading...' : undefined}
                                                 status={dataPipelineErrorThresholdError ? 'danger' : 'default'}
