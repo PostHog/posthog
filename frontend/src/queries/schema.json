@@ -18383,7 +18383,8 @@
                 "bing-ads",
                 "vercel",
                 "azure-blob",
-                "firebase"
+                "firebase",
+                "jira"
             ],
             "type": "string"
         },
