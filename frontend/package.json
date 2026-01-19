@@ -22,7 +22,7 @@
         "build": "pnpm copy-scripts && pnpm build:esbuild",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
         "build:products": "DEBUG=0 node build-products.mjs",
-        "build:toolbar": "DEBUG=0 node ./build-toolbar.mjs",
+        "build:toolbar": "DEBUG=0 node ./build.mjs --bundles=toolbar",
         "build:tailwind": "pnpm --filter=@posthog/tailwind build",
         "watch:tailwind": "pnpm --filter=@posthog/tailwind start",
         "start": "concurrently -n ESBUILD,TAILWIND -c yellow,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",

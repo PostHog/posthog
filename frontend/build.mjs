@@ -15,57 +15,86 @@ import {
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Parse command line arguments to determine which bundles to build
+// Usage: node build.mjs --bundles=toolbar,exporter
+const args = process.argv.slice(2)
+const bundlesArg = args.find(arg => arg.startsWith('--bundles='))
+const requestedBundles = bundlesArg ? bundlesArg.split('=')[1].split(',') : null
+
+// Helper to check if a bundle should be built
+const shouldBuild = (bundleName) => {
+    if (!requestedBundles) return true // Build all if no filter specified
+    return requestedBundles.includes(bundleName.toLowerCase())
+}
+
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
-copySnappyWASMFile(__dirname)
-copyRRWebWorkerFiles(__dirname)
 
-writeIndexHtml()
-writeExporterHtml()
-writeRenderQueryHtml()
-await import('./build-products.mjs')
+// Only copy these files if building the full app or specific bundles that need them
+if (shouldBuild('app') || shouldBuild('decompression-worker')) {
+    copySnappyWASMFile(__dirname)
+    copyRRWebWorkerFiles(__dirname)
+}
+
+if (shouldBuild('app')) {
+    writeIndexHtml()
+}
+if (shouldBuild('exporter')) {
+    writeExporterHtml()
+}
+if (shouldBuild('render-query')) {
+    writeRenderQueryHtml()
+}
+if (shouldBuild('app') || !requestedBundles) {
+    await import('./build-products.mjs')
+}
 
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
 }
 
-await buildInParallel(
-    [
-        {
-            name: 'PostHog App',
-            globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
-            splitting: true,
-            format: 'esm',
-            outdir: path.resolve(__dirname, 'dist'),
-            ...common,
-        },
-        {
-            name: 'Decompression Worker',
-            entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
-            ...common,
-        },
-        {
-            name: 'Exporter',
-            globalName: 'posthogExporter',
-            entryPoints: ['src/exporter/index.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
-            ...common,
-        },
-        {
-            name: 'Render Query',
-            globalName: 'posthogRenderQuery',
-            entryPoints: ['src/render-query/index.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
-            ...common,
-        },
-        {
-            name: 'Toolbar',
+// Filter bundles based on command line arguments
+const allBundles = [
+    {
+        name: 'PostHog App',
+        bundleKey: 'app',
+        globalName: 'posthogApp',
+        entryPoints: ['src/index.tsx'],
+        splitting: true,
+        format: 'esm',
+        outdir: path.resolve(__dirname, 'dist'),
+        ...common,
+    },
+    {
+        name: 'Decompression Worker',
+        bundleKey: 'decompression-worker',
+        entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
+        format: 'esm',
+        outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
+        ...common,
+    },
+    {
+        name: 'Exporter',
+        bundleKey: 'exporter',
+        globalName: 'posthogExporter',
+        entryPoints: ['src/exporter/index.tsx'],
+        format: 'iife',
+        outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+        ...common,
+    },
+    {
+        name: 'Render Query',
+        bundleKey: 'render-query',
+        globalName: 'posthogRenderQuery',
+        entryPoints: ['src/render-query/index.tsx'],
+        format: 'iife',
+        outfile: path.resolve(__dirname, 'dist', 'render-query.js'),
+        ...common,
+    },
+    {
+        name: 'Toolbar',
+        bundleKey: 'toolbar',
             globalName: 'posthogToolbar',
             entryPoints: ['src/toolbar/index.tsx'],
             format: 'iife',
@@ -158,7 +187,17 @@ await buildInParallel(
             ],
             ...common,
         },
-    ],
+]
+
+const bundlesToBuild = allBundles.filter(bundle => shouldBuild(bundle.bundleKey))
+
+if (bundlesToBuild.length === 0) {
+    console.error('No bundles to build. Available bundles: app, decompression-worker, exporter, render-query, toolbar')
+    process.exit(1)
+}
+
+await buildInParallel(
+    bundlesToBuild,
     {
         async onBuildComplete(config, buildResponse) {
             if (!buildResponse) {
