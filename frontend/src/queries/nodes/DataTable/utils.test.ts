@@ -50,6 +50,8 @@ describe('DataTable utils', () => {
         ['asd -- bla', 'bla'],
         // AS alias when no comment
         ['x AS foo', 'foo'],
+        // AS alias takes priority over comment when both present
+        ['x AS foo -- bar', 'foo'],
         // No alias or comment - returns original
         ['properties.$browser', 'properties.$browser'],
     ])('extractDisplayLabel(%s) = %s', (input, expected) => {

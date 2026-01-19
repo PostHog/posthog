@@ -72,8 +72,8 @@ export function extractAsAlias(query: string): string | null {
         return null
     }
 
-    // Match: whitespace + AS (case-insensitive) + whitespace + (backticked or word alias) at end
-    const asMatch = trimmed.match(/\s+[Aa][Ss]\s+(`[^`]+`|[\w\u0080-\uFFFF]+)\s*$/)
+    // Match: whitespace + AS (case-insensitive) + whitespace + (backticked or word alias), optionally followed by comment
+    const asMatch = trimmed.match(/\s+[Aa][Ss]\s+(`[^`]+`|[\w\u0080-\uFFFF]+)(\s*--.*)?$/)
     if (asMatch) {
         const alias = asMatch[1]
         return alias.startsWith('`') && alias.endsWith('`') ? alias.slice(1, -1) : alias
