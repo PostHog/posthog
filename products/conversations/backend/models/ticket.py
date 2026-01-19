@@ -46,7 +46,7 @@ class Ticket(UUIDTModel):
     unread_team_count = models.IntegerField(default=0)  # Messages team hasn't seen (from customer)
 
     # Session context (captured when ticket is created)
-    session_id = models.CharField(max_length=64, null=True, blank=True, db_index=True)  # PostHog session ID
+    session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
     session_context = models.JSONField(default=dict, blank=True)  # session_replay_url, current_url, etc.
 
     created_at = models.DateTimeField(auto_now_add=True)
