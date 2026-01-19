@@ -88,7 +88,6 @@ export function extractDisplayLabel(query: string): string {
     }
     // Parse `expr AS column` first, fallback to `expr -- column`
     return extractAsAlias(query) ?? extractExpressionComment(query)
-    
 }
 
 export function removeExpressionComment(query: string): string {
