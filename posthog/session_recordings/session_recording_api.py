@@ -85,6 +85,7 @@ from posthog.storage.session_recording_v2_object_storage import (
     BlockFetchError,
     BlockStorage,
     RecordingApiFetchError,
+    RecordingDeletedError,
     encrypted_block_storage,
 )
 
@@ -1027,6 +1028,21 @@ class SessionRecordingViewSet(
             return response
         except NotFound:
             raise
+        except RecordingDeletedError as e:
+            logger.info(
+                "Recording has been permanently deleted",
+                session_id=str(recording.session_id),
+                team_id=self.team.id,
+                deleted_at=e.deleted_at,
+            )
+            return Response(
+                {
+                    "error": "recording_deleted",
+                    "message": "This recording has been permanently deleted",
+                    "deleted_at": e.deleted_at,
+                },
+                status=status.HTTP_410_GONE,
+            )
         except Exception as e:
             posthoganalytics.capture_exception(
                 e,
@@ -1286,6 +1302,9 @@ class SessionRecordingViewSet(
                 else:
                     content = await block_storage.fetch_block_bytes(block.url, recording.session_id, self.team.id)
                 return block_index, content
+            except RecordingDeletedError:
+                # Let this propagate up to return a 410 response
+                raise
             except (BlockFetchError, RecordingApiFetchError):
                 logger.exception(
                     "Failed to fetch block",

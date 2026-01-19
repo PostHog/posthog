@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import '@posthog/rrweb-types'
 
-import api from 'lib/api'
+import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
@@ -85,6 +85,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             {
                 startPolling: () => true,
                 stopPolling: () => false,
+            },
+        ],
+        snapshotLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotsForSource: () => null,
+                loadSnapshotsForSourceSuccess: () => null,
+                loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
     })),
@@ -382,6 +390,23 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     const sourceKey = keyForSource(source)
                     return cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
                 })
+            },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): boolean => {
+                return snapshotLoadError instanceof RecordingDeletedError
+            },
+        ],
+
+        recordingDeletedAt: [
+            (s) => [s.snapshotLoadError],
+            (snapshotLoadError): number | null => {
+                if (snapshotLoadError instanceof RecordingDeletedError) {
+                    return snapshotLoadError.deletedAt
+                }
+                return null
             },
         ],
     })),
