@@ -338,29 +338,21 @@ Output: {output_data}"""
     usage = response.usage
 
     # Build result dict based on allows_na config
+    result_dict: dict[str, Any] = {
+        "verdict": result.verdict,
+        "reasoning": result.reasoning,
+        "input_tokens": usage.prompt_tokens if usage else 0,
+        "output_tokens": usage.completion_tokens if usage else 0,
+        "total_tokens": usage.total_tokens if usage else 0,
+        "is_byok": is_byok,
+        "key_id": key_id,
+        "allows_na": allows_na,
+    }
+
     if allows_na and isinstance(result, BooleanWithNAEvalResult):
-        result_dict: dict[str, Any] = {
-            "verdict": result.verdict,
-            "reasoning": result.reasoning,
-            "applicable": result.applicable,
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-            "is_byok": is_byok,
-            "key_id": key_id,
-            "allows_na": allows_na,
-        }
+        result_dict["applicable"] = result.applicable
     elif isinstance(result, BooleanEvalResult):
-        result_dict = {
-            "verdict": result.verdict,
-            "reasoning": result.reasoning,
-            "input_tokens": usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "total_tokens": usage.total_tokens if usage else 0,
-            "is_byok": is_byok,
-            "key_id": key_id,
-            "allows_na": allows_na,
-        }
+        pass
     else:
         raise ValueError(f"Unexpected result type: {type(result)}")
 
