@@ -74,7 +74,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
-import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
+import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
@@ -116,6 +116,7 @@ export const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],
+    evaluation_tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
@@ -123,7 +124,6 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
-    evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
@@ -315,8 +315,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
-            defaultEvaluationEnvironmentsLogic,
-            ['defaultEvaluationEnvironments'],
+            defaultEvaluationContextsLogic,
+            ['defaultEvaluationContexts'],
         ],
         actions: [
             featureFlagsLogic,
@@ -325,8 +325,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
-            defaultEvaluationEnvironmentsLogic,
-            ['loadDefaultEvaluationEnvironments'],
+            defaultEvaluationContextsLogic,
+            ['loadDefaultEvaluationContexts'],
         ],
     })),
     actions({
@@ -821,22 +821,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                // For new flags, load default evaluation environments and set default tags
+                // For new flags, load default evaluation contexts and set default tags
                 if (props.id === 'new') {
-                    // Only load and apply default evaluation environments if BOTH conditions are met:
+                    // Only load and apply default evaluation contexts if BOTH conditions are met:
                     // 1. The feature flag is enabled globally
-                    // 2. The team has enabled default evaluation environments
+                    // 2. The team has enabled default evaluation contexts
                     const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
-                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
 
                     if (isFeatureEnabled && isTeamEnabled) {
                         try {
-                            actions.loadDefaultEvaluationEnvironments()
+                            actions.loadDefaultEvaluationContexts()
                         } catch (error) {
-                            // If loading default evaluation environments fails, continue with empty tags
-                            console.warn('Failed to load default evaluation environments:', error)
+                            // If loading default evaluation contexts fails, continue with empty tags
+                            console.warn('Failed to load default evaluation contexts:', error)
                         }
-                        const defaultEnvs = values.defaultEvaluationEnvironments
+                        const defaultEnvs = values.defaultEvaluationContexts
                         const defaultTags = defaultEnvs?.default_evaluation_tags || []
 
                         return {
@@ -1670,7 +1670,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
         } else if (props.id === 'new') {
-            // Load default evaluation environments for new flags
+            // Load default evaluation contexts for new flags
             actions.loadFeatureFlag()
         }
     }),
