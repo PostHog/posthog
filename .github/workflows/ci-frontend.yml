@@ -103,7 +103,7 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@v6
