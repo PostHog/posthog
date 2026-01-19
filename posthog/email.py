@@ -101,6 +101,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "login_notification": "44",
     "personal_api_key_exposed": "45",
     "email_mfa_link": "48",
+    "project_secret_api_key_exposed": "49",
 }
 
 

@@ -5,7 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 import { IconArrowRight, IconEllipsis, IconExternal } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Search/utils'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -19,7 +19,7 @@ import {
 import { Label } from 'lib/ui/Label/Label'
 import { ListBox, ListBoxGroupHandle, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { NEW_TAB_CATEGORY_ITEMS, NewTabTreeDataItem, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,67 +31,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { NoResultsFound } from './NoResultsFound'
 import { ProjectExplorer } from './ProjectExplorer'
 
-export const getCategoryDisplayName = (category: string): string => {
-    const displayNames: Record<string, string> = {
-        'create-new': 'Create new',
-        apps: 'Apps',
-        'data-management': 'Data management',
-        recents: 'Recents',
-        folders: 'Folders',
-        persons: 'Persons',
-        groups: 'Groups',
-        eventDefinitions: 'Events',
-        propertyDefinitions: 'Properties',
-        askAI: 'Posthog AI',
-    }
-    return displayNames[category] || category
-}
-export const formatRelativeTimeShort = (date: string | number | Date | Dayjs | null | undefined): string => {
-    if (!date) {
-        return ''
-    }
-
-    const parsedDate = dayjs(date)
-
-    if (!parsedDate.isValid()) {
-        return ''
-    }
-
-    const now = dayjs()
-    const seconds = Math.max(0, now.diff(parsedDate, 'second'))
-
-    if (seconds < 60) {
-        return 'just now'
-    }
-
-    const minutes = now.diff(parsedDate, 'minute')
-
-    if (minutes < 60) {
-        return `${minutes} min ago`
-    }
-
-    const hours = now.diff(parsedDate, 'hour')
-
-    if (hours < 24) {
-        return `${pluralize(hours, 'hr')} ago`
-    }
-
-    const days = now.diff(parsedDate, 'day')
-
-    if (days < 30) {
-        return `${pluralize(days, 'day')} ago`
-    }
-
-    const months = now.diff(parsedDate, 'month') || 1
-
-    if (months < 12) {
-        return `${pluralize(months, 'mo')} ago`
-    }
-
-    const years = now.diff(parsedDate, 'year') || 1
-
-    return `${pluralize(years, 'yr')} ago`
-}
+// Re-export for backwards compatibility
+export { formatRelativeTimeShort, getCategoryDisplayName } from 'lib/components/Search/utils'
 
 // Helper function to convert NewTabTreeDataItem to TreeDataItem for menu usage
 export function convertToTreeDataItem(item: NewTabTreeDataItem): TreeDataItem {

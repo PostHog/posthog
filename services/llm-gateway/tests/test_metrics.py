@@ -3,6 +3,8 @@ from prometheus_client import generate_latest
 
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CALLBACK_ERRORS,
+    CALLBACK_SUCCESS,
     CONCURRENT_REQUESTS,
     DB_POOL_SIZE,
     PROVIDER_ERRORS,
@@ -11,7 +13,6 @@ from llm_gateway.metrics.prometheus import (
     REQUEST_COUNT,
     REQUEST_LATENCY,
     STREAMING_CLIENT_DISCONNECT,
-    STREAMING_USAGE_EXTRACTION,
     TIME_TO_FIRST_CHUNK,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
@@ -40,7 +41,8 @@ class TestMetricsConfiguration:
             pytest.param(TIME_TO_FIRST_CHUNK, {"provider", "model", "product"}, id="time_to_first_chunk"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
             pytest.param(PROVIDER_LATENCY, {"provider", "model", "product"}, id="provider_latency"),
-            pytest.param(STREAMING_USAGE_EXTRACTION, {"provider", "status"}, id="streaming_usage_extraction"),
+            pytest.param(CALLBACK_SUCCESS, {"callback"}, id="callback_success"),
+            pytest.param(CALLBACK_ERRORS, {"callback", "error_type"}, id="callback_errors"),
         ],
     )
     def test_metric_has_correct_labels(self, metric, expected_labels: set[str]) -> None:
@@ -146,3 +148,13 @@ class TestMetricsRecording:
     def test_time_to_first_chunk_histogram_observes_values(self) -> None:
         TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.15)
         TIME_TO_FIRST_CHUNK.labels(provider="anthropic", model="claude-3", product="llm_gateway").observe(0.75)
+
+    def test_callback_success_increments(self) -> None:
+        initial = CALLBACK_SUCCESS.labels(callback="test_callback")._value.get()
+        CALLBACK_SUCCESS.labels(callback="test_callback").inc()
+        assert CALLBACK_SUCCESS.labels(callback="test_callback")._value.get() == initial + 1
+
+    def test_callback_errors_tracks_error_types(self) -> None:
+        initial = CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError")._value.get()
+        CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError").inc()
+        assert CALLBACK_ERRORS.labels(callback="test_callback", error_type="ValueError")._value.get() == initial + 1

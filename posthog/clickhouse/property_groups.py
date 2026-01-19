@@ -171,6 +171,15 @@ ignore_custom_properties = [
     "_kx",  # klaviyo
 ]
 
+large_ai_properties = [
+    "$ai_input",
+    "$ai_input_state",
+    "$ai_output",
+    "$ai_output_choices",
+    "$ai_output_state",
+    "$ai_tools",
+]
+
 event_property_group_definitions = {
     "properties": {
         "custom": PropertyGroupDefinition(
@@ -180,8 +189,13 @@ event_property_group_definitions = {
         ),
         # Please make sure that changing the ai property group won't affect the performance of the LLM Analytics Usage Report task.
         "ai": PropertyGroupDefinition(
-            "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
-            lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
+            f"key LIKE '$ai_%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in large_ai_properties) + f")",
+            lambda key: key.startswith("$ai_") and key not in large_ai_properties,
+            column_type_name="group",
+        ),
+        "ai_large": PropertyGroupDefinition(
+            f"key IN (" + f", ".join(f"'{name}'" for name in large_ai_properties) + f")",
+            lambda key: key in large_ai_properties,
             column_type_name="group",
         ),
         "feature_flags": PropertyGroupDefinition(

@@ -115,6 +115,7 @@ class ProductTourSerializer(serializers.ModelSerializer):
         # Filter out the base exclusion properties to return only user-defined targeting
         tour_key = str(tour.id)
         base_property_keys = {
+            f"$product_tour_shown/{tour_key}",
             f"$product_tour_completed/{tour_key}",
             f"$product_tour_dismissed/{tour_key}",
         }
@@ -204,10 +205,17 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         auto_launch_changed = "auto_launch" in validated_data and validated_data["auto_launch"] != instance.auto_launch
         auto_launch_enabled = validated_data.get("auto_launch", instance.auto_launch)
 
+        # Track displayFrequency before update for flag refresh
+        old_display_frequency = instance.content.get("displayFrequency") if instance.content else None
+
         # Store previous content for survey step cleanup
         previous_content = instance.content.copy() if instance.content else None
 
         instance = super().update(instance, validated_data)
+
+        # Detect displayFrequency change
+        new_display_frequency = instance.content.get("displayFrequency") if instance.content else None
+        display_frequency_changed = old_display_frequency != new_display_frequency
 
         # Handle auto_launch changes
         if auto_launch_changed:
@@ -230,38 +238,63 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Update targeting flag filters if explicitly provided (including null to reset)
         if targeting_flag_filters is not _NOT_PROVIDED and instance.internal_targeting_flag:
             self._update_targeting_flag_filters(instance, targeting_flag_filters)
+        elif display_frequency_changed and instance.internal_targeting_flag:
+            # displayFrequency changed but targeting_flag_filters wasn't provided - refresh base properties
+            self._refresh_targeting_flag_base_properties(instance)
 
         # Sync linked surveys for any survey steps (create/update/end as needed)
         self._sync_survey_steps(instance, previous_content)
 
         return instance
 
+    def _get_base_exclusion_properties(self, instance: ProductTour) -> list:
+        """Get the base exclusion properties for the internal targeting flag based on display frequency."""
+        tour_key = str(instance.id)
+        display_frequency = instance.content.get("displayFrequency") if instance.content else None
+
+        # "always" - no exclusions, always show
+        if display_frequency == "always":
+            return []
+
+        # "show_once" - exclude if shown
+        if display_frequency == "show_once":
+            return [
+                {
+                    "key": f"$product_tour_shown/{tour_key}",
+                    "type": "person",
+                    "value": "is_not_set",
+                    "operator": "is_not_set",
+                },
+            ]
+
+        # "until_interacted" or default - exclude if completed or dismissed
+        return [
+            {
+                "key": f"$product_tour_completed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+            {
+                "key": f"$product_tour_dismissed/{tour_key}",
+                "type": "person",
+                "value": "is_not_set",
+                "operator": "is_not_set",
+            },
+        ]
+
     def _create_internal_targeting_flag(self, instance: ProductTour) -> None:
         """Create the internal targeting flag for a product tour."""
         random_id = generate("0123456789abcdef", 8)
         flag_key = f"{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}{slugify(instance.name)}-{random_id}"
 
-        # Filter conditions: exclude users who have completed or dismissed the tour
-        tour_key = str(instance.id)
+        base_properties = self._get_base_exclusion_properties(instance)
         filters = {
             "groups": [
                 {
                     "variant": "",
                     "rollout_percentage": 100,
-                    "properties": [
-                        {
-                            "key": f"$product_tour_completed/{tour_key}",
-                            "type": "person",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                        },
-                        {
-                            "key": f"$product_tour_dismissed/{tour_key}",
-                            "type": "person",
-                            "value": "is_not_set",
-                            "operator": "is_not_set",
-                        },
-                    ],
+                    "properties": base_properties,
                 }
             ]
         }
@@ -305,22 +338,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not flag:
             return
 
-        # Get base exclusion properties for users who completed/dismissed the tour
-        tour_key = str(instance.id)
-        base_properties = [
-            {
-                "key": f"$product_tour_completed/{tour_key}",
-                "type": "person",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-            },
-            {
-                "key": f"$product_tour_dismissed/{tour_key}",
-                "type": "person",
-                "value": "is_not_set",
-                "operator": "is_not_set",
-            },
-        ]
+        # Get base exclusion properties based on display frequency
+        base_properties = self._get_base_exclusion_properties(instance)
 
         # If new_filters is None, reset to base filters only
         if new_filters is None:
@@ -362,6 +381,28 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Update the flag's filters
         flag.filters = {"groups": merged_groups}
         flag.save(update_fields=["filters"])
+
+    def _refresh_targeting_flag_base_properties(self, instance: ProductTour) -> None:
+        """Refresh base exclusion properties on targeting flag, preserving user targeting filters."""
+        flag = instance.internal_targeting_flag
+        if not flag:
+            return
+
+        tour_key = str(instance.id)
+        base_exclusion_keys = {
+            f"$product_tour_shown/{tour_key}",
+            f"$product_tour_completed/{tour_key}",
+            f"$product_tour_dismissed/{tour_key}",
+        }
+
+        current_groups = flag.filters.get("groups", [])
+        user_groups = [
+            {**g, "properties": [p for p in g.get("properties", []) if p.get("key") not in base_exclusion_keys]}
+            for g in current_groups
+        ]
+
+        has_user_properties = any(g.get("properties") for g in user_groups)
+        self._update_targeting_flag_filters(instance, {"groups": user_groups} if has_user_properties else None)
 
     def _sync_survey_steps(self, instance: ProductTour, previous_content: dict | None = None) -> bool:
         """Create or update linked surveys for any survey steps in the tour.
@@ -656,6 +697,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
     steps = serializers.SerializerMethodField()
     conditions = serializers.SerializerMethodField()
     appearance = serializers.SerializerMethodField()
+    display_frequency = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductTour
@@ -666,6 +708,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
             "steps",
             "conditions",
             "appearance",
+            "display_frequency",
             "auto_launch",
             "start_date",
             "end_date",
@@ -680,6 +723,9 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
 
     def get_appearance(self, tour: ProductTour) -> dict | None:
         return tour.content.get("appearance") if tour.content else None
+
+    def get_display_frequency(self, tour: ProductTour) -> str | None:
+        return tour.content.get("displayFrequency") if tour.content else None
 
 
 def get_product_tours_response(team: Team) -> dict:
