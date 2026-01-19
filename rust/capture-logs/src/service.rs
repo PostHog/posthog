@@ -47,11 +47,45 @@ fn patch_otel_json(v: &mut Value) {
     }
 }
 
-fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
-    let mut v: Value = serde_json::from_slice(json_bytes)?;
-    patch_otel_json(&mut v);
-    let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
-    Ok(result)
+/// Parse OpenTelemetry log message from JSON bytes.
+///
+/// Supports both single JSON objects and JSONL format (JSON Lines).
+/// For JSONL, multiple ExportLogsServiceRequest objects are parsed and merged
+/// into a single request by combining their resource_logs arrays.
+pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    // First, attempt to parse the entire payload as a single JSON object.
+    // If this succeeds, we treat it as a normal ExportLogsServiceRequest.
+    if let Ok(mut v) = serde_json::from_slice::<Value>(json_bytes) {
+        patch_otel_json(&mut v);
+        let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
+        return Ok(result);
+    }
+
+    // If parsing as a single JSON object fails, fall back to JSONL (JSON Lines)
+    // where each non-empty line is expected to be a complete JSON object.
+    let json_str = std::str::from_utf8(json_bytes)?;
+    let lines: Vec<&str> = json_str
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    // Handle JSONL format - parse each line and merge them
+    let mut merged_request = ExportLogsServiceRequest {
+        resource_logs: Vec::new(),
+    };
+
+    for line in lines {
+        let mut v: Value = serde_json::from_str(line)?;
+        patch_otel_json(&mut v);
+        let request: ExportLogsServiceRequest = serde_json::from_value(v)?;
+        merged_request.resource_logs.extend(request.resource_logs);
+    }
+
+    if merged_request.resource_logs.is_empty() {
+        return Err(anyhow::anyhow!("No valid log data found in request"));
+    }
+
+    Ok(merged_request)
 }
 
 #[derive(Clone)]

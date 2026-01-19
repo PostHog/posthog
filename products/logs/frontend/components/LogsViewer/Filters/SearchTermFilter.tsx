@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { logsLogic } from '../logsLogic'
+import { logsLogic } from '../../../logsLogic'
 
 export const SearchTermFilter = (): JSX.Element => {
     const { searchTerm } = useValues(logsLogic)
