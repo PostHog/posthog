@@ -82,7 +82,7 @@ def normalize_property_for_cohort(prop: Property) -> Property:
             return Property(
                 key=prop.key,
                 value=prop.value,
-                operator=PropertyOperator.IN_,
+                operator="in",
                 type=prop.type,
                 group_type_index=prop.group_type_index,
             )
