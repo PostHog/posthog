@@ -74,7 +74,7 @@ export interface LogsLogicProps {
 
 export const logsSceneLogic = kea<logsLogicType>([
     props({} as LogsLogicProps),
-    path(['products', 'logs', 'frontend', 'logsLogic']),
+    path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     tabAwareScene(),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
