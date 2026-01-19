@@ -441,12 +441,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if version_obj is None:
-            return Response(
-                {"error": f"Version {version_number} not found"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
         # Capture state before update for activity logging
         before_update = EndpointVersion.objects.get(pk=version_obj.pk)
 
@@ -465,7 +459,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated_session(request),
                 item_id=str(endpoint.id),
-                scope="Endpoint",
+                scope="EndpointVersion",
                 activity="version_updated",
                 detail=Detail(name=endpoint.name, changes=changes),
             )
@@ -909,12 +903,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         query = version.query
         is_materialized = bool(version.is_materialized and version.saved_query)
 
-        # Check if version is active
         if version and not version.is_active:
-            raise ValidationError(
-                f"Version {version.version} is inactive and cannot be executed. "
-                "Use a different version or reactivate this version."
-            )
+            raise ValidationError(f"Version {version.version} is inactive and cannot be executed.")
 
         if query.get("kind") == "HogQLQuery" and (data.query_override):
             raise ValidationError("Only variables and filters_override are allowed when executing a HogQL query")
