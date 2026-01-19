@@ -23,6 +23,7 @@ from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
     base64_decode,
+    convert_property_value,
     flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
@@ -648,3 +649,50 @@ class TestGetIpAddress(TestCase):
         if x_forwarded_for is not None:
             request.META["HTTP_X_FORWARDED_FOR"] = x_forwarded_for
         assert get_ip_address(request) == expected
+
+
+class TestConvertPropertyValue(TestCase):
+    """
+    Tests for convert_property_value function.
+    Regression tests for issue #45273: integer property values displayed as floats.
+    """
+
+    @parameterized.expand(
+        [
+            # Integer values should remain as integers
+            (1, "1"),
+            (100, "100"),
+            (0, "0"),
+            (-5, "-5"),
+            # Float whole numbers should be converted to integers (fixes #45273)
+            (1.0, "1"),
+            (100.0, "100"),
+            (0.0, "0"),
+            (-5.0, "-5"),
+            (999999.0, "999999"),
+            # Float values with decimals should be preserved
+            (1.5, "1.5"),
+            (3.14159, "3.14159"),
+            (0.001, "0.001"),
+            (-2.5, "-2.5"),
+            # Boolean values
+            (True, "true"),
+            (False, "false"),
+            # String values
+            ("hello", "hello"),
+            ("1.0", "1.0"),  # String "1.0" should NOT be converted
+            ("", ""),
+            # None
+            (None, "None"),
+        ]
+    )
+    def test_convert_property_value(self, input_value, expected):
+        assert convert_property_value(input_value) == expected
+
+    def test_convert_property_value_dict(self):
+        assert convert_property_value({"a": 1}) == '{"a": 1}'
+        assert convert_property_value({"b": 2, "a": 1}) == '{"a": 1, "b": 2}'  # sorted keys
+
+    def test_convert_property_value_list(self):
+        assert convert_property_value([1, 2, 3]) == "[1, 2, 3]"
+        assert convert_property_value(["a", "b"]) == '["a", "b"]'
