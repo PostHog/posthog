@@ -100,24 +100,53 @@ pub enum Library {
     Other,
 }
 
+impl Library {
+    /// Returns the canonical string representation of this library.
+    ///
+    /// This is the single source of truth for SDK name strings, used by both
+    /// `Display` and `from_sdk_name()` to ensure consistency.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Library::PosthogJs => "posthog-js",
+            Library::PosthogNode => "posthog-node",
+            Library::PosthogPython => "posthog-python",
+            Library::PosthogPhp => "posthog-php",
+            Library::PosthogRuby => "posthog-ruby",
+            Library::PosthogGo => "posthog-go",
+            Library::PosthogJava => "posthog-java",
+            Library::PosthogDotnet => "posthog-dotnet",
+            Library::PosthogElixir => "posthog-elixir",
+            Library::PosthogAndroid => "posthog-android",
+            Library::PosthogIos => "posthog-ios",
+            Library::PosthogReactNative => "posthog-react-native",
+            Library::PosthogFlutter => "posthog-flutter",
+            Library::Other => "other",
+        }
+    }
+
+    /// All known library variants (excluding Other).
+    ///
+    /// Used by tests to verify that all SDK names from UserAgentInfo are recognized.
+    pub const ALL_KNOWN: &'static [Library] = &[
+        Library::PosthogJs,
+        Library::PosthogNode,
+        Library::PosthogPython,
+        Library::PosthogPhp,
+        Library::PosthogRuby,
+        Library::PosthogGo,
+        Library::PosthogJava,
+        Library::PosthogDotnet,
+        Library::PosthogElixir,
+        Library::PosthogAndroid,
+        Library::PosthogIos,
+        Library::PosthogReactNative,
+        Library::PosthogFlutter,
+    ];
+}
+
 impl fmt::Display for Library {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Library::PosthogJs => write!(f, "posthog-js"),
-            Library::PosthogNode => write!(f, "posthog-node"),
-            Library::PosthogPython => write!(f, "posthog-python"),
-            Library::PosthogPhp => write!(f, "posthog-php"),
-            Library::PosthogRuby => write!(f, "posthog-ruby"),
-            Library::PosthogGo => write!(f, "posthog-go"),
-            Library::PosthogJava => write!(f, "posthog-java"),
-            Library::PosthogDotnet => write!(f, "posthog-dotnet"),
-            Library::PosthogElixir => write!(f, "posthog-elixir"),
-            Library::PosthogAndroid => write!(f, "posthog-android"),
-            Library::PosthogIos => write!(f, "posthog-ios"),
-            Library::PosthogReactNative => write!(f, "posthog-react-native"),
-            Library::PosthogFlutter => write!(f, "posthog-flutter"),
-            Library::Other => write!(f, "other"),
-        }
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -171,23 +200,17 @@ impl Library {
     }
 
     /// Convert SDK name string to Library enum variant.
+    ///
+    /// Uses `as_str()` as the source of truth to ensure consistency between
+    /// parsing and serialization.
     fn from_sdk_name(sdk_name: &str) -> Self {
-        match sdk_name {
-            "posthog-js" => Library::PosthogJs,
-            "posthog-node" => Library::PosthogNode,
-            "posthog-python" => Library::PosthogPython,
-            "posthog-php" => Library::PosthogPhp,
-            "posthog-ruby" => Library::PosthogRuby,
-            "posthog-go" => Library::PosthogGo,
-            "posthog-java" => Library::PosthogJava,
-            "posthog-dotnet" => Library::PosthogDotnet,
-            "posthog-elixir" => Library::PosthogElixir,
-            "posthog-android" => Library::PosthogAndroid,
-            "posthog-ios" => Library::PosthogIos,
-            "posthog-react-native" => Library::PosthogReactNative,
-            "posthog-flutter" => Library::PosthogFlutter,
-            _ => Library::Other,
+        // Check all known variants using as_str() as the source of truth
+        for lib in Self::ALL_KNOWN {
+            if lib.as_str() == sdk_name {
+                return *lib;
+            }
         }
+        Library::Other
     }
 }
 
@@ -256,11 +279,20 @@ mod tests {
     }
 
     #[test]
-    fn test_library_browser_with_sec_fetch_headers() {
-        // sec-fetch headers are browser-only and cannot be spoofed
+    fn test_library_browser_with_sec_fetch_mode_header() {
+        // sec-fetch-mode header indicates browser
         let mut headers = HeaderMap::new();
         headers.insert("user-agent", "some-custom-client".parse().unwrap());
         headers.insert("sec-fetch-mode", "navigate".parse().unwrap());
+        assert_eq!(Library::from_headers(&headers), Library::PosthogJs);
+    }
+
+    #[test]
+    fn test_library_browser_with_sec_fetch_site_header() {
+        // sec-fetch-site header also indicates browser
+        let mut headers = HeaderMap::new();
+        headers.insert("user-agent", "some-custom-client".parse().unwrap());
+        headers.insert("sec-fetch-site", "same-origin".parse().unwrap());
         assert_eq!(Library::from_headers(&headers), Library::PosthogJs);
     }
 
@@ -298,10 +330,39 @@ mod tests {
     #[rstest]
     #[case(Library::PosthogJs, "\"posthog-js\"")]
     #[case(Library::PosthogNode, "\"posthog-node\"")]
+    #[case(Library::PosthogPython, "\"posthog-python\"")]
+    #[case(Library::PosthogPhp, "\"posthog-php\"")]
+    #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
+    #[case(Library::PosthogGo, "\"posthog-go\"")]
+    #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]
     #[case(Library::PosthogElixir, "\"posthog-elixir\"")]
+    #[case(Library::PosthogAndroid, "\"posthog-android\"")]
+    #[case(Library::PosthogIos, "\"posthog-ios\"")]
+    #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]
+    #[case(Library::PosthogFlutter, "\"posthog-flutter\"")]
     #[case(Library::Other, "\"other\"")]
     fn test_library_serialization(#[case] library: Library, #[case] expected_json: &str) {
         assert_eq!(serde_json::to_string(&library).unwrap(), expected_json);
+    }
+
+    #[test]
+    fn test_from_sdk_name_roundtrip() {
+        // Verify that from_sdk_name correctly recognizes all SDK names from as_str()
+        for lib in Library::ALL_KNOWN {
+            let sdk_name = lib.as_str();
+            let parsed = Library::from_sdk_name(sdk_name);
+            assert_eq!(
+                parsed, *lib,
+                "from_sdk_name({sdk_name}) should return {lib:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_from_sdk_name_unknown_returns_other() {
+        assert_eq!(Library::from_sdk_name("unknown-sdk"), Library::Other);
+        assert_eq!(Library::from_sdk_name("posthog-custom"), Library::Other);
+        assert_eq!(Library::from_sdk_name(""), Library::Other);
     }
 }

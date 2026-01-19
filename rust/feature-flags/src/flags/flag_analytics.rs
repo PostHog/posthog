@@ -1,7 +1,7 @@
 use crate::flags::flag_request::FlagRequestType;
 use crate::handler::types::Library;
 use anyhow::Result;
-use common_redis::{Client as RedisClient, CustomRedisError};
+use common_redis::{Client as RedisClient, CustomRedisError, PipelineCommand};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -47,17 +47,27 @@ pub async fn increment_request_count(
         .as_secs()
         / CACHE_BUCKET_SIZE;
 
+    let time_bucket_str = time_bucket.to_string();
     let key_name = get_team_request_key(team_id, request_type);
-    redis_client
-        .hincrby(key_name, time_bucket.to_string(), Some(count))
-        .await?;
+
+    // Build pipeline commands for a single Redis round-trip
+    let mut commands = vec![PipelineCommand::HIncrBy {
+        key: key_name,
+        field: time_bucket_str.clone(),
+        count,
+    }];
 
     if let Some(lib) = library {
         let library_key = get_team_request_library_key(team_id, request_type, lib);
-        redis_client
-            .hincrby(library_key, time_bucket.to_string(), Some(count))
-            .await?;
+        commands.push(PipelineCommand::HIncrBy {
+            key: library_key,
+            field: time_bucket_str,
+            count,
+        });
     }
+
+    // Execute all commands in a single round-trip
+    redis_client.execute_pipeline(commands).await?;
 
     Ok(())
 }
