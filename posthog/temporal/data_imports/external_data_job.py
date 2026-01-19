@@ -322,7 +322,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     retry_policy=RetryPolicy(
-                        maximum_attempts=1,
+                        maximum_attempts=3,
                         non_retryable_error_types=["NondeterminismError"],
                     ),
                 )

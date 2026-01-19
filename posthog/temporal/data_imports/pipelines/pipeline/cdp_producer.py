@@ -14,6 +14,7 @@ from posthog.hogql.database.database import get_data_warehouse_table_name
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
+from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.hog_functions import HogFunction
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
 
@@ -78,7 +79,7 @@ class CDPProducer:
 
                 raise ValueError("Could not serialize record to JSON") from e
 
-    @property
+    @cached_property
     def should_produce_table(self) -> bool:
         schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
 
@@ -131,6 +132,8 @@ class CDPProducer:
 
         self.logger.debug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
+        kafka_producer = KafkaProducer()
+
         for file_path in files_to_produce:
             self.logger.debug(f"Producing file {file_path} to Kafka")
 
@@ -143,16 +146,16 @@ class CDPProducer:
 
                         for row in batch.to_pylist():
                             row_as_props = {"team_id": self.team_id, "properties": row}
-                            KafkaProducer().produce(
+                            kafka_producer.produce(
                                 topic=KAFKA_DWH_CDP_RAW_TABLE, data=row_as_props, value_serializer=self._serialize_json
                             )
 
                 self.logger.debug(f"Finished producing file {file_path} to Kafka")
-                self.logger.debug(f"Deleting file {file_path}")
-
-                fs.delete_file(file_path)
             except Exception as e:
                 capture_exception(e)
-                self.logger.exception(f"Error producing file {file_path} to Kafka: {e}")
+                self.logger.debug(f"Error producing file {file_path} to Kafka: {e}")
+            finally:
+                self.logger.debug(f"Deleting file {file_path}")
+                fs.delete_file(file_path)
 
         self.logger.debug("Finished producing all CDP data to Kafka")

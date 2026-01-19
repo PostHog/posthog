@@ -36,5 +36,5 @@ class CDPProducerJobWorkflow(PostHogWorkflow):
             produce_to_cdp_kafka_activity,
             inputs,
             start_to_close_timeout=timedelta(hours=24),
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
