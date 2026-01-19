@@ -21,7 +21,7 @@ export interface LLMEvaluationLogicProps {
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'llm_analytics', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key((props) => props.evaluationId || 'new'),
+    key((props) => `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}`),
 
     actions({
         // Evaluation configuration actions
