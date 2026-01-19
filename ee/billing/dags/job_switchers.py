@@ -126,6 +126,14 @@ def job_switchers_to_clay(
 
     if not results:
         context.log.info("No data found in JobSwitchers_v3")
+        prior_hashes = get_prior_hashes_from_metadata(context)
+        context.add_output_metadata(
+            {
+                "domain_hashes": MetadataValue.json(prior_hashes),
+                "domains_synced": MetadataValue.int(0),
+                "total_domains": MetadataValue.int(0),
+            }
+        )
         return
 
     # Convert to Polars DataFrame
