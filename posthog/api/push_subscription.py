@@ -50,12 +50,12 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Only returns active subscriptions.
         """
         queryset = self.safely_get_queryset(self.get_queryset())
-        subscriptions = queryset.filter(is_active=True)
+        subscriptions = list(queryset.filter(is_active=True))
 
-        distinct_ids = list(subscriptions.values_list("distinct_id", flat=True).distinct())
-
-        if not distinct_ids:
+        if not subscriptions:
             return Response({"results": []}, status=status.HTTP_200_OK)
+
+        distinct_ids = list({sub.distinct_id for sub in subscriptions})
 
         persons_qs = get_persons_by_distinct_ids(self.team_id, distinct_ids)
         persons = {p.id: p for p in persons_qs}
@@ -160,6 +160,14 @@ def sdk_push_subscription_register(request: HttpRequest):
         "token": "fcm-token-abc123...",
         "platform": "android" | "ios" | "web"
     }
+
+    Security note: This endpoint uses @csrf_exempt because it's called by mobile SDKs
+    that cannot provide CSRF tokens. Security is enforced via API key authentication
+    (line 184), which validates the team's API key before processing the request.
+    This is safe because:
+    1. Only authenticated requests with valid API keys are processed
+    2. The API key uniquely identifies the team, preventing cross-team access
+    3. Mobile SDKs cannot obtain CSRF tokens, so CSRF protection would block legitimate requests
     """
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": "ok"}))
