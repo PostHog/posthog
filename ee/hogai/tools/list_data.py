@@ -7,7 +7,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 
 LIST_DATA_TOOL_PROMPT = """
-Use this tool to browse/search PostHog entities with pagination, sorted by most recently updated first.
+Use this tool to browse/search PostHog entities with pagination, sorted by name.
 
 # Use this when:
 - The user wants to browse their saved work
@@ -28,11 +28,6 @@ Use this tool to browse/search PostHog entities with pagination, sorted by most 
 # Examples:
 - "Show me my recent insights" → kind="insights"
 - "List all dashboards" → kind="dashboards"
-""".strip()
-
-INVALID_ENTITY_KIND_PROMPT = """
-Invalid entity kind: {{{kind}}}. Please provide a valid entity kind for listing.
-Cannot list "all" or "docs" entity types. Please specify a specific entity type.
 """.strip()
 
 ENTITIES = [f"{entity}" for entity in EntityKind if entity not in (EntityKind.ALL)]
