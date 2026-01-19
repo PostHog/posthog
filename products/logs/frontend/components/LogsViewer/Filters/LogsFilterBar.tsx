@@ -10,7 +10,6 @@ import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { logsSceneLogic } from '../../../logsSceneLogic'
-
 import { DateRangeFilter } from './DateRangeFilter'
 import { LogsFilterGroup } from './FilterGroup'
 import { FilterHistoryDropdown } from './FilterHistoryDropdown'
