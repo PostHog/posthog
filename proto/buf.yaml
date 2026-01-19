@@ -1,0 +1,15 @@
+version: v2
+lint:
+    use:
+        - STANDARD
+    except:
+        # Allow non-comment documentation for now (can enable later)
+        - COMMENT_FIELD
+        - COMMENT_MESSAGE
+        - COMMENT_RPC
+        - COMMENT_SERVICE
+        - COMMENT_ENUM
+        - COMMENT_ENUM_VALUE
+breaking:
+    use:
+        - FILE

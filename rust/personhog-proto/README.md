@@ -1,15 +1,17 @@
 # personhog-proto
 
-Protobuf definitions for the PersonHog gRPC services.
+Rust bindings for the PersonHog gRPC services.
 
-## Structure
+Proto definitions live in the top-level [`/proto/personhog`](/proto/personhog) directory (language-agnostic location for multi-language code generation).
+
+## Proto Structure
 
 ```text
-proto/personhog/
-├── types/v1/       # Shared message types
-├── service/v1/     # Public API (router)
-├── replica/v1/     # Internal read API
-└── leader/v1/      # Internal write API [future]
+/proto/personhog/           # At repo root
+├── types/v1/               # Shared message types
+├── service/v1/             # Public API (router)
+├── replica/v1/             # Internal read API
+└── leader/v1/              # Internal write API [future]
 ```
 
 Each component is versioned independently, allowing breaking changes to internal APIs without affecting the public API.
@@ -34,7 +36,7 @@ use personhog_proto::personhog::{
 
 Example: adding `GetPersonProperties` to the replica service.
 
-**1. Add message types** (`proto/personhog/types/v1/person.proto`):
+**1. Add message types** (`/proto/personhog/types/v1/person.proto`):
 
 ```protobuf
 message GetPersonPropertiesRequest {
@@ -47,7 +49,7 @@ message GetPersonPropertiesResponse {
 }
 ```
 
-**2. Add method to service** (`proto/personhog/replica/v1/replica.proto`):
+**2. Add method to service** (`/proto/personhog/replica/v1/replica.proto`):
 
 ```protobuf
 rpc GetPersonProperties(personhog.types.v1.GetPersonPropertiesRequest)
