@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+import uuid
 import atexit
 import base64
 import signal
@@ -14,7 +15,14 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
+from rest_framework.utils.encoders import JSONEncoder
 
+from posthog.schema import HogQLQuery
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_model
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.redis import get_client
 
@@ -169,11 +177,13 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
 
 class KernelRuntimeService:
     _TYPE_EXPRESSION_PREFIX = "__type__"
+    _HOGQL_BRIDGE_MARKER = "__posthog_hogql_request__"
     _MODAL_REQUIRED_ENV_VARS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")
     _SERVICE_LOCK_TIMEOUT_SECONDS = 30.0
     _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
     _LOCK_BLOCKING_TIMEOUT_SECONDS = 10.0
     _EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS = 30.0
+    _HOGQL_BRIDGE_MAX_ATTEMPTS = 5
 
     def __init__(self, startup_timeout: float = 10.0, execution_timeout: float = 30.0):
         self._startup_timeout = startup_timeout
@@ -258,6 +268,8 @@ class KernelRuntimeService:
             if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
                 return self._execute_in_sandbox(
                     handle,
+                    notebook,
+                    user,
                     code,
                     capture_variables=capture_variables,
                     variable_names=valid_variable_names,
@@ -593,10 +605,21 @@ class KernelRuntimeService:
     def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
         return (
             "import duckdb\n"
+            "import hashlib\n"
             "import json\n"
             "from typing import Any, Sequence\n"
             "\n"
             "_duckdb_connection = duckdb.connect(database=':memory:')\n"
+            "_notebook_hogql_cache = {}\n"
+            "_notebook_hogql_responses = {}\n"
+            "_notebook_hogql_cursors = {}\n"
+            "_notebook_hogql_marker = '__posthog_hogql_request__'\n"
+            "\n"
+            "class NotebookHogQLBridgeRequest(Exception):\n"
+            "    def __init__(self, cache_key: str, query: str):\n"
+            "        self.cache_key = cache_key\n"
+            "        self.query = query\n"
+            "        super().__init__(cache_key)\n"
             "\n"
             "def duck_execute(sql: str, parameters: Sequence[Any] | dict[str, Any] | None = None):\n"
             "    if parameters is None:\n"
@@ -614,6 +637,28 @@ class KernelRuntimeService:
             '        f"CREATE OR REPLACE TABLE {table_identifier} AS SELECT * FROM {temp_identifier}"\n'
             "    )\n"
             "    _duckdb_connection.unregister(temp_name)\n"
+            "\n"
+            "def hogql_execute(query: str) -> Any:\n"
+            "    if not isinstance(query, str) or not query.strip():\n"
+            "        raise ValueError('HogQL query must be a non-empty string')\n"
+            "    exec_id = globals().get('_notebook_hogql_exec_id') or 'default'\n"
+            "    cursor = _notebook_hogql_cursors.get(exec_id, 0)\n"
+            "    responses = _notebook_hogql_responses.get(exec_id, [])\n"
+            "    if cursor < len(responses):\n"
+            "        _notebook_hogql_cursors[exec_id] = cursor + 1\n"
+            "        return responses[cursor]\n"
+            "    cache_key = hashlib.sha256(query.encode('utf-8')).hexdigest()\n"
+            "    if cache_key in _notebook_hogql_cache:\n"
+            "        return _notebook_hogql_cache.pop(cache_key)\n"
+            "    payload = {\n"
+            "        'marker': _notebook_hogql_marker,\n"
+            "        'cache_key': cache_key,\n"
+            "        'query': query,\n"
+            "        'exec_id': exec_id,\n"
+            "        'index': cursor,\n"
+            "    }\n"
+            "    print(json.dumps(payload))\n"
+            "    raise NotebookHogQLBridgeRequest(cache_key, query)\n"
             "\n"
             "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 10) -> dict[str, Any] | None:\n"
             "    try:\n"
@@ -828,6 +873,8 @@ class KernelRuntimeService:
     def _execute_in_sandbox(
         self,
         handle: _KernelHandle,
+        notebook: Notebook,
+        user: User | None,
         code: str,
         *,
         capture_variables: bool,
@@ -838,6 +885,7 @@ class KernelRuntimeService:
             raise RuntimeError("Sandbox not available for kernel execution.")
 
         timeout_seconds = int(timeout or self._execution_timeout)
+        exec_id = uuid.uuid4().hex
         user_expressions: dict[str, str] | None = None
         if capture_variables and variable_names:
             user_expressions = {name: name for name in variable_names}
@@ -845,6 +893,43 @@ class KernelRuntimeService:
                 {f"{self._TYPE_EXPRESSION_PREFIX}{name}": f"type({name}).__name__" for name in variable_names}
             )
 
+        attempt = 0
+        wrapped_code = self._wrap_code_with_hogql_exec_id(code, exec_id)
+        while True:
+            started_at, payload_out = self._execute_kernel_code(handle, wrapped_code, user_expressions, timeout_seconds)
+            execution = self._build_execution_result(handle, payload_out, user_expressions, started_at)
+
+            if not self._is_hogql_bridge_request(execution, payload_out):
+                self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
+                return execution
+
+            request = self._parse_hogql_bridge_request(payload_out)
+            if request is None:
+                self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
+                return execution
+
+            attempt += 1
+            if attempt > self._HOGQL_BRIDGE_MAX_ATTEMPTS:
+                self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
+                return execution
+
+            hogql_response = self._execute_hogql_query(notebook, user, request["query"])
+            self._set_hogql_cache(
+                handle,
+                exec_id=exec_id,
+                cache_key=request["cache_key"],
+                index=request["index"],
+                payload=hogql_response,
+                timeout_seconds=timeout_seconds,
+            )
+
+    def _execute_kernel_code(
+        self,
+        handle: _KernelHandle,
+        code: str,
+        user_expressions: dict[str, str] | None,
+        timeout_seconds: int,
+    ) -> tuple[datetime, dict[str, Any]]:
         payload = {
             "connection_file": handle.runtime.connection_file,
             "timeout": timeout_seconds,
@@ -868,6 +953,15 @@ class KernelRuntimeService:
         except json.JSONDecodeError as err:
             raise RuntimeError(f"Failed to parse kernel execution output: {result.stdout}") from err
 
+        return started_at, payload_out
+
+    def _build_execution_result(
+        self,
+        handle: _KernelHandle,
+        payload_out: dict[str, Any],
+        user_expressions: dict[str, str] | None,
+        started_at: datetime,
+    ) -> KernelExecutionResult:
         status = payload_out.get("status", "error")
         execution_count = payload_out.get("execution_count")
         error_name = payload_out.get("error_name")
@@ -894,6 +988,97 @@ class KernelRuntimeService:
             completed_at=timezone.now(),
             kernel_runtime=handle.runtime,
         )
+
+    def _is_hogql_bridge_request(self, execution: KernelExecutionResult, payload_out: dict[str, Any]) -> bool:
+        if execution.status != "error":
+            return False
+        if execution.error_name != "NotebookHogQLBridgeRequest":
+            return False
+        if self._parse_hogql_bridge_request(payload_out) is None:
+            return False
+        return True
+
+    def _parse_hogql_bridge_request(self, payload_out: dict[str, Any]) -> dict[str, Any] | None:
+        stdout = payload_out.get("stdout", "")
+        if not isinstance(stdout, str):
+            return None
+        for line in reversed(stdout.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("marker") != self._HOGQL_BRIDGE_MARKER:
+                continue
+            cache_key = payload.get("cache_key")
+            query = payload.get("query")
+            exec_id = payload.get("exec_id")
+            index = payload.get("index")
+            if (
+                isinstance(cache_key, str)
+                and isinstance(query, str)
+                and isinstance(exec_id, str)
+                and isinstance(index, int)
+            ):
+                return {"cache_key": cache_key, "query": query, "exec_id": exec_id, "index": index}
+        return None
+
+    def _execute_hogql_query(self, notebook: Notebook, user: User | None, query: str) -> dict[str, Any]:
+        hogql_query = HogQLQuery(query=query)
+        result = process_query_model(
+            notebook.team,
+            hogql_query,
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            user=user,
+            limit_context=LimitContext.QUERY,
+        )
+        if hasattr(result, "model_dump"):
+            result = result.model_dump(by_alias=True)
+        return result
+
+    def _set_hogql_cache(
+        self,
+        handle: _KernelHandle,
+        *,
+        exec_id: str,
+        cache_key: str,
+        index: int,
+        payload: dict[str, Any],
+        timeout_seconds: int,
+    ) -> None:
+        payload_json = json.dumps(payload, default=JSONEncoder().default)
+        code = (
+            "import json\n"
+            "responses = globals().setdefault('_notebook_hogql_responses', {})\n"
+            "cursors = globals().setdefault('_notebook_hogql_cursors', {})\n"
+            f"exec_id = {exec_id!r}\n"
+            f"index = {index}\n"
+            "entries = responses.setdefault(exec_id, [])\n"
+            "if len(entries) <= index:\n"
+            "    entries.extend([None] * (index + 1 - len(entries)))\n"
+            f"entries[index] = json.loads({payload_json!r})\n"
+            "cursors[exec_id] = 0\n"
+            "cache = globals().setdefault('_notebook_hogql_cache', {})\n"
+            f"cache[{cache_key!r}] = entries[index]\n"
+        )
+        self._execute_kernel_code(handle, code, user_expressions=None, timeout_seconds=timeout_seconds)
+
+    def _clear_hogql_exec_state(self, handle: _KernelHandle, exec_id: str, timeout_seconds: int) -> None:
+        code = (
+            "responses = globals().get('_notebook_hogql_responses')\n"
+            "cursors = globals().get('_notebook_hogql_cursors')\n"
+            f"exec_id = {exec_id!r}\n"
+            "if isinstance(responses, dict):\n"
+            "    responses.pop(exec_id, None)\n"
+            "if isinstance(cursors, dict):\n"
+            "    cursors.pop(exec_id, None)\n"
+        )
+        self._execute_kernel_code(handle, code, user_expressions=None, timeout_seconds=timeout_seconds)
+
+    def _wrap_code_with_hogql_exec_id(self, code: str, exec_id: str) -> str:
+        return f"_notebook_hogql_exec_id = {exec_id!r}\n" + code
 
     def dataframe_page(
         self,
