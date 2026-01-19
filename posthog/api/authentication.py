@@ -213,6 +213,13 @@ class LoginSerializer(serializers.Serializer):
 
         # Has passkeys enabled for 2FA but no TOTP - 2FA still required (passkey will be used)
         if passkeys_enabled_for_2fa:
+            for key, value in self.context["request"].COOKIES.items():
+                if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                    try:
+                        return validate_remember_device_cookie(value, user=user, otp_device_id="passkey_2fa")
+                    except BadSignature:
+                        pass
+            # Passkey exists, but no valid remember cookie - 2FA required
             return True
 
         # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to email MFA
@@ -487,7 +494,25 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             set_two_factor_verified_in_session(request)
             report_user_logged_in(user, social_provider="")
 
-            return Response({"success": True})
+            # Clean up pre-2FA session keys to prevent reuse
+            request.session.pop("user_authenticated_but_no_2fa", None)
+            request.session.pop("user_authenticated_time", None)
+
+            # Set remember device cookie for passkey 2FA
+            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+            cookie_value = get_remember_device_cookie(user=user, otp_device_id="passkey_2fa")
+            response = Response({"success": True})
+            response.set_cookie(
+                cookie_key,
+                cookie_value,
+                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
+                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+            )
+            return response
         except serializers.ValidationError:
             raise
         except Exception as e:
