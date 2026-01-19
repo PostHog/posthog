@@ -733,7 +733,9 @@ export class HogExecutorService {
         }
 
         // Handle FCM push notification responses
-        await this.handleFcmResponse(params.url, params.body, fetchResponse?.status, body, invocation.teamId, addLog)
+        if (params.url.includes('fcm.googleapis.com/v1/projects/') && params.url.includes('/messages:send')) {
+            await this.handleFcmResponse(params.url, params.body, fetchResponse?.status, body, invocation, addLog)
+        }
 
         const hogVmResponse: {
             status: number
@@ -763,30 +765,40 @@ export class HogExecutorService {
         requestBody: string | null | undefined,
         status: number | undefined,
         responseBody: unknown,
-        teamId: number,
+        invocation: CyclotronJobInvocationHogFunction,
         addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
     ): Promise<void> {
-        // Check if this is an FCM API call
-        if (!url.includes('fcm.googleapis.com/v1/projects/') || !url.includes('/messages:send')) {
-            return
-        }
-
-        // TODOdin: Don't we have a way to pass in the token?
+        // Extract token from inputs if available, otherwise parse from request body
         let fcmToken: string | null = null
 
-        try {
-            if (requestBody && typeof requestBody === 'string') {
-                const parsedBody = parseJSON(requestBody) as any
-                fcmToken = parsedBody?.message?.token || null
+        if (invocation.state.globals?.inputs) {
+            // Find push_subscription input key from schema
+            const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
+                (schema) => schema.type === 'push_subscription'
+            )?.key
+            if (pushSubscriptionKey && invocation.state.globals.inputs[pushSubscriptionKey]) {
+                fcmToken = invocation.state.globals.inputs[pushSubscriptionKey] || null
             }
-        } catch (e) {
-            // Failed to parse request body, skip FCM handling
-            return
+        }
+
+        if (!fcmToken && requestBody) {
+            try {
+                if (typeof requestBody === 'string') {
+                    const parsedBody = parseJSON(requestBody) as any
+                    fcmToken = parsedBody?.message?.token || null
+                } else if (typeof requestBody === 'object') {
+                    fcmToken = (requestBody as any)?.message?.token || null
+                }
+            } catch (e) {
+                // Failed to parse request body, will skip FCM handling if no token found
+            }
         }
 
         if (!fcmToken) {
             return
         }
+
+        const teamId = invocation.teamId
         // Handle success (200-299)
         if (status && status >= 200 && status < 300) {
             if (fcmToken) {
