@@ -21,7 +21,7 @@ import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './em
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(emailSetupModalLogic(props))
-    const { verifyDomain, submitEmailSender, loadIntegrations } = useActions(emailSetupModalLogic(props))
+    const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
     return (
         <>
             <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
@@ -111,13 +111,6 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {verificationLoading && dnsRecords.length === 0 && (
-                                        <div className="flex flex-col gap-1 justify-items-stretch">
-                                            <LemonSkeleton className="h-12" />
-                                            <LemonSkeleton className="h-12" />
-                                            <LemonSkeleton className="h-12" />
-                                        </div>
-                                    )}
                                     {dnsRecords?.map((record: DnsRecord, index: number) => {
                                         const { subdomain, rootDomain: rootDomainSuffix } = record.parsedHostname
 
@@ -162,7 +155,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                         />
                                                     </div>
                                                 </td>
-                                                <td className="py-2 w-[10rem]">
+                                                <td className="py-2 w-[8rem]">
                                                     {verificationLoading ? (
                                                         <Spinner className="text-lg" />
                                                     ) : record.status === 'pending' ? (
@@ -186,6 +179,13 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                     })}
                                 </tbody>
                             </table>
+                            {verificationLoading && dnsRecords.length === 0 && (
+                                <div className="flex flex-col gap-2 py-2">
+                                    <LemonSkeleton className="h-12" />
+                                    <LemonSkeleton className="h-12" />
+                                    <LemonSkeleton className="h-12" />
+                                </div>
+                            )}
                         </div>
                         <div className="flex gap-2 justify-end">
                             <LemonButton
@@ -200,7 +200,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
-                                    loadIntegrations()
+                                    submitEmailSender()
                                     props.onComplete(savedIntegration?.id)
                                 }}
                                 tooltip="You will not be able to send emails until you verify the DNS records"

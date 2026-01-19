@@ -1324,7 +1324,7 @@ class EmailIntegration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
-        mail_from_subdomain: str = config.get("mail_from_subdomain")
+        mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
