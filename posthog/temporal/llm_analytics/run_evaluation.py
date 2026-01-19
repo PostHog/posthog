@@ -334,6 +334,9 @@ Output: {output_data}"""
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
+    # Type narrowing for mypy - the response_format guarantees one of these types
+    assert isinstance(result, (BooleanEvalResult, BooleanWithNAEvalResult))
+
     # Extract token usage from response
     usage = response.usage
 
