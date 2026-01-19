@@ -137,6 +137,8 @@ class CDPProducer:
         for file_path in files_to_produce:
             self.logger.debug(f"Producing file {file_path} to Kafka")
 
+            row_index = 0
+
             try:
                 with fs.open_input_file(file_path) as f:
                     pf = pq.ParquetFile(f)
@@ -149,12 +151,16 @@ class CDPProducer:
                             kafka_producer.produce(
                                 topic=KAFKA_DWH_CDP_RAW_TABLE, data=row_as_props, value_serializer=self._serialize_json
                             )
+                            row_index = row_index + 1
 
+                kafka_producer.flush()
                 self.logger.debug(f"Finished producing file {file_path} to Kafka")
             except Exception as e:
                 capture_exception(e)
                 self.logger.debug(f"Error producing file {file_path} to Kafka: {e}")
             finally:
+                # TODO(Gilbert09): have better row tracking so we can retry from a particular row
+                self.logger.debug(f"Produced {row_index} rows")
                 self.logger.debug(f"Deleting file {file_path}")
                 fs.delete_file(file_path)
 
