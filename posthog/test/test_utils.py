@@ -675,6 +675,10 @@ class TestConvertPropertyValue(TestCase):
             (3.14159, "3.14159"),
             (0.001, "0.001"),
             (-2.5, "-2.5"),
+            # Special float values (is_integer() returns False for these)
+            (float("inf"), "inf"),
+            (float("-inf"), "-inf"),
+            (float("nan"), "nan"),
             # Boolean values
             (True, "true"),
             (False, "false"),
