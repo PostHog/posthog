@@ -83,6 +83,8 @@ export class RecordingApi {
         this.keyStore = getKeyStore(teamService, retentionService, s3Region, {
             redisPool: this.keystoreRedisPool,
             redisCacheEnabled: true,
+            kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         await this.keyStore.start()
         this.decryptor = getBlockDecryptor(this.keyStore)

@@ -155,7 +155,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -179,7 +179,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -200,7 +200,7 @@ describe('KeyStore', () => {
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
         })
 
-        it('should return empty key if key not found in DynamoDB', async () => {
+        it('should return cleartext key if key not found in DynamoDB', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({ Item: undefined })
 
             const result = await keyStore.getKey('session-123', 1)
@@ -208,7 +208,7 @@ describe('KeyStore', () => {
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
-            expect(result.encryptedSession).toBe(false)
+            expect(result.sessionState).toBe('cleartext')
         })
 
         it('should throw error if encrypted_key missing in DynamoDB result for encrypted session', async () => {
@@ -217,7 +217,7 @@ describe('KeyStore', () => {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     nonce: { B: mockNonce },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
 
@@ -232,7 +232,7 @@ describe('KeyStore', () => {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
 
@@ -241,12 +241,12 @@ describe('KeyStore', () => {
             )
         })
 
-        it('should return empty key if session is not encrypted', async () => {
+        it('should return cleartext key if session is not encrypted', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
-                    encrypted_session: { BOOL: false },
+                    session_state: { S: 'cleartext' },
                 },
             })
 
@@ -255,7 +255,25 @@ describe('KeyStore', () => {
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
-            expect(result.encryptedSession).toBe(false)
+            expect(result.sessionState).toBe('cleartext')
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+        })
+
+        it('should return deleted key if session was deleted', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    session_state: { S: 'deleted' },
+                },
+            })
+
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
+            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
+            expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.sessionState).toBe('deleted')
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
@@ -272,7 +290,7 @@ describe('KeyStore', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -284,9 +302,9 @@ describe('KeyStore', () => {
     })
 
     describe('deleteKey', () => {
-        it('should delete key from DynamoDB and return true if key existed', async () => {
+        it('should mark key as deleted in DynamoDB and return true if key existed', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' } },
+                Attributes: { session_id: { S: 'session-123' }, session_state: { S: 'deleted' } },
             })
 
             const result = await keyStore.deleteKey('session-123', 1)
@@ -296,7 +314,13 @@ describe('KeyStore', () => {
             expect(dynamoCall.input.TableName).toBe('session-recording-keys')
             expect(dynamoCall.input.Key.session_id).toEqual({ S: 'session-123' })
             expect(dynamoCall.input.Key.team_id).toEqual({ N: '1' })
-            expect(dynamoCall.input.ReturnValues).toBe('ALL_OLD')
+            expect(dynamoCall.input.UpdateExpression).toBe(
+                'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key, nonce'
+            )
+            expect(dynamoCall.input.ExpressionAttributeValues[':deleted_at']).toEqual({
+                N: String(Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)),
+            })
+            expect(dynamoCall.input.ReturnValues).toBe('ALL_NEW')
             expect(result).toBe(true)
         })
 
@@ -308,11 +332,11 @@ describe('KeyStore', () => {
             expect(result).toBe(false)
         })
 
-        it('should delete key from memory cache', async () => {
+        it('should update memory cache with deleted state', async () => {
             // First generate a key to populate the cache
             await keyStore.generateKey('session-123', 1)
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' } },
+                Attributes: { session_id: { S: 'session-123' }, session_state: { S: 'deleted' } },
             })
 
             await keyStore.deleteKey('session-123', 1)
@@ -320,20 +344,17 @@ describe('KeyStore', () => {
             // Reset mocks
             mockDynamoDBClient.send.mockClear()
 
-            // Set up DynamoDB to return empty (key was deleted)
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({ Item: undefined })
-
-            // Next getKey should go to DynamoDB since cache was cleared
+            // Next getKey should use memory cache with deleted state
             const result = await keyStore.getKey('session-123', 1)
 
-            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1)
-            expect(result.encryptedSession).toBe(false)
+            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
+            expect(result.sessionState).toBe('deleted')
         })
 
-        it('should throw error if DynamoDB delete fails', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB delete error'))
+        it('should throw error if DynamoDB update fails', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB update error'))
 
-            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB delete error')
+            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow('DynamoDB update error')
         })
     })
 
@@ -364,24 +385,24 @@ describe('PassthroughKeyStore', () => {
     })
 
     describe('generateKey', () => {
-        it('should return empty keys with encryptedSession false', async () => {
+        it('should return empty keys with sessionState cleartext', async () => {
             const result = await keyStore.generateKey('session-123', 1)
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
-            expect(result.encryptedSession).toBe(false)
+            expect(result.sessionState).toBe('cleartext')
         })
     })
 
     describe('getKey', () => {
-        it('should return empty keys with encryptedSession false', async () => {
+        it('should return empty keys with sessionState cleartext', async () => {
             const result = await keyStore.getKey('session-123', 1)
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
-            expect(result.encryptedSession).toBe(false)
+            expect(result.sessionState).toBe('cleartext')
         })
     })
 
@@ -461,7 +482,7 @@ describe('KeyStore with Redis caching', () => {
 
             expect(mockRedisPool.acquire).toHaveBeenCalled()
             expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                'recording-key:1:session-123',
+                '@posthog/replay/recording-key:1:session-123',
                 86400, // 24 hours
                 expect.any(String)
             )
@@ -475,14 +496,14 @@ describe('KeyStore with Redis caching', () => {
                 plaintextKey: Buffer.from(mockPlaintextKey).toString('base64'),
                 encryptedKey: Buffer.from(mockEncryptedKey).toString('base64'),
                 nonce: Buffer.from(mockNonce).toString('base64'),
-                encryptedSession: true,
+                sessionState: 'ciphertext',
             }
             mockRedisClient.get.mockResolvedValue(JSON.stringify(cachedKey))
 
             const result = await keyStore.getKey('session-123', 1)
 
             expect(mockRedisPool.acquire).toHaveBeenCalled()
-            expect(mockRedisClient.get).toHaveBeenCalledWith('recording-key:1:session-123')
+            expect(mockRedisClient.get).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
             expect(mockKMSClient.send).not.toHaveBeenCalled()
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
@@ -496,7 +517,7 @@ describe('KeyStore with Redis caching', () => {
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
                     nonce: { B: mockNonce },
-                    encrypted_session: { BOOL: true },
+                    session_state: { S: 'ciphertext' },
                 },
             })
             ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
@@ -505,19 +526,27 @@ describe('KeyStore with Redis caching', () => {
 
             await keyStore.getKey('session-123', 1)
 
-            expect(mockRedisClient.setex).toHaveBeenCalledWith('recording-key:1:session-123', 86400, expect.any(String))
+            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+                '@posthog/replay/recording-key:1:session-123',
+                86400,
+                expect.any(String)
+            )
         })
     })
 
     describe('deleteKey', () => {
-        it('should delete key from Redis cache', async () => {
+        it('should update Redis cache with deleted state', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' } },
+                Attributes: { session_id: { S: 'session-123' }, session_state: { S: 'deleted' } },
             })
 
             await keyStore.deleteKey('session-123', 1)
 
-            expect(mockRedisClient.del).toHaveBeenCalledWith('recording-key:1:session-123')
+            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+                '@posthog/replay/recording-key:1:session-123',
+                86400,
+                expect.stringContaining('"sessionState":"deleted"')
+            )
         })
     })
 })

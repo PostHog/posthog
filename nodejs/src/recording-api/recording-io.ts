@@ -41,6 +41,13 @@ export class PassthroughRecordingDecryptor extends BaseRecordingDecryptor {
     }
 }
 
+export class SessionKeyDeletedError extends Error {
+    constructor(sessionId: string, teamId: number) {
+        super(`Session key has been deleted for session ${sessionId} team ${teamId}`)
+        this.name = 'SessionKeyDeletedError'
+    }
+}
+
 export class RecordingEncryptor extends BaseRecordingEncryptor {
     constructor(private keyStore: BaseKeyStore) {
         super()
@@ -50,12 +57,19 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
         await sodium.ready
     }
 
-    async encryptBlock(sessionId: string, teamId: number, clearText: Buffer): Promise<Buffer> {
+    async encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
-        if (!sessionKey.encryptedSession) {
-            return clearText
+
+        if (sessionKey.sessionState === 'deleted') {
+            throw new SessionKeyDeletedError(sessionId, teamId) // Session was deleted
         }
-        const cipherText = sodium.crypto_secretbox_easy(clearText, sessionKey.nonce, sessionKey.plaintextKey)
+
+        if (sessionKey.sessionState === 'cleartext') {
+            return blockData // Session is stored in cleartext, do not encrypt
+        }
+
+        // Session is encrypted, so encrypt block and return
+        const cipherText = sodium.crypto_secretbox_easy(blockData, sessionKey.nonce, sessionKey.plaintextKey)
         return Buffer.from(cipherText)
     }
 }
@@ -69,12 +83,19 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
         await sodium.ready
     }
 
-    async decryptBlock(sessionId: string, teamId: number, cipherText: Buffer): Promise<Buffer> {
+    async decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
-        if (!sessionKey.encryptedSession) {
-            return cipherText
+
+        if (sessionKey.sessionState === 'deleted') {
+            throw new SessionKeyDeletedError(sessionId, teamId) // Session was deleted
         }
-        const clearText = sodium.crypto_secretbox_open_easy(cipherText, sessionKey.nonce, sessionKey.plaintextKey)
+
+        if (sessionKey.sessionState === 'cleartext') {
+            return blockData // Session is stored in cleartext, do not decrypt
+        }
+
+        // Session is encrypted, decrypt and return
+        const clearText = sodium.crypto_secretbox_open_easy(blockData, sessionKey.nonce, sessionKey.plaintextKey)
         return Buffer.from(clearText)
     }
 }

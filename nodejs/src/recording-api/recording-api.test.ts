@@ -112,7 +112,12 @@ describe('RecordingApi', () => {
                 expect.any(TeamService),
                 expect.any(RetentionService),
                 'us-west-2',
-                { redisPool: expect.anything(), redisCacheEnabled: true }
+                {
+                    redisPool: expect.anything(),
+                    redisCacheEnabled: true,
+                    kmsEndpoint: undefined,
+                    dynamoDBEndpoint: undefined,
+                }
             )
             expect(getBlockDecryptor).toHaveBeenCalledWith(mockKeyStore)
         })
@@ -150,7 +155,7 @@ describe('RecordingApi', () => {
             await recordingApi.stop()
 
             expect(s3ClientInstance.destroy).toHaveBeenCalled()
-            expect(mockKeyStore.destroy).toHaveBeenCalled()
+            expect(mockKeyStore.stop).toHaveBeenCalled()
         })
 
         it('should handle stop when not started', async () => {
