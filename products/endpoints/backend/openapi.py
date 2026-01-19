@@ -2,22 +2,31 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from products.endpoints.backend.models import Endpoint
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 
-def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) -> dict:
-    """Generate OpenAPI 3.0 spec for a single endpoint."""
+def generate_openapi_spec(
+    endpoint: Endpoint, team_id: int, request: Request, version: EndpointVersion | None = None
+) -> dict:
+    """Generate OpenAPI 3.0 spec for a single endpoint.
+
+    Args:
+        endpoint: The endpoint to generate spec for
+        team_id: The team ID
+        request: The HTTP request
+        version: Specific version to generate spec for. If None, uses current version.
+    """
     base_url = settings.SITE_URL
     run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
-    current_version = endpoint.get_version()
-    description = current_version.description or ""
+    target_version = version or endpoint.get_version()
+    description = target_version.description
 
     return {
         "openapi": "3.0.3",
         "info": {
             "title": endpoint.name,
             "description": description or f"PostHog Endpoint: {endpoint.name}",
-            "version": str(endpoint.current_version),
+            "version": str(target_version.version),
         },
         "servers": [{"url": base_url}],
         "paths": {
@@ -78,14 +87,14 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
             },
-            "schemas": _build_component_schemas(endpoint, current_version),
+            "schemas": _build_component_schemas(endpoint, target_version),
         },
     }
 
 
-def _build_component_schemas(endpoint: Endpoint, version) -> dict:
+def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion) -> dict:
     """Build the components/schemas section with reusable schema definitions."""
-    query = version.query if version else {}
+    query = version.query
     query_kind = query.get("kind")
 
     schemas: dict = {

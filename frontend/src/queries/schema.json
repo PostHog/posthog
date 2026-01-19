@@ -11906,6 +11906,10 @@
                 "sync_frequency": {
                     "$ref": "#/definitions/DataWarehouseSyncInterval",
                     "description": "How frequently should the underlying materialized view be updated"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Target a specific version for updates (optional, defaults to current version)"
                 }
             },
             "type": "object"

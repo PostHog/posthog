@@ -180,7 +180,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         Compares against the current version's query.
         """
         current_version = self.get_version()
-        current_query = current_version.query if current_version else {}
+        current_query = current_version.query
         current_normalized = json.loads(json.dumps(current_query, sort_keys=True))
         new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
         return current_normalized != new_normalized
