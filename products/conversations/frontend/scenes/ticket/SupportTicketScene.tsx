@@ -90,7 +90,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="grid gap-4 lg:grid-cols-[1fr_380px] items-start">
+            <div className="grid gap-4 lg:grid-cols-2 items-start">
                 {/* Main conversation area */}
                 <ChatView
                     messages={chatMessages}
