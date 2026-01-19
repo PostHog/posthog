@@ -1,24 +1,16 @@
 import sodium from 'libsodium-wrappers'
 
 import * as envUtils from '../utils/env-utils'
-import { BaseKeyStore, SessionKey } from './keystore'
-import {
-    BaseRecordingDecryptor,
-    BaseRecordingEncryptor,
-    PassthroughRecordingDecryptor,
-    PassthroughRecordingEncryptor,
-    RecordingDecryptor,
-    RecordingEncryptor,
-    getBlockDecryptor,
-    getBlockEncryptor,
-} from './recording-io'
+import { PassthroughRecordingDecryptor, RecordingDecryptor, getBlockDecryptor } from './recording-decryptor'
+import { RecordingEncryptor } from './recording-encryptor'
+import { BaseKeyStore, BaseRecordingDecryptor, SessionKey, SessionKeyDeletedError } from './types'
 
 jest.mock('../utils/env-utils', () => ({
     ...jest.requireActual('../utils/env-utils'),
     isCloud: jest.fn(),
 }))
 
-describe('recording-io', () => {
+describe('recording-decryptor', () => {
     beforeAll(async () => {
         await sodium.ready
     })
@@ -38,39 +30,6 @@ describe('recording-io', () => {
         nonce: mockNonce,
         sessionState: 'ciphertext',
     }
-
-    describe('PassthroughRecordingEncryptor', () => {
-        let mockKeyStore: jest.Mocked<BaseKeyStore>
-
-        beforeEach(() => {
-            mockKeyStore = {
-                start: jest.fn(),
-                getKey: jest.fn(),
-                generateKey: jest.fn(),
-                deleteKey: jest.fn(),
-                stop: jest.fn(),
-            } as unknown as jest.Mocked<BaseKeyStore>
-        })
-
-        it('should complete start without error', async () => {
-            const encryptor = new PassthroughRecordingEncryptor(mockKeyStore)
-            await expect(encryptor.start()).resolves.toBeUndefined()
-        })
-
-        it('should return clearText unchanged', async () => {
-            const encryptor = new PassthroughRecordingEncryptor(mockKeyStore)
-            const clearText = Buffer.from('hello world')
-
-            const result = await encryptor.encryptBlock('session-123', 1, clearText)
-
-            expect(result).toEqual(clearText)
-        })
-
-        it('should extend BaseRecordingEncryptor', () => {
-            const encryptor = new PassthroughRecordingEncryptor(mockKeyStore)
-            expect(encryptor).toBeInstanceOf(BaseRecordingEncryptor)
-        })
-    })
 
     describe('PassthroughRecordingDecryptor', () => {
         let mockKeyStore: jest.Mocked<BaseKeyStore>
@@ -102,89 +61,6 @@ describe('recording-io', () => {
         it('should extend BaseRecordingDecryptor', () => {
             const decryptor = new PassthroughRecordingDecryptor(mockKeyStore)
             expect(decryptor).toBeInstanceOf(BaseRecordingDecryptor)
-        })
-    })
-
-    describe('RecordingEncryptor', () => {
-        let mockKeyStore: jest.Mocked<BaseKeyStore>
-
-        beforeEach(() => {
-            mockKeyStore = {
-                getKey: jest.fn().mockResolvedValue(mockSessionKey),
-                generateKey: jest.fn(),
-                deleteKey: jest.fn(),
-            } as unknown as jest.Mocked<BaseKeyStore>
-        })
-
-        it('should create instance via constructor', () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-
-            expect(encryptor).toBeInstanceOf(RecordingEncryptor)
-            expect(encryptor).toBeInstanceOf(BaseRecordingEncryptor)
-        })
-
-        it('should initialize sodium on start', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            await expect(encryptor.start()).resolves.toBeUndefined()
-        })
-
-        it('should encrypt clearText using keyStore key', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            const clearText = Buffer.from('hello world')
-
-            const result = await encryptor.encryptBlock('session-123', 1, clearText)
-
-            expect(mockKeyStore.getKey).toHaveBeenCalledWith('session-123', 1)
-            expect(result).toBeInstanceOf(Buffer)
-            expect(result.length).toBeGreaterThan(0)
-            expect(result).not.toEqual(clearText)
-        })
-
-        it('should throw error if getKey fails', async () => {
-            mockKeyStore.getKey.mockRejectedValue(new Error('Key not found'))
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-
-            await expect(encryptor.encryptBlock('session-123', 1, Buffer.from('test'))).rejects.toThrow('Key not found')
-        })
-
-        it('should handle empty buffer', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            const clearText = Buffer.from('')
-
-            const result = await encryptor.encryptBlock('session-123', 1, clearText)
-
-            expect(result).toBeInstanceOf(Buffer)
-            expect(result.length).toBeGreaterThan(0)
-        })
-
-        it('should handle large buffer', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            const clearText = Buffer.alloc(1024 * 1024, 'x')
-
-            const result = await encryptor.encryptBlock('session-123', 1, clearText)
-
-            expect(result).toBeInstanceOf(Buffer)
-            expect(result.length).toBeGreaterThan(clearText.length)
-        })
-
-        it('should produce consistent output for same input', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            const clearText = Buffer.from('hello world')
-
-            const result1 = await encryptor.encryptBlock('session-123', 1, clearText)
-            const result2 = await encryptor.encryptBlock('session-123', 1, clearText)
-
-            expect(result1).toEqual(result2)
-        })
-
-        it('should handle binary data', async () => {
-            const encryptor = new RecordingEncryptor(mockKeyStore)
-            const binaryData = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0xfd])
-
-            const result = await encryptor.encryptBlock('session-123', 1, binaryData)
-
-            expect(result).toBeInstanceOf(Buffer)
-            expect(result).not.toEqual(binaryData)
         })
     })
 
@@ -305,33 +181,41 @@ describe('recording-io', () => {
 
             await expect(decryptor.decryptBlock('session-123', 1, truncated)).rejects.toThrow()
         })
-    })
 
-    describe('getBlockEncryptor', () => {
-        let mockKeyStore: jest.Mocked<BaseKeyStore>
+        it('should throw SessionKeyDeletedError when session state is deleted', async () => {
+            const deletedSessionKey: SessionKey = {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'deleted',
+            }
+            mockKeyStore.getKey.mockResolvedValue(deletedSessionKey)
 
-        beforeEach(() => {
-            mockKeyStore = {
-                getKey: jest.fn().mockResolvedValue(mockSessionKey),
-                generateKey: jest.fn(),
-                deleteKey: jest.fn(),
-            } as unknown as jest.Mocked<BaseKeyStore>
+            const decryptor = new RecordingDecryptor(mockKeyStore)
+
+            await expect(decryptor.decryptBlock('session-123', 1, Buffer.from('test'))).rejects.toThrow(
+                SessionKeyDeletedError
+            )
+            await expect(decryptor.decryptBlock('session-123', 1, Buffer.from('test'))).rejects.toThrow(
+                'Session key has been deleted for session session-123 team 1'
+            )
         })
 
-        it('should return RecordingEncryptor when running on cloud', () => {
-            ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
+        it('should return data unchanged when session state is cleartext', async () => {
+            const cleartextSessionKey: SessionKey = {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'cleartext',
+            }
+            mockKeyStore.getKey.mockResolvedValue(cleartextSessionKey)
 
-            const encryptor = getBlockEncryptor(mockKeyStore)
+            const decryptor = new RecordingDecryptor(mockKeyStore)
+            const cipherText = Buffer.from('hello world')
 
-            expect(encryptor).toBeInstanceOf(RecordingEncryptor)
-        })
+            const result = await decryptor.decryptBlock('session-123', 1, cipherText)
 
-        it('should return PassthroughRecordingEncryptor when not running on cloud', () => {
-            ;(envUtils.isCloud as jest.Mock).mockReturnValue(false)
-
-            const encryptor = getBlockEncryptor(mockKeyStore)
-
-            expect(encryptor).toBeInstanceOf(PassthroughRecordingEncryptor)
+            expect(result).toEqual(cipherText)
         })
     })
 
