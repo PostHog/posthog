@@ -30,7 +30,7 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
 
         if (sessionKey.sessionState === 'deleted') {
-            throw new SessionKeyDeletedError(sessionId, teamId) // Session was deleted
+            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt ?? 0)
         }
 
         if (sessionKey.sessionState === 'cleartext') {

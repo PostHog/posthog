@@ -46,6 +46,14 @@ class RecordingApiFetchError(Exception):
     pass
 
 
+class RecordingDeletedError(Exception):
+    """Raised when attempting to access a recording that has been deleted (crypto shredding)."""
+
+    def __init__(self, message: str, deleted_at: Optional[int] = None):
+        super().__init__(message)
+        self.deleted_at = deleted_at
+
+
 @runtime_checkable
 class BlockStorage(Protocol):
     """
@@ -783,6 +791,10 @@ class EncryptedBlockStorage:
         Fetch a recording block via the Recording API.
 
         Returns the decrypted but still snappy-compressed block bytes.
+
+        Raises:
+            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingApiFetchError: If the block is not found or other fetch errors occur.
         """
         key, start, end = self._parse_block_url(block_url)
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
@@ -791,8 +803,20 @@ class EncryptedBlockStorage:
             async with self.session.get(url, params={"key": key, "start": start, "end": end}) as response:
                 if response.status == 404:
                     raise RecordingApiFetchError("Block not found")
+                if response.status == 410:
+                    data = await response.json()
+                    deleted_at = data.get("deleted_at")
+                    logger.info(
+                        "encrypted_block_storage.recording_deleted",
+                        session_id=session_id,
+                        team_id=team_id,
+                        deleted_at=deleted_at,
+                    )
+                    raise RecordingDeletedError("Recording has been deleted", deleted_at=deleted_at)
                 response.raise_for_status()
                 return await response.read()
+        except (RecordingDeletedError, RecordingApiFetchError):
+            raise
         except aiohttp.ClientError as e:
             logger.exception(
                 "encrypted_block_storage.fetch_block_bytes_failed",
@@ -809,12 +833,16 @@ class EncryptedBlockStorage:
         Fetch and decompress a recording block via the Recording API.
 
         Returns the decrypted and decompressed block content as a string.
+
+        Raises:
+            RecordingDeletedError: If the recording has been deleted (crypto shredding).
+            RecordingApiFetchError: If the block is not found or other fetch errors occur.
         """
         try:
             compressed_block = await self.fetch_block_bytes(block_url, session_id, team_id)
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
             return decompressed_block.rstrip("\n")
-        except RecordingApiFetchError:
+        except (RecordingDeletedError, RecordingApiFetchError):
             raise
         except Exception as e:
             logger.exception(
@@ -830,16 +858,32 @@ class EncryptedBlockStorage:
         """
         Delete a recording's encryption key via the Recording API (crypto shredding).
 
-        Returns True if the key was deleted, False if not found.
+        Returns True if the key was deleted.
+
+        Raises:
+            RecordingDeletedError: If the recording has already been deleted.
+            RecordingApiFetchError: If the recording key is not found or other errors occur.
         """
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}"
 
         try:
             async with self.session.delete(url) as response:
                 if response.status == 404:
-                    return False
+                    raise RecordingApiFetchError("Recording key not found")
+                if response.status == 410:
+                    data = await response.json()
+                    deleted_at = data.get("deleted_at")
+                    logger.info(
+                        "encrypted_block_storage.recording_already_deleted",
+                        session_id=session_id,
+                        team_id=team_id,
+                        deleted_at=deleted_at,
+                    )
+                    raise RecordingDeletedError("Recording has already been deleted", deleted_at=deleted_at)
                 response.raise_for_status()
                 return True
+        except (RecordingDeletedError, RecordingApiFetchError):
+            raise
         except aiohttp.ClientError as e:
             logger.exception(
                 "encrypted_block_storage.delete_recording_failed",

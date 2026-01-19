@@ -146,11 +146,13 @@ describe('recording-encryptor', () => {
         })
 
         it('should throw SessionKeyDeletedError when session state is deleted', async () => {
+            const deletedAt = 1700000000
             const deletedSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
+                deletedAt,
             }
             mockKeyStore.getKey.mockResolvedValue(deletedSessionKey)
 
@@ -162,6 +164,12 @@ describe('recording-encryptor', () => {
             await expect(encryptor.encryptBlock('session-123', 1, Buffer.from('test'))).rejects.toThrow(
                 'Session key has been deleted for session session-123 team 1'
             )
+
+            try {
+                await encryptor.encryptBlock('session-123', 1, Buffer.from('test'))
+            } catch (error) {
+                expect((error as SessionKeyDeletedError).deletedAt).toBe(deletedAt)
+            }
         })
 
         it('should return data unchanged when session state is cleartext', async () => {
