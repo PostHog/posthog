@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -16,6 +16,10 @@ import { UserBasicType } from '~/types'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import { ExceptionsPanel } from './ExceptionsPanel'
+import { PreviousTicketsPanel } from './PreviousTicketsPanel'
+import { RecentEventsPanel } from './RecentEventsPanel'
+import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 
 export const scene: SceneExport<{ ticketId: string }> = {
@@ -37,6 +41,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
+        eventsQuery,
+        personLoading,
+        previousTickets,
+        previousTicketsLoading,
+        exceptionsQuery,
     } = useValues(logic)
     const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
@@ -94,92 +103,131 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 />
 
                 {/* Sidebar with all metadata */}
-                <LemonCard hoverEffect={false} className="p-3">
-                    {/* Customer */}
-                    {ticket?.distinct_id && (
-                        <>
-                            <div className="flex items-center justify-between mb-3">
-                                <h3 className="text-sm font-semibold">Customer</h3>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
-                                >
-                                    View person
-                                </LemonButton>
-                            </div>
-                            <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
-                            <div className="my-3 border-t" />
-                        </>
-                    )}
+                <div className="space-y-4">
+                    <LemonCard hoverEffect={false} className="p-3">
+                        {/* Customer */}
+                        {ticket?.distinct_id && (
+                            <>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm font-semibold">Customer</h3>
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                    >
+                                        View person
+                                    </LemonButton>
+                                </div>
+                                <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                                <div className="my-3 border-t" />
+                            </>
+                        )}
 
-                    {/* Ticket info */}
-                    <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
-                    <div className="space-y-2 text-xs">
-                        {ticket?.created_at && (
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Created</span>
-                                <span>
-                                    <TZLabel time={ticket.created_at} />
-                                </span>
+                        {/* Ticket info */}
+                        <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
+                        <div className="space-y-2 text-xs">
+                            {ticket?.created_at && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-alt">Created</span>
+                                    <span>
+                                        <TZLabel time={ticket.created_at} />
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.updated_at && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-alt">Updated</span>
+                                    <span>
+                                        <TZLabel time={ticket.updated_at} />
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-alt">Channel</span>
+                                    <span className="capitalize">
+                                        <ChannelsTag channel={ticket.channel_source} />
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.session_context?.current_url && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Page URL</span>
+                                    <Link
+                                        to={ticket.session_context.current_url}
+                                        target="_blank"
+                                        className="text-xs truncate text-right"
+                                        title={ticket.session_context.current_url}
+                                    >
+                                        {ticket.session_context.current_url}
+                                    </Link>
+                                </div>
+                            )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Status</span>
+                                <LemonSelect
+                                    size="xsmall"
+                                    value={status}
+                                    options={statusOptionsWithoutAll}
+                                    onChange={(value: TicketStatus | null) => value && setStatus(value)}
+                                    dropdownMatchSelectWidth={false}
+                                />
                             </div>
-                        )}
-                        {ticket?.updated_at && (
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Updated</span>
-                                <span>
-                                    <TZLabel time={ticket.updated_at} />
-                                </span>
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Priority</span>
+                                <LemonSelect
+                                    size="xsmall"
+                                    value={priority}
+                                    options={priorityOptions}
+                                    onChange={(value: TicketPriority | null) => value && setPriority(value)}
+                                    dropdownMatchSelectWidth={false}
+                                />
                             </div>
-                        )}
-                        {ticket?.channel_source && (
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Channel</span>
-                                <span className="capitalize">
-                                    <ChannelsTag channel={ticket.channel_source} />
-                                </span>
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Assignee</span>
+                                <MemberSelect
+                                    value={
+                                        !assignedTo || assignedTo === 'All users' || typeof assignedTo === 'string'
+                                            ? null
+                                            : assignedTo
+                                    }
+                                    onChange={(user: UserBasicType | null) =>
+                                        setAssignedTo(user?.id?.toString() || ('All users' as string))
+                                    }
+                                />
                             </div>
-                        )}
-                        <div className="flex justify-between items-center">
-                            <span className="text-muted-alt">Status</span>
-                            <LemonSelect
-                                size="xsmall"
-                                value={status}
-                                options={statusOptionsWithoutAll}
-                                onChange={(value: TicketStatus | null) => value && setStatus(value)}
-                                dropdownMatchSelectWidth={false}
-                            />
                         </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-muted-alt">Priority</span>
-                            <LemonSelect
-                                size="xsmall"
-                                value={priority}
-                                options={priorityOptions}
-                                onChange={(value: TicketPriority | null) => value && setPriority(value)}
-                                dropdownMatchSelectWidth={false}
-                            />
+                        <div className="mt-3 pt-3 border-t flex justify-end">
+                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
+                                Save changes
+                            </LemonButton>
                         </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-muted-alt">Assignee</span>
-                            <MemberSelect
-                                value={
-                                    !assignedTo || assignedTo === 'All users' || typeof assignedTo === 'string'
-                                        ? null
-                                        : assignedTo
-                                }
-                                onChange={(user: UserBasicType | null) =>
-                                    setAssignedTo(user?.id?.toString() || ('All users' as string))
-                                }
-                            />
-                        </div>
-                    </div>
-                    <div className="mt-3 pt-3 border-t flex justify-end">
-                        <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
-                            Save changes
-                        </LemonButton>
-                    </div>
-                </LemonCard>
+                    </LemonCard>
+
+                    {/* Session Recording Panel */}
+                    <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+
+                    {/* Recent Events Panel */}
+                    <RecentEventsPanel
+                        eventsQuery={eventsQuery}
+                        personLoading={personLoading}
+                        distinctId={ticket?.distinct_id}
+                        sessionId={ticket?.session_id}
+                    />
+
+                    {/* Exceptions Panel */}
+                    <ExceptionsPanel
+                        exceptionsQuery={exceptionsQuery}
+                        sessionId={ticket?.session_id}
+                        distinctId={ticket?.distinct_id}
+                    />
+
+                    {/* Previous Tickets Panel */}
+                    <PreviousTicketsPanel
+                        previousTickets={previousTickets}
+                        previousTicketsLoading={previousTicketsLoading}
+                    />
+                </div>
             </div>
         </SceneContent>
     )

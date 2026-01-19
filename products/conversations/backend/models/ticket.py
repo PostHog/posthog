@@ -45,6 +45,10 @@ class Ticket(UUIDTModel):
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
     unread_team_count = models.IntegerField(default=0)  # Messages team hasn't seen (from customer)
 
+    # Session context (captured when ticket is created)
+    session_id = models.CharField(max_length=64, null=True, blank=True, db_index=True)  # PostHog session ID
+    session_context = models.JSONField(default=dict, blank=True)  # session_replay_url, current_url, etc.
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -55,6 +59,7 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "distinct_id"]),  # Person linking queries
             models.Index(fields=["team", "status"]),
             models.Index(fields=["team", "-ticket_number"], name="posthog_con_team_id_ticket_idx"),  # MAX() lookups
+            models.Index(fields=["team", "session_id"]),  # Session context queries
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

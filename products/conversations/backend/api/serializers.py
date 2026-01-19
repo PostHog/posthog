@@ -15,6 +15,10 @@ class WidgetMessageSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, max_length=400, help_text="PostHog distinct_id")
     message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
+    session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
+    session_context = serializers.DictField(
+        required=False, default=dict, help_text="Session context (replay URL, current URL, etc.)"
+    )
 
     def validate_message(self, value):
         """Ensure message is not empty after stripping."""
@@ -45,6 +49,34 @@ class WidgetMessageSerializer(serializers.Serializer):
             str_value = str(val) if val is not None else None
             if str_value and len(str_value) > 500:
                 raise serializers.ValidationError(f"Trait value too long for '{key}' (max 500 chars)")
+
+            validated[key] = str_value
+
+        return validated
+
+    def validate_session_context(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("session_context must be a dictionary")
+
+        if len(value) > 20:
+            raise serializers.ValidationError(f"Too many session context fields: {len(value)} (max 20)")
+
+        validated = {}
+        for key, val in value.items():
+            # Validate key
+            if not isinstance(key, str):
+                continue
+            if len(key) > 100:
+                raise serializers.ValidationError(f"Session context key too long: '{key[:50]}...' (max 100 chars)")
+
+            # Allow simple types and validate length
+            if not isinstance(val, str | int | float | bool | type(None)):
+                continue
+
+            # Convert to string and validate length
+            str_value = str(val) if val is not None else None
+            if str_value and len(str_value) > 2000:  # URLs can be long
+                raise serializers.ValidationError(f"Session context value too long for '{key}' (max 2000 chars)")
 
             validated[key] = str_value
 
