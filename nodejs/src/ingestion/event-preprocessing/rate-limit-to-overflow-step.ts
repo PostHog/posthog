@@ -42,7 +42,7 @@ export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepI
         const shouldRedirectKey = new Map<string, boolean>()
 
         for (const [eventKey, stats] of keyStats) {
-            const isBelowRateLimit = overflowRateLimiter.consume(eventKey, stats.count, stats.firstTimestamp)
+            const isBelowRateLimit = overflowRateLimiter.consume(eventKey, stats.count, stats.firstTimestamp, stats.firstTimestamp)
             shouldRedirectKey.set(eventKey, !isBelowRateLimit)
         }
 
