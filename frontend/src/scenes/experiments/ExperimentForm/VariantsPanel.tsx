@@ -136,6 +136,7 @@ export function VariantsPanel({
                             options={featureFlagOptions}
                             value={currentAutocompleteValue}
                             onChange={handleFeatureFlagSelection}
+                            inputTransform={(value) => value.replace(/\s+/g, '-')}
                             allowCustomValues
                             formatCreateLabel={(input) => `${input} (new entry)`}
                             loading={featureFlagsLoading}
