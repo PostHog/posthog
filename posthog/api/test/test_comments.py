@@ -276,3 +276,172 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=LLMTrace&item_id={trace_id_1}")
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["content"] == "Trace 1 comment"
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_extracts_mentions_from_rich_content_on_create(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "mentioned@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Notebook",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "text", "text": "Hey "},
+                                {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                                {"type": "text", "text": " check this out"},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        assert call_args[0][1] == [mentioned_user.id]
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_extracts_mentions_from_rich_content_on_update(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "mentioned_update@posthog.com", None)
+
+        existing = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {"content": "Original comment", "scope": "Notebook"},
+        )
+
+        mock_send_email.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{existing.json()['id']}",
+            {
+                "content": "",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "text", "text": "Edited to mention "},
+                                {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        assert call_args[0][1] == [mentioned_user.id]
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_uses_explicit_mentions_field_when_provided(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user_1 = User.objects.create_and_join(self.organization, "explicit_user1@posthog.com", None)
+        mentioned_user_2 = User.objects.create_and_join(self.organization, "explicit_user2@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Notebook",
+                "mentions": [mentioned_user_1.id, mentioned_user_2.id],
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "text", "text": "Test"}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        assert set(call_args[0][1]) == {mentioned_user_1.id, mentioned_user_2.id}
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_deduplicates_mentions_from_rich_content(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "duplicate@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Notebook",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "text", "text": "Hey "},
+                                {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                                {"type": "text", "text": " and "},
+                                {"type": "ph-mention", "attrs": {"id": mentioned_user.id}},
+                                {"type": "text", "text": " again"},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Should only contain the user ID once, even though they were mentioned twice
+        assert call_args[0][1] == [mentioned_user.id]
+        assert len(call_args[0][1]) == 1
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_ignores_non_integer_ids_in_rich_content(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        valid_user = User.objects.create_and_join(self.organization, "valid@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Notebook",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [
+                                {"type": "ph-mention", "attrs": {"id": "invalid_string"}},
+                                {"type": "ph-mention", "attrs": {"id": valid_user.id}},
+                                {"type": "ph-mention", "attrs": {"id": None}},
+                                {"type": "ph-mention", "attrs": {"id": 999.5}},
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Should only extract the valid integer ID, ignoring string, None, and float
+        assert call_args[0][1] == [valid_user.id]

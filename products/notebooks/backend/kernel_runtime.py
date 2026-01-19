@@ -37,6 +37,7 @@ class KernelExecutionResult:
     stdout: str
     stderr: str
     result: dict[str, Any] | None
+    media: list[dict[str, Any]]
     execution_count: int | None
     error_name: str | None
     traceback: list[str]
@@ -51,6 +52,7 @@ class KernelExecutionResult:
             "stdout": self.stdout,
             "stderr": self.stderr,
             "result": self.result,
+            "media": self.media,
             "execution_count": self.execution_count,
             "error_name": self.error_name,
             "traceback": self.traceback,
@@ -61,6 +63,7 @@ class KernelExecutionResult:
                 "id": str(self.kernel_runtime.id),
                 "status": self.kernel_runtime.status,
                 "last_used_at": self.kernel_runtime.last_used_at,
+                "sandbox_id": self.kernel_runtime.sandbox_id,
             },
         }
 
@@ -130,11 +133,30 @@ class KernelRuntimeSession:
             timeout=timeout,
         )
 
+    def dataframe_page(
+        self,
+        variable_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 20,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        return self.service.dataframe_page(
+            self.notebook,
+            self.user,
+            variable_name,
+            offset=offset,
+            limit=limit,
+            timeout=timeout,
+        )
+
 
 def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
     sandbox_config = SandboxConfig(
         name=f"notebook-kernel-{notebook.short_id}",
         template=SandboxTemplate.NOTEBOOK_BASE,
+        cpu_cores=1,
+        memory_gb=2,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores
@@ -463,6 +485,7 @@ class KernelRuntimeService:
         try:
             kernel_pid = self._start_kernel_process(sandbox, connection_file)
             self._wait_for_kernel_ready(sandbox, connection_file)
+            self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
             with suppress(Exception):
@@ -522,6 +545,100 @@ class KernelRuntimeService:
         result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
+
+    def _bootstrap_kernel(
+        self, sandbox: SandboxProtocol, connection_file: str, notebook: Notebook, user: User | None
+    ) -> None:
+        code = self._build_kernel_bootstrap_code(notebook, user)
+        if not code:
+            return
+        payload = {
+            "connection_file": connection_file,
+            "timeout": int(self._startup_timeout),
+            "code": code,
+            "user_expressions": None,
+        }
+        command = self._build_kernel_command(payload, action="execute")
+        result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
+        if result.exit_code != 0:
+            logger.warning(
+                "notebook_kernel_bootstrap_failed",
+                stdout=result.stdout,
+                stderr=result.stderr,
+                notebook_short_id=notebook.short_id,
+            )
+            return
+        lines = result.stdout.strip().splitlines()
+        if not lines:
+            logger.warning("notebook_kernel_bootstrap_missing_output", notebook_short_id=notebook.short_id)
+            return
+        try:
+            payload_out = json.loads(lines[-1])
+        except json.JSONDecodeError:
+            logger.warning(
+                "notebook_kernel_bootstrap_unparseable",
+                stdout=result.stdout,
+                notebook_short_id=notebook.short_id,
+            )
+            return
+        if payload_out.get("status") not in ("ok", None):
+            logger.warning(
+                "notebook_kernel_bootstrap_error",
+                status=payload_out.get("status"),
+                stderr=payload_out.get("stderr"),
+                traceback=payload_out.get("traceback"),
+                notebook_short_id=notebook.short_id,
+            )
+
+    def _build_kernel_bootstrap_code(self, notebook: Notebook, user: User | None) -> str:
+        return (
+            "import duckdb\n"
+            "import json\n"
+            "from typing import Any, Sequence\n"
+            "\n"
+            "_duckdb_connection = duckdb.connect(database=':memory:')\n"
+            "\n"
+            "def duck_execute(sql: str, parameters: Sequence[Any] | dict[str, Any] | None = None):\n"
+            "    if parameters is None:\n"
+            "        return _duckdb_connection.execute(sql).df()\n"
+            "    return _duckdb_connection.execute(sql, parameters).df()\n"
+            "\n"
+            "def duck_save_table(name: str, data: Any) -> None:\n"
+            "    if not name or not name.replace('_', '').isalnum():\n"
+            "        raise ValueError('Invalid table name')\n"
+            '    temp_name = f"__notebook_{name}"\n'
+            "    table_identifier = f'\"{name}\"'\n"
+            "    temp_identifier = f'\"{temp_name}\"'\n"
+            "    _duckdb_connection.register(temp_name, data)\n"
+            "    _duckdb_connection.execute(\n"
+            '        f"CREATE OR REPLACE TABLE {table_identifier} AS SELECT * FROM {temp_identifier}"\n'
+            "    )\n"
+            "    _duckdb_connection.unregister(temp_name)\n"
+            "\n"
+            "def notebook_dataframe_page(value: Any, *, offset: int = 0, limit: int = 10) -> dict[str, Any] | None:\n"
+            "    try:\n"
+            "        import pandas as pd\n"
+            "    except Exception:\n"
+            "        return None\n"
+            "    if value is None:\n"
+            "        return None\n"
+            "    if hasattr(value, 'to_df'):\n"
+            "        value = value.to_df()\n"
+            "    elif hasattr(value, 'to_pandas'):\n"
+            "        value = value.to_pandas()\n"
+            "    if not isinstance(value, pd.DataFrame):\n"
+            "        return None\n"
+            "    total_rows = len(value)\n"
+            "    offset = max(0, min(offset, total_rows))\n"
+            "    limit = max(1, limit)\n"
+            "    page = value.iloc[offset : offset + limit]\n"
+            "    rows = json.loads(page.to_json(orient='records', date_format='iso'))\n"
+            "    return {\n"
+            "        'columns': [str(col) for col in page.columns.tolist()],\n"
+            "        'rows': rows,\n"
+            "        'row_count': total_rows,\n"
+            "    }\n"
+        )
 
     def _reuse_kernel_handle_for_backend(
         self, notebook: Notebook, user: User | None, backend: str
@@ -617,6 +734,7 @@ class KernelRuntimeService:
             "        stderr = []\n"
             "        traceback_lines = []\n"
             "        result = None\n"
+            "        media = []\n"
             "        status = 'ok'\n"
             "        execution_count = None\n"
             "        error_name = None\n"
@@ -633,8 +751,13 @@ class KernelRuntimeService:
             "                destination.append(content.get('text', ''))\n"
             "                continue\n"
             "            if msg_type in ('execute_result', 'display_data'):\n"
-            "                result = content.get('data') or result\n"
+            "                data = content.get('data') or {}\n"
+            "                result = data or result\n"
             "                execution_count = content.get('execution_count', execution_count)\n"
+            "                for mime_type in ('image/png', 'image/jpeg', 'image/svg+xml'):\n"
+            "                    image_data = data.get(mime_type)\n"
+            "                    if isinstance(image_data, str):\n"
+            "                        media.append({'mime_type': mime_type, 'data': image_data})\n"
             "                continue\n"
             "            if msg_type == 'error':\n"
             "                status = 'error'\n"
@@ -663,6 +786,7 @@ class KernelRuntimeService:
             "            'stdout': ''.join(stdout),\n"
             "            'stderr': ''.join(stderr),\n"
             "            'result': result,\n"
+            "            'media': media,\n"
             "            'execution_count': execution_count,\n"
             "            'error_name': error_name,\n"
             "            'traceback': traceback_lines,\n"
@@ -671,13 +795,14 @@ class KernelRuntimeService:
             "        print(json.dumps(payload_out))\n"
             "except Empty:\n"
             "    print(json.dumps({'status': 'timeout', 'stdout': '', 'stderr': '', 'result': None, "
-            "'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
+            "'media': [], 'execution_count': None, 'error_name': None, 'traceback': [], 'user_expressions': None}))\n"
             "except Exception as err:\n"
             "    print(json.dumps({\n"
             "        'status': 'error',\n"
             "        'stdout': '',\n"
             "        'stderr': str(err),\n"
             "        'result': None,\n"
+            "        'media': [],\n"
             "        'execution_count': None,\n"
             "        'error_name': err.__class__.__name__,\n"
             "        'traceback': traceback.format_exception(type(err), err, err.__traceback__),\n"
@@ -760,6 +885,7 @@ class KernelRuntimeService:
             stdout=payload_out.get("stdout", ""),
             stderr=payload_out.get("stderr", ""),
             result=payload_out.get("result"),
+            media=payload_out.get("media", []) or [],
             execution_count=execution_count,
             error_name=error_name,
             traceback=traceback,
@@ -768,6 +894,48 @@ class KernelRuntimeService:
             completed_at=timezone.now(),
             kernel_runtime=handle.runtime,
         )
+
+    def dataframe_page(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        variable_name: str,
+        *,
+        offset: int = 0,
+        limit: int = 10,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        if not variable_name.isidentifier():
+            raise ValueError("Variable name must be a valid identifier.")
+
+        code = (
+            "import json\n"
+            f"_notebook_dataframe_result = notebook_dataframe_page({variable_name}, offset={offset}, limit={limit})\n"
+            "print(json.dumps(_notebook_dataframe_result))\n"
+        )
+        execution = self.execute(
+            notebook,
+            user,
+            code,
+            capture_variables=False,
+            variable_names=[],
+            timeout=timeout,
+        )
+        if execution.status != "ok":
+            raise RuntimeError(execution.stderr or "Failed to fetch dataframe data.")
+
+        output_lines = [line for line in execution.stdout.splitlines() if line.strip()]
+        if not output_lines:
+            raise RuntimeError("No dataframe output returned.")
+        try:
+            payload = json.loads(output_lines[-1])
+        except json.JSONDecodeError as err:
+            raise RuntimeError("Failed to parse dataframe output.") from err
+        if payload is None:
+            raise ValueError("Variable is not a dataframe.")
+        if not isinstance(payload, dict):
+            raise RuntimeError("Unexpected dataframe response.")
+        return payload
 
 
 notebook_kernel_runtime_service = KernelRuntimeService()

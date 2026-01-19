@@ -16,4 +16,5 @@ zstd = "0.13"
 
 [dev-dependencies]
 tokio = { workspace = true }
+testcontainers = { workspace = true }
 

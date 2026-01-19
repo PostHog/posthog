@@ -22,7 +22,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     const { newExperiment } = useActions(experimentsTabLogic)
     const { setSearchTerm } = useActions(experimentsLogic)
     const { allExperiments, sortedExperiments, allExperimentsLoading } = useValues(experimentsLogic)
-    const { apiURL } = useValues(toolbarConfigLogic)
+    const { uiHost } = useValues(toolbarConfigLogic)
 
     const isWebExperimentsDisabled = Boolean(window?.parent?.posthog?.config?.disable_web_experiments)
 
@@ -68,7 +68,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={`${apiURL}${urls.experiments()}`} target="_blank">
+                    <Link to={`${uiHost}${urls.experiments()}`} target="_blank">
                         View &amp; edit all experiments <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newExperiment()} icon={<IconPlus />}>
