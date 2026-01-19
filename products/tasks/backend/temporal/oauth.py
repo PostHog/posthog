@@ -40,6 +40,7 @@ def get_default_scopes() -> list[str]:
         "organization:read",
         "project:read",
         "task:write",
+        "llm_gateway:read",
     ]
 
 

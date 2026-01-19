@@ -253,6 +253,11 @@ class TaskRun(models.Model):
         tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
         return f"{tasks_folder}/artifacts/team_{self.team_id}/task_{self.task_id}/run_{self.id}"
 
+    def get_file_manifest_path(self) -> str:
+        """S3 path for this run's file manifest (used for cloud/local sync)"""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/manifests/team_{self.team_id}/task_{self.task_id}/run_{self.id}/file_manifest.json"
+
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
         existing_content = object_storage.read(self.log_url, missing_ok=True) or ""

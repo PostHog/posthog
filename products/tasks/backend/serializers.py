@@ -270,3 +270,24 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+
+
+class FileManifestFileSerializer(serializers.Serializer):
+    hash = serializers.CharField(help_text="SHA256 hash of the file content (also the S3 key)")
+    size = serializers.IntegerField(help_text="File size in bytes")
+
+
+class FileManifestSerializer(serializers.Serializer):
+    version = serializers.IntegerField(default=1, help_text="Manifest schema version")
+    base_commit = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, help_text="Git commit this state diverged from"
+    )
+    updated_at = serializers.DateTimeField(help_text="When the manifest was last updated")
+    files = serializers.DictField(
+        child=FileManifestFileSerializer(), help_text="Map of relative file paths to file metadata"
+    )
+    deleted_files = serializers.ListField(
+        child=serializers.CharField(),
+        default=list,
+        help_text="List of file paths that were deleted",
+    )
