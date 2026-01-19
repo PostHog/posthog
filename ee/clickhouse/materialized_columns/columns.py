@@ -4,6 +4,7 @@ import re
 import random
 import logging
 from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import Future
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
@@ -244,7 +245,7 @@ class TableInfo:
     def read_table(self) -> str:
         return self.data_table
 
-    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> Future[T]:
         return cluster.any_host(fn)
 
 
