@@ -4,9 +4,12 @@ from urllib.parse import urlparse
 
 import dagster
 import psycopg2
+import requests
 import psycopg2.extras
 import posthoganalytics
 from clickhouse_driver.errors import Error, ErrorCodes
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
@@ -139,3 +142,56 @@ def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_
         yield producer
     finally:
         producer.flush()
+
+
+class ClayWebhookResource(dagster.ConfigurableResource):
+    """Clay webhook client for sending enriched contact data."""
+
+    webhook_url: str
+    api_key: str
+    timeout: int = 60
+    batch_size: int = 100
+
+    def _create_session(self) -> requests.Session:
+        """Create a requests session with retry logic for transient failures."""
+        session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        return session
+
+    def _send_with_session(self, session: requests.Session, data: list[dict]) -> requests.Response:
+        """Send data using an existing session."""
+        headers = {
+            "x-clay-webhook-auth": self.api_key,
+            "Content-Type": "application/json",
+        }
+        response = session.post(
+            self.webhook_url,
+            json=data,
+            headers=headers,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response
+
+    def send(self, data: list[dict]) -> requests.Response:
+        """Send data to Clay webhook."""
+        session = self._create_session()
+        return self._send_with_session(session, data)
+
+    def send_batched(self, data: list[dict]) -> list[requests.Response]:
+        """Send data to Clay webhook in batches to avoid payload size limits."""
+        if not data:
+            return []
+        session = self._create_session()
+        responses = []
+        for i in range(0, len(data), self.batch_size):
+            batch = data[i : i + self.batch_size]
+            responses.append(self._send_with_session(session, batch))
+        return responses

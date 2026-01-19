@@ -97,6 +97,7 @@ dependencies = [
     "phonenumberslite==8.13.6",
     "pillow==12.1.0",
     "posthoganalytics==7.4.3",
+    "polars==1.37.1",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
