@@ -3748,9 +3748,77 @@ const api = {
         },
         async kernelExecute(
             notebookId: NotebookType['short_id'],
-            data: { code: string; return_variables?: boolean; timeout?: number }
+            data: {
+                code: string
+                return_variables?: boolean
+                timeout?: number
+                execution_type?: 'python' | 'duckdb'
+            },
+            options?: { onStatus?: (message: string) => void }
         ): Promise<Record<string, any>> {
-            return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+            const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute').assembleFullUrl(true)
+            const abortController = new AbortController()
+            let execution: Record<string, any> | null = null
+            let streamError: Error | null = null
+
+            const resolveStreamError = (error: unknown): void => {
+                streamError = error instanceof Error ? error : new Error('Notebook execution failed.')
+                abortController.abort()
+            }
+
+            await fetchEventSource(url, {
+                method: 'POST',
+                signal: abortController.signal,
+                credentials: 'include',
+                openWhenHidden: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream',
+                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                    ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                },
+                body: JSON.stringify(data),
+                onopen: async (response) => {
+                    if (response.ok) {
+                        return
+                    }
+                    let errorMessage = `HTTP ${response.status}`
+                    try {
+                        const errorText = await response.text()
+                        if (errorText) {
+                            errorMessage = `HTTP ${response.status}: ${errorText}`
+                        }
+                    } catch {
+                        // noop
+                    }
+                    resolveStreamError(new Error(errorMessage))
+                },
+                onmessage: (event: EventSourceMessage) => {
+                    try {
+                        const payload = JSON.parse(event.data)
+                        if (payload.type === 'status') {
+                            options?.onStatus?.(payload.message)
+                        }
+                        if (payload.type === 'error') {
+                            resolveStreamError(new Error(payload.message || 'Notebook execution failed.'))
+                        }
+                        if (payload.type === 'result') {
+                            execution = payload.execution ?? null
+                        }
+                    } catch (error) {
+                        resolveStreamError(error)
+                    }
+                },
+                onerror: resolveStreamError,
+            })
+
+            if (streamError) {
+                throw streamError
+            }
+            if (!execution) {
+                throw new Error('Notebook execution did not return a result.')
+            }
+            return execution
         },
         async kernelDataframe(
             notebookId: NotebookType['short_id'],

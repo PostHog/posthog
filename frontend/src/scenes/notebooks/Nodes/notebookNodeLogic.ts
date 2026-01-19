@@ -61,6 +61,7 @@ type RunPythonCellParams = {
     exportedGlobals: { name: string; type: string }[]
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setPythonRunLoading: (loading: boolean) => void
+    setExecutionMessage: (message: string | null) => void
     executionSandboxId: string | null
 }
 
@@ -71,6 +72,7 @@ type RunDuckSqlCellParams = {
     pageSize: number
     updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => void
     setDuckSqlRunLoading: (loading: boolean) => void
+    setExecutionMessage: (message: string | null) => void
     executionSandboxId: string | null
 }
 
@@ -272,6 +274,7 @@ const runDependencyNodes = async ({
                     exportedGlobals: nodeLogic.values.exportedGlobals,
                     updateAttributes: nodeLogic.actions.updateAttributes,
                     setPythonRunLoading: nodeLogic.actions.setPythonRunLoading,
+                    setExecutionMessage: nodeLogic.actions.setExecutionMessage,
                     executionSandboxId,
                 })
 
@@ -316,6 +319,7 @@ const runDependencyNodes = async ({
                     pageSize: nodeLogic.values.dataframePageSize,
                     updateAttributes: nodeLogic.actions.updateAttributes,
                     setDuckSqlRunLoading: nodeLogic.actions.setDuckSqlRunLoading,
+                    setExecutionMessage: nodeLogic.actions.setExecutionMessage,
                     executionSandboxId,
                 })
 
@@ -349,14 +353,23 @@ const runPythonCell = async ({
     exportedGlobals,
     updateAttributes,
     setPythonRunLoading,
+    setExecutionMessage,
     executionSandboxId,
 }: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
+    setExecutionMessage('Preparing execution')
     try {
-        const execution = (await api.notebooks.kernelExecute(notebookId, {
-            code,
-            return_variables: exportedGlobals.length > 0,
-        })) as PythonKernelExecuteResponse
+        const execution = (await api.notebooks.kernelExecute(
+            notebookId,
+            {
+                code,
+                return_variables: exportedGlobals.length > 0,
+                execution_type: 'python',
+            },
+            {
+                onStatus: (message) => setExecutionMessage(message),
+            }
+        )) as PythonKernelExecuteResponse
 
         const executionResult = buildPythonExecutionResult(execution, exportedGlobals)
         const runtimeSandboxId = execution.kernel_runtime?.sandbox_id ?? executionSandboxId
@@ -377,6 +390,7 @@ const runPythonCell = async ({
         return { executed: false, execution: executionResult }
     } finally {
         setPythonRunLoading(false)
+        setExecutionMessage(null)
     }
 }
 
@@ -387,16 +401,25 @@ const runDuckSqlCell = async ({
     pageSize,
     updateAttributes,
     setDuckSqlRunLoading,
+    setExecutionMessage,
     executionSandboxId,
 }: RunDuckSqlCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setDuckSqlRunLoading(true)
+    setExecutionMessage('Preparing execution')
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable, pageSize)
     try {
-        const execution = (await api.notebooks.kernelExecute(notebookId, {
-            code: executionCode,
-            return_variables: true,
-        })) as PythonKernelExecuteResponse
+        const execution = (await api.notebooks.kernelExecute(
+            notebookId,
+            {
+                code: executionCode,
+                return_variables: true,
+                execution_type: 'duckdb',
+            },
+            {
+                onStatus: (message) => setExecutionMessage(message),
+            }
+        )) as PythonKernelExecuteResponse
 
         const executionResult = buildPythonExecutionResult(execution, [
             { name: resolvedReturnVariable, type: 'DataFrame' },
@@ -421,6 +444,7 @@ const runDuckSqlCell = async ({
         return { executed: false, execution: executionResult }
     } finally {
         setDuckSqlRunLoading(false)
+        setExecutionMessage(null)
     }
 }
 
@@ -516,6 +540,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         runDuckSqlNodeWithMode: (payload: { mode: DuckSqlRunMode }) => payload,
         setDuckSqlRunLoading: (loading: boolean) => ({ loading }),
         setDuckSqlRunQueued: (queued: boolean) => ({ queued }),
+        setExecutionMessage: (message: string | null) => ({ message }),
         setDataframeVariableName: (variableName: string | null, initialResult?: NotebookDataframeResult | null) => ({
             variableName,
             initialResult,
@@ -629,6 +654,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             false,
             {
                 setDuckSqlRunQueued: (_, { queued }) => queued,
+            },
+        ],
+        executionMessage: [
+            null as string | null,
+            {
+                setExecutionMessage: (_, { message }) => message,
             },
         ],
         dataframeVariableName: [
@@ -1022,6 +1053,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 exportedGlobals: values.exportedGlobals,
                 updateAttributes: actions.updateAttributes,
                 setPythonRunLoading: actions.setPythonRunLoading,
+                setExecutionMessage: actions.setExecutionMessage,
                 executionSandboxId,
             })
             if (!executed) {
@@ -1059,6 +1091,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 pageSize: values.dataframePageSize,
                 updateAttributes: actions.updateAttributes,
                 setDuckSqlRunLoading: actions.setDuckSqlRunLoading,
+                setExecutionMessage: actions.setExecutionMessage,
                 executionSandboxId,
             })
             if (!executed || execution?.status !== 'ok') {

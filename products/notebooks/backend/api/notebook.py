@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
 
 import structlog
@@ -29,6 +29,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
@@ -200,6 +201,7 @@ class NotebookKernelExecuteSerializer(serializers.Serializer):
     code = serializers.CharField(allow_blank=True)
     return_variables = serializers.BooleanField(default=True)
     timeout = serializers.FloatField(required=False, min_value=0.1, max_value=120)
+    execution_type = serializers.ChoiceField(choices=["python", "duckdb"], required=False)
 
 
 class NotebookKernelDataframeSerializer(serializers.Serializer):
@@ -558,29 +560,59 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             }
         )
 
-    @action(methods=["POST"], url_path="kernel/execute", detail=True)
+    @action(
+        methods=["POST"],
+        url_path="kernel/execute",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+    )
     def kernel_execute(self, request: Request, **kwargs):
         serializer = NotebookKernelExecuteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
 
-        try:
-            analysis = analyze_python_globals(serializer.validated_data["code"])
-            variable_names = [entry["name"] for entry in analysis.exported_with_types]
-            execution = get_kernel_runtime(notebook, self._current_user()).execute(
-                serializer.validated_data["code"],
-                capture_variables=serializer.validated_data.get("return_variables", True),
-                variable_names=variable_names,
-                timeout=serializer.validated_data.get("timeout"),
-            )
-        except SandboxProvisionError:
-            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to execute notebook code."}, status=503)
-        except RuntimeError:
-            logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to execute notebook code."}, status=503)
+        execution_type = serializer.validated_data.get("execution_type")
+        execution_label = "DuckDB" if execution_type == "duckdb" else "Python"
+        renderer = SafeJSONRenderer()
 
-        return Response(execution.as_dict())
+        def build_event(payload: dict[str, Any]) -> bytes:
+            payload_json = renderer.render(payload).decode()
+            return f"data: {payload_json}\n\n".encode()
+
+        def stream_execution():
+            yield build_event({"type": "status", "message": "Starting kernel"})
+            yield build_event({"type": "status", "message": f"Executing {execution_label}"})
+
+            try:
+                analysis = analyze_python_globals(serializer.validated_data["code"])
+                variable_names = [entry["name"] for entry in analysis.exported_with_types]
+                execution = get_kernel_runtime(notebook, self._current_user()).execute(
+                    serializer.validated_data["code"],
+                    capture_variables=serializer.validated_data.get("return_variables", True),
+                    variable_names=variable_names,
+                    timeout=serializer.validated_data.get("timeout"),
+                )
+            except SandboxProvisionError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
+                return
+            except RuntimeError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
+                return
+
+            yield build_event({"type": "result", "execution": execution.as_dict()})
+            yield build_event({"type": "complete"})
+
+        return StreamingHttpResponse(
+            streaming_content=stream_execution(),
+            content_type=ServerSentEventRenderer.media_type,
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     @action(methods=["GET"], url_path="kernel/dataframe", detail=True)
     def kernel_dataframe(self, request: Request, **kwargs):

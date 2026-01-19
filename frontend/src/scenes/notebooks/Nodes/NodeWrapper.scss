@@ -28,6 +28,12 @@
             border-bottom: 1px solid var(--color-border-primary);
         }
 
+        .NotebookNode__execution-status {
+            max-width: 12rem;
+            font-size: 0.75rem;
+            color: var(--text-300);
+        }
+
         .NotebookNode__settings {
             border-bottom: 1px solid var(--color-border-primary);
         }

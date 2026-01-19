@@ -87,6 +87,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         duckSqlRunLoading,
         duckSqlRunQueued,
         pythonRunQueued,
+        executionMessage,
         settingsPlacement: resolvedSettingsPlacement,
         sourceComment,
         duckSqlReturnVariable,
@@ -162,6 +163,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
+    const showExecutionMessage = (isPythonNode || isDuckSqlNode) && executionMessage
     const runDisabledReason = !notebook ? 'Notebook not loaded' : undefined
     const pythonAttributes = attributes as {
         code?: string
@@ -271,7 +273,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 <NotebookNodeTitle />
                                             </div>
 
-                                            <div className="flex deprecated-space-x-1">
+                                            <div className="flex deprecated-space-x-1 items-center">
+                                                {showExecutionMessage ? (
+                                                    <span className="NotebookNode__execution-status truncate">
+                                                        {executionMessage}
+                                                    </span>
+                                                ) : null}
                                                 {parsedHref && (
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
