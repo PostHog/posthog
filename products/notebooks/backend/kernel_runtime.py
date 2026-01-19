@@ -15,7 +15,6 @@ from django.conf import settings
 from django.utils import timezone
 
 import structlog
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.schema import HogQLQuery
@@ -25,7 +24,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.services.query import process_query_model
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.redis import get_client
 
 from products.notebooks.backend.models import KernelRuntime, Notebook
@@ -915,19 +913,15 @@ class KernelRuntimeService:
                 self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
                 return execution
 
-            try:
-                hogql_response = self._execute_hogql_query(notebook, user, request["query"])
-                self._set_hogql_cache(
-                    handle,
-                    exec_id=exec_id,
-                    cache_key=request["cache_key"],
-                    index=request["index"],
-                    payload=hogql_response,
-                    timeout_seconds=timeout_seconds,
-                )
-            except Exception:
-                self._safe_clear_hogql_exec_state(handle, exec_id, timeout_seconds)
-                raise
+            hogql_response = self._execute_hogql_query(notebook, user, request["query"])
+            self._set_hogql_cache(
+                handle,
+                exec_id=exec_id,
+                cache_key=request["cache_key"],
+                index=request["index"],
+                payload=hogql_response,
+                timeout_seconds=timeout_seconds,
+            )
 
     def _execute_kernel_code(
         self,
@@ -1035,11 +1029,6 @@ class KernelRuntimeService:
         return None
 
     def _execute_hogql_query(self, notebook: Notebook, user: User | None, query: str) -> dict[str, Any]:
-        if not isinstance(user, User):
-            raise PermissionDenied("User is required to execute notebook queries.")
-        user_access_control = UserAccessControl(user=user, team=notebook.team)
-        if not user_access_control.check_access_level_for_object(notebook, required_level="viewer"):
-            raise PermissionDenied("You do not have access to this notebook.")
         hogql_query = HogQLQuery(query=query)
         result = process_query_model(
             notebook.team,
@@ -1051,12 +1040,6 @@ class KernelRuntimeService:
         if hasattr(result, "model_dump"):
             result = result.model_dump(by_alias=True)
         return result
-
-    def _safe_clear_hogql_exec_state(self, handle: _KernelHandle, exec_id: str, timeout_seconds: int) -> None:
-        try:
-            self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
-        except Exception:
-            logger.exception("notebook_hogql_cleanup_failed", exec_id=exec_id)
 
     def _set_hogql_cache(
         self,
@@ -1083,11 +1066,7 @@ class KernelRuntimeService:
             "cache = globals().setdefault('_notebook_hogql_cache', {})\n"
             f"cache[{cache_key!r}] = entries[index]\n"
         )
-        try:
-            self._execute_kernel_code(handle, code, user_expressions=None, timeout_seconds=timeout_seconds)
-        except RuntimeError:
-            logger.exception("notebook_hogql_cache_failed", exec_id=exec_id, cache_key=cache_key)
-            raise
+        self._execute_kernel_code(handle, code, user_expressions=None, timeout_seconds=timeout_seconds)
 
     def _clear_hogql_exec_state(self, handle: _KernelHandle, exec_id: str, timeout_seconds: int) -> None:
         code = (
