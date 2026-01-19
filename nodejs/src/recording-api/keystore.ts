@@ -6,7 +6,7 @@ import { RetentionService } from '../session-recording/retention/retention-servi
 import { TeamService } from '../session-recording/teams/team-service'
 import { isCloud } from '../utils/env-utils'
 import { logger } from '../utils/logger'
-import { BaseKeyStore, SessionKey } from './types'
+import { BaseKeyStore, SessionKey, SessionKeyDeletedError } from './types'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
 
@@ -170,11 +170,13 @@ export class KeyStore extends BaseKeyStore {
                 sessionState: 'ciphertext',
             }
         } else if (sessionState === 'deleted') {
+            const deletedAt = result.Item?.deleted_at?.N ? parseInt(result.Item.deleted_at.N, 10) : undefined
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
+                deletedAt,
             }
         } else {
             return {
@@ -194,8 +196,27 @@ export class KeyStore extends BaseKeyStore {
     }
 
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
+        const existingItem = await this.dynamoDBClient.send(
+            new GetItemCommand({
+                TableName: KEYS_TABLE_NAME,
+                Key: {
+                    session_id: { S: sessionId },
+                    team_id: { N: String(teamId) },
+                },
+            })
+        )
+
+        if (!existingItem.Item) {
+            return false
+        }
+
+        if (existingItem.Item.session_state?.S === 'deleted') {
+            const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : 0
+            throw new SessionKeyDeletedError(sessionId, teamId, deletedAt)
+        }
+
         const deletedAt = Math.floor(Date.now() / 1000)
-        const result = await this.dynamoDBClient.send(
+        await this.dynamoDBClient.send(
             new UpdateItemCommand({
                 TableName: KEYS_TABLE_NAME,
                 Key: {
@@ -207,12 +228,10 @@ export class KeyStore extends BaseKeyStore {
                     ':deleted': { S: 'deleted' },
                     ':deleted_at': { N: String(deletedAt) },
                 },
-                ConditionExpression: 'attribute_exists(session_id)',
-                ReturnValues: 'ALL_NEW',
             })
         )
 
-        return !!result.Attributes
+        return true
     }
 
     stop(): void {

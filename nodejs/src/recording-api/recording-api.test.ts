@@ -6,7 +6,7 @@ import { Hub } from '../types'
 import { getKeyStore } from './keystore'
 import { RecordingApi } from './recording-api'
 import { getBlockDecryptor } from './recording-decryptor'
-import { BaseKeyStore, BaseRecordingDecryptor } from './types'
+import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -329,6 +329,32 @@ describe('RecordingApi', () => {
             expect(statusMock).toHaveBeenCalledWith(500)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Failed to fetch block from S3' })
         })
+
+        it('should return 410 if session key has been deleted', async () => {
+            await recordingApi.start()
+            const s3ClientInstance = (S3Client as jest.Mock).mock.results[0].value
+            const mockBody = {
+                transformToByteArray: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+            }
+            s3ClientInstance.send.mockResolvedValue({ Body: mockBody })
+
+            const deletedAt = 1700000000
+            mockDecryptor.decryptBlock.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, deletedAt))
+
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+                query: { key: 'path/to/file', start: '0', end: '100' },
+            }
+
+            await (recordingApi as any).getBlock(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(410)
+            expect(jsonMock).toHaveBeenCalledWith({
+                error: 'Recording has been deleted',
+                deleted_at: deletedAt,
+            })
+        })
     })
 
     describe('deleteRecording endpoint', () => {
@@ -387,6 +413,25 @@ describe('RecordingApi', () => {
 
             expect(statusMock).toHaveBeenCalledWith(500)
             expect(jsonMock).toHaveBeenCalledWith({ error: 'Failed to delete recording key' })
+        })
+
+        it('should return 410 when recording is already deleted', async () => {
+            await recordingApi.start()
+            const deletedAt = 1700000000
+            mockKeyStore.deleteKey.mockRejectedValue(new SessionKeyDeletedError('session-123', 1, deletedAt))
+
+            const { statusMock, jsonMock, ...mockRes } = createMockResponse()
+            const mockReq = {
+                params: { team_id: '1', session_id: 'session-123' },
+            }
+
+            await (recordingApi as any).deleteRecording(mockReq, mockRes)
+
+            expect(statusMock).toHaveBeenCalledWith(410)
+            expect(jsonMock).toHaveBeenCalledWith({
+                error: 'Recording has already been deleted',
+                deleted_at: deletedAt,
+            })
         })
     })
 })

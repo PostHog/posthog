@@ -16,7 +16,7 @@ import { logger } from '../utils/logger'
 import { getKeyStore } from './keystore'
 import { MemoryCachedKeyStore, RedisCachedKeyStore } from './keystore-cache'
 import { getBlockDecryptor } from './recording-decryptor'
-import { BaseKeyStore, BaseRecordingDecryptor } from './types'
+import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
 
 export class RecordingApi {
     private s3Client: S3Client | null = null
@@ -229,6 +229,19 @@ export class RecordingApi {
             res.set('Content-Length', String(decrypted.length))
             res.send(decrypted)
         } catch (error) {
+            if (error instanceof SessionKeyDeletedError) {
+                logger.info('[RecordingApi] Session key has been deleted', {
+                    team_id,
+                    session_id,
+                    deleted_at: error.deletedAt,
+                })
+                res.status(410).json({
+                    error: 'Recording has been deleted',
+                    deleted_at: error.deletedAt,
+                })
+                return
+            }
+
             logger.error('[RecordingApi] Error fetching block from S3', {
                 error,
                 key,
@@ -260,6 +273,19 @@ export class RecordingApi {
                 res.status(404).json({ error: 'Recording key not found' })
             }
         } catch (error) {
+            if (error instanceof SessionKeyDeletedError) {
+                logger.info('[RecordingApi] Recording already deleted', {
+                    team_id,
+                    session_id,
+                    deleted_at: error.deletedAt,
+                })
+                res.status(410).json({
+                    error: 'Recording has already been deleted',
+                    deleted_at: error.deletedAt,
+                })
+                return
+            }
+
             logger.error('[RecordingApi] Error deleting recording key', { error, team_id, session_id })
             res.status(500).json({ error: 'Failed to delete recording key' })
         }

@@ -15,6 +15,9 @@ from posthog.settings.session_replay_v2 import (
 from posthog.storage.session_recording_v2_object_storage import (
     AsyncSessionRecordingV2ObjectStorage,
     BlockFetchError,
+    EncryptedBlockStorage,
+    RecordingApiFetchError,
+    RecordingDeletedError,
     SessionRecordingV2ObjectStorage,
     UnavailableSessionRecordingV2ObjectStorage,
     async_client,
@@ -445,3 +448,125 @@ class TestAsyncSessionRecordingV2Storage(APIBaseTest):
         assert result != test_data.encode("utf-8")
         assert snappy.decompress(result).decode("utf-8") == test_data
         mock_client.get_object.assert_called_with(Bucket=TEST_BUCKET, Key="test-file-key")
+
+
+class MockResponse:
+    def __init__(self, status: int, data: bytes | dict | None = None):
+        self.status = status
+        self._data = data
+
+    async def read(self) -> bytes:
+        if isinstance(self._data, bytes):
+            return self._data
+        return b""
+
+    async def json(self) -> dict:
+        if isinstance(self._data, dict):
+            return self._data
+        return {}
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise Exception(f"HTTP {self.status}")
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        pass
+
+
+def create_mock_session(method: str, response: MockResponse):
+    """Create a mock aiohttp session with a properly configured async context manager."""
+    mock_session = MagicMock()
+    mock_method = MagicMock(return_value=response)
+    setattr(mock_session, method, mock_method)
+    return mock_session, mock_method
+
+
+class TestEncryptedBlockStorage(APIBaseTest):
+    def teardown_method(self, method) -> None:
+        pass
+
+    async def test_fetch_block_bytes_success(self):
+        compressed_data = snappy.compress(b"test data")
+        mock_session, mock_get = create_mock_session("get", MockResponse(200, compressed_data))
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        result = await storage.fetch_block_bytes(
+            "s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1
+        )
+
+        assert result == compressed_data
+        mock_get.assert_called_once_with(
+            "http://localhost:8000/api/projects/1/recordings/session-123/block",
+            params={"key": "key1", "start": 0, "end": 100},
+        )
+
+    async def test_fetch_block_bytes_404_raises_fetch_error(self):
+        mock_session, _ = create_mock_session("get", MockResponse(404))
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingApiFetchError) as cm:
+            await storage.fetch_block_bytes("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
+        assert "Block not found" in str(cm.exception)
+
+    async def test_fetch_block_bytes_410_raises_deleted_error(self):
+        deleted_at = 1700000000
+        mock_session, _ = create_mock_session(
+            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": deleted_at})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.fetch_block_bytes("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
+        assert "Recording has been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at == deleted_at
+
+    async def test_fetch_block_410_raises_deleted_error(self):
+        deleted_at = 1700000000
+        mock_session, _ = create_mock_session(
+            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": deleted_at})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.fetch_block("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
+        assert "Recording has been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at == deleted_at
+
+    async def test_delete_recording_success(self):
+        mock_session, mock_delete = create_mock_session("delete", MockResponse(200, {"status": "deleted"}))
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        result = await storage.delete_recording(session_id="session-123", team_id=1)
+
+        assert result is True
+        mock_delete.assert_called_once_with("http://localhost:8000/api/projects/1/recordings/session-123")
+
+    async def test_delete_recording_404_raises_fetch_error(self):
+        mock_session, _ = create_mock_session("delete", MockResponse(404))
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingApiFetchError) as cm:
+            await storage.delete_recording(session_id="session-123", team_id=1)
+        assert "Recording key not found" in str(cm.exception)
+
+    async def test_delete_recording_410_raises_deleted_error(self):
+        deleted_at = 1700000000
+        mock_session, _ = create_mock_session(
+            "delete", MockResponse(410, {"error": "Recording has already been deleted", "deleted_at": deleted_at})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.delete_recording(session_id="session-123", team_id=1)
+        assert "Recording has already been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at == deleted_at
