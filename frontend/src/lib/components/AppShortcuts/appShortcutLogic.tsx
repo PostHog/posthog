@@ -142,7 +142,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 return
             }
 
-            // Handle sequence shortcuts and single-key shortcuts (no modifier keys, not in editable elements)
+            // Handle sequence shortcuts (no modifier keys, not in editable elements)
             if (isEditableElement(event.target) || event.altKey) {
                 return
             }
@@ -151,6 +151,10 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             const key = event.key.toLowerCase()
 
             // Check for single-key shortcuts first (immediate trigger, no sequence)
+            // Since single key shortcuts trigger eagerly, sequence shortcuts need to
+            // check for collisions before being implemented. We could also make this
+            // "lazy" but that would result in a noticeable lag in app for single key
+            // shortcuts. My preference is the eager way
             const singleKeyMatch = values.registeredAppShortcuts.find((shortcut) =>
                 shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
             )
