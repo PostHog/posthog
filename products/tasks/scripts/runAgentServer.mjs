@@ -336,18 +336,18 @@ class AgentServer {
                 }
                 await self.sendEvent(notification)
 
-                // Handle file sync events
-                if (params.update?.sessionUpdate === 'tool_result') {
-                    const toolName = params.update?.toolName
-                    const result = params.update?.result
-                    if (toolName === 'Write' || toolName === 'Edit') {
-                        const filePath = result?.file_path || result?.filePath
-                        if (filePath) {
-                            await self.handleFileChange(
-                                filePath,
-                                toolName === 'Write' ? 'file_created' : 'file_modified'
-                            )
-                        }
+                // Handle file sync events - detect Write/Edit tool completion
+                if (params.update?.sessionUpdate === 'tool_call_update') {
+                    const meta = params.update?._meta?.claudeCode
+                    const toolName = meta?.toolName
+                    const toolResponse = meta?.toolResponse
+                    // Sync when we receive the toolResponse with the file path
+                    if ((toolName === 'Write' || toolName === 'Edit') && toolResponse?.filePath) {
+                        self.logger.info(`[FILE_SYNC] Detected ${toolName} for file: ${toolResponse.filePath}`)
+                        await self.handleFileChange(
+                            toolResponse.filePath,
+                            toolName === 'Write' ? 'file_created' : 'file_modified'
+                        )
                     }
                 }
             },
@@ -388,9 +388,55 @@ class AgentServer {
             if (event) {
                 this.logger.info(`File synced: ${event.relativePath}`)
                 await this.sendFileSyncEvent(event)
+
+                // Update the file manifest so local can get the changes when switching back
+                await this.updateFileManifest(event)
             }
         } catch (error) {
             this.logger.error('Failed to sync file:', filePath, error)
+        }
+    }
+
+    async updateFileManifest(fileEvent) {
+        const { taskId, runId } = this.config
+
+        try {
+            // Fetch existing manifest or create new one
+            let manifest = await this.apiClient.getFileManifest(taskId, runId)
+
+            if (!manifest) {
+                manifest = {
+                    version: 1,
+                    base_commit: null,
+                    updated_at: new Date().toISOString(),
+                    files: {},
+                    deleted_files: [],
+                }
+            }
+
+            // Update the manifest with the file change
+            if (fileEvent.type === 'file_deleted') {
+                delete manifest.files[fileEvent.relativePath]
+                if (!manifest.deleted_files.includes(fileEvent.relativePath)) {
+                    manifest.deleted_files.push(fileEvent.relativePath)
+                }
+            } else {
+                manifest.files[fileEvent.relativePath] = {
+                    hash: fileEvent.contentHash,
+                    size: fileEvent.size || 0,
+                }
+                manifest.deleted_files = manifest.deleted_files.filter(
+                    (f) => f !== fileEvent.relativePath
+                )
+            }
+
+            manifest.updated_at = new Date().toISOString()
+
+            // Save updated manifest
+            await this.apiClient.putFileManifest(taskId, runId, manifest)
+            this.logger.debug('File manifest updated', { relativePath: fileEvent.relativePath })
+        } catch (error) {
+            this.logger.warn('Failed to update file manifest:', error.message)
         }
     }
 
@@ -427,6 +473,9 @@ class AgentServer {
         this.isRunning = true
         await this.connect()
 
+        // Apply file manifest from local → cloud sync before starting
+        await this.applyFileManifest()
+
         // Initialize ACP connection immediately so we're ready for prompts
         await this.initializeAcpConnection()
 
@@ -440,6 +489,46 @@ class AgentServer {
             }
             checkRunning()
         })
+    }
+
+    async applyFileManifest() {
+        const { apiUrl, apiKey, projectId, taskId, runId, repositoryPath } = this.config
+        this.logger.info('Checking for file manifest to apply', { taskId, runId })
+
+        try {
+            // Create a temporary API client to fetch the manifest
+            const tempApiClient = new PostHogAPIClient({
+                apiUrl,
+                getApiKey: () => apiKey,
+                projectId,
+            })
+
+            const manifest = await tempApiClient.getFileManifest(taskId, runId)
+
+            if (!manifest) {
+                this.logger.info('No file manifest found, starting fresh')
+                return
+            }
+
+            this.logger.info('File manifest found, applying', {
+                fileCount: Object.keys(manifest.files).length,
+                deletedCount: manifest.deleted_files.length,
+            })
+
+            // Create FileSyncManager to apply manifest
+            const tempFileSyncManager = new FileSyncManager({
+                workingDirectory: repositoryPath,
+                taskId,
+                runId,
+                apiClient: tempApiClient,
+            })
+
+            await tempFileSyncManager.applyManifest(manifest, repositoryPath)
+
+            this.logger.info('File manifest applied successfully')
+        } catch (error) {
+            this.logger.warn('Failed to apply file manifest, continuing anyway:', error.message)
+        }
     }
 
     async stop() {

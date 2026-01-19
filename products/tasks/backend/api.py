@@ -31,6 +31,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from .models import Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
+    FileManifestSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -42,7 +43,11 @@ from .serializers import (
     TaskSerializer,
 )
 from .sync.router import MessageRouter
-from .temporal.client import execute_cloud_session_workflow, execute_task_processing_workflow, send_cloud_session_heartbeat
+from .temporal.client import (
+    execute_cloud_session_workflow,
+    execute_task_processing_workflow,
+    send_cloud_session_heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,9 +208,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "append_log",
             "sync",
             "heartbeat",
+            "file_manifest",
         ]
     }
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
 
     @validated_request(
@@ -616,6 +622,86 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": "ok"})
         else:
             return Response({"status": "no_session"})
+
+    @extend_schema(
+        tags=["task-runs"],
+        responses={
+            200: OpenApiResponse(response=FileManifestSerializer, description="File manifest for cloud/local sync"),
+            204: OpenApiResponse(description="No manifest exists"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get or update file manifest for cloud/local sync",
+        description="GET retrieves the current file manifest. PUT stores a new manifest. Used for syncing file state between local and cloud environments.",
+    )
+    @action(detail=True, methods=["get", "put"], url_path="file_manifest", required_scopes=["task:write"])
+    def file_manifest(self, request, pk=None, **kwargs):
+        task_run = cast(TaskRun, self.get_object())
+
+        if request.method == "GET":
+            return self._file_manifest_get(task_run)
+        else:
+            return self._file_manifest_put(request, task_run)
+
+    def _file_manifest_get(self, task_run: TaskRun) -> Response:
+        """Retrieve file manifest from S3."""
+        manifest_path = task_run.get_file_manifest_path()
+        content = object_storage.read(manifest_path, missing_ok=True)
+
+        if not content:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        try:
+            manifest_data = json.loads(content)
+            return Response(manifest_data)
+        except json.JSONDecodeError:
+            logger.exception(f"Invalid JSON in file manifest for run {task_run.id}")
+            return Response(
+                ErrorResponseSerializer({"error": "Invalid manifest data"}).data,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    def _file_manifest_put(self, request, task_run: TaskRun) -> Response:
+        """Store file manifest to S3."""
+        serializer = FileManifestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                ErrorResponseSerializer({"error": str(serializer.errors)}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        manifest_path = task_run.get_file_manifest_path()
+        content = json.dumps(serializer.validated_data, default=str)
+
+        object_storage.write(manifest_path, content)
+
+        try:
+            object_storage.tag(
+                manifest_path,
+                {
+                    "ttl_days": "30",
+                    "team_id": str(task_run.team_id),
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "task_run.file_manifest_tag_failed",
+                extra={
+                    "task_run_id": str(task_run.id),
+                    "manifest_path": manifest_path,
+                    "error": str(exc),
+                },
+            )
+
+        logger.info(
+            "task_run.file_manifest_uploaded",
+            extra={
+                "task_run_id": str(task_run.id),
+                "manifest_path": manifest_path,
+                "file_count": len(serializer.validated_data.get("files", {})),
+            },
+        )
+
+        return Response(serializer.validated_data)
 
     async def _replay_from_log(self, task_run: TaskRun, from_event_id: str) -> AsyncGenerator[dict[str, Any], None]:
         """Replay events from S3 log starting after the given event ID."""
