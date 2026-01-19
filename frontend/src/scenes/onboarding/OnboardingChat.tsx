@@ -6,9 +6,9 @@ import { useEffect, useRef, useState } from 'react'
 
 import {
     IconArrowRight,
-    IconChartLine,
     IconFlag,
     IconFlask,
+    IconGraph,
     IconMessage,
     IconRewindPlay,
     IconWarning,
@@ -17,7 +17,7 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { onboardingLogic } from './onboardingLogic'
 
@@ -39,7 +39,7 @@ const PRODUCT_INFO: Record<ProductKey, { name: string; description: string; icon
     product_analytics: {
         name: 'Product analytics',
         description: 'Track events, build funnels, analyze user journeys',
-        icon: <IconChartLine className="text-warning" />,
+        icon: <IconGraph className="text-warning" />,
     },
     session_replay: {
         name: 'Session replay',
@@ -69,17 +69,17 @@ const PRODUCT_INFO: Record<ProductKey, { name: string; description: string; icon
     web_analytics: {
         name: 'Web analytics',
         description: 'Privacy-friendly website traffic insights',
-        icon: <IconChartLine className="text-primary" />,
+        icon: <IconGraph className="text-primary" />,
     },
     llm_analytics: {
         name: 'LLM observability',
         description: 'Monitor AI costs, latency, and conversations',
-        icon: <IconChartLine className="text-purple" />,
+        icon: <IconGraph className="text-purple" />,
     },
     data_warehouse: {
         name: 'Data warehouse',
         description: 'Query all your data in one place',
-        icon: <IconChartLine className="text-muted" />,
+        icon: <IconGraph className="text-muted" />,
     },
 }
 
@@ -91,7 +91,7 @@ const INITIAL_MESSAGE: OnboardingMessage = {
             label: 'Understand user behavior',
             value: 'understand_users',
             description: 'Track events, analyze funnels, see how users navigate',
-            icon: <IconChartLine />,
+            icon: <IconGraph />,
         },
         {
             label: 'Find and fix issues',
@@ -191,12 +191,12 @@ const GOAL_RESPONSES: Record<string, OnboardingMessage> = {
             {
                 label: 'Website analytics',
                 value: 'web_analytics',
-                icon: <IconChartLine />,
+                icon: <IconGraph />,
             },
             {
                 label: 'Monitor AI/LLM app',
                 value: 'llm',
-                icon: <IconChartLine />,
+                icon: <IconGraph />,
             },
         ],
     },
