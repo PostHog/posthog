@@ -1,6 +1,10 @@
 import math
+import asyncio
 import hashlib
+from collections.abc import Callable
 from datetime import timedelta
+from queue import SimpleQueue
+from threading import Thread
 from typing import Any, Optional
 
 from django.conf import settings
@@ -10,7 +14,6 @@ from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
 
 import structlog
-from asgiref.sync import sync_to_async
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
@@ -584,7 +587,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             payload_json = renderer.render(payload).decode()
             return f"data: {payload_json}\n\n".encode()
 
-        def run_execution():
+        def run_execution(*, status_callback: Callable[[str], None] | None = None):
             analysis = analyze_python_globals(execution_code)
             variable_names = [entry["name"] for entry in analysis.exported_with_types]
             return get_kernel_runtime(notebook, current_user).execute(
@@ -592,43 +595,80 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 capture_variables=serializer.validated_data.get("return_variables", True),
                 variable_names=variable_names,
                 timeout=execution_timeout,
+                status_callback=status_callback,
+                execution_label=execution_label,
             )
 
         def stream_execution_sync():
-            yield build_event({"type": "status", "message": "Starting kernel"})
-            yield build_event({"type": "status", "message": f"Executing {execution_label}"})
+            event_queue: SimpleQueue[tuple[str, Any]] = SimpleQueue()
 
-            try:
-                execution = run_execution()
-            except SandboxProvisionError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
-                return
-            except RuntimeError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
-                return
+            def status_callback(message: str) -> None:
+                event_queue.put(("status", message))
 
-            yield build_event({"type": "result", "execution": execution.as_dict()})
-            yield build_event({"type": "complete"})
+            def runner() -> None:
+                try:
+                    execution = run_execution(status_callback=status_callback)
+                except SandboxProvisionError:
+                    logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                    event_queue.put(("error", "Failed to execute notebook code."))
+                    return
+                except RuntimeError:
+                    logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                    event_queue.put(("error", "Failed to execute notebook code."))
+                    return
+                event_queue.put(("result", execution))
+
+            thread = Thread(target=runner, daemon=True)
+            thread.start()
+
+            while True:
+                event_type, payload = event_queue.get()
+                if event_type == "status":
+                    yield build_event({"type": "status", "message": payload})
+                    continue
+                if event_type == "error":
+                    yield build_event({"type": "error", "message": payload})
+                    return
+                if event_type == "result":
+                    yield build_event({"type": "result", "execution": payload.as_dict()})
+                    yield build_event({"type": "complete"})
+                    return
 
         async def stream_execution_async():
-            yield build_event({"type": "status", "message": "Starting kernel"})
-            yield build_event({"type": "status", "message": f"Executing {execution_label}"})
+            event_queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
 
-            try:
-                execution = await sync_to_async(run_execution, thread_sensitive=True)()
-            except SandboxProvisionError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
-                return
-            except RuntimeError:
-                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
-                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
-                return
+            def status_callback(message: str) -> None:
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("status", message))
 
-            yield build_event({"type": "result", "execution": execution.as_dict()})
-            yield build_event({"type": "complete"})
+            def runner() -> None:
+                try:
+                    execution = run_execution(status_callback=status_callback)
+                except SandboxProvisionError:
+                    logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                    loop.call_soon_threadsafe(event_queue.put_nowait, ("error", "Failed to execute notebook code."))
+                    return
+                except RuntimeError:
+                    logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                    loop.call_soon_threadsafe(event_queue.put_nowait, ("error", "Failed to execute notebook code."))
+                    return
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("result", execution))
+
+            thread = Thread(target=runner, daemon=True)
+            thread.start()
+
+            while True:
+                event_type, payload = await event_queue.get()
+                if event_type == "status":
+                    yield build_event({"type": "status", "message": payload})
+                    continue
+                if event_type == "error":
+                    yield build_event({"type": "error", "message": payload})
+                    return
+                if event_type == "result":
+                    yield build_event({"type": "result", "execution": payload.as_dict()})
+                    yield build_event({"type": "complete"})
+                    return
 
         return StreamingHttpResponse(
             streaming_content=(

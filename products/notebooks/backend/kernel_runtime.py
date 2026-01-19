@@ -6,6 +6,7 @@ import uuid
 import atexit
 import base64
 import signal
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -131,6 +132,8 @@ class KernelRuntimeSession:
         capture_variables: bool = True,
         variable_names: list[str] | None = None,
         timeout: float | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        execution_label: str = "Python",
     ) -> KernelExecutionResult:
         return self.service.execute(
             self.notebook,
@@ -139,6 +142,8 @@ class KernelRuntimeSession:
             capture_variables=capture_variables,
             variable_names=variable_names,
             timeout=timeout,
+            status_callback=status_callback,
+            execution_label=execution_label,
         )
 
     def dataframe_page(
@@ -250,7 +255,11 @@ class KernelRuntimeService:
         capture_variables: bool = True,
         variable_names: list[str] | None = None,
         timeout: float | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        execution_label: str = "Python",
     ) -> KernelExecutionResult:
+        if status_callback:
+            status_callback("Starting kernel")
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
         user_expressions: dict[str, str] | None = None
         if capture_variables and valid_variable_names:
@@ -258,12 +267,14 @@ class KernelRuntimeService:
             for name in valid_variable_names:
                 user_expressions[name] = name
                 user_expressions[f"{self._TYPE_EXPRESSION_PREFIX}{name}"] = f"type({name}).__name__"
-        handle = self._ensure_handle(notebook, user)
+        handle = self._ensure_handle(notebook, user, status_callback=status_callback)
+        if status_callback:
+            status_callback(f"Executing {execution_label}")
 
         lock_timeout = (timeout or self._execution_timeout) + self._EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS
         with self._acquire_lock(handle.lock_name, timeout=lock_timeout):
             if not self._is_handle_alive(handle):
-                handle = self._reset_handle(notebook, user, handle)
+                handle = self._reset_handle(notebook, user, handle, status_callback=status_callback)
 
             if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
                 return self._execute_in_sandbox(
@@ -274,6 +285,8 @@ class KernelRuntimeService:
                     capture_variables=capture_variables,
                     variable_names=valid_variable_names,
                     timeout=timeout,
+                    status_callback=status_callback,
+                    execution_label=execution_label,
                 )
 
             raise RuntimeError("Unsupported notebook kernel backend.")
@@ -372,7 +385,13 @@ class KernelRuntimeService:
             except ValueError:
                 logger.warning("notebook_kernels_signal_registration_failed", signal=sig)
 
-    def _ensure_handle(self, notebook: Notebook, user: User | None) -> _KernelHandle:
+    def _ensure_handle(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        *,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> _KernelHandle:
         backend = self._get_backend(require_credentials=True)
         if backend is None:
             raise RuntimeError("Notebook sandbox provider is not configured.")
@@ -393,17 +412,24 @@ class KernelRuntimeService:
                 self._kernels[key] = handle
                 return handle
 
-            handle = self._create_kernel_handle(notebook, user, backend)
+            handle = self._create_kernel_handle(notebook, user, backend, status_callback=status_callback)
 
             self._kernels[key] = handle
 
         return handle
 
-    def _reset_handle(self, notebook: Notebook, user: User | None, handle: _KernelHandle) -> _KernelHandle:
+    def _reset_handle(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        handle: _KernelHandle,
+        *,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> _KernelHandle:
         self._shutdown_handle(handle, status=KernelRuntime.Status.ERROR)
         with self._acquire_lock(self._service_lock_name, timeout=self._SERVICE_LOCK_TIMEOUT_SECONDS):
             self._kernels.pop(self._get_kernel_key(notebook, user, handle.backend), None)
-        return self._ensure_handle(notebook, user)
+        return self._ensure_handle(notebook, user, status_callback=status_callback)
 
     def _shutdown_handle(self, handle: _KernelHandle, *, status: str) -> None:
         if handle.backend in (KernelRuntime.Backend.MODAL, KernelRuntime.Backend.DOCKER):
@@ -486,17 +512,32 @@ class KernelRuntimeService:
             return KernelRuntime.Backend.DOCKER
         return None
 
-    def _create_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle:
+    def _create_kernel_handle(
+        self,
+        notebook: Notebook,
+        user: User | None,
+        backend: str,
+        *,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> _KernelHandle:
         runtime = self._create_runtime(notebook, user, backend)
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
         sandbox_class = self._get_sandbox_class(backend)
+        if status_callback:
+            status_callback("Provisioning sandbox")
         sandbox = sandbox_class.create(sandbox_config)
 
         try:
+            if status_callback:
+                status_callback("Starting Python kernel")
             kernel_pid = self._start_kernel_process(sandbox, connection_file)
+            if status_callback:
+                status_callback("Waiting for kernel to be ready")
             self._wait_for_kernel_ready(sandbox, connection_file)
+            if status_callback:
+                status_callback("Loading notebook helpers")
             self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
             self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
@@ -520,6 +561,8 @@ class KernelRuntimeService:
                 "sandbox_id",
             ]
         )
+        if status_callback:
+            status_callback("Kernel ready")
 
         return _KernelHandle(
             runtime=runtime,
@@ -880,6 +923,8 @@ class KernelRuntimeService:
         capture_variables: bool,
         variable_names: list[str],
         timeout: float | None,
+        status_callback: Callable[[str], None] | None = None,
+        execution_label: str = "Python",
     ) -> KernelExecutionResult:
         if not handle.sandbox_id:
             raise RuntimeError("Sandbox not available for kernel execution.")
@@ -913,6 +958,8 @@ class KernelRuntimeService:
                 self._clear_hogql_exec_state(handle, exec_id, timeout_seconds)
                 return execution
 
+            if status_callback:
+                status_callback("Running notebook query")
             hogql_response = self._execute_hogql_query(notebook, user, request["query"])
             self._set_hogql_cache(
                 handle,
@@ -922,6 +969,8 @@ class KernelRuntimeService:
                 payload=hogql_response,
                 timeout_seconds=timeout_seconds,
             )
+            if status_callback:
+                status_callback(f"Executing {execution_label}")
 
     def _execute_kernel_code(
         self,
