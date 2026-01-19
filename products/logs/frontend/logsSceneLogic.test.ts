@@ -34,7 +34,7 @@ const createMockLog = (uuid: string): LogMessage => ({
     event_name: 'log',
 })
 
-describe('logsLogic', () => {
+describe('logsSceneLogic', () => {
     let logic: ReturnType<typeof logsSceneLogic.build>
 
     beforeEach(async () => {
