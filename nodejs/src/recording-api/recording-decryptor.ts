@@ -1,7 +1,7 @@
 import sodium from 'libsodium-wrappers'
 
 import { isCloud } from '../utils/env-utils'
-import { BaseKeyStore, BaseRecordingDecryptor, SessionKeyDeletedError } from './types'
+import { BaseKeyStore, BaseRecordingDecryptor, SessionKey, SessionKeyDeletedError } from './types'
 
 export class PassthroughRecordingDecryptor extends BaseRecordingDecryptor {
     constructor(_keyStore: BaseKeyStore) {
@@ -12,8 +12,12 @@ export class PassthroughRecordingDecryptor extends BaseRecordingDecryptor {
         return Promise.resolve()
     }
 
-    decryptBlock(_sessionId: string, _teamId: number, cipherText: Buffer): Promise<Buffer> {
-        return Promise.resolve(cipherText)
+    decryptBlock(_sessionId: string, _teamId: number, blockData: Buffer): Promise<Buffer> {
+        return Promise.resolve(blockData)
+    }
+
+    decryptBlockWithKey(_sessionId: string, _teamId: number, blockData: Buffer, _sessionKey: SessionKey): Buffer {
+        return blockData
     }
 }
 
@@ -28,7 +32,10 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
 
     async decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer> {
         const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        return this.decryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+    }
 
+    decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer {
         if (sessionKey.sessionState === 'deleted') {
             throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt ?? 0)
         }

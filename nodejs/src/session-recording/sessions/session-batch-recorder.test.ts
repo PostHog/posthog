@@ -222,6 +222,7 @@ describe('SessionBatchRecorder', () => {
         mockEncryptor = {
             start: jest.fn().mockResolvedValue(undefined),
             encryptBlock: jest.fn().mockImplementation((_sessionId, _teamId, buffer) => Promise.resolve(buffer)),
+            encryptBlockWithKey: jest.fn().mockImplementation((_sessionId, _teamId, buffer, _sessionKey) => buffer),
         } as unknown as jest.Mocked<BaseRecordingEncryptor>
 
         recorder = new SessionBatchRecorder(

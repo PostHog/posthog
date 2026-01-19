@@ -18,12 +18,14 @@ export abstract class BaseKeyStore {
 
 export abstract class BaseRecordingEncryptor {
     abstract start(): Promise<void>
-    abstract encryptBlock(sessionId: string, teamId: number, clearText: Buffer): Promise<Buffer>
+    abstract encryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    abstract encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
 }
 
 export abstract class BaseRecordingDecryptor {
     abstract start(): Promise<void>
-    abstract decryptBlock(sessionId: string, teamId: number, cipherText: Buffer): Promise<Buffer>
+    abstract decryptBlock(sessionId: string, teamId: number, blockData: Buffer): Promise<Buffer>
+    abstract decryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer
 }
 
 export class SessionKeyDeletedError extends Error {
