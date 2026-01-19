@@ -41,27 +41,27 @@ def resolve_dependency_to_node(
     database: Database,
 ) -> Node:
     """
-    Resolve a dependency name to a Node, creating TABLE nodes as needed.
+    Resolve a dependency name to a Node.
 
     Resolution order (same as get_or_create_query_parent_paths in modeling.py):
     1. Check if it's a SavedQuery name -> return existing VIEW/MATVIEW node
     2. Check if it's a DataWarehouseTable -> return/create TABLE node
     3. Check if it's a PostHog table (events, persons, etc.) -> return/create TABLE node
     4. Raise UnknownParentError if not found
+
+    Side Effects:
+    - calling this may or may not create nodes for dwh tables or posthog tables. it will NEVER create
+      nodes for views or matviews
     """
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
-    # 1. saved query
+    # 1. saved query aka view / matview (should raise if Node not found - indicates query references non-existent node)
     try:
         saved_query = (
             DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=dependency_name).get()
         )
-        # get or create node
         node_type = NodeType.MAT_VIEW if saved_query.is_materialized else NodeType.VIEW
-        node, _ = Node.objects.get_or_create(
-            team=team, dag_id=dag_id, saved_query=saved_query, defaults={"name": dependency_name, "type": node_type}
-        )
-        return node
+        return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name, type=node_type)
     except DataWarehouseSavedQuery.DoesNotExist:
         pass
     # 2. warehouse source table
@@ -76,19 +76,20 @@ def resolve_dependency_to_node(
                 warehouse_table = (
                     DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
                 )
-            # First try to find by warehouse_table_id
+            # first try to find by warehouse_table_id
             node = Node.objects.filter(
                 team=team, dag_id=dag_id, type=NodeType.TABLE, properties__warehouse_table_id=str(warehouse_table.id)
             ).first()
-            if not node:
-                node, _ = Node.objects.get_or_create(
-                    team=team,
-                    dag_id=dag_id,
-                    name=dependency_name,
-                    type=NodeType.TABLE,
-                    defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
-                )
-
+            if node:
+                return node
+            # otherwise get or create by name
+            node, _ = Node.objects.get_or_create(
+                team=team,
+                dag_id=dag_id,
+                name=dependency_name,
+                type=NodeType.TABLE,
+                defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+            )
             return node
     except (DataWarehouseTable.DoesNotExist, QueryError):
         pass
