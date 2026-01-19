@@ -328,6 +328,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
             // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
+
+            // Disable auto-generation for the new experiment form layout (showNewExperimentFormLayout)
+            const EXPERIMENTS_LEAN_CREATION_FORM = 'experiments-lean-creation-form' // Reference for future cleanup
+            if (values.featureFlags[EXPERIMENTS_LEAN_CREATION_FORM] === 'test') {
+                return
+            }
             if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
                 const key = generateFeatureFlagKey(value)
                 actions.setFeatureFlagConfig({
