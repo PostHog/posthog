@@ -222,7 +222,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     { value: 'continue', label: 'Continue to next step' },
                                                     { value: 'abort', label: 'Exit the workflow' },
                                                 ]}
-                                                value={action.on_error || 'continue'}
+                                                value={action.on_error || 'abort'}
                                                 onChange={(value) =>
                                                     setWorkflowAction(action.id, {
                                                         ...action,

@@ -29,34 +29,30 @@ export function SessionRecordingsPlaylist({
         autoPlay: props.autoPlay ?? true,
     }
 
-    const { isCinemaMode } = useValues(playerSettingsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isVerticalLayout = isWindowLessThan('xl')
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="w-full h-full flex flex-col xl:flex-row xl:gap-2">
-                {isVerticalLayout ? (
-                    <VerticalLayout {...props} isCinemaMode={isCinemaMode} />
-                ) : (
-                    <HorizontalLayout {...props} isCinemaMode={isCinemaMode} />
-                )}
+                {isVerticalLayout ? <VerticalLayout {...props} /> : <HorizontalLayout {...props} />}
             </div>
         </BindLogic>
     )
 }
 
 function HorizontalLayout({
-    isCinemaMode,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
-    isCinemaMode: boolean
 }): JSX.Element {
     const playlistRef = useRef<HTMLDivElement>(null)
+
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-horizontal',
@@ -64,6 +60,8 @@ function HorizontalLayout({
         persistent: true,
         persistPrefix: '2025-12-29',
         placement: 'right',
+        closeThreshold: 100,
+        onToggleClosed: (shouldBeClosed) => setPlaylistCollapsed(shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -73,13 +71,13 @@ function HorizontalLayout({
             <div
                 ref={playlistRef}
                 className={clsx('relative flex flex-col shrink-0', {
-                    'w-0 overflow-hidden': isCinemaMode,
+                    'w-5': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
-                style={isCinemaMode ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
+                style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}
             >
                 <Playlist {...props} />
-                {!isCinemaMode && (
+                {!isPlaylistCollapsed && (
                     <Resizer {...resizerLogicProps} visible={false} offset={-4} handleClassName="rounded my-1" />
                 )}
             </div>
@@ -89,16 +87,17 @@ function HorizontalLayout({
 }
 
 function VerticalLayout({
-    isCinemaMode,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
-    isCinemaMode: boolean
 }): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
+
+    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-vertical',
@@ -106,6 +105,8 @@ function VerticalLayout({
         persistent: true,
         persistPrefix: '2025-12-29',
         placement: 'bottom',
+        closeThreshold: 100,
+        onToggleClosed: (shouldBeClosed) => setPlaylistCollapsed(shouldBeClosed),
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -115,10 +116,10 @@ function VerticalLayout({
             <PlayerWrapper
                 {...props}
                 containerRef={playerRef}
-                style={isCinemaMode ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
-                className={isCinemaMode ? 'flex-1' : 'pb-2 shrink-0'}
+                style={isPlaylistCollapsed ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
+                className={isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0'}
                 resizer={
-                    !isCinemaMode ? (
+                    !isPlaylistCollapsed ? (
                         <Resizer
                             {...resizerLogicProps}
                             visible={false}
@@ -128,7 +129,7 @@ function VerticalLayout({
                     ) : null
                 }
             />
-            <div className={clsx('relative flex flex-col min-h-0', isCinemaMode ? 'h-0 overflow-hidden' : 'flex-1')}>
+            <div className={clsx('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
                 <Playlist {...props} />
             </div>
         </>
@@ -217,7 +218,6 @@ function PlayerWrapper({
     const { setFilters, resetFilters, setSelectedRecordingId } = useActions(sessionRecordingsPlaylistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const onPlayNextRecording = useCallback(() => {
         if (nextSessionRecording?.id) {
@@ -228,10 +228,7 @@ function PlayerWrapper({
     return (
         <div
             ref={containerRef}
-            className={clsx('Playlist__main relative overflow-hidden', className, {
-                'w-full': isCinemaMode,
-                'min-h-96': !isCinemaMode,
-            })}
+            className={clsx('Playlist__main relative overflow-hidden', className, 'min-h-96')}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
         >

@@ -210,6 +210,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "linkedin_ads_integration_id",
             # meta ads
             "meta_ads_integration_id",
+            "sync_lookback_days",
             # reddit ads
             "reddit_integration_id",
             # salesforce

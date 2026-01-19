@@ -245,7 +245,8 @@ class TableInfo:
         return self.data_table
 
     def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
-        return cluster.map_all_hosts(fn)
+        first_shard = next(iter(cluster.shards))
+        return cluster.map_any_host_in_shards({first_shard: fn})
 
 
 @dataclass

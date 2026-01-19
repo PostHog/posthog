@@ -2947,6 +2947,7 @@ export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
     credible_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
@@ -2954,11 +2955,13 @@ export interface MaxExperimentVariantResultFrequentist {
     key: string
     p_value: number | null
     confidence_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 
@@ -5149,17 +5152,21 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MOBILE_REPLAY = 'mobile_replay',
+    NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SURVEYS = 'surveys',
-    USER_INTERVIEWS = 'user_interviews',
+    TASKS = 'tasks',
     TEAMS = 'teams',
+    TOOLBAR = 'toolbar',
+    USER_INTERVIEWS = 'user_interviews',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }
@@ -5271,6 +5278,21 @@ export enum ProductIntentContext {
 
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
+
+    // Data Pipelines
+    DATA_PIPELINE_CREATED = 'data_pipeline_created',
+
+    // Notebooks
+    NOTEBOOK_CREATED = 'notebook_created',
+
+    // Product Tours
+    PRODUCT_TOUR_CREATED = 'product_tour_created',
+
+    // Tasks
+    TASK_CREATED = 'task_created',
+
+    // Toolbar
+    TOOLBAR_LAUNCHED = 'toolbar_launched',
 
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
