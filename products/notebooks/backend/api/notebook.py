@@ -587,7 +587,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             payload_json = renderer.render(payload).decode()
             return f"data: {payload_json}\n\n".encode()
 
-        def run_execution(*, status_callback: Callable[[str], None] | None = None):
+        def run_execution(
+            *,
+            status_callback: Callable[[str], None] | None = None,
+            output_callback: Callable[[str], None] | None = None,
+        ):
             analysis = analyze_python_globals(execution_code)
             variable_names = [entry["name"] for entry in analysis.exported_with_types]
             return get_kernel_runtime(notebook, current_user).execute(
@@ -596,6 +600,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=execution_timeout,
                 status_callback=status_callback,
+                output_callback=output_callback,
                 execution_label=execution_label,
             )
 
@@ -605,9 +610,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             def status_callback(message: str) -> None:
                 event_queue.put(("status", message))
 
+            def output_callback(line: str) -> None:
+                event_queue.put(("output", line))
+
             def runner() -> None:
                 try:
-                    execution = run_execution(status_callback=status_callback)
+                    execution = run_execution(status_callback=status_callback, output_callback=output_callback)
                 except SandboxProvisionError:
                     logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
                     event_queue.put(("error", "Failed to execute notebook code."))
@@ -626,6 +634,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 if event_type == "status":
                     yield build_event({"type": "status", "message": payload})
                     continue
+                if event_type == "output":
+                    yield build_event({"type": "output", "stream": "stdout", "line": payload})
+                    continue
                 if event_type == "error":
                     yield build_event({"type": "error", "message": payload})
                     return
@@ -641,9 +652,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             def status_callback(message: str) -> None:
                 loop.call_soon_threadsafe(event_queue.put_nowait, ("status", message))
 
+            def output_callback(line: str) -> None:
+                loop.call_soon_threadsafe(event_queue.put_nowait, ("output", line))
+
             def runner() -> None:
                 try:
-                    execution = run_execution(status_callback=status_callback)
+                    execution = run_execution(status_callback=status_callback, output_callback=output_callback)
                 except SandboxProvisionError:
                     logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
                     loop.call_soon_threadsafe(event_queue.put_nowait, ("error", "Failed to execute notebook code."))
@@ -661,6 +675,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 event_type, payload = await event_queue.get()
                 if event_type == "status":
                     yield build_event({"type": "status", "message": payload})
+                    continue
+                if event_type == "output":
+                    yield build_event({"type": "output", "stream": "stdout", "line": payload})
                     continue
                 if event_type == "error":
                     yield build_event({"type": "error", "message": payload})

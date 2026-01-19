@@ -50,6 +50,7 @@ import {
     PythonKernelExecuteResponse,
     buildPythonExecutionError,
     buildPythonExecutionResult,
+    mergeExecutionVariables,
 } from './pythonExecution'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -358,6 +359,13 @@ const runPythonCell = async ({
 }: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
     setExecutionMessage('Preparing execution')
+    let streamedStdout = ''
+    const streamingExecution: PythonExecutionResult = {
+        status: 'running',
+        stdout: '',
+        stderr: '',
+        variables: mergeExecutionVariables(exportedGlobals, {}),
+    }
     try {
         const execution = (await api.notebooks.kernelExecute(
             notebookId,
@@ -368,6 +376,15 @@ const runPythonCell = async ({
             },
             {
                 onStatus: (message) => setExecutionMessage(message),
+                onOutput: (line) => {
+                    streamedStdout = streamedStdout ? `${streamedStdout}\n${line}` : line
+                    updateAttributes({
+                        pythonExecution: {
+                            ...streamingExecution,
+                            stdout: streamedStdout,
+                        },
+                    })
+                },
             }
         )) as PythonKernelExecuteResponse
 
@@ -408,6 +425,13 @@ const runDuckSqlCell = async ({
     setExecutionMessage('Preparing execution')
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable, pageSize)
+    let streamedStdout = ''
+    const streamingExecution: PythonExecutionResult = {
+        status: 'running',
+        stdout: '',
+        stderr: '',
+        variables: mergeExecutionVariables([{ name: resolvedReturnVariable, type: 'DataFrame' }], {}),
+    }
     try {
         const execution = (await api.notebooks.kernelExecute(
             notebookId,
@@ -418,6 +442,15 @@ const runDuckSqlCell = async ({
             },
             {
                 onStatus: (message) => setExecutionMessage(message),
+                onOutput: (line) => {
+                    streamedStdout = streamedStdout ? `${streamedStdout}\n${line}` : line
+                    updateAttributes({
+                        duckExecution: {
+                            ...streamingExecution,
+                            stdout: streamedStdout,
+                        },
+                    })
+                },
             }
         )) as PythonKernelExecuteResponse
 

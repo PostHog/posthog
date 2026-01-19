@@ -133,6 +133,7 @@ class KernelRuntimeSession:
         variable_names: list[str] | None = None,
         timeout: float | None = None,
         status_callback: Callable[[str], None] | None = None,
+        output_callback: Callable[[str], None] | None = None,
         execution_label: str = "Python",
     ) -> KernelExecutionResult:
         return self.service.execute(
@@ -143,6 +144,7 @@ class KernelRuntimeSession:
             variable_names=variable_names,
             timeout=timeout,
             status_callback=status_callback,
+            output_callback=output_callback,
             execution_label=execution_label,
         )
 
@@ -256,6 +258,7 @@ class KernelRuntimeService:
         variable_names: list[str] | None = None,
         timeout: float | None = None,
         status_callback: Callable[[str], None] | None = None,
+        output_callback: Callable[[str], None] | None = None,
         execution_label: str = "Python",
     ) -> KernelExecutionResult:
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
@@ -284,6 +287,7 @@ class KernelRuntimeService:
                     variable_names=valid_variable_names,
                     timeout=timeout,
                     status_callback=status_callback,
+                    output_callback=output_callback,
                     execution_label=execution_label,
                 )
 
@@ -363,6 +367,18 @@ class KernelRuntimeService:
         ):
             stripped = stripped[1:-1]
         return stripped or None
+
+    def _emit_stdout_lines(
+        self,
+        output_callback: Callable[[str], None],
+        buffer: str,
+        text: str,
+    ) -> str:
+        buffer += text
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            output_callback(line)
+        return buffer
 
     def _register_cleanup_hooks(self) -> None:
         def _cleanup(*_: Any) -> None:
@@ -836,7 +852,10 @@ class KernelRuntimeService:
             "                break\n"
             "            if msg_type == 'stream':\n"
             "                destination = stdout if content.get('name') == 'stdout' else stderr\n"
-            "                destination.append(content.get('text', ''))\n"
+            "                text = content.get('text', '')\n"
+            "                destination.append(text)\n"
+            "                if content.get('name') == 'stdout':\n"
+            "                    print(json.dumps({'type': 'stream', 'name': 'stdout', 'text': text}), flush=True)\n"
             "                continue\n"
             "            if msg_type in ('execute_result', 'display_data'):\n"
             "                data = content.get('data') or {}\n"
@@ -924,6 +943,7 @@ class KernelRuntimeService:
         variable_names: list[str],
         timeout: float | None,
         status_callback: Callable[[str], None] | None = None,
+        output_callback: Callable[[str], None] | None = None,
         execution_label: str = "Python",
     ) -> KernelExecutionResult:
         if not handle.sandbox_id:
@@ -941,7 +961,13 @@ class KernelRuntimeService:
         attempt = 0
         wrapped_code = self._wrap_code_with_hogql_exec_id(code, exec_id)
         while True:
-            started_at, payload_out = self._execute_kernel_code(handle, wrapped_code, user_expressions, timeout_seconds)
+            started_at, payload_out = self._execute_kernel_code(
+                handle,
+                wrapped_code,
+                user_expressions,
+                timeout_seconds,
+                output_callback=output_callback,
+            )
             execution = self._build_execution_result(handle, payload_out, user_expressions, started_at)
 
             if not self._is_hogql_bridge_request(execution, payload_out):
@@ -978,6 +1004,8 @@ class KernelRuntimeService:
         code: str,
         user_expressions: dict[str, str] | None,
         timeout_seconds: int,
+        *,
+        output_callback: Callable[[str], None] | None = None,
     ) -> tuple[datetime, dict[str, Any]]:
         if handle.sandbox_id is None:
             raise RuntimeError("Sandbox not available for kernel execution.")
@@ -996,14 +1024,29 @@ class KernelRuntimeService:
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel execution failed: {result.stdout} {result.stderr}")
 
-        lines = result.stdout.strip().splitlines()
-        if not lines:
+        output = result.stdout.strip()
+        if not output:
             raise RuntimeError("Kernel execution returned no output.")
 
-        try:
-            payload_out = json.loads(lines[-1])
-        except json.JSONDecodeError as err:
-            raise RuntimeError(f"Failed to parse kernel execution output: {result.stdout}") from err
+        payload_out: dict[str, Any] | None = None
+        stdout_buffer = ""
+        for line in output.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("type") == "stream" and payload.get("name") == "stdout":
+                text = payload.get("text", "")
+                if not isinstance(text, str) or not output_callback:
+                    continue
+                stdout_buffer = self._emit_stdout_lines(output_callback, stdout_buffer, text)
+                continue
+            if "status" in payload:
+                payload_out = payload
+        if output_callback and stdout_buffer:
+            output_callback(stdout_buffer)
+        if payload_out is None:
+            raise RuntimeError(f"Failed to parse kernel execution output: {result.stdout}")
 
         return started_at, payload_out
 

@@ -3754,7 +3754,7 @@ const api = {
                 timeout?: number
                 execution_type?: 'python' | 'duckdb'
             },
-            options?: { onStatus?: (message: string) => void }
+            options?: { onStatus?: (message: string) => void; onOutput?: (line: string) => void }
         ): Promise<Record<string, any>> {
             const url = new ApiRequest().notebook(notebookId).withAction('kernel/execute').assembleFullUrl(true)
             const abortController = new AbortController()
@@ -3798,6 +3798,9 @@ const api = {
                         const payload = JSON.parse(event.data)
                         if (payload.type === 'status') {
                             options?.onStatus?.(payload.message)
+                        }
+                        if (payload.type === 'output' && payload.stream === 'stdout') {
+                            options?.onOutput?.(payload.line ?? '')
                         }
                         if (payload.type === 'error') {
                             resolveStreamError(new Error(payload.message || 'Notebook execution failed.'))
