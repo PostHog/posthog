@@ -118,23 +118,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Endpoints allow creating reusable query endpoints like:
     /api/environments/{team_id}/endpoints/{endpoint_name}/run
 
-    The query field follows the same structure as QueryRequest.query, supporting
-    any query type accepted by the /query endpoint (HogQLQuery, TrendsQuery, etc.).
+    Query, description, cache_age_seconds, and materialization settings are stored
+    in EndpointVersion, allowing per-version configuration.
     """
 
     name = models.CharField(
         max_length=128, validators=[validate_endpoint_name], help_text="URL-safe name for the endpoint"
     )
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-
-    # DEPRECATED: Query is now stored in EndpointVersion.query
-    # This field is kept nullable for backward compatibility during migration
-    query = models.JSONField(null=True, blank=True, help_text="DEPRECATED: Use EndpointVersion.query instead")
-
-    # DEPRECATED: Description is now stored in EndpointVersion.description
-    description = models.TextField(
-        null=True, blank=True, help_text="DEPRECATED: Use EndpointVersion.description instead"
-    )
 
     derived_from_insight = models.CharField(
         max_length=12,
@@ -143,29 +134,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         help_text="Short ID of the insight this endpoint was created from",
     )
 
-    # Parameter schema for query customization
-    parameters = models.JSONField(
-        null=True, blank=True, help_text="DEPRECATED: Use EndpointVersion.query variables instead"
-    )
-
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
-
-    # DEPRECATED: cache_age_seconds is now stored in EndpointVersion.cache_age_seconds
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="DEPRECATED: Use EndpointVersion.cache_age_seconds instead",
-    )
-
-    # DEPRECATED: saved_query is now stored in EndpointVersion.saved_query
-    saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="endpoints",
-        help_text="DEPRECATED: Use EndpointVersion.saved_query instead",
-    )
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
@@ -197,89 +166,6 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def endpoint_path(self) -> str:
         """Return the API endpoint path for this endpoint."""
         return f"/api/environments/{self.team.id}/endpoints/{self.name}/run"
-
-    def get_query_with_parameters(self, request_params: dict[str, Any]) -> dict[str, Any]:
-        """Apply request parameters to the stored query.
-
-        This method handles parameter injection for query customization.
-        For now, it returns the query as-is, but can be extended to support
-        parameter substitution in the future.
-        """
-        # TODO: Implement parameter substitution logic
-        # For example, replacing {parameter_name} placeholders in HogQL queries
-        return self.query or {}
-
-    def validate_parameters(self, request_params: dict[str, Any]) -> None:
-        """Validate request parameters against the parameter schema.
-
-        This method can be extended to implement JSON schema validation
-        of incoming parameters.
-        """
-        # TODO: Implement parameter validation logic
-        pass
-
-    @property
-    def is_materialized(self) -> bool:
-        """Whether this endpoint's query results are materialized to S3."""
-        if self.saved_query is None:
-            return False
-        return bool(self.saved_query.is_materialized)
-
-    @property
-    def materialization_status(self) -> str:
-        """Get status from saved_query."""
-        if not self.saved_query:
-            return "not_materialized"
-        return self.saved_query.status or "Unknown"
-
-    @property
-    def last_materialized_at(self):
-        """Get last run time from saved_query."""
-        if not self.saved_query:
-            return None
-        return self.saved_query.last_run_at
-
-    @property
-    def materialization_error(self) -> str:
-        """Get error from saved_query."""
-        if not self.saved_query:
-            return ""
-        return self.saved_query.latest_error or ""
-
-    def can_materialize(self) -> tuple[bool, str]:
-        """Check if endpoint can be materialized.
-
-        Note: TO BE DEPRECATED IN FAVOUR OF EndpointVersion.can_materialize()
-
-        Returns: (can_materialize: bool, reason: str)
-        """
-        if not self.query:
-            return False, "No query defined"
-        query_kind = self.query.get("kind")
-
-        MATERIALIZABLE_QUERY_TYPES = {
-            "HogQLQuery",
-            "TrendsQuery",
-            "FunnelsQuery",
-            "LifecycleQuery",
-            "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
-        }
-
-        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
-            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return False, f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}"
-
-        if self.query.get("variables"):
-            return False, "Queries with variables cannot be materialized."
-
-        if query_kind == "HogQLQuery":
-            hogql_query = self.query.get("query")
-            if not hogql_query or not isinstance(hogql_query, str):
-                return False, "Query is empty or invalid."
-
-        return True, ""
 
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:
         """Deep comparison to check if query has actually changed.

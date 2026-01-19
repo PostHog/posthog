@@ -1,1 +1,1 @@
-0011_make_endpoint_fields_nullable
+0012_remove_deprecated_endpoint_fields
