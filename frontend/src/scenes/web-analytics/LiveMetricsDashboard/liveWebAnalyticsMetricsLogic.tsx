@@ -64,9 +64,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
 
+                            // In cookieless mode, device_id is always "$posthog_cookieless"
+                            // We combine device_id with distinct_id so we don't bucket all cookieless users as one device
+                            const deviceKey = `${deviceId}_${event.distinct_id}`
+
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: event.event === '$pageview' ? 1 : 0,
-                                device: deviceId && deviceType ? { deviceId, deviceType } : undefined,
+                                device: deviceId && deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 pathname: event.event === '$pageview' ? pathname : undefined,
                             })
                         }
@@ -314,7 +318,7 @@ const loadQueryData = async (
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     ifNull(properties.$device_type, 'Unknown') AS device_type,
-                    arrayDistinct(groupArray(properties.$device_id)) AS device_ids
+                    arrayDistinct(groupArray(concat(ifNull(properties.$device_id, ''), '_', distinct_id))) AS device_ids
                 FROM events
                 WHERE
                     timestamp >= toDateTime({dateFrom})

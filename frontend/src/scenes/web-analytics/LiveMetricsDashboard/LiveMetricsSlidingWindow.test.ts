@@ -461,6 +461,29 @@ describe('LiveMetricsSlidingWindow', () => {
             expect(getDeviceCount(breakdown, 'Mobile')).toBe(1)
             expect(getDeviceCount(breakdown, 'Desktop')).toBe(1)
         })
+
+        it('counts cookieless users as separate devices when they have different distinct_ids', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            const COOKIELESS_DEVICE_ID = '$posthog_cookieless'
+
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-1', {
+                pageviews: 1,
+                device: { deviceId: `${COOKIELESS_DEVICE_ID}_user-1`, deviceType: 'Mobile' },
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-2', {
+                pageviews: 1,
+                device: { deviceId: `${COOKIELESS_DEVICE_ID}_user-2`, deviceType: 'Mobile' },
+            })
+            window.addDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'user-3', {
+                pageviews: 1,
+                device: { deviceId: `${COOKIELESS_DEVICE_ID}_user-3`, deviceType: 'Desktop' },
+            })
+
+            const breakdown = window.getDeviceBreakdown()
+            expect(getDeviceCount(breakdown, 'Mobile')).toBe(2)
+            expect(getDeviceCount(breakdown, 'Desktop')).toBe(1)
+            expect(window.getTotalDeviceCount()).toBe(3)
+        })
     })
 
     describe('path tracking via addDataPoint', () => {
