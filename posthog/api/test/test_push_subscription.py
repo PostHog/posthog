@@ -222,8 +222,8 @@ class TestPushSubscriptionAPI(BaseTest):
         payload = {
             "api_key": self.team.api_token,
             "distinct_id": "user-123",
-            "token": "fcm-token-abc123",
-            "platform": "ios",
+            "token": "fcm-token-NEW",
+            "platform": "android",
         }
 
         response = self.client.post(
@@ -235,7 +235,8 @@ class TestPushSubscriptionAPI(BaseTest):
         self.assertEqual(response.status_code, 200)
         subscription.refresh_from_db()
         self.assertTrue(subscription.is_active)
-        self.assertEqual(subscription.platform, PushPlatform.IOS)
+        self.assertEqual(subscription.token, "fcm-token-NEW")
+        self.assertEqual(subscription.platform, PushPlatform.ANDROID)
 
     def test_sdk_register_push_subscription_cors_headers(self):
         payload = {
