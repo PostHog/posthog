@@ -433,6 +433,12 @@ export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
     const isAIChatOnboardingEnabled = useFeatureFlag('AI_CHAT_ONBOARDING')
 
+    // Show AI chat onboarding from the very beginning if feature flag is enabled
+    // This replaces product selection with a conversational experience
+    if (isAIChatOnboardingEnabled) {
+        return <OnboardingChat />
+    }
+
     // Show product selection when no product is selected
     if (!productKey) {
         return <ProductSelection />
@@ -440,11 +446,6 @@ export function Onboarding(): JSX.Element | null {
 
     if (!product) {
         return <></>
-    }
-
-    // Show AI chat onboarding if feature flag is enabled
-    if (isAIChatOnboardingEnabled) {
-        return <OnboardingChat />
     }
 
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]

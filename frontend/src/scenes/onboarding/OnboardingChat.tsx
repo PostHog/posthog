@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,140 +11,231 @@ import { onboardingLogic } from './onboardingLogic'
 interface OnboardingMessage {
     role: 'assistant' | 'user'
     content: string
-    options?: { label: string; value: string }[]
+    options?: { label: string; value: string; description?: string }[]
 }
 
-const WELCOME_MESSAGES: Record<ProductKey, OnboardingMessage> = {
-    product_analytics: {
+type OnboardingPhase = 'discovery' | 'product_selection' | 'setup'
+
+const INITIAL_MESSAGE: OnboardingMessage = {
+    role: 'assistant',
+    content:
+        "Hi! 👋 I'm here to help you get the most out of PostHog. Tell me a bit about what you're working on - what's your main goal right now?",
+    options: [
+        {
+            label: 'Understand user behavior',
+            value: 'understand_users',
+            description: 'Track events, analyze funnels, see how users navigate',
+        },
+        {
+            label: 'Find and fix issues',
+            value: 'fix_issues',
+            description: 'Watch session recordings, catch errors',
+        },
+        {
+            label: 'Run experiments',
+            value: 'experiments',
+            description: 'A/B tests, feature flags, gradual rollouts',
+        },
+        {
+            label: 'Something else',
+            value: 'other',
+            description: "I'll explain what I need",
+        },
+    ],
+}
+
+const GOAL_RESPONSES: Record<string, OnboardingMessage> = {
+    understand_users: {
         role: 'assistant',
         content:
-            "Hi! 👋 I'm here to help you get started with Product analytics. I'll guide you through the setup process - you can click the buttons to answer quickly, or just type your response if you prefer to chat.\n\nFirst, let's get PostHog installed. Which platform are you building on?",
+            "Great! To understand user behavior, I'd recommend starting with **Product analytics** - it'll help you track events, build funnels, and see user journeys.\n\nWould you also like to enable **Session replay** to watch real user sessions? It's super helpful for understanding *why* users do what they do.",
         options: [
-            { label: 'Web (JavaScript)', value: 'javascript' },
-            { label: 'React', value: 'react' },
-            { label: 'Next.js', value: 'nextjs' },
-            { label: 'Other', value: 'other' },
+            { label: 'Yes, both sound great!', value: 'analytics_and_replay' },
+            { label: 'Just analytics for now', value: 'analytics_only' },
+            { label: 'Tell me more about session replay', value: 'explain_replay' },
         ],
     },
-    session_replay: {
+    fix_issues: {
         role: 'assistant',
         content:
-            "Hi! 👋 I'm here to help you set up Session replay. Let's get started!\n\nWhich platform are you using?",
+            "Perfect for debugging! I'd recommend:\n\n• **Session replay** - Watch exactly what users experienced\n• **Error tracking** - Catch and fix exceptions automatically\n\nBoth together give you the full picture when something goes wrong.",
         options: [
-            { label: 'Web (JavaScript)', value: 'javascript' },
-            { label: 'React', value: 'react' },
-            { label: 'Next.js', value: 'nextjs' },
-            { label: 'Other', value: 'other' },
-        ],
-    },
-    feature_flags: {
-        role: 'assistant',
-        content: "Hi! 👋 Let's get Feature flags set up for your project.\n\nWhat platform are you working with?",
-        options: [
-            { label: 'Web (JavaScript)', value: 'javascript' },
-            { label: 'Python', value: 'python' },
-            { label: 'Node.js', value: 'nodejs' },
-            { label: 'Other', value: 'other' },
+            { label: 'Set up both', value: 'replay_and_errors' },
+            { label: 'Just session replay', value: 'replay_only' },
+            { label: 'Just error tracking', value: 'errors_only' },
         ],
     },
     experiments: {
         role: 'assistant',
-        content: "Hi! 👋 Let's set up Experiments for A/B testing.\n\nWhich platform are you using?",
+        content:
+            "Love it! For experimentation, you'll want:\n\n• **Feature flags** - Control who sees what, roll out gradually\n• **Experiments** - Run A/B tests with statistical analysis\n\nFeature flags are the foundation - experiments build on top of them.",
         options: [
-            { label: 'Web (JavaScript)', value: 'javascript' },
-            { label: 'React', value: 'react' },
-            { label: 'Other', value: 'other' },
+            { label: 'Set up both', value: 'flags_and_experiments' },
+            { label: 'Start with feature flags', value: 'flags_only' },
+            { label: 'Tell me more about experiments', value: 'explain_experiments' },
         ],
     },
-    surveys: {
+    other: {
         role: 'assistant',
-        content: "Hi! 👋 I'll help you get Surveys set up.\n\nWhich platform are you building on?",
+        content:
+            "No problem! Tell me more about what you're building or what problem you're trying to solve, and I'll point you in the right direction.",
         options: [
-            { label: 'Web (JavaScript)', value: 'javascript' },
-            { label: 'React', value: 'react' },
-            { label: 'Other', value: 'other' },
+            { label: 'I want to collect user feedback', value: 'feedback' },
+            { label: 'I need website analytics', value: 'web_analytics' },
+            { label: 'I want to monitor my AI/LLM app', value: 'llm' },
+        ],
+    },
+    feedback: {
+        role: 'assistant',
+        content:
+            "**Surveys** is perfect for that! You can create in-app surveys to collect feedback at the right moment - after a purchase, when someone's about to churn, or just to understand sentiment.",
+        options: [
+            { label: "Let's set up surveys", value: 'setup_surveys' },
+            { label: 'Can I also watch user sessions?', value: 'surveys_and_replay' },
         ],
     },
     web_analytics: {
         role: 'assistant',
-        content: "Hi! 👋 Let's set up Web analytics for your site.\n\nHow would you like to install PostHog?",
+        content:
+            '**Web analytics** gives you a privacy-friendly, cookieless way to understand your website traffic - pageviews, referrers, top pages, and more. Think of it as a simpler Google Analytics alternative.',
         options: [
-            { label: 'HTML snippet', value: 'html' },
-            { label: 'Next.js', value: 'nextjs' },
-            { label: 'Other', value: 'other' },
+            { label: "Let's set it up", value: 'setup_web_analytics' },
+            { label: 'I also want deeper product analytics', value: 'web_and_product' },
         ],
     },
-    error_tracking: {
+    llm: {
         role: 'assistant',
-        content: "Hi! 👋 I'll help you set up Error tracking.\n\nWhich platform are you using?",
+        content:
+            '**LLM analytics** helps you monitor your AI application - track costs, latency, token usage, and analyze conversations. Perfect for understanding how users interact with your AI features.',
         options: [
-            { label: 'JavaScript', value: 'javascript' },
-            { label: 'Python', value: 'python' },
-            { label: 'Other', value: 'other' },
-        ],
-    },
-    data_warehouse: {
-        role: 'assistant',
-        content: "Hi! 👋 Let's connect your Data warehouse.\n\nWhich data source would you like to connect first?",
-        options: [
-            { label: 'Stripe', value: 'stripe' },
-            { label: 'Hubspot', value: 'hubspot' },
-            { label: 'Postgres', value: 'postgres' },
-            { label: 'Other', value: 'other' },
-        ],
-    },
-    llm_analytics: {
-        role: 'assistant',
-        content: "Hi! 👋 Let's set up LLM analytics.\n\nWhich LLM provider are you using?",
-        options: [
-            { label: 'OpenAI', value: 'openai' },
-            { label: 'Anthropic', value: 'anthropic' },
-            { label: 'LangChain', value: 'langchain' },
-            { label: 'Other', value: 'other' },
+            { label: "Let's set it up", value: 'setup_llm' },
+            { label: 'Tell me more', value: 'explain_llm' },
         ],
     },
 }
 
+const PRODUCT_MAPPING: Record<string, ProductKey[]> = {
+    analytics_and_replay: ['product_analytics', 'session_replay'],
+    analytics_only: ['product_analytics'],
+    replay_and_errors: ['session_replay', 'error_tracking'],
+    replay_only: ['session_replay'],
+    errors_only: ['error_tracking'],
+    flags_and_experiments: ['feature_flags', 'experiments'],
+    flags_only: ['feature_flags'],
+    setup_surveys: ['surveys'],
+    surveys_and_replay: ['surveys', 'session_replay'],
+    setup_web_analytics: ['web_analytics'],
+    web_and_product: ['web_analytics', 'product_analytics'],
+    setup_llm: ['llm_analytics'],
+}
+
 export function OnboardingChat(): JSX.Element {
-    const { productKey } = useValues(onboardingLogic)
-    const { completeOnboarding } = useActions(onboardingLogic)
-    const [messages, setMessages] = useState<OnboardingMessage[]>([])
+    const { setProductKey, completeOnboarding } = useActions(onboardingLogic)
+    const [messages, setMessages] = useState<OnboardingMessage[]>([INITIAL_MESSAGE])
     const [inputValue, setInputValue] = useState('')
-    const [currentStep, setCurrentStep] = useState(0)
+    const [phase, setPhase] = useState<OnboardingPhase>('discovery')
+    const [selectedProducts, setSelectedProducts] = useState<ProductKey[]>([])
+    const [currentSetupStep, setCurrentSetupStep] = useState(0)
 
     useEffect(() => {
-        if (productKey && WELCOME_MESSAGES[productKey]) {
-            setMessages([WELCOME_MESSAGES[productKey]])
+        // Track AI chat onboarding started
+        window.posthog?.capture('ai chat onboarding started', {
+            phase: 'discovery',
+        })
+    }, [])
 
-            // Track AI chat onboarding started
-            window.posthog?.capture('ai chat onboarding started', {
-                product_key: productKey,
-            })
-        }
-    }, [productKey])
-
-    const handleOptionClick = (value: string): void => {
+    const handleOptionClick = (value: string, label: string): void => {
         // Add user message
-        const userMessage: OnboardingMessage = { role: 'user', content: value }
+        const userMessage: OnboardingMessage = { role: 'user', content: label }
         setMessages((prev) => [...prev, userMessage])
 
         // Track interaction
         window.posthog?.capture('ai chat onboarding message sent', {
-            step: currentStep,
+            phase,
             message_type: 'button',
             value,
         })
 
-        // Simulate assistant response (in real implementation, this would call the AI)
-        setTimeout(() => {
-            const assistantMessage: OnboardingMessage = {
-                role: 'assistant',
-                content: getNextStepMessage(currentStep),
-                options: getNextStepOptions(currentStep),
-            }
-            setMessages((prev) => [...prev, assistantMessage])
-            setCurrentStep((prev) => prev + 1)
-        }, 500)
+        // Check if this maps to products (user is ready to set up)
+        if (PRODUCT_MAPPING[value]) {
+            const products = PRODUCT_MAPPING[value]
+            setSelectedProducts(products)
+            setPhase('setup')
+
+            setTimeout(() => {
+                const setupMessage: OnboardingMessage = {
+                    role: 'assistant',
+                    content: `Excellent choice! Let's get ${products.length > 1 ? 'these' : 'this'} set up.\n\nFirst, I'll need to know which platform you're building on so I can give you the right installation instructions.`,
+                    options: [
+                        { label: 'JavaScript / Web', value: 'js' },
+                        { label: 'React', value: 'react' },
+                        { label: 'Next.js', value: 'nextjs' },
+                        { label: 'Other', value: 'other_platform' },
+                    ],
+                }
+                setMessages((prev) => [...prev, setupMessage])
+
+                // Set the first product as active
+                if (products[0]) {
+                    setProductKey(products[0])
+                }
+            }, 500)
+            return
+        }
+
+        // Handle follow-up questions
+        if (GOAL_RESPONSES[value]) {
+            setTimeout(() => {
+                setMessages((prev) => [...prev, GOAL_RESPONSES[value]])
+            }, 500)
+            return
+        }
+
+        // Handle setup flow responses
+        if (phase === 'setup') {
+            handleSetupResponse(value)
+        }
+    }
+
+    const handleSetupResponse = (value: string): void => {
+        const setupSteps = [
+            {
+                message:
+                    "Got it! Here's what you need to do:\n\n1. Install the PostHog snippet in your app\n2. Initialize it with your project API key\n\nI've pre-configured the recommended settings. Would you like to customize anything?",
+                options: [
+                    { label: 'Looks good, continue', value: 'continue_setup' },
+                    { label: 'Show me the settings', value: 'show_settings' },
+                ],
+            },
+            {
+                message:
+                    'Almost there! Would you like to enable **autocapture**? It automatically tracks clicks, form submissions, and pageviews without any extra code.',
+                options: [
+                    { label: 'Yes, enable autocapture', value: 'enable_autocapture' },
+                    { label: "No, I'll track events manually", value: 'manual_tracking' },
+                ],
+            },
+            {
+                message:
+                    "🎉 You're all set! Your PostHog installation is configured and ready to go.\n\nOnce you deploy your changes, data will start flowing in. Want me to show you around the dashboard?",
+                options: [
+                    { label: 'Yes, show me around', value: 'complete_tour' },
+                    { label: "I'm good, let me explore", value: 'complete_explore' },
+                ],
+            },
+        ]
+
+        if (value === 'complete_tour' || value === 'complete_explore') {
+            handleComplete()
+            return
+        }
+
+        if (currentSetupStep < setupSteps.length) {
+            setTimeout(() => {
+                setMessages((prev) => [...prev, { role: 'assistant', ...setupSteps[currentSetupStep] }])
+                setCurrentSetupStep((prev) => prev + 1)
+            }, 500)
+        }
     }
 
     const handleSendMessage = (): void => {
@@ -158,47 +249,51 @@ export function OnboardingChat(): JSX.Element {
 
         // Track interaction
         window.posthog?.capture('ai chat onboarding message sent', {
-            step: currentStep,
+            phase,
             message_type: 'chat',
         })
 
-        // Simulate assistant response
+        // Simple response for free-form input
         setTimeout(() => {
-            const assistantMessage: OnboardingMessage = {
+            const response: OnboardingMessage = {
                 role: 'assistant',
-                content: getNextStepMessage(currentStep),
-                options: getNextStepOptions(currentStep),
+                content:
+                    "Thanks for sharing! Based on what you've described, let me suggest some products that could help.",
+                options: [
+                    { label: 'Understand user behavior', value: 'understand_users' },
+                    { label: 'Find and fix issues', value: 'fix_issues' },
+                    { label: 'Run experiments', value: 'experiments' },
+                ],
             }
-            setMessages((prev) => [...prev, assistantMessage])
-            setCurrentStep((prev) => prev + 1)
+            setMessages((prev) => [...prev, response])
         }, 500)
     }
 
     const handleComplete = (): void => {
         window.posthog?.capture('ai chat onboarding completed', {
-            product_key: productKey,
-            steps_completed: currentStep,
+            products_selected: selectedProducts,
         })
         completeOnboarding()
     }
 
-    const totalSteps = 4
+    const totalSteps = phase === 'discovery' ? 3 : 5
+    const currentStep = phase === 'discovery' ? Math.min(messages.length, 3) : currentSetupStep + 3
 
     return (
         <div className="flex flex-col h-[80vh] max-w-3xl mx-auto">
             {/* Header with progress */}
             <div className="border-b p-4">
                 <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-xl font-semibold">Getting started with PostHog</h2>
+                    <h2 className="text-xl font-semibold">Welcome to PostHog</h2>
                     <span className="text-sm text-muted">
-                        Step {Math.min(currentStep + 1, totalSteps)} of {totalSteps}
+                        {phase === 'discovery' ? 'Getting to know you' : 'Setting up'}
                     </span>
                 </div>
                 <div className="w-full bg-border rounded-full h-2">
                     <div
                         className="bg-primary h-2 rounded-full transition-all"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${(Math.min(currentStep + 1, totalSteps) / totalSteps) * 100}%` }}
+                        style={{ width: `${(currentStep / totalSteps) * 100}%` }}
                     />
                 </div>
             </div>
@@ -208,7 +303,7 @@ export function OnboardingChat(): JSX.Element {
                 {messages.map((message, index) => (
                     <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div
-                            className={`max-w-[80%] rounded-lg p-3 ${
+                            className={`max-w-[85%] rounded-lg p-4 ${
                                 message.role === 'user' ? 'bg-primary text-primary-inverse' : 'bg-bg-light border'
                             }`}
                         >
@@ -216,15 +311,24 @@ export function OnboardingChat(): JSX.Element {
 
                             {/* Option buttons */}
                             {message.options && message.role === 'assistant' && index === messages.length - 1 && (
-                                <div className="flex flex-wrap gap-2 mt-3">
+                                <div className="flex flex-col gap-2 mt-4">
                                     {message.options.map((option) => (
                                         <LemonButton
                                             key={option.value}
                                             type="secondary"
-                                            size="small"
-                                            onClick={() => handleOptionClick(option.label)}
+                                            size="medium"
+                                            fullWidth
+                                            onClick={() => handleOptionClick(option.value, option.label)}
+                                            className="justify-start text-left"
                                         >
-                                            {option.label}
+                                            <div>
+                                                <div className="font-medium">{option.label}</div>
+                                                {option.description && (
+                                                    <div className="text-xs text-muted mt-0.5">
+                                                        {option.description}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </LemonButton>
                                     ))}
                                 </div>
@@ -240,7 +344,7 @@ export function OnboardingChat(): JSX.Element {
                     <LemonTextArea
                         value={inputValue}
                         onChange={(value) => setInputValue(value)}
-                        placeholder="Type your message or click a button above..."
+                        placeholder="Or type your own response..."
                         className="flex-1"
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
@@ -253,44 +357,7 @@ export function OnboardingChat(): JSX.Element {
                         Send
                     </LemonButton>
                 </div>
-
-                {currentStep >= totalSteps - 1 && (
-                    <div className="mt-4 text-center">
-                        <LemonButton type="primary" size="large" onClick={handleComplete}>
-                            Complete setup
-                        </LemonButton>
-                    </div>
-                )}
             </div>
         </div>
     )
-}
-
-function getNextStepMessage(step: number): string {
-    const messages = [
-        "Great choice! I've noted that down. Now, let's configure some features.\n\nWould you like to enable autocapture? This automatically tracks clicks, form submissions, and page views without any extra code.",
-        'Perfect! Next, would you like to enable session replay? This lets you watch real user sessions to understand how people interact with your product.',
-        'Almost done! Would you like to enable AI features? These help you analyze data and get insights faster.',
-        "🎉 Awesome! You're all set up! Click 'Complete setup' below to start exploring PostHog.",
-    ]
-    return messages[Math.min(step, messages.length - 1)]
-}
-
-function getNextStepOptions(step: number): { label: string; value: string }[] | undefined {
-    const options = [
-        [
-            { label: 'Yes, enable autocapture', value: 'yes' },
-            { label: 'No, I prefer manual tracking', value: 'no' },
-        ],
-        [
-            { label: 'Yes, enable session replay', value: 'yes' },
-            { label: 'Not now', value: 'no' },
-        ],
-        [
-            { label: 'Yes, enable AI features', value: 'yes' },
-            { label: 'No thanks', value: 'no' },
-        ],
-        undefined,
-    ]
-    return options[Math.min(step, options.length - 1)]
 }
