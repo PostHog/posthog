@@ -34,7 +34,13 @@ export const manifest: ProductManifest = {
     },
     urls: {
         endpoints: (): string => '/endpoints',
-        endpoint: (name: string): string => `/endpoints/${name}`,
+        endpoint: (name: string, version?: number): string => {
+            const searchParams: Record<string, string> = {}
+            if (version) {
+                searchParams.version = String(version)
+            }
+            return combineUrl(`/endpoints/${name}`, searchParams).url
+        },
         endpointsUsage: (params?: {
             endpointFilter?: string[]
             dateFrom?: string

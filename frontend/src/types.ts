@@ -2234,14 +2234,24 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface EndpointVersionMaterializationType {
+    status: string
+    sync_frequency: DataWarehouseSyncInterval | null
+    last_materialized_at: string | null
+    error: string
+}
+
 export interface EndpointVersionType {
     id: string
     version: number
     query: HogQLQuery | InsightQueryNode
     is_active: boolean
+    is_materialized: boolean
+    description: string
+    cache_age_seconds: number | null
     created_at: string
     created_by: UserBasicType | null
-    change_summary: string
+    materialization?: EndpointVersionMaterializationType
 }
 
 export interface EndpointType extends WithAccessControl {
@@ -5079,6 +5089,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
+    ENDPOINT_VERSION = 'EndpointVersion',
     HEATMAP = 'Heatmap',
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
