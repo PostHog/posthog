@@ -1,45 +1,115 @@
-import { useActions } from 'kea'
-import { useEffect, useState } from 'react'
+import './OnboardingChat.scss'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import clsx from 'clsx'
+import { useActions } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
+import {
+    IconArrowRight,
+    IconChartLine,
+    IconFlag,
+    IconFlask,
+    IconMessage,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { ProductKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
 
+interface OnboardingOption {
+    label: string
+    value: string
+    description?: string
+    icon?: JSX.Element
+    products?: ProductKey[]
+}
+
 interface OnboardingMessage {
     role: 'assistant' | 'user'
     content: string
-    options?: { label: string; value: string; description?: string }[]
+    options?: OnboardingOption[]
 }
 
-type OnboardingPhase = 'discovery' | 'product_selection' | 'setup'
+const PRODUCT_INFO: Record<ProductKey, { name: string; description: string; icon: JSX.Element }> = {
+    product_analytics: {
+        name: 'Product analytics',
+        description: 'Track events, build funnels, analyze user journeys',
+        icon: <IconChartLine className="text-warning" />,
+    },
+    session_replay: {
+        name: 'Session replay',
+        description: 'Watch real user sessions to understand behavior',
+        icon: <IconRewindPlay className="text-purple" />,
+    },
+    feature_flags: {
+        name: 'Feature flags',
+        description: 'Control rollouts, target users, kill switches',
+        icon: <IconFlag className="text-success" />,
+    },
+    experiments: {
+        name: 'Experiments',
+        description: 'A/B tests with statistical significance',
+        icon: <IconFlask className="text-danger" />,
+    },
+    surveys: {
+        name: 'Surveys',
+        description: 'Collect in-app user feedback',
+        icon: <IconMessage className="text-primary" />,
+    },
+    error_tracking: {
+        name: 'Error tracking',
+        description: 'Catch and debug exceptions automatically',
+        icon: <IconWarning className="text-danger" />,
+    },
+    web_analytics: {
+        name: 'Web analytics',
+        description: 'Privacy-friendly website traffic insights',
+        icon: <IconChartLine className="text-primary" />,
+    },
+    llm_analytics: {
+        name: 'LLM observability',
+        description: 'Monitor AI costs, latency, and conversations',
+        icon: <IconChartLine className="text-purple" />,
+    },
+    data_warehouse: {
+        name: 'Data warehouse',
+        description: 'Query all your data in one place',
+        icon: <IconChartLine className="text-muted" />,
+    },
+}
 
 const INITIAL_MESSAGE: OnboardingMessage = {
     role: 'assistant',
-    content:
-        "Hi! 👋 I'm here to help you get the most out of PostHog. Tell me a bit about what you're working on - what's your main goal right now?",
+    content: "Hi! I'm here to help you get the most out of PostHog. **What's your main goal right now?**",
     options: [
         {
             label: 'Understand user behavior',
             value: 'understand_users',
             description: 'Track events, analyze funnels, see how users navigate',
+            icon: <IconChartLine />,
         },
         {
             label: 'Find and fix issues',
             value: 'fix_issues',
             description: 'Watch session recordings, catch errors',
+            icon: <IconRewindPlay />,
         },
         {
             label: 'Run experiments',
             value: 'experiments',
             description: 'A/B tests, feature flags, gradual rollouts',
+            icon: <IconFlask />,
         },
         {
             label: 'Something else',
             value: 'other',
             description: "I'll explain what I need",
+            icon: <IconMessage />,
         },
     ],
 }
@@ -48,193 +118,229 @@ const GOAL_RESPONSES: Record<string, OnboardingMessage> = {
     understand_users: {
         role: 'assistant',
         content:
-            "Great! To understand user behavior, I'd recommend starting with **Product analytics** - it'll help you track events, build funnels, and see user journeys.\n\nWould you also like to enable **Session replay** to watch real user sessions? It's super helpful for understanding *why* users do what they do.",
+            'Great choice! To understand user behavior, I recommend starting with **Product analytics**. You can also add **Session replay** to watch exactly what users do.\n\nWhich would you like to set up?',
         options: [
-            { label: 'Yes, both sound great!', value: 'analytics_and_replay' },
-            { label: 'Just analytics for now', value: 'analytics_only' },
-            { label: 'Tell me more about session replay', value: 'explain_replay' },
+            {
+                label: 'Both - Analytics + Replay',
+                value: 'analytics_and_replay',
+                description: 'Most popular combination',
+                products: ['product_analytics', 'session_replay'],
+            },
+            {
+                label: 'Just Product analytics',
+                value: 'analytics_only',
+                products: ['product_analytics'],
+            },
+            {
+                label: 'Just Session replay',
+                value: 'replay_only',
+                products: ['session_replay'],
+            },
         ],
     },
     fix_issues: {
         role: 'assistant',
         content:
-            "Perfect for debugging! I'd recommend:\n\n• **Session replay** - Watch exactly what users experienced\n• **Error tracking** - Catch and fix exceptions automatically\n\nBoth together give you the full picture when something goes wrong.",
+            'Perfect for debugging! **Session replay** lets you watch exactly what users experienced, and **Error tracking** automatically catches exceptions.\n\nWhich would you like?',
         options: [
-            { label: 'Set up both', value: 'replay_and_errors' },
-            { label: 'Just session replay', value: 'replay_only' },
-            { label: 'Just error tracking', value: 'errors_only' },
+            {
+                label: 'Both - Replay + Error tracking',
+                value: 'replay_and_errors',
+                description: 'Full debugging toolkit',
+                products: ['session_replay', 'error_tracking'],
+            },
+            {
+                label: 'Just Session replay',
+                value: 'replay_only',
+                products: ['session_replay'],
+            },
+            {
+                label: 'Just Error tracking',
+                value: 'errors_only',
+                products: ['error_tracking'],
+            },
         ],
     },
     experiments: {
         role: 'assistant',
         content:
-            "Love it! For experimentation, you'll want:\n\n• **Feature flags** - Control who sees what, roll out gradually\n• **Experiments** - Run A/B tests with statistical analysis\n\nFeature flags are the foundation - experiments build on top of them.",
+            'For experimentation, **Feature flags** let you control who sees what, and **Experiments** adds A/B testing with statistical analysis.\n\nWhat would you like to set up?',
         options: [
-            { label: 'Set up both', value: 'flags_and_experiments' },
-            { label: 'Start with feature flags', value: 'flags_only' },
-            { label: 'Tell me more about experiments', value: 'explain_experiments' },
+            {
+                label: 'Both - Flags + Experiments',
+                value: 'flags_and_experiments',
+                description: 'Full experimentation platform',
+                products: ['feature_flags', 'experiments'],
+            },
+            {
+                label: 'Just Feature flags',
+                value: 'flags_only',
+                products: ['feature_flags'],
+            },
         ],
     },
     other: {
         role: 'assistant',
-        content:
-            "No problem! Tell me more about what you're building or what problem you're trying to solve, and I'll point you in the right direction.",
+        content: 'No problem! What are you trying to accomplish?',
         options: [
-            { label: 'I want to collect user feedback', value: 'feedback' },
-            { label: 'I need website analytics', value: 'web_analytics' },
-            { label: 'I want to monitor my AI/LLM app', value: 'llm' },
+            {
+                label: 'Collect user feedback',
+                value: 'feedback',
+                icon: <IconMessage />,
+            },
+            {
+                label: 'Website analytics',
+                value: 'web_analytics',
+                icon: <IconChartLine />,
+            },
+            {
+                label: 'Monitor AI/LLM app',
+                value: 'llm',
+                icon: <IconChartLine />,
+            },
         ],
     },
     feedback: {
         role: 'assistant',
         content:
-            "**Surveys** is perfect for that! You can create in-app surveys to collect feedback at the right moment - after a purchase, when someone's about to churn, or just to understand sentiment.",
+            "**Surveys** lets you collect in-app feedback at the perfect moment - after a purchase, when someone's about to churn, or just to understand sentiment.",
         options: [
-            { label: "Let's set up surveys", value: 'setup_surveys' },
-            { label: 'Can I also watch user sessions?', value: 'surveys_and_replay' },
+            {
+                label: 'Set up Surveys',
+                value: 'setup_surveys',
+                products: ['surveys'],
+            },
+            {
+                label: 'Add Session replay too',
+                value: 'surveys_and_replay',
+                description: 'See what users do before responding',
+                products: ['surveys', 'session_replay'],
+            },
         ],
     },
     web_analytics: {
         role: 'assistant',
         content:
-            '**Web analytics** gives you a privacy-friendly, cookieless way to understand your website traffic - pageviews, referrers, top pages, and more. Think of it as a simpler Google Analytics alternative.',
+            '**Web analytics** gives you privacy-friendly, cookieless website traffic insights - pageviews, referrers, top pages. A simpler Google Analytics alternative.',
         options: [
-            { label: "Let's set it up", value: 'setup_web_analytics' },
-            { label: 'I also want deeper product analytics', value: 'web_and_product' },
+            {
+                label: 'Set up Web analytics',
+                value: 'setup_web_analytics',
+                products: ['web_analytics'],
+            },
+            {
+                label: 'Add Product analytics too',
+                value: 'web_and_product',
+                description: 'For deeper user behavior insights',
+                products: ['web_analytics', 'product_analytics'],
+            },
         ],
     },
     llm: {
         role: 'assistant',
         content:
-            '**LLM analytics** helps you monitor your AI application - track costs, latency, token usage, and analyze conversations. Perfect for understanding how users interact with your AI features.',
+            '**LLM observability** helps you monitor your AI application - track costs, latency, token usage, and analyze conversations.',
         options: [
-            { label: "Let's set it up", value: 'setup_llm' },
-            { label: 'Tell me more', value: 'explain_llm' },
+            {
+                label: 'Set up LLM observability',
+                value: 'setup_llm',
+                products: ['llm_analytics'],
+            },
         ],
     },
 }
 
-const PRODUCT_MAPPING: Record<string, ProductKey[]> = {
-    analytics_and_replay: ['product_analytics', 'session_replay'],
-    analytics_only: ['product_analytics'],
-    replay_and_errors: ['session_replay', 'error_tracking'],
-    replay_only: ['session_replay'],
-    errors_only: ['error_tracking'],
-    flags_and_experiments: ['feature_flags', 'experiments'],
-    flags_only: ['feature_flags'],
-    setup_surveys: ['surveys'],
-    surveys_and_replay: ['surveys', 'session_replay'],
-    setup_web_analytics: ['web_analytics'],
-    web_and_product: ['web_analytics', 'product_analytics'],
-    setup_llm: ['llm_analytics'],
+function getScrollableContainer(element: HTMLElement | null): HTMLElement | null {
+    if (!element) {
+        return null
+    }
+    let parent = element.parentElement
+    while (parent) {
+        const { overflow, overflowY } = window.getComputedStyle(parent)
+        if (overflow === 'auto' || overflow === 'scroll' || overflowY === 'auto' || overflowY === 'scroll') {
+            return parent
+        }
+        parent = parent.parentElement
+    }
+    return document.documentElement
 }
 
 export function OnboardingChat(): JSX.Element {
     const { setProductKey, completeOnboarding } = useActions(onboardingLogic)
     const [messages, setMessages] = useState<OnboardingMessage[]>([INITIAL_MESSAGE])
     const [inputValue, setInputValue] = useState('')
-    const [phase, setPhase] = useState<OnboardingPhase>('discovery')
     const [selectedProducts, setSelectedProducts] = useState<ProductKey[]>([])
-    const [currentSetupStep, setCurrentSetupStep] = useState(0)
+    const [isTyping, setIsTyping] = useState(false)
+
+    const sentinelRef = useRef<HTMLDivElement>(null)
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLTextAreaElement>(null)
+
+    // Auto-scroll when messages change
+    useEffect(() => {
+        if (sentinelRef.current) {
+            const scrollableContainer = getScrollableContainer(sentinelRef.current)
+            if (scrollableContainer) {
+                requestAnimationFrame(() => {
+                    scrollableContainer.scrollTo({
+                        top: scrollableContainer.scrollHeight,
+                        behavior: 'smooth',
+                    })
+                })
+            }
+        }
+    }, [messages, isTyping])
 
     useEffect(() => {
-        // Track AI chat onboarding started
-        window.posthog?.capture('ai chat onboarding started', {
-            phase: 'discovery',
-        })
+        window.posthog?.capture('ai chat onboarding started')
     }, [])
 
-    const handleOptionClick = (value: string, label: string): void => {
-        // Add user message
-        const userMessage: OnboardingMessage = { role: 'user', content: label }
+    const addAssistantMessage = (message: OnboardingMessage): void => {
+        setIsTyping(true)
+        setTimeout(() => {
+            setIsTyping(false)
+            setMessages((prev) => [...prev, message])
+        }, 600)
+    }
+
+    const handleOptionClick = (option: OnboardingOption): void => {
+        const userMessage: OnboardingMessage = { role: 'user', content: option.label }
         setMessages((prev) => [...prev, userMessage])
 
-        // Track interaction
-        window.posthog?.capture('ai chat onboarding message sent', {
-            phase,
-            message_type: 'button',
-            value,
+        window.posthog?.capture('ai chat onboarding option clicked', {
+            option_value: option.value,
+            option_label: option.label,
         })
 
-        // Check if this maps to products (user is ready to set up)
-        if (PRODUCT_MAPPING[value]) {
-            const products = PRODUCT_MAPPING[value]
-            setSelectedProducts(products)
-            setPhase('setup')
+        // If this option has products, go to setup
+        if (option.products && option.products.length > 0) {
+            setSelectedProducts(option.products)
+            if (option.products[0]) {
+                setProductKey(option.products[0])
+            }
 
-            setTimeout(() => {
-                const setupMessage: OnboardingMessage = {
-                    role: 'assistant',
-                    content: `Excellent choice! Let's get ${products.length > 1 ? 'these' : 'this'} set up.\n\nFirst, I'll need to know which platform you're building on so I can give you the right installation instructions.`,
-                    options: [
-                        { label: 'JavaScript / Web', value: 'js' },
-                        { label: 'React', value: 'react' },
-                        { label: 'Next.js', value: 'nextjs' },
-                        { label: 'Other', value: 'other_platform' },
-                    ],
-                }
-                setMessages((prev) => [...prev, setupMessage])
-
-                // Set the first product as active
-                if (products[0]) {
-                    setProductKey(products[0])
-                }
-            }, 500)
+            addAssistantMessage({
+                role: 'assistant',
+                content: `Great! I'll help you set up ${option.products.length > 1 ? 'these products' : PRODUCT_INFO[option.products[0]]?.name || 'this product'}.\n\nHere's what you're getting:`,
+                options: [
+                    {
+                        label: 'Continue to setup',
+                        value: 'continue_setup',
+                    },
+                ],
+            })
             return
         }
 
         // Handle follow-up questions
-        if (GOAL_RESPONSES[value]) {
-            setTimeout(() => {
-                setMessages((prev) => [...prev, GOAL_RESPONSES[value]])
-            }, 500)
+        if (GOAL_RESPONSES[option.value]) {
+            addAssistantMessage(GOAL_RESPONSES[option.value])
             return
         }
 
-        // Handle setup flow responses
-        if (phase === 'setup') {
-            handleSetupResponse(value)
-        }
-    }
-
-    const handleSetupResponse = (value: string): void => {
-        const setupSteps = [
-            {
-                message:
-                    "Got it! Here's what you need to do:\n\n1. Install the PostHog snippet in your app\n2. Initialize it with your project API key\n\nI've pre-configured the recommended settings. Would you like to customize anything?",
-                options: [
-                    { label: 'Looks good, continue', value: 'continue_setup' },
-                    { label: 'Show me the settings', value: 'show_settings' },
-                ],
-            },
-            {
-                message:
-                    'Almost there! Would you like to enable **autocapture**? It automatically tracks clicks, form submissions, and pageviews without any extra code.',
-                options: [
-                    { label: 'Yes, enable autocapture', value: 'enable_autocapture' },
-                    { label: "No, I'll track events manually", value: 'manual_tracking' },
-                ],
-            },
-            {
-                message:
-                    "🎉 You're all set! Your PostHog installation is configured and ready to go.\n\nOnce you deploy your changes, data will start flowing in. Want me to show you around the dashboard?",
-                options: [
-                    { label: 'Yes, show me around', value: 'complete_tour' },
-                    { label: "I'm good, let me explore", value: 'complete_explore' },
-                ],
-            },
-        ]
-
-        if (value === 'complete_tour' || value === 'complete_explore') {
+        // Handle setup continuation
+        if (option.value === 'continue_setup') {
             handleComplete()
-            return
-        }
-
-        if (currentSetupStep < setupSteps.length) {
-            setTimeout(() => {
-                setMessages((prev) => [...prev, { role: 'assistant', ...setupSteps[currentSetupStep] }])
-                setCurrentSetupStep((prev) => prev + 1)
-            }, 500)
         }
     }
 
@@ -247,26 +353,15 @@ export function OnboardingChat(): JSX.Element {
         setMessages((prev) => [...prev, userMessage])
         setInputValue('')
 
-        // Track interaction
         window.posthog?.capture('ai chat onboarding message sent', {
-            phase,
-            message_type: 'chat',
+            message_type: 'text',
         })
 
-        // Simple response for free-form input
-        setTimeout(() => {
-            const response: OnboardingMessage = {
-                role: 'assistant',
-                content:
-                    "Thanks for sharing! Based on what you've described, let me suggest some products that could help.",
-                options: [
-                    { label: 'Understand user behavior', value: 'understand_users' },
-                    { label: 'Find and fix issues', value: 'fix_issues' },
-                    { label: 'Run experiments', value: 'experiments' },
-                ],
-            }
-            setMessages((prev) => [...prev, response])
-        }, 500)
+        addAssistantMessage({
+            role: 'assistant',
+            content: "Thanks for sharing! Based on what you've described, what sounds most relevant?",
+            options: INITIAL_MESSAGE.options,
+        })
     }
 
     const handleComplete = (): void => {
@@ -276,86 +371,144 @@ export function OnboardingChat(): JSX.Element {
         completeOnboarding()
     }
 
-    const totalSteps = phase === 'discovery' ? 3 : 5
-    const currentStep = phase === 'discovery' ? Math.min(messages.length, 3) : currentSetupStep + 3
-
     return (
-        <div className="flex flex-col h-[80vh] max-w-3xl mx-auto">
-            {/* Header with progress */}
-            <div className="border-b p-4">
-                <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-xl font-semibold">Welcome to PostHog</h2>
-                    <span className="text-sm text-muted">
-                        {phase === 'discovery' ? 'Getting to know you' : 'Setting up'}
-                    </span>
-                </div>
-                <div className="w-full bg-border rounded-full h-2">
-                    <div
-                        className="bg-primary h-2 rounded-full transition-all"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-                    />
+        <div className="OnboardingChat flex flex-col h-full min-h-[600px]">
+            {/* Messages area */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 mx-auto p-4 pb-0">
+                    {messages.map((message, index) => (
+                        <div
+                            key={index}
+                            className={clsx(
+                                'OnboardingChat__message relative flex animate-fade-in',
+                                message.role === 'user' ? 'flex-row-reverse ml-10' : 'mr-10'
+                            )}
+                        >
+                            <div
+                                className={clsx(
+                                    'flex flex-col gap-px w-full break-words',
+                                    message.role === 'user' ? 'items-end' : 'items-start'
+                                )}
+                            >
+                                <div className="max-w-full">
+                                    <div
+                                        className={clsx(
+                                            'border py-3 px-4 rounded-lg',
+                                            message.role === 'user'
+                                                ? 'bg-fill-highlight-100 font-medium'
+                                                : 'bg-surface-primary'
+                                        )}
+                                    >
+                                        <LemonMarkdown>{message.content}</LemonMarkdown>
+                                    </div>
+
+                                    {/* Product cards for selected products */}
+                                    {message.role === 'assistant' &&
+                                        index === messages.length - 1 &&
+                                        selectedProducts.length > 0 && (
+                                            <div className="flex flex-col gap-2 mt-3">
+                                                {selectedProducts.map((productKey) => {
+                                                    const info = PRODUCT_INFO[productKey]
+                                                    if (!info) {
+                                                        return null
+                                                    }
+                                                    return (
+                                                        <div
+                                                            key={productKey}
+                                                            className="flex items-center gap-3 p-3 border rounded-lg bg-surface-primary"
+                                                        >
+                                                            <div className="text-2xl">{info.icon}</div>
+                                                            <div>
+                                                                <div className="font-semibold">{info.name}</div>
+                                                                <div className="text-sm text-muted">
+                                                                    {info.description}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                })}
+                                            </div>
+                                        )}
+
+                                    {/* Option buttons */}
+                                    {message.options &&
+                                        message.role === 'assistant' &&
+                                        index === messages.length - 1 && (
+                                            <div className="flex flex-wrap gap-2 mt-3">
+                                                {message.options.map((option, optionIndex) => (
+                                                    <button
+                                                        key={option.value}
+                                                        onClick={() => handleOptionClick(option)}
+                                                        className="OnboardingChat__option flex items-center gap-2 px-4 py-2.5 border rounded-lg bg-surface-primary hover:bg-fill-highlight-100 hover:border-primary transition-all text-left"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{ '--index': optionIndex } as React.CSSProperties}
+                                                    >
+                                                        {option.icon && (
+                                                            <span className="text-muted">{option.icon}</span>
+                                                        )}
+                                                        <div>
+                                                            <div className="font-medium">{option.label}</div>
+                                                            {option.description && (
+                                                                <div className="text-xs text-muted">
+                                                                    {option.description}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+
+                    {/* Typing indicator */}
+                    {isTyping && (
+                        <div className="OnboardingChat__message relative flex mr-10 animate-fade-in">
+                            <div className="border py-3 px-4 rounded-lg bg-surface-primary">
+                                <div className="flex gap-1">
+                                    <span className="OnboardingChat__typing-dot w-2 h-2 bg-muted rounded-full" />
+                                    <span className="OnboardingChat__typing-dot w-2 h-2 bg-muted rounded-full" />
+                                    <span className="OnboardingChat__typing-dot w-2 h-2 bg-muted rounded-full" />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={messagesEndRef} />
+                    <div ref={sentinelRef} className="h-0 pointer-events-none" />
                 </div>
             </div>
 
-            {/* Chat messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((message, index) => (
-                    <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div
-                            className={`max-w-[85%] rounded-lg p-4 ${
-                                message.role === 'user' ? 'bg-primary text-primary-inverse' : 'bg-bg-light border'
-                            }`}
-                        >
-                            <p className="whitespace-pre-wrap">{message.content}</p>
-
-                            {/* Option buttons */}
-                            {message.options && message.role === 'assistant' && index === messages.length - 1 && (
-                                <div className="flex flex-col gap-2 mt-4">
-                                    {message.options.map((option) => (
-                                        <LemonButton
-                                            key={option.value}
-                                            type="secondary"
-                                            size="medium"
-                                            fullWidth
-                                            onClick={() => handleOptionClick(option.value, option.label)}
-                                            className="justify-start text-left"
-                                        >
-                                            <div>
-                                                <div className="font-medium">{option.label}</div>
-                                                {option.description && (
-                                                    <div className="text-xs text-muted mt-0.5">
-                                                        {option.description}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            )}
+            {/* Input area - sticky at bottom */}
+            <div className="sticky bottom-0 z-10 w-full max-w-200 self-center mx-auto p-4">
+                <div className="border border-primary rounded-lg backdrop-blur-sm bg-glass-bg-3000">
+                    <div className="relative">
+                        <LemonTextArea
+                            ref={inputRef}
+                            value={inputValue}
+                            onChange={(value) => setInputValue(value)}
+                            placeholder="Or describe what you're building..."
+                            minRows={1}
+                            maxRows={4}
+                            className="!border-none !bg-transparent min-h-12 py-3 pl-4 pr-14 resize-none"
+                            onPressEnter={() => {
+                                if (inputValue.trim()) {
+                                    handleSendMessage()
+                                }
+                            }}
+                        />
+                        <div className="absolute bottom-2 right-2">
+                            <LemonButton
+                                type={inputValue.trim() ? 'primary' : 'secondary'}
+                                size="small"
+                                onClick={handleSendMessage}
+                                disabled={!inputValue.trim()}
+                                icon={<IconArrowRight />}
+                            />
                         </div>
                     </div>
-                ))}
-            </div>
-
-            {/* Input area */}
-            <div className="border-t p-4">
-                <div className="flex gap-2">
-                    <LemonTextArea
-                        value={inputValue}
-                        onChange={(value) => setInputValue(value)}
-                        placeholder="Or type your own response..."
-                        className="flex-1"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault()
-                                handleSendMessage()
-                            }
-                        }}
-                    />
-                    <LemonButton type="primary" onClick={handleSendMessage} disabled={!inputValue.trim()}>
-                        Send
-                    </LemonButton>
                 </div>
             </div>
         </div>
