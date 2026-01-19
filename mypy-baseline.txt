@@ -628,7 +628,6 @@ posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: List compreh
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: No overload variant of "array" matches argument types "list[None]", "object"  [call-overload]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: Statement is unreachable  [unreachable]
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Incompatible types in assignment (expression has type "dict[str, dict[str, str | bool]] | dict[str, str]", variable has type "dict[str, dict[str, str]]")  [assignment]
-posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Incompatible types in assignment (expression has type "object", variable has type "str | int | Combinable")  [assignment]
 posthog/temporal/data_imports/pipelines/pipeline_sync.py:0: error: Item "None" of "dict[str, str] | None" has no attribute "get"  [union-attr]
 posthog/temporal/data_imports/sources/chargebee/chargebee.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/temporal/data_imports/sources/chargebee/chargebee.py:0: error: Unused "type: ignore" comment  [unused-ignore]
