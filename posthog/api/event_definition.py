@@ -17,9 +17,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import AvailableFeature, EventDefinitionType
+from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
@@ -173,9 +172,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
-        request = self.context.get("request")
-        if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
-            raise EnterpriseFeatureException(AvailableFeature.INGESTION_TAXONOMY)
         return super().update(event_definition, validated_data)
 
     def get_is_action(self, obj):
@@ -213,15 +209,13 @@ class EventDefinitionViewSet(
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
 
-        ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
+        is_enterprise = EE_AVAILABLE
 
         event_definition_object_manager: Manager
         if is_enterprise:
             from ee.models.event_definition import EnterpriseEventDefinition
 
             event_definition_object_manager = EnterpriseEventDefinition.objects
-
         else:
             event_definition_object_manager = EventDefinition.objects
 
@@ -288,15 +282,14 @@ class EventDefinitionViewSet(
 
     def dangerously_get_object(self):
         id = self.kwargs["id"]
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
-            AvailableFeature.INGESTION_TAXONOMY
-        ):
+        if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
             enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team__project_id=self.project_id).first()
             if enterprise_event:
                 return enterprise_event
 
+            # Lazy-create enterprise row if it doesn't exist
             non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
@@ -309,9 +302,7 @@ class EventDefinitionViewSet(
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
-            AvailableFeature.INGESTION_TAXONOMY
-        ):
+        if EE_AVAILABLE:
             from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore

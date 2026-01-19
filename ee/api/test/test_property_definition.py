@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventProperty, Tag
 from posthog.models.property_definition import PropertyDefinition
 
@@ -597,23 +596,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="hidden_property2", property_type="String", hidden=True
         )
-
-        # Test without enterprise taxonomy - hidden properties should still be shown even with exclude_hidden=true
-        self.organization.available_features = []
-        self.organization.save()
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        property_names = {p["name"] for p in response.json()["results"]}
-        self.assertIn("visible_property", property_names)
-        self.assertIn("hidden_property1", property_names)
-        self.assertIn("hidden_property2", property_names)
-
-        # Test with enterprise taxonomy enabled - hidden properties should be excluded when exclude_hidden=true
-        self.team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.team.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
