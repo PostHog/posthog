@@ -138,7 +138,7 @@ def _web_analytics_team_selection_impl(
 
 @dagster.asset(
     name="web_analytics_team_selection",
-    group_name="web_analytics",
+    group_name="web_analytics_v2",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 def web_analytics_team_selection(
@@ -149,17 +149,4 @@ def web_analytics_team_selection(
     This manages which teams have access to web analytics pre-aggregated tables.
     The selection is then stored in a ClickHouse dictionary for fast lookups.
     """
-    return _web_analytics_team_selection_impl(context, cluster)
-
-
-@dagster.asset(
-    name="web_analytics_team_selection_v2",
-    group_name="web_analytics_v2",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)
-def web_analytics_team_selection_v2(
-    context: dagster.AssetExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> dagster.MaterializeResult:
-    """This is the same as the team_selection on the web_analytics group but here to make the v2 graph independent"""
     return _web_analytics_team_selection_impl(context, cluster)
