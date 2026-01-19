@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconGear, IconLetter, IconTrash, IconWarning } from '@posthog/icons'
+import { IconGear, IconLetter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
@@ -57,18 +57,6 @@ export function IntegrationEmailDomainView({
                             )}
                         </div>
                     </div>
-                    {verificationRequired && !verified && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => {
-                                openSetupModal(integrations[0], integrations[0].kind as ChannelType)
-                            }}
-                            icon={<IconWarning />}
-                        >
-                            Verify
-                        </LemonButton>
-                    )}
                 </div>
             </div>
 

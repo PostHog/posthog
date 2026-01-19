@@ -1342,7 +1342,7 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, team_id=team_id)
+            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -1374,7 +1374,7 @@ class EmailIntegration:
     def verify(self):
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
-        mail_from_subdomain = self.integration.config.get("mail_from_subdomain")
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
 
         # Use the appropriate provider for verification
         if provider == "ses":

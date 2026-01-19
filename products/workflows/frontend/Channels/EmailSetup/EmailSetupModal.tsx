@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCheckCircle, IconCopy, IconQuestion, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    Spinner,
+    Tooltip,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -10,10 +19,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
-    const logic = emailSetupModalLogic(props)
-    const { integration, integrationLoading, verificationLoading, dnsRecords, domain, isDomainVerified } =
-        useValues(logic)
-    const { verifyDomain, submitEmailSender, loadIntegrations } = useActions(logic)
+    const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
+        useValues(emailSetupModalLogic(props))
+    const { verifyDomain, submitEmailSender, loadIntegrations } = useActions(emailSetupModalLogic(props))
     return (
         <>
             <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
@@ -35,18 +43,18 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 type="text"
                                 placeholder="John Doe"
                                 disabledReason={
-                                    verificationLoading || integrationLoading ? 'Creating sender...' : undefined
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
                                 }
                             />
                         </LemonField>
-                        <LemonField name="email" label="Email">
+                        <LemonField name="email" label="Email address">
                             <LemonInput
                                 type="text"
                                 placeholder="example@example.com"
                                 disabledReason={
-                                    integration
+                                    savedIntegration
                                         ? 'You cannot change the email after creation'
-                                        : verificationLoading || integrationLoading
+                                        : verificationLoading || isEmailSenderSubmitting
                                           ? 'Creating sender...'
                                           : undefined
                                 }
@@ -61,18 +69,18 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 className="w-fit"
                                 type="text"
                                 placeholder="feedback"
-                                suffix={<>{domain || 'yourdomain.com'}</>}
+                                suffix={<>.{domain || 'yourdomain.com'}</>}
                                 disabledReason={
-                                    verificationLoading || integrationLoading ? 'Creating sender...' : undefined
+                                    verificationLoading || isEmailSenderSubmitting ? 'Creating sender...' : undefined
                                 }
                             />
                         </LemonField>
-                        {!integration && (
+                        {!savedIntegration && (
                             <div className="flex justify-end">
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"
-                                    loading={verificationLoading || integrationLoading}
+                                    loading={verificationLoading || isEmailSenderSubmitting}
                                     onClick={submitEmailSender}
                                 >
                                     Continue
@@ -82,7 +90,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                     </div>
                 </Form>
 
-                {integration && (
+                {savedIntegration && (
                     <div className="mt-8 space-y-2 w-full">
                         <h2>DNS records</h2>
                         <p className="text-sm text-muted">
@@ -97,19 +105,26 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 <thead>
                                     <tr className="border-b">
                                         <th className="py-2 text-left">Type</th>
-                                        <th className="py-2 text-left">Name</th>
+                                        <th className="py-2 text-left">Target</th>
                                         <th className="py-2 text-left">Value</th>
                                         <th className="py-2 text-left">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    {verificationLoading && dnsRecords.length === 0 && (
+                                        <div className="flex flex-col gap-1 justify-items-stretch">
+                                            <LemonSkeleton className="h-12" />
+                                            <LemonSkeleton className="h-12" />
+                                            <LemonSkeleton className="h-12" />
+                                        </div>
+                                    )}
                                     {dnsRecords?.map((record: DnsRecord, index: number) => {
                                         const { subdomain, rootDomain: rootDomainSuffix } = record.parsedHostname
 
                                         return (
                                             <tr key={index} className="border-b">
-                                                <td className="py-2">{record.recordType}</td>
-                                                <td className="py-2 max-w-[8rem]">
+                                                <td className="py-2 max-w-[3rem]">{record.recordType}</td>
+                                                <td className="py-2 max-w-[20rem]">
                                                     <div className="flex gap-0 items-center break-all text-wrap">
                                                         <div className="flex gap-0 items-center bg-bg-light border border-border rounded px-1.5 py-0.5">
                                                             <span className="font-mono text-sm">{subdomain}</span>
@@ -119,7 +134,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                                     icon={<IconCopy />}
                                                                     onClick={() => {
                                                                         void navigator.clipboard.writeText(subdomain)
-                                                                        lemonToast.success('Name copied to clipboard')
+                                                                        lemonToast.success('Target copied to clipboard')
                                                                     }}
                                                                     tooltip="Copy hostname"
                                                                     className="ml-0.5 -mr-0.5"
@@ -180,13 +195,13 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 loading={verificationLoading}
                                 icon={<IconRefresh />}
                             >
-                                Check DNS records
+                                Re-check DNS records
                             </LemonButton>
                             <LemonButton
                                 type="primary"
                                 onClick={() => {
                                     loadIntegrations()
-                                    props.onComplete(integration.id)
+                                    props.onComplete(savedIntegration?.id)
                                 }}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >

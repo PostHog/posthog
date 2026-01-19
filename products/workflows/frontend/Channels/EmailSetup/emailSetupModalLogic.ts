@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -66,14 +66,27 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
-    forms(({ actions }) => ({
+    actions({
+        setSavedIntegration: (integration: IntegrationType | null) => ({ integration }),
+        verifyDomain: true,
+    }),
+    reducers({
+        savedIntegration: [
+            null as IntegrationType | null,
+            {
+                setSavedIntegration: (_, { integration }) => integration || null,
+            },
+        ],
+    }),
+    forms(({ actions, values }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
                 email: '',
                 name: '',
+                mail_from_subdomain: 'feedback',
             } as EmailSenderFormType,
-            errors: ({ email, name, provider }) => {
+            errors: ({ email, name, provider, mail_from_subdomain }) => {
                 let emailError = undefined
                 if (!email) {
                     emailError = 'Email is required'
@@ -85,6 +98,10 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     email: emailError,
                     name: !name ? 'Name is required' : undefined,
                     provider: !provider ? 'Provider is required' : undefined,
+                    mail_from_subdomain:
+                        values.savedIntegration === null && !mail_from_subdomain
+                            ? 'MAIL FROM subdomain is required for new senders'
+                            : undefined,
                 }
             },
             submit: async (config) => {
@@ -94,7 +111,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                         config: config,
                     })
                     actions.loadIntegrations()
-                    actions.setIntegration(integration)
+                    actions.setSavedIntegration(integration)
                     actions.verifyDomain()
                     return config
                 } catch (error) {
@@ -107,26 +124,23 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         },
     })),
     loaders(({ values }) => ({
-        integration: {
-            setIntegration: (integration?: IntegrationType) => integration,
-        },
         verification: {
             verifyDomain: async () => {
-                return api.integrations.verifyEmail(values.integration.id)
+                return api.integrations.verifyEmail(values.savedIntegration?.id)
             },
         },
     })),
     selectors({
         dnsRecords: [
-            (s) => [s.verification, s.integration],
+            (s) => [s.verification, s.savedIntegration],
             (
                 verification: { dnsRecords?: ApiDnsRecord[] } | null,
-                integration: IntegrationType | undefined
+                savedIntegration: IntegrationType | undefined
             ): DnsRecord[] => {
-                if (!verification?.dnsRecords || !integration) {
+                if (!verification?.dnsRecords || !savedIntegration) {
                     return []
                 }
-                const rootDomain = integration?.config?.domain || ''
+                const rootDomain = savedIntegration?.config?.domain || ''
                 return verification.dnsRecords.map((record) => ({
                     ...record,
                     parsedHostname: parseHostname(record.recordHostname, rootDomain),
@@ -160,7 +174,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     })),
     afterMount(({ props, actions }) => {
         if (props.integration) {
-            actions.setIntegration(props.integration)
+            actions.setSavedIntegration(props.integration)
             actions.setEmailSenderValues(getEmailSenderFromIntegration(props.integration))
             actions.verifyDomain()
         }
