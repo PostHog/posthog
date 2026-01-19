@@ -2,7 +2,6 @@ import { IconPlay } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { colonDelimitedDuration } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { TaskReference } from '../types'
@@ -30,10 +29,6 @@ function ReferenceItem({ reference, onClick }: { reference: TaskReference; onCli
                         {reference.start_time && (
                             <TZLabel time={reference.start_time} formatDate="MMM D" formatTime="HH:mm" />
                         )}
-                        <span className="font-mono">
-                            {colonDelimitedDuration(reference.start_time)} -{' '}
-                            {colonDelimitedDuration(reference.end_time)}
-                        </span>
                     </div>
                 </div>
             </div>
