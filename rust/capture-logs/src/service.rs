@@ -47,11 +47,41 @@ fn patch_otel_json(v: &mut Value) {
     }
 }
 
-fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
-    let mut v: Value = serde_json::from_slice(json_bytes)?;
-    patch_otel_json(&mut v);
-    let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
-    Ok(result)
+/// Parse OpenTelemetry log message from JSON bytes.
+///
+/// Supports both single JSON objects and JSONL format (JSON Lines).
+/// For JSONL, multiple ExportLogsServiceRequest objects are parsed and merged
+/// into a single request by combining their resource_logs arrays.
+pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest, anyhow::Error> {
+    let json_str = std::str::from_utf8(json_bytes)?;
+
+    // Check if this is JSONL by looking for multiple complete JSON objects
+    let lines: Vec<&str> = json_str.lines().filter(|line| !line.trim().is_empty()).collect();
+    let is_jsonl = lines.len() > 1 && lines.iter().all(|line| {
+        line.trim().starts_with('{') && line.trim().ends_with('}')
+    });
+
+    if is_jsonl {
+        // Handle JSONL format - parse each line and merge them
+        let mut merged_request = ExportLogsServiceRequest {
+            resource_logs: Vec::new(),
+        };
+
+        for line in lines {
+            let mut v: Value = serde_json::from_str(line)?;
+            patch_otel_json(&mut v);
+            let request: ExportLogsServiceRequest = serde_json::from_value(v)?;
+            merged_request.resource_logs.extend(request.resource_logs);
+        }
+
+        Ok(merged_request)
+    } else {
+        // Handle single JSON object
+        let mut v: Value = serde_json::from_slice(json_bytes)?;
+        patch_otel_json(&mut v);
+        let result: ExportLogsServiceRequest = serde_json::from_value(v)?;
+        Ok(result)
+    }
 }
 
 #[derive(Clone)]
