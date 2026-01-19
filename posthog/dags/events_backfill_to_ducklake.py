@@ -12,13 +12,28 @@ S3 path structure: s3://{bucket}/backfill/events/team_id={team_id}/year={year}/m
 This matches the DuckLake streaming partition scheme (team_id, year, month, day).
 """
 
+import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any
 
+from django.conf import settings as django_settings
+
 import duckdb
 import dagster
+import structlog
 from clickhouse_driver import Client
-from dagster import AssetExecutionContext, BackfillPolicy, Config, DailyPartitionsDefinition, asset, define_asset_job
+from clickhouse_driver.errors import Error as ClickHouseError
+from dagster import (
+    AssetExecutionContext,
+    BackfillPolicy,
+    Config,
+    DailyPartitionsDefinition,
+    PartitionedConfig,
+    asset,
+    define_asset_job,
+)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import get_cluster
@@ -34,7 +49,11 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
+logger = structlog.get_logger(__name__)
+
 MAX_PARTITIONS_PER_RUN = 1
+MAX_PARALLEL_CHUNKS = 4
+MAX_RETRY_ATTEMPTS = 3
 
 CONCURRENCY_TAG = {
     "events_ducklake_backfill_concurrency": "events_ducklake_v1",
@@ -59,8 +78,10 @@ class EventsBackfillConfig(Config):
 
     clickhouse_settings: dict[str, Any] | None = None
     team_id_chunks: int = 64
+    parallel_chunks: int = MAX_PARALLEL_CHUNKS
     skip_ducklake_registration: bool = False
     dry_run: bool = False
+    cleanup_prior_run_files: bool = True
 
 
 daily_partitions = DailyPartitionsDefinition(
@@ -146,6 +167,50 @@ class SchemaValidationError(Exception):
     pass
 
 
+def tags_for_events_partition(partition_key: str) -> dict[str, str]:
+    """Generate tags for an events backfill partition.
+
+    Uses the partition date (YYYYMM) to ensure only one concurrent export
+    per DuckLake partition. This prevents race conditions when multiple
+    backfill runs try to write to the same partition.
+    """
+    date = datetime.strptime(partition_key, "%Y-%m-%d")
+    return {
+        "events_ducklake_partition": f"dl_{date.strftime('%Y%m%d')}",
+    }
+
+
+def metabase_debug_query_url(run_id: str) -> str | None:
+    """Generate a debug URL for viewing ClickHouse query logs for this run."""
+    cloud_deployment = getattr(django_settings, "CLOUD_DEPLOYMENT", None)
+    if cloud_deployment == "US":
+        return f"https://metabase.prod-us.posthog.dev/question/1671-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
+    if cloud_deployment == "EU":
+        return f"https://metabase.prod-eu.posthog.dev/question/544-get-clickhouse-query-log-for-given-dagster-run-id?dagster_run_id={run_id}"
+    sql = f"""
+SELECT
+    hostName() as host,
+    event_time,
+    type,
+    exception IS NOT NULL and exception != '' as has_exception,
+    query_duration_ms,
+    formatReadableSize(memory_usage) as memory_used,
+    formatReadableSize(read_bytes) as data_read,
+    JSONExtractString(log_comment, 'dagster', 'run_id') AS dagster_run_id,
+    JSONExtractString(log_comment, 'dagster', 'job_name') AS dagster_job_name,
+    JSONExtractString(log_comment, 'dagster', 'asset_key') AS dagster_asset_key,
+    JSONExtractString(log_comment, 'dagster', 'op_name') AS dagster_op_name,
+    exception,
+    query
+FROM clusterAllReplicas('posthog', system.query_log)
+WHERE
+    dagster_run_id = '{run_id}'
+    AND event_date >= today() - 1
+ORDER BY event_time DESC;
+"""
+    return f"http://localhost:8123/play?user=default#{base64.b64encode(sql.encode('utf-8')).decode('utf-8')}"
+
+
 def validate_ducklake_schema(context: AssetExecutionContext) -> None:
     """Validate that the DuckLake events table schema matches our export columns.
 
@@ -176,6 +241,10 @@ def validate_ducklake_schema(context: AssetExecutionContext) -> None:
                 "These columns will be added automatically by ducklake_add_data_files if the table "
                 "supports schema evolution."
             )
+            logger.warning(
+                "ducklake_schema_mismatch",
+                missing_columns=list(missing_in_ducklake),
+            )
 
         extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
         if extra_in_ducklake:
@@ -186,6 +255,11 @@ def validate_ducklake_schema(context: AssetExecutionContext) -> None:
         context.log.info(
             f"Schema validation passed. DuckLake has {len(ducklake_columns)} columns, "
             f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+        )
+        logger.info(
+            "ducklake_schema_validation_passed",
+            ducklake_columns=len(ducklake_columns),
+            export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
         )
 
     finally:
@@ -224,6 +298,26 @@ def get_s3_path_for_partition(
         return f"https://{bucket}.s3.{region}.amazonaws.com/{filename}"
 
 
+def get_s3_prefix_for_partition(
+    bucket: str,
+    region: str,
+    date: datetime,
+    is_local: bool = False,
+) -> str:
+    """Build S3 prefix for all files in a partition date (for cleanup)."""
+    year = date.strftime("%Y")
+    month = date.strftime("%m")
+    day = date.strftime("%d")
+
+    # Prefix that matches all team_id partitions for this date
+    prefix = f"{BACKFILL_S3_PREFIX}/*/year={year}/month={month}/day={day}/"
+
+    if is_local:
+        return f"{OBJECT_STORAGE_ENDPOINT}/{bucket}/{prefix}"
+    else:
+        return f"s3://{bucket}/{prefix}"
+
+
 def get_s3_function_args(s3_path: str, is_local: bool = False) -> tuple[str, str]:
     """Build the arguments for ClickHouse s3() function.
 
@@ -236,6 +330,31 @@ def get_s3_function_args(s3_path: str, is_local: bool = False) -> tuple[str, str
     else:
         args = f"'{s3_path}', 'Parquet'"
         return args, args
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    reraise=True,
+)
+def _execute_export_with_retry(
+    client: Client,
+    export_sql: str,
+    settings: dict[str, Any],
+    chunk_info: str,
+) -> None:
+    """Execute export SQL with retry logic for transient failures."""
+    try:
+        client.execute(export_sql, settings=settings)
+    except Exception as e:
+        logger.warning(
+            "export_chunk_retry",
+            chunk_info=chunk_info,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise
 
 
 def export_events_to_s3(
@@ -280,6 +399,8 @@ def export_events_to_s3(
     SETTINGS s3_truncate_on_insert=1
     """
 
+    chunk_info = f"{team_id_chunk + 1}/{total_chunks}"
+
     if config.dry_run:
         # Log with redacted credentials
         safe_sql = f"""
@@ -290,18 +411,79 @@ def export_events_to_s3(
     WHERE {chunk_where}
     SETTINGS s3_truncate_on_insert=1
     """
-        context.log.info(f"[DRY RUN] Would export with SQL: {safe_sql[:800]}...")
+        context.log.info(f"[DRY RUN] Would export chunk {chunk_info} with SQL: {safe_sql[:800]}...")
         return []
 
-    context.log.info(f"Exporting events chunk {team_id_chunk}/{total_chunks} to {s3_path}")
+    context.log.info(f"Exporting events chunk {chunk_info} to {s3_path}")
+    logger.info(
+        "export_chunk_start",
+        chunk=team_id_chunk,
+        total_chunks=total_chunks,
+        s3_path=s3_path,
+        partition_date=partition_date.isoformat(),
+    )
 
     try:
-        client.execute(export_sql, settings=settings)
-        context.log.info(f"Successfully exported chunk {team_id_chunk}/{total_chunks}")
+        _execute_export_with_retry(client, export_sql, settings, chunk_info)
+        context.log.info(f"Successfully exported chunk {chunk_info}")
+        logger.info("export_chunk_success", chunk=team_id_chunk, total_chunks=total_chunks)
         return [s3_path]
     except Exception:
-        context.log.exception(f"Failed to export chunk {team_id_chunk}/{total_chunks}")
+        context.log.exception(f"Failed to export chunk {chunk_info} after {MAX_RETRY_ATTEMPTS} attempts")
+        logger.exception("export_chunk_failed", chunk=team_id_chunk, total_chunks=total_chunks)
         raise
+
+
+def cleanup_prior_run_files(
+    context: AssetExecutionContext,
+    partition_date: datetime,
+    current_run_id: str,
+) -> int:
+    """Clean up S3 files from prior failed runs for this partition.
+
+    This prevents orphaned files from accumulating when runs fail partway through.
+    Only deletes files that don't match the current run_id.
+
+    Returns the number of files deleted.
+    """
+    import boto3
+
+    is_local = DEBUG
+    if is_local:
+        context.log.info("Skipping cleanup in local mode")
+        return 0
+
+    bucket = get_ducklake_bucket()
+    region = get_ducklake_region()
+
+    year = partition_date.strftime("%Y")
+    month = partition_date.strftime("%m")
+    day = partition_date.strftime("%d")
+
+    s3_client = boto3.client("s3", region_name=region)
+    deleted_count = 0
+
+    # List all objects under the backfill prefix for this date
+    # We need to check each team_id partition
+    prefix = f"{BACKFILL_S3_PREFIX}/"
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            # Check if this file is for our partition date but not our run
+            if f"/year={year}/month={month}/day={day}/" in key:
+                if f"_run_{current_run_id}" not in key:
+                    context.log.info(f"Deleting orphaned file: {key}")
+                    logger.info("cleanup_orphaned_file", key=key, bucket=bucket)
+                    s3_client.delete_object(Bucket=bucket, Key=key)
+                    deleted_count += 1
+
+    if deleted_count > 0:
+        context.log.info(f"Cleaned up {deleted_count} orphaned files from prior runs")
+        logger.info("cleanup_complete", deleted_count=deleted_count, partition_date=partition_date.isoformat())
+
+    return deleted_count
 
 
 def register_files_with_ducklake(
@@ -349,15 +531,25 @@ def register_files_with_ducklake(
                 conn.execute(f"CALL ducklake_add_data_files('{alias}', 'main.events', '{escape(s3_path)}')")
                 registered_count += 1
                 context.log.info(f"Successfully registered: {s3_path}")
+                logger.info("ducklake_file_registered", s3_path=s3_path)
             except Exception:
                 context.log.exception(f"Failed to register file {s3_path}")
+                logger.exception("ducklake_file_registration_failed", s3_path=s3_path)
                 raise
 
     finally:
         conn.close()
 
     context.log.info(f"Registered {registered_count}/{len(s3_paths)} files with DuckLake")
+    logger.info("ducklake_registration_complete", registered=registered_count, total=len(s3_paths))
     return registered_count
+
+
+events_backfill_partitioned_config = PartitionedConfig(
+    partitions_def=daily_partitions,
+    run_config_for_partition_key_fn=lambda partition_key: {},
+    tags_for_partition_key_fn=tags_for_events_partition,
+)
 
 
 @asset(
@@ -371,22 +563,40 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
 
     This asset:
     1. Validates DuckLake schema compatibility before starting
-    2. Exports events for the partition date from ClickHouse to S3 as Parquet
-    3. Registers the Parquet files with DuckLake using ducklake_add_data_files
+    2. Cleans up orphaned files from prior failed runs
+    3. Exports events for the partition date from ClickHouse to S3 as Parquet
+    4. Registers the Parquet files with DuckLake using ducklake_add_data_files
 
-    Events are chunked by team_id modulo to parallelize export and keep file sizes manageable.
+    Events are chunked by team_id modulo and exported in parallel for better performance.
     """
     where_clause = get_partition_where_clause(context)
     partition_range = context.partition_key_range
     partition_range_str = f"{partition_range.start} to {partition_range.end}"
     partition_date = context.partition_time_window.start
+    run_id = context.run.run_id[:8]
 
     context.log.info(f"Config: {config}")
+    logger.info(
+        "events_backfill_start",
+        partition_range=partition_range_str,
+        run_id=run_id,
+        team_id_chunks=config.team_id_chunks,
+        parallel_chunks=config.parallel_chunks,
+    )
+
+    # Log debug query URL for observability
+    if debug_url := metabase_debug_query_url(context.run.run_id):
+        context.log.info(f"Debug query URL: {debug_url}")
 
     # Validate DuckLake schema before starting export
     if not config.dry_run and not config.skip_ducklake_registration:
         context.log.info("Validating DuckLake schema compatibility...")
         validate_ducklake_schema(context)
+
+    # Clean up orphaned files from prior failed runs
+    if config.cleanup_prior_run_files and not config.dry_run:
+        context.log.info("Cleaning up orphaned files from prior runs...")
+        cleanup_prior_run_files(context, partition_date, run_id)
 
     merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
     # Add query tagging for observability
@@ -396,11 +606,12 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         context.log.info(f"Using custom ClickHouse settings: {config.clickhouse_settings}")
 
     team_id_chunks = max(1, config.team_id_chunks)
+    parallel_chunks = min(max(1, config.parallel_chunks), team_id_chunks)
 
     context.log.info(
         f"Running events backfill for partitions {partition_range_str} "
         f"(where='{where_clause}') "
-        f"with {team_id_chunks} team_id chunks"
+        f"with {team_id_chunks} team_id chunks, {parallel_chunks} parallel"
     )
 
     cluster = get_cluster()
@@ -411,11 +622,9 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
     def run_export_on_coordinator(client: Client) -> list[str]:
         exported_paths: list[str] = []
 
-        with tags_context(kind="dagster", dagster=tags):
-            for chunk_i in range(team_id_chunks):
-                context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
-
-                paths = export_events_to_s3(
+        def export_chunk(chunk_i: int) -> list[str]:
+            with tags_context(kind="dagster", dagster=tags):
+                return export_events_to_s3(
                     context=context,
                     client=client,
                     config=config,
@@ -423,11 +632,30 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
                     team_id_chunk=chunk_i,
                     total_chunks=team_id_chunks,
                     partition_date=partition_date,
-                    run_id=context.run.run_id[:8],
+                    run_id=run_id,
                     settings=merged_settings,
                 )
-                exported_paths.extend(paths)
 
+        if parallel_chunks > 1:
+            # Parallel execution
+            context.log.info(f"Exporting {team_id_chunks} chunks with {parallel_chunks} parallel workers")
+            with ThreadPoolExecutor(max_workers=parallel_chunks) as executor:
+                futures = {executor.submit(export_chunk, i): i for i in range(team_id_chunks)}
+                for future in as_completed(futures):
+                    chunk_i = futures[future]
+                    try:
+                        paths = future.result()
+                        exported_paths.extend(paths)
+                        context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
+                    except Exception:
+                        context.log.exception(f"Chunk {chunk_i + 1}/{team_id_chunks} failed")
+                        raise
+        else:
+            # Sequential execution
+            for chunk_i in range(team_id_chunks):
+                context.log.info(f"Processing chunk {chunk_i + 1}/{team_id_chunks}")
+                paths = export_chunk(chunk_i)
+                exported_paths.extend(paths)
                 context.log.info(f"Completed chunk {chunk_i + 1}/{team_id_chunks}")
 
         return exported_paths
@@ -443,6 +671,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
     all_s3_paths.extend(result)
 
     context.log.info(f"Exported {len(all_s3_paths)} files to S3")
+    logger.info("export_complete", files_exported=len(all_s3_paths))
 
     registered_count = register_files_with_ducklake(context, all_s3_paths, config)
 
@@ -450,6 +679,7 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         {
             "partition_date": partition_range_str,
             "team_id_chunks": team_id_chunks,
+            "parallel_chunks": parallel_chunks,
             "files_exported": len(all_s3_paths),
             "files_registered": registered_count,
             "s3_paths": dagster.MetadataValue.json(all_s3_paths[:10]),
@@ -460,10 +690,17 @@ def events_ducklake_backfill(context: AssetExecutionContext, config: EventsBackf
         f"Successfully backfilled events for partitions {partition_range_str}: "
         f"{len(all_s3_paths)} files exported, {registered_count} files registered with DuckLake"
     )
+    logger.info(
+        "events_backfill_complete",
+        partition_range=partition_range_str,
+        files_exported=len(all_s3_paths),
+        files_registered=registered_count,
+    )
 
 
 events_ducklake_backfill_job = define_asset_job(
     name="events_ducklake_backfill_job",
     selection=["events_ducklake_backfill"],
+    config=events_backfill_partitioned_config,
     tags={"owner": JobOwners.TEAM_DATA_STACK.value, **CONCURRENCY_TAG},
 )
