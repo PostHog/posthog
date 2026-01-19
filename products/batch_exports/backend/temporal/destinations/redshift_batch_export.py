@@ -244,6 +244,7 @@ class RedshiftClient(PostgreSQLClient):
         final_table_fields: Fields,
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
         remove_duplicates: bool = True,
+        skip_delete: bool = False,
     ) -> None:
         """Merge two tables in Redshift.
 
@@ -363,7 +364,8 @@ class RedshiftClient(PostgreSQLClient):
                     self.logger.info("Table locked")
 
                 try:
-                    await cursor.execute(delete_query)
+                    if not skip_delete:
+                        await cursor.execute(delete_query)
                 except psycopg.errors.UndefinedFunction:
                     self.logger.exception(
                         "Query failed",
@@ -1618,6 +1620,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
                             remove_duplicates=remove_duplicates,
+                            skip_delete=isinstance(model, BatchExportModel)
+                            and model.name == "events"
+                            and str(inputs.batch_export.team_id) in settings.BATCH_EXPORT_REDSHIFT_SKIP_DELETE_TEAM_IDS,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")

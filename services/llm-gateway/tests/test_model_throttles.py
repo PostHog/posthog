@@ -24,6 +24,7 @@ def make_user(user_id: int = 1, team_id: int = 1) -> AuthenticatedUser:
         user_id=user_id,
         team_id=team_id,
         auth_method="personal_api_key",
+        distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
 

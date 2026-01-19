@@ -4,8 +4,6 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
-from hogql_parser import parse_select
-
 from posthog.schema import (
     BaseMathType,
     ChartDisplayType,
@@ -23,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 

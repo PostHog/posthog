@@ -2784,6 +2784,11 @@ class ProductIntentContext(StrEnum):
     NAV_PANEL_ADVERTISEMENT_CLICKED = "nav_panel_advertisement_clicked"
     FEATURE_PREVIEW_ENABLED = "feature_preview_enabled"
     WORKFLOW_CREATED = "workflow_created"
+    DATA_PIPELINE_CREATED = "data_pipeline_created"
+    NOTEBOOK_CREATED = "notebook_created"
+    PRODUCT_TOUR_CREATED = "product_tour_created"
+    TASK_CREATED = "task_created"
+    TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
 
 
@@ -2814,17 +2819,21 @@ class ProductKey(StrEnum):
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PERSONS = "persons"
     PIPELINE_TRANSFORMATIONS = "pipeline_transformations"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
+    PRODUCT_TOURS = "product_tours"
     REVENUE_ANALYTICS = "revenue_analytics"
     SESSION_REPLAY = "session_replay"
     SITE_APPS = "site_apps"
     SURVEYS = "surveys"
-    USER_INTERVIEWS = "user_interviews"
+    TASKS = "tasks"
     TEAMS = "teams"
+    TOOLBAR = "toolbar"
+    USER_INTERVIEWS = "user_interviews"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
@@ -5881,6 +5890,7 @@ class SessionRecordingType(BaseModel):
         default=None, description="Number of whole days left until the recording expires."
     )
     retention_period_days: float | None = Field(default=None, description="retention period for this recording")
+    snapshot_library: str | None = None
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
