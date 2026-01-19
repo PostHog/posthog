@@ -181,6 +181,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+    response["feedbackRecording"] = True if team.feedback_recording_opt_in and team.session_recording_opt_in else False
 
     # Conversations widget config
     if team.conversations_enabled:

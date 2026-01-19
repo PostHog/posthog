@@ -22,6 +22,7 @@ pub struct Team {
     pub surveys_opt_in: Option<bool>,
     pub product_tours_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
+    pub feedback_recording_opt_in: Option<bool>,
     pub conversations_enabled: Option<bool>,
     pub conversations_settings: Option<Json<serde_json::Value>>,
     pub capture_dead_clicks: Option<bool>,

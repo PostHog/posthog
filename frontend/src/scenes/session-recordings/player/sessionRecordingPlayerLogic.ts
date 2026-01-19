@@ -49,9 +49,11 @@ import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOv
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
 import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
+import { setupFeedbackAudioObserver } from './rrweb/audio/feedback-audio-observer'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { isMediaElementPlaying } from './utils/media-utils'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -151,9 +153,6 @@ const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> 
     [SessionPlayerState.SKIP_TO_MATCHING_EVENT]: 'playing',
     [SessionPlayerState.SCRUB]: 'playing',
 }
-
-const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
-    !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
 
 function removeFromLocalStorageWithPrefix(prefix: string): void {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -1239,6 +1238,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // Document already loaded or flag disabled, setup handlers immediately
                     setupErrorHandlers()
                 }
+
+                // Set up MutationObserver to detect new feedback audio elements
+                // This runs regardless of the iframe ready feature flag
+                if (iframeContentWindow?.document?.body) {
+                    cache.disposables.add(() => {
+                        const observer = setupFeedbackAudioObserver(iframeContentWindow.document.body)
+                        return () => {
+                            observer.disconnect()
+                        }
+                    }, 'feedbackAudioObserver')
+                }
             })
 
             actions.setPlayer({ replayer, windowId })
@@ -1626,6 +1636,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         restartIframePlayback: () => {
             cache.pausedMediaElements?.forEach((el: HTMLMediaElement) => el.play())
             cache.pausedMediaElements = []
+
+            // Handle feedback audio elements that should autoplay
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeDocument = iframe?.contentWindow?.document
+            if (iframeDocument) {
+                const feedbackAudioElements = Array.from(
+                    iframeDocument.querySelectorAll('audio[data-posthog-recording="true"]')
+                ) as HTMLAudioElement[]
+                feedbackAudioElements.forEach((audio) => {
+                    if (!isMediaElementPlaying(audio)) {
+                        audio.play().catch(() => {
+                            // Autoplay blocked - this is expected in many cases
+                        })
+                    }
+                })
+            }
         },
 
         exportRecordingToFile: async () => {

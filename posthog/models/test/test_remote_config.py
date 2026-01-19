@@ -1,14 +1,11 @@
 from decimal import Decimal
 from typing import Any
-
-import pytest
-from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+import pytest
 from django.core.cache import cache
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
-
 from parameterized import parameterized
 
 from posthog.models.action.action import Action
@@ -18,6 +15,7 @@ from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
 from posthog.models.surveys.survey import Survey
+from posthog.test.base import BaseTest
 
 CONFIG_REFRESH_QUERY_COUNT = 5
 
@@ -125,6 +123,32 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.save()
         self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
+
+    def test_feedback_recording_disabled_by_default(self):
+        self.sync_remote_config()
+        assert self.remote_config.config.get("feedbackRecording") is False
+
+    def test_feedback_recording_requires_both_opt_ins(self):
+        # Only feedback_recording_opt_in - should be False
+        self.team.feedback_recording_opt_in = True
+        self.team.session_recording_opt_in = False
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is False
+
+        # Only session_recording_opt_in - should be False
+        self.team.feedback_recording_opt_in = False
+        self.team.session_recording_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is False
+
+        # Both enabled - should be True
+        self.team.feedback_recording_opt_in = True
+        self.team.session_recording_opt_in = True
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["feedbackRecording"] is True
 
     def test_conversations_disabled_by_default(self):
         self.sync_remote_config()
@@ -506,6 +530,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                 "suppressionRules": [],
             },
             "heatmaps": False,
+            "feedbackRecording": False,
             "logs": {
                 "captureConsoleLogs": False,
             },

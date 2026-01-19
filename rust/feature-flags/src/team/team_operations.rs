@@ -24,6 +24,7 @@ const TEAM_COLUMNS: &str = "
     surveys_opt_in,
     product_tours_opt_in,
     heatmaps_opt_in,
+    feedback_recording_opt_in,
     conversations_enabled,
     conversations_settings,
     capture_dead_clicks,

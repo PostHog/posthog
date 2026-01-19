@@ -259,6 +259,9 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
         .product_tours_opt_in
         .unwrap_or(false)));
     response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
+    response.config.feedback_recording = Some(
+        team.feedback_recording_opt_in.unwrap_or(false) && team.session_recording_opt_in,
+    );
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
         Some(team.flags_persistence_default.unwrap_or(false));
@@ -316,6 +319,7 @@ mod tests {
             surveys_opt_in: None,
             product_tours_opt_in: None,
             heatmaps_opt_in: None,
+            feedback_recording_opt_in: None,
             conversations_enabled: None,
             conversations_settings: None,
             capture_dead_clicks: None,
