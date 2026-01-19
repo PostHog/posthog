@@ -66,13 +66,13 @@ string buildWASMError(const char* error_type, const string& message, size_t star
   Json start_json = Json::object();
   start_json["line"] = 0;
   start_json["column"] = 0;
-  start_json["index"] = start;
+  start_json["offset"] = start;
   json["start"] = start_json;
 
   Json end_json = Json::object();
   end_json["line"] = 0;
   end_json["column"] = 0;
-  end_json["index"] = end;
+  end_json["offset"] = end;
   json["end"] = end_json;
 
   return json.dump();
