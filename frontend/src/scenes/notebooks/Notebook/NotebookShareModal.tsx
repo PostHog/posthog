@@ -67,7 +67,7 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                             onClick={() => void copyToClipboard(notebookUrl, 'notebook link')}
                             title={notebookUrl}
                         >
-                            <span className="truncate">{notebookUrl}</span>
+                            <span className="truncate overflow-hidden block min-w-0">{notebookUrl}</span>
                         </LemonButton>
 
                         <LemonDivider className="my-4" />
@@ -91,7 +91,7 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                     onClick={() => void copyToClipboard(canvasUrl, 'canvas link')}
                     title={canvasUrl}
                 >
-                    <span className="truncate">{canvasUrl}</span>
+                    <span className="truncate overflow-hidden block min-w-0">{canvasUrl}</span>
                 </LemonButton>
 
                 <LemonDivider className="my-4" />
