@@ -288,7 +288,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter enabled, and changed the description on test flag'
+                'peter enabled, and changed the description test flag'
             )
         })
 
