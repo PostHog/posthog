@@ -1,4 +1,4 @@
-from django.db import IntegrityError, models
+from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
@@ -9,23 +9,21 @@ class TicketManager(models.Manager):
     def create_with_number(self, **kwargs):
         """
         Create a ticket with an auto-incrementing ticket_number.
-        Uses retry-on-conflict strategy to handle race conditions without locking.
+        Uses SELECT FOR UPDATE on Team row to serialize ticket creation per team.
         """
+        from posthog.models import Team
+
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        with transaction.atomic():
+            # Lock team row to serialize ticket creation for this team
+            Team.objects.select_for_update().get(id=team.id)
+
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
-
-            try:
-                return self.create(**kwargs)
-            except IntegrityError:
-                if attempt == max_retries - 1:
-                    raise
-                # Race condition: another ticket grabbed this number, retry
+            return self.create(**kwargs)
 
 
 class Ticket(UUIDTModel):

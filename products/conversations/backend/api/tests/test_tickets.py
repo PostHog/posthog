@@ -1,8 +1,6 @@
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -282,77 +280,8 @@ class TestTicketAPI(BaseConversationsAPITest):
             )
 
 
-class TestTicketManagerConcurrency(BaseTest):
-    def test_retry_on_single_integrity_error(self):
-        """Retry mechanism recovers when another ticket grabs the number first."""
-        original_create = Ticket.objects.create
-
-        call_count = 0
-
-        def create_with_conflict(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise IntegrityError("duplicate key value violates unique constraint")
-            return original_create(**kwargs)
-
-        with patch.object(Ticket.objects, "create", side_effect=create_with_conflict):
-            ticket = Ticket.objects.create_with_number(
-                team=self.team,
-                channel_source=Channel.WIDGET,
-                widget_session_id="test-session",
-                distinct_id="user-123",
-            )
-
-        self.assertIsNotNone(ticket)
-        self.assertEqual(call_count, 2)
-
-    def test_retry_on_two_consecutive_integrity_errors(self):
-        """Retry mechanism recovers after multiple collisions."""
-        original_create = Ticket.objects.create
-
-        call_count = 0
-
-        def create_with_conflicts(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
-                raise IntegrityError("duplicate key value violates unique constraint")
-            return original_create(**kwargs)
-
-        with patch.object(Ticket.objects, "create", side_effect=create_with_conflicts):
-            ticket = Ticket.objects.create_with_number(
-                team=self.team,
-                channel_source=Channel.WIDGET,
-                widget_session_id="test-session",
-                distinct_id="user-123",
-            )
-
-        self.assertIsNotNone(ticket)
-        self.assertEqual(call_count, 3)
-
-    def test_raises_after_max_retries(self):
-        """IntegrityError is raised after exhausting all 3 retries."""
-        call_count = 0
-
-        def always_conflict(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            raise IntegrityError("duplicate key")
-
-        with patch.object(Ticket.objects, "create", side_effect=always_conflict):
-            with self.assertRaises(IntegrityError):
-                Ticket.objects.create_with_number(
-                    team=self.team,
-                    channel_source=Channel.WIDGET,
-                    widget_session_id="test-session",
-                    distinct_id="user-123",
-                )
-
-        self.assertEqual(call_count, 3)
-
+class TestTicketManager(BaseTest):
     def test_requires_team(self):
-        """ValueError is raised when team is missing."""
         with self.assertRaises(ValueError) as ctx:
             Ticket.objects.create_with_number(
                 channel_source=Channel.WIDGET,
@@ -361,33 +290,19 @@ class TestTicketManagerConcurrency(BaseTest):
             )
         self.assertEqual(str(ctx.exception), "team is required")
 
-    def test_retry_recalculates_max_number(self):
-        """Each retry attempt re-queries for current max ticket number."""
-        Ticket.objects.create_with_number(
+    def test_auto_increments_ticket_number(self):
+        ticket1 = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
-            widget_session_id="existing-session",
-            distinct_id="existing-user",
+            widget_session_id="session-1",
+            distinct_id="user-1",
         )
-        original_create = Ticket.objects.create
-        attempted_numbers: list[int] = []
+        ticket2 = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+        )
 
-        def track_and_fail_first(**kwargs):
-            attempted_numbers.append(kwargs["ticket_number"])
-            if len(attempted_numbers) == 1:
-                # First attempt fails, simulating another process grabbed ticket_number=2
-                Ticket.objects.filter(team=self.team).update(ticket_number=2)
-                raise IntegrityError("duplicate key")
-            return original_create(**kwargs)
-
-        with patch.object(Ticket.objects, "create", side_effect=track_and_fail_first):
-            ticket = Ticket.objects.create_with_number(
-                team=self.team,
-                channel_source=Channel.WIDGET,
-                widget_session_id="test-session",
-                distinct_id="user-123",
-            )
-
-        # First attempt should have tried ticket_number=2, second attempt ticket_number=3
-        self.assertEqual(attempted_numbers, [2, 3])
-        self.assertEqual(ticket.ticket_number, 3)
+        self.assertEqual(ticket1.ticket_number, 1)
+        self.assertEqual(ticket2.ticket_number, 2)
