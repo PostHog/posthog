@@ -11,6 +11,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect, sync_connect
 
+from products.tasks.backend.temporal.cloud_session.workflow import CloudSessionInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 
 if TYPE_CHECKING:
@@ -160,3 +161,73 @@ def execute_task_processing_workflow(
         logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
     except Exception as e:
         logger.exception(f"Failed to start task processing workflow: {e}")
+
+
+def execute_cloud_session_workflow(
+    run_id: str,
+    task_id: str,
+    team_id: int,
+    repository: str,
+    github_integration_id: Optional[int] = None,
+) -> None:
+    """
+    Start the cloud session workflow synchronously. Fire-and-forget.
+    Use this when creating a cloud TaskRun to provision sandbox and start agent server.
+    """
+    try:
+        workflow_id = f"cloud-session-{run_id}"
+
+        workflow_input = CloudSessionInput(
+            run_id=run_id,
+            task_id=task_id,
+            repository=repository,
+            team_id=team_id,
+            github_integration_id=github_integration_id,
+        )
+
+        logger.info(f"Starting workflow cloud-session ({workflow_id}) for task {task_id}, run {run_id}")
+
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                "cloud-session",
+                workflow_input,
+                id=workflow_id,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.TASKS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        )
+
+        logger.info(f"Cloud session workflow started for task {task_id}, run {run_id}")
+
+    except Exception as e:
+        logger.exception(f"Failed to start cloud session workflow: {e}")
+
+
+async def send_cloud_session_heartbeat_async(run_id: str) -> bool:
+    """Send a heartbeat signal to keep the cloud session alive."""
+    workflow_id = f"cloud-session-{run_id}"
+    try:
+        client = await async_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        await handle.signal("heartbeat")
+        logger.debug(f"Heartbeat sent to cloud session {run_id}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send heartbeat to cloud session {run_id}: {e}")
+        return False
+
+
+def send_cloud_session_heartbeat(run_id: str) -> bool:
+    """Send a heartbeat signal to keep the cloud session alive (sync version)."""
+    workflow_id = f"cloud-session-{run_id}"
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.get_event_loop().run_until_complete(handle.signal("heartbeat"))
+        logger.debug(f"Heartbeat sent to cloud session {run_id}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send heartbeat to cloud session {run_id}: {e}")
+        return False
