@@ -9,7 +9,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
-import { logsLogic } from 'products/logs/frontend/logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 import { DateRangeFilter } from './DateRangeFilter'
 import { LogsFilterGroup } from './FilterGroup'
@@ -20,8 +20,8 @@ import { SeverityLevelsFilter } from './SeverityLevelsFilter'
 
 export const LogsFilterBar = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsLogic)
-    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsLogic)
+    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsSceneLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsSceneLogic)
 
     return (
         <div className="flex flex-col gap-y-1.5">

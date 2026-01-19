@@ -13,11 +13,11 @@ import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filt
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
-import { logsLogic } from './logsLogic'
+import { logsSceneLogic } from './logsSceneLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
-    logic: logsLogic,
+    logic: logsSceneLogic,
     settingSectionId: 'environment-logs',
 }
 
@@ -42,10 +42,10 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
-    } = useValues(logsLogic)
+    } = useValues(logsSceneLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
-        useActions(logsLogic)
+        useActions(logsSceneLogic)
 
     return (
         <>
