@@ -1637,7 +1637,8 @@
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
-                "ai/task_execution"
+                "ai/task_execution",
+                "ai/notice"
             ],
             "type": "string"
         },
@@ -21689,6 +21690,26 @@
             "required": ["type", "notebook_id", "content"],
             "type": "object"
         },
+        "NoticeMessage": {
+            "additionalProperties": false,
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "ai/notice",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "content"],
+            "type": "object"
+        },
         "PageURL": {
             "additionalProperties": false,
             "properties": {
@@ -28956,6 +28977,9 @@
                 },
                 {
                     "$ref": "#/definitions/FailureMessage"
+                },
+                {
+                    "$ref": "#/definitions/NoticeMessage"
                 },
                 {
                     "$ref": "#/definitions/NotebookUpdateMessage"

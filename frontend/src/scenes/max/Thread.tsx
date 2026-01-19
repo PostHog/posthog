@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import React, { useLayoutEffect, useMemo, useState } from 'react'
 
@@ -14,6 +15,7 @@ import {
     IconEye,
     IconHide,
     IconNotebook,
+    IconPlus,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -31,8 +33,10 @@ import {
     LemonInput,
     LemonSkeleton,
     Tooltip,
+    lemonToast,
 } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import {
     InsightBreakdownSummary,
     PropertiesSummary,
@@ -82,6 +86,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { NoticeAnswer } from './messages/NoticeAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
@@ -96,6 +101,7 @@ import {
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
+    isNoticeMessage,
     isVisualizationArtifactContent,
     visualizationTypeToQuery,
 } from './utils'
@@ -106,9 +112,37 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
+function SharedThreadClonePrompt({ conversationId }: { conversationId: string }): JSX.Element {
+    const [isCloning, setIsCloning] = useState(false)
+
+    const handleClone = async (): Promise<void> => {
+        setIsCloning(true)
+        try {
+            const clonedConversation = await api.conversations.clone(conversationId)
+            router.actions.push(urls.ai(clonedConversation.id))
+            lemonToast.success('Conversation cloned! You can now continue from here.')
+        } catch {
+            lemonToast.error('Failed to clone conversation')
+        } finally {
+            setIsCloning(false)
+        }
+    }
+
+    return (
+        <MessageTemplate type="ai" boxClassName="bg-surface-highlight border-primary">
+            <div className="flex flex-col gap-2">
+                <p className="m-0 text-sm">This conversation was shared with you.</p>
+                <LemonButton type="primary" size="small" onClick={handleClone} loading={isCloning} icon={<IconPlus />}>
+                    Continue this conversation
+                </LemonButton>
+            </div>
+        </MessageTemplate>
+    )
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, isSharedThread } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -252,6 +286,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             traceId={traceId}
                             initialText={ticketPromptData.initialText}
                         />
+                    )}
+                    {conversationId && isSharedThread && !streamingActive && (
+                        <SharedThreadClonePrompt conversationId={conversationId} />
                     )}
                 </>
             ) : (
@@ -584,6 +621,12 @@ function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandR
                         return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
+                    } else if (isNoticeMessage(message)) {
+                        // Don't show notice messages on shared threads
+                        if (isSharedThread) {
+                            return null
+                        }
+                        return <NoticeAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
                 })()}

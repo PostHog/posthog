@@ -450,6 +450,73 @@ SharedThread.parameters = {
     },
 }
 
+export const ThreadWithNoticeMessage: StoryFn = () => {
+    const conversationWithNoticeId = 'conversation-with-notice-123'
+
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+            [`/api/environments/:team_id/conversations/${conversationWithNoticeId}/`]: () => [
+                200,
+                {
+                    id: conversationWithNoticeId,
+                    status: 'idle',
+                    title: 'My analysis (cloned by others)',
+                    created_at: '2025-01-10T08:00:00.000000Z',
+                    updated_at: '2025-01-19T09:00:00.000000Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
+                    messages: [
+                        {
+                            id: 'msg-1',
+                            content: 'Show me our weekly active users trend',
+                            type: 'human',
+                            created_at: '2025-01-10T08:00:00.000000Z',
+                        },
+                        {
+                            id: 'msg-2',
+                            content:
+                                'Here is your weekly active users trend for the past 3 months. The data shows steady growth with a 15% increase month over month.',
+                            type: 'ai',
+                            created_at: '2025-01-10T08:01:00.000000Z',
+                        },
+                        {
+                            id: 'notice-1',
+                            content: 'Messages beyond this point are only visible to you',
+                            type: 'ai/notice',
+                        },
+                        {
+                            id: 'msg-3',
+                            content: 'Can you break this down by region?',
+                            type: 'human',
+                            created_at: '2025-01-19T09:00:00.000000Z',
+                        },
+                        {
+                            id: 'msg-4',
+                            content:
+                                "Here's the regional breakdown:\n\n- **North America**: 45% of WAU, +18% growth\n- **Europe**: 30% of WAU, +12% growth\n- **Asia Pacific**: 20% of WAU, +25% growth\n- **Other**: 5% of WAU, +8% growth\n\nAsia Pacific is showing the fastest growth rate.",
+                            type: 'ai',
+                            created_at: '2025-01-19T09:01:00.000000Z',
+                        },
+                    ],
+                },
+            ],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+
+    useEffect(() => {
+        setConversationId(conversationWithNoticeId)
+    }, [setConversationId])
+
+    return <Template />
+}
+ThreadWithNoticeMessage.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
 export const ThreadWithInProgressConversation: StoryFn = () => {
     useStorybookMocks({
         get: {

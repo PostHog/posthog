@@ -19,7 +19,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
+from posthog.schema import (
+    AgentMode,
+    AssistantMessage,
+    AssistantMessageType,
+    HumanMessage,
+    MaxBillingContext,
+    NoticeMessage,
+)
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
@@ -40,7 +47,7 @@ from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
-from ee.hogai.utils.types import PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, PartialAssistantState
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -120,8 +127,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
-        if self.action != "retrieve":
+        # Only single retrieval or cloning of a specific conversation is allowed for other users' conversations (if ID known)
+        if self.action not in ("retrieve", "clone"):
             queryset = queryset.filter(user=self.request.user)
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
@@ -319,3 +326,86 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response({"error": "Failed to append message"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response({"id": message.id}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["POST"], url_path="clone")
+    def clone(self, request: Request, *args, **kwargs):
+        """
+        Clone a shared conversation to allow the recipient to continue from there.
+        """
+        original_conversation = self.get_object()
+
+        # Cannot clone your own conversation
+        if original_conversation.user == request.user:
+            return Response(
+                {"error": "Cannot clone your own conversation"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        async def clone_conversation():
+            user = cast(User, request.user)
+            original_owner = cast(User, original_conversation.user)
+
+            # Get the original conversation's state (using original owner's context)
+            graph = AssistantGraph(self.team, original_owner).compile_full_graph()
+            config = {"configurable": {"thread_id": str(original_conversation.id), "checkpoint_ns": ""}}
+            original_state = await graph.aget_state(config)
+
+            if not original_state.values:
+                raise ValueError("Original conversation has no state")
+
+            # Create new conversation for the cloning user
+            new_conversation = await Conversation.objects.acreate(
+                user=user,
+                team=self.team,
+                type=original_conversation.type,
+                title=f"Copy of: {original_conversation.title or 'Untitled'}",
+            )
+
+            # Filter out any existing notice messages from the original state
+            original_messages = original_state.values.get("messages", [])
+            filtered_messages = [
+                msg
+                for msg in original_messages
+                if not (hasattr(msg, "type") and msg.type == AssistantMessageType.AI_NOTICE)
+            ]
+
+            # Copy state to new conversation
+            new_config = {"configurable": {"thread_id": str(new_conversation.id), "checkpoint_ns": ""}}
+            new_graph = AssistantGraph(self.team, user).compile_full_graph()
+            await new_graph.aupdate_state(
+                new_config,
+                PartialAssistantState(messages=filtered_messages),
+                as_node=AssistantNodeName.ROOT,
+            )
+
+            # Add notice message to original conversation if it doesn't already have one
+            if original_messages and original_messages[-1].type != AssistantMessageType.AI_NOTICE:
+                notice_message = NoticeMessage(
+                    content="Messages beyond this point are only visible to you",
+                    id=str(uuid.uuid4()),
+                )
+                await graph.aupdate_state(
+                    config,
+                    PartialAssistantState(messages=[notice_message]),
+                    as_node=AssistantNodeName.ROOT,
+                )
+
+            return new_conversation
+
+        try:
+            new_conversation = asgi_async_to_sync(clone_conversation)()
+        except ValueError as e:
+            logger.warning("Cannot clone conversation", conversation_id=original_conversation.id, error=str(e))
+            return Response(
+                {"error": "Cannot clone this conversation"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.exception("Failed to clone conversation", conversation_id=original_conversation.id, error=str(e))
+            return Response(
+                {"error": "Failed to clone conversation"},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        serializer = ConversationSerializer(new_conversation, context=self.get_serializer_context())
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

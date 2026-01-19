@@ -4927,6 +4927,10 @@ const api = {
                 .withAction('append_message')
                 .create({ data: { content } })
         },
+
+        clone(conversationId: string): Promise<ConversationDetail> {
+            return new ApiRequest().conversation(conversationId).withAction('clone').create()
+        },
     },
 
     datasets: {

@@ -219,6 +219,7 @@ class AssistantMessageType(StrEnum):
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
     AI_TASK_EXECUTION = "ai/task_execution"
+    AI_NOTICE = "ai/notice"
 
 
 class AssistantNavigateUrl(StrEnum):
@@ -2620,6 +2621,16 @@ class NodeKind(StrEnum):
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     SOURCE = "Source"
     CAMPAIGN = "Campaign"
+
+
+class NoticeMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["ai/notice"] = "ai/notice"
 
 
 class PageURL(BaseModel):
@@ -17838,6 +17849,7 @@ class RootAssistantMessage(
         | AssistantMessage
         | HumanMessage
         | FailureMessage
+        | NoticeMessage
         | NotebookUpdateMessage
         | PlanningMessage
         | TaskExecutionMessage
@@ -17852,6 +17864,7 @@ class RootAssistantMessage(
         | AssistantMessage
         | HumanMessage
         | FailureMessage
+        | NoticeMessage
         | NotebookUpdateMessage
         | PlanningMessage
         | TaskExecutionMessage
