@@ -1083,8 +1083,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         for result in response.results:
             assert result["count"] == 0
-            assert len(result["data"]) == 2
-            assert len(result["days"]) == 2
+            assert len(result["data"]) == 3
+            assert len(result["days"]) == 3
 
     def test_formula_with_multi_cohort_all_breakdown(self):
         self._create_test_events()
