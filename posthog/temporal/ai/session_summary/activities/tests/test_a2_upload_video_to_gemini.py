@@ -1,0 +1,295 @@
+"""
+Tests for Activity 2: upload_video_to_gemini_activity
+
+This activity uploads the exported video to Gemini Files API for analysis.
+"""
+
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from posthog.models import Team
+from posthog.models.exported_asset import ExportedAsset
+from posthog.models.user import User
+from posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini import (
+    MAX_PROCESSING_WAIT_SECONDS,
+    upload_video_to_gemini_activity,
+)
+
+from ee.hogai.session_summaries.constants import DEFAULT_VIDEO_EXPORT_MIME_TYPE
+
+pytestmark = pytest.mark.django_db
+
+
+class TestUploadVideoToGeminiActivity:
+    @pytest.mark.asyncio
+    async def test_upload_video_to_gemini_success(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_exported_asset: ExportedAsset,
+        mock_gemini_file_response: MagicMock,
+    ):
+        """Test successful video upload to Gemini."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = mock_gemini_file_response
+        mock_client.files.get.return_value = mock_gemini_file_response
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                return_value=120,
+            ),
+        ):
+            result = await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
+
+            assert result["uploaded_video"].file_uri == mock_gemini_file_response.uri
+            assert result["uploaded_video"].mime_type == DEFAULT_VIDEO_EXPORT_MIME_TYPE
+            assert result["uploaded_video"].duration == 120
+            assert result["team_name"] == ateam.name
+
+            mock_client.files.upload.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_upload_video_from_object_storage(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_gemini_file_response: MagicMock,
+        mock_video_bytes: bytes,
+    ):
+        """Test video upload when content is in object storage instead of content field."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        # Create asset with content_location instead of content
+        asset = await ExportedAsset.objects.acreate(
+            team_id=ateam.id,
+            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            export_context={"session_recording_id": mock_video_session_id},
+            created_by_id=auser.id,
+            created_at=datetime.now(UTC),
+            expires_after=datetime.now(UTC) + timedelta(days=7),
+            content=None,
+            content_location="s3://bucket/path/to/video.mp4",
+        )
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = mock_gemini_file_response
+        mock_client.files.get.return_value = mock_gemini_file_response
+
+        try:
+            with (
+                patch(
+                    "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                    return_value=mock_client,
+                ),
+                patch(
+                    "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.object_storage.read_bytes",
+                    return_value=mock_video_bytes,
+                ),
+                patch(
+                    "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                    return_value=120,
+                ),
+            ):
+                result = await upload_video_to_gemini_activity(inputs, asset.id)
+
+                assert result["uploaded_video"].file_uri == mock_gemini_file_response.uri
+        finally:
+            await asset.adelete()
+
+    @pytest.mark.asyncio
+    async def test_upload_video_polling_until_active(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_exported_asset: ExportedAsset,
+        mock_gemini_processing_file_response: MagicMock,
+        mock_gemini_file_response: MagicMock,
+    ):
+        """Test that upload polls until file state becomes ACTIVE."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = mock_gemini_processing_file_response
+        # Simulate processing then active
+        mock_client.files.get.side_effect = [
+            mock_gemini_processing_file_response,  # First poll: still processing
+            mock_gemini_file_response,  # Second poll: active
+        ]
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                return_value=120,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.asyncio.sleep"
+            ) as mock_sleep,
+        ):
+            result = await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
+
+            assert result["uploaded_video"].file_uri == mock_gemini_file_response.uri
+            # Should have called sleep while waiting for processing
+            assert mock_sleep.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_upload_video_processing_timeout(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_exported_asset: ExportedAsset,
+        mock_gemini_processing_file_response: MagicMock,
+    ):
+        """Test that upload raises error after processing timeout."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = mock_gemini_processing_file_response
+        mock_client.files.get.return_value = mock_gemini_processing_file_response  # Always processing
+
+        # Counter to track time.time() calls and simulate passage of time
+        call_count = 0
+
+        def mock_time_func():
+            nonlocal call_count
+            call_count += 1
+            # First call: start time (0), subsequent calls: past timeout
+            if call_count == 1:
+                return 0
+            return MAX_PROCESSING_WAIT_SECONDS + 1
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                return_value=120,
+            ),
+            patch("posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.asyncio.sleep"),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.time.time",
+                side_effect=mock_time_func,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="File processing timed out"):
+                await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
+
+    @pytest.mark.asyncio
+    async def test_upload_video_processing_failed(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_exported_asset: ExportedAsset,
+    ):
+        """Test that upload raises error when Gemini file processing fails."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        failed_file = MagicMock()
+        failed_file.name = "files/abc123"
+        failed_file.state = MagicMock()
+        failed_file.state.name = "FAILED"
+        failed_file.uri = None
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = failed_file
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                return_value=120,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="File processing failed"):
+                await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
+
+    @pytest.mark.asyncio
+    async def test_upload_video_no_content_raises_error(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+    ):
+        """Test that missing video content raises ValueError."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        # Create asset with no content
+        asset = await ExportedAsset.objects.acreate(
+            team_id=ateam.id,
+            export_format=DEFAULT_VIDEO_EXPORT_MIME_TYPE,
+            export_context={"session_recording_id": mock_video_session_id},
+            created_by_id=auser.id,
+            created_at=datetime.now(UTC),
+            expires_after=datetime.now(UTC) + timedelta(days=7),
+            content=None,
+            content_location=None,
+        )
+
+        try:
+            with pytest.raises(ValueError, match="No video content found"):
+                await upload_video_to_gemini_activity(inputs, asset.id)
+        finally:
+            await asset.adelete()
+
+    @pytest.mark.asyncio
+    async def test_upload_video_no_uri_raises_error(
+        self,
+        ateam: Team,
+        auser: User,
+        mock_video_session_id: str,
+        mock_video_summary_inputs_factory: Callable,
+        mock_exported_asset: ExportedAsset,
+    ):
+        """Test that missing URI in response raises RuntimeError."""
+        inputs = mock_video_summary_inputs_factory(mock_video_session_id, ateam.id, auser.id)
+
+        active_but_no_uri = MagicMock()
+        active_but_no_uri.name = "files/abc123"
+        active_but_no_uri.state = MagicMock()
+        active_but_no_uri.state.name = "ACTIVE"
+        active_but_no_uri.uri = None  # No URI
+
+        mock_client = MagicMock()
+        mock_client.files.upload.return_value = active_but_no_uri
+
+        with (
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.RawGenAIClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "posthog.temporal.ai.session_summary.activities.a2_upload_video_to_gemini.get_video_duration_s",
+                return_value=120,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Uploaded file has no URI"):
+                await upload_video_to_gemini_activity(inputs, mock_exported_asset.id)
