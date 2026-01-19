@@ -12,6 +12,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { AnyPropertyFilter } from '~/types'
 
+import { WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST } from './constants'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 /**
@@ -22,38 +23,8 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
  * This allows the component to be reused in Product Analytics insights.
  */
 
-export interface WebPropertyFiltersProps {
-    webAnalyticsFilters?: AnyPropertyFilter[]
-    setWebAnalyticsFilters?: (filters: AnyPropertyFilter[]) => void
-}
-
-export const WEB_ANALYTICS_PROPERTY_ALLOW_LIST = {
-    [TaxonomicFilterGroupType.EventProperties]: [
-        '$host',
-        '$device_type',
-        '$browser',
-        '$os',
-        '$referring_domain',
-        '$geoip_country_code',
-        '$geoip_city_name',
-        '$geoip_subdivision_1_code',
-        '$geoip_subdivision_1_name',
-        '$geoip_time_zone',
-        '$pathname',
-        'metadata.loggedIn',
-        'metadata.backend',
-    ],
-    [TaxonomicFilterGroupType.SessionProperties]: [
-        '$entry_pathname',
-        '$end_pathname',
-        '$entry_utm_source',
-        '$entry_utm_medium',
-        '$entry_utm_campaign',
-        '$entry_utm_term',
-        '$entry_utm_content',
-        '$channel_type',
-    ],
-}
+// Re-export for backward compatibility
+export const WEB_ANALYTICS_PROPERTY_ALLOW_LIST = WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST
 
 export const getWebAnalyticsTaxonomicGroupTypes = (preAggregatedEnabled: boolean): TaxonomicFilterGroupType[] => [
     TaxonomicFilterGroupType.EventProperties,
@@ -61,12 +32,21 @@ export const getWebAnalyticsTaxonomicGroupTypes = (preAggregatedEnabled: boolean
     ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
 ]
 
+export interface WebPropertyFiltersProps {
+    webAnalyticsFilters?: AnyPropertyFilter[]
+    setWebAnalyticsFilters?: (filters: AnyPropertyFilter[]) => void
+}
+
 export const WebPropertyFilters = ({
     webAnalyticsFilters: propsFilters,
     setWebAnalyticsFilters: propsSetFilters,
 }: WebPropertyFiltersProps = {}): JSX.Element => {
     // Always call hooks unconditionally (React Rules of Hooks)
-    const { rawWebAnalyticsFilters = [], preAggregatedEnabled = false } = useValues(webAnalyticsLogic)
+    const {
+        rawWebAnalyticsFilters = [],
+        preAggregatedEnabled = false,
+        hasIncompatibleFilters = false,
+    } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters: logicSetFilters } = useActions(webAnalyticsLogic)
 
     const webAnalyticsFilters = propsFilters ?? rawWebAnalyticsFilters
@@ -80,8 +60,11 @@ export const WebPropertyFilters = ({
         ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
     ]
 
-    // Keep in sync with posthog/hogql_queries/web_analytics/stats_table_pre_aggregated.py
-    const webAnalyticsPropertyAllowList = preAggregatedEnabled ? WEB_ANALYTICS_PROPERTY_ALLOW_LIST : undefined
+    const webAnalyticsPropertyAllowList = preAggregatedEnabled
+        ? (WEB_ANALYTICS_PRE_AGGREGATED_PROPERTY_ALLOW_LIST as unknown as {
+              [key: string]: string[]
+          })
+        : undefined
 
     return (
         <Popover
@@ -105,19 +88,24 @@ export const WebPropertyFilters = ({
                 </div>
             }
         >
-            <LemonButton
-                icon={
-                    <IconWithCount count={webAnalyticsFilters.length} showZero={false}>
-                        <IconFilter />
-                    </IconWithCount>
-                }
-                type="secondary"
-                data-attr="show-web-analytics-filters"
-                onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
-                size="small"
-            >
-                Filters
-            </LemonButton>
+            <div className="relative">
+                <LemonButton
+                    icon={
+                        <IconWithCount count={webAnalyticsFilters.length} showZero={false}>
+                            <IconFilter />
+                        </IconWithCount>
+                    }
+                    type="secondary"
+                    data-attr="show-web-analytics-filters"
+                    onClick={() => setDisplayFilters((displayFilters) => !displayFilters)}
+                    size="small"
+                >
+                    Filters
+                </LemonButton>
+                {hasIncompatibleFilters && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-warning rounded-full animate-pulse" />
+                )}
+            </div>
         </Popover>
     )
 }

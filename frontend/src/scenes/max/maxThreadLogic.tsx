@@ -37,6 +37,7 @@ import {
     AgentMode,
     ApprovalDecisionStatus,
     AssistantEventType,
+    AssistantForm,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
@@ -1239,24 +1240,32 @@ function enhanceThreadToolCalls(
 
     // Find the last human message to determine the final group
     let lastHumanMessageIndex = -1
-    for (let i = group.length - 1; i >= 0; i--) {
-        if (isHumanMessage(group[i])) {
-            lastHumanMessageIndex = i
-            break
-        }
-    }
-
     // Find the last AssistantMessage that has todo_write tool calls (planning)
     let lastPlanningMessageId: string | undefined
     for (let i = group.length - 1; i >= 0; i--) {
         const message = group[i]
+        const previousMessage = i > 0 ? group[i - 1] : null
+        if (lastHumanMessageIndex === -1 && isHumanMessage(message)) {
+            lastHumanMessageIndex = i
+        }
         if (
+            !lastPlanningMessageId &&
             isAssistantMessage(message) &&
             message.tool_calls &&
             message.tool_calls.some((tc) => tc.name === 'todo_write')
         ) {
             lastPlanningMessageId = message.id
             break
+        }
+        if (previousMessage && isAssistantMessage(message) && isAssistantMessage(previousMessage)) {
+            const formCarriedOverFromPreviousMessage = getFormToCarryOverFromPreviousMessage(previousMessage)
+            if (formCarriedOverFromPreviousMessage) {
+                // This is safe to do in place, as we're iterating backwards, so we always know previousMessage is untouched
+                message.meta = {
+                    ...message.meta,
+                    form: formCarriedOverFromPreviousMessage,
+                }
+            }
         }
     }
 
@@ -1440,4 +1449,22 @@ function updateMessagesWithCompletedStatus(thread: RootAssistantMessage[]): Thre
         ...message,
         status: 'completed',
     }))
+}
+
+/**
+ * Check if a message has a session summary form (with "Open report" button).
+ * Used to show the button on the message following a session summarization result.
+ * This way, the "Open report" shows up both with the actual tool result AND below the message summarizing the report
+ * (which can be quite long).
+ */
+function getFormToCarryOverFromPreviousMessage(message: ThreadMessage): AssistantForm | null {
+    if (!isAssistantMessage(message) || !message.meta?.form?.options) {
+        return null
+    }
+
+    // Check if any option has an href to session-summaries
+    const hasSessionSummaryLink = message.meta.form.options.some((option) =>
+        option.href?.startsWith('/session-summaries/')
+    )
+    return hasSessionSummaryLink ? message.meta.form : null
 }

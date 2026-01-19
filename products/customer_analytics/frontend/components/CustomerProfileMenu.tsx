@@ -38,7 +38,7 @@ export function CustomerProfileMenu(): JSX.Element | null {
     }
 
     return (
-        <>
+        <div className="flex flex-row items-center">
             <LemonMenu items={items} closeOnClickInside={false}>
                 <LemonButton type="secondary" icon={<IconGear />} children="Edit profile" sideIcon={null} />
             </LemonMenu>
@@ -60,6 +60,6 @@ export function CustomerProfileMenu(): JSX.Element | null {
                     />
                 </>
             )}
-        </>
+        </div>
     )
 }

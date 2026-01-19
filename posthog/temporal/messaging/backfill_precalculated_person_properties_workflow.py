@@ -1,3 +1,4 @@
+import json
 import time
 import asyncio
 import datetime as dt
@@ -19,6 +20,28 @@ from posthog.temporal.common.logger import get_logger
 from common.hogvm.python.execute import execute_bytecode
 
 LOGGER = get_logger(__name__)
+
+
+def parse_person_properties(properties_raw: Any, person_id: str) -> dict[str, Any]:
+    """Parse person properties from ClickHouse, handling both string and dict formats.
+
+    Args:
+        properties_raw: The raw properties value from ClickHouse (can be string, dict, or None)
+        person_id: The person ID for logging purposes
+
+    Returns:
+        A dictionary of person properties (empty dict if parsing fails or non-dict value)
+    """
+    if isinstance(properties_raw, str):
+        try:
+            parsed = json.loads(properties_raw)
+            # Ensure we only return dicts (handles null, numbers, arrays, etc.)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            LOGGER.warning("Failed to parse properties for person", person_id=person_id)
+            return {}
+    else:
+        return properties_raw if isinstance(properties_raw, dict) else {}
 
 
 def get_person_properties_backfill_success_metric():
@@ -160,7 +183,8 @@ async def backfill_precalculated_person_properties_activity(
                     async for row in client.stream_query_as_jsonl(persons_query, query_parameters=query_params):
                         batch_count += 1
                         person_id = str(row["person_id"])
-                        person_properties = row.get("properties") or {}
+
+                        person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
                         for filter_info in inputs.filters:

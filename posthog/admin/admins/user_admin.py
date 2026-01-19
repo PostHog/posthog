@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
 from posthog.admin.inlines.personal_api_key_inline import PersonalAPIKeyInline
 from posthog.admin.inlines.totp_device_inline import TOTPDeviceInline
+from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
 from posthog.models import User
@@ -48,7 +49,7 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "admin/posthog/user/change_form.html"
 
-    inlines = [OrganizationMemberInline, PersonalAPIKeyInline, TOTPDeviceInline]
+    inlines = [OrganizationMemberInline, PersonalAPIKeyInline, TOTPDeviceInline, UserSocialAuthInline]
     fieldsets = (
         (
             None,

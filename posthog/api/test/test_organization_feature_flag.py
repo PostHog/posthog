@@ -79,6 +79,42 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_get_feature_flag_filters_inaccessible_teams(self):
+        """Test that flags from teams the user cannot access are not returned."""
+        from posthog.constants import AvailableFeature
+
+        # Enable advanced permissions for the organization
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+            }
+        ]
+        self.organization.save()
+
+        # Import AccessControl for setting up private team
+        from ee.models.rbac.access_control import AccessControl
+
+        # Make team_2 private by setting default access to "none"
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="project",
+            resource_id=str(self.team_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should only return flag from team_1, not team_2 (which is now private)
+        response_data = response.json()
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def setUp(self):
@@ -440,6 +476,45 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_copy_feature_flag_to_inaccessible_team_fails(self):
+        """Test that copying a flag to a team the user cannot access fails."""
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Enable advanced permissions for the organization
+        self.organization.available_product_features = [
+            {
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+            }
+        ]
+        self.organization.save()
+
+        # Make team_2 private by setting default access to "none"
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="project",
+            resource_id=str(self.team_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_key,
+            "from_project": self.team_1.id,
+            "target_project_ids": [self.team_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 0)
+        self.assertEqual(len(response.json()["failed"]), 1)
+        self.assertEqual(response.json()["failed"][0]["project_id"], self.team_2.id)
+        self.assertEqual(response.json()["failed"][0]["errors"], "Project not found.")
 
     def test_copy_feature_flag_cohort_nonexistent_in_destination(self):
         cohorts = {}

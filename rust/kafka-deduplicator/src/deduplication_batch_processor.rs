@@ -1092,7 +1092,7 @@ mod tests {
         };
 
         // Create a batch of new events
-        let events = vec![
+        let events = [
             create_test_raw_event(
                 Some(Uuid::new_v4()),
                 "event1",
@@ -1142,7 +1142,7 @@ mod tests {
         let uuid2 = Uuid::new_v4();
 
         // First batch - all new
-        let batch1 = vec![
+        let batch1 = [
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid2), "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1156,7 +1156,7 @@ mod tests {
         assert!(matches!(results1[1], DeduplicationResult::New));
 
         // Second batch - same events (timestamp duplicates)
-        let batch2 = vec![
+        let batch2 = [
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid2), "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1186,7 +1186,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         // First batch - new event
-        let batch1 = vec![create_test_raw_event(
+        let batch1 = [create_test_raw_event(
             Some(uuid),
             "event1",
             "user1",
@@ -1200,7 +1200,7 @@ mod tests {
         assert!(matches!(results1[0], DeduplicationResult::New));
 
         // Second batch - same UUID, different timestamp (UUID duplicate)
-        let batch2 = vec![create_test_raw_event(
+        let batch2 = [create_test_raw_event(
             Some(uuid),
             "event1",
             "user1",
@@ -1238,7 +1238,7 @@ mod tests {
         let uuid2 = Uuid::new_v4();
 
         // First batch - establish baseline
-        let batch1 = vec![create_test_raw_event(
+        let batch1 = [create_test_raw_event(
             Some(uuid1),
             "event1",
             "user1",
@@ -1252,7 +1252,7 @@ mod tests {
         assert!(matches!(results1[0], DeduplicationResult::New));
 
         // Second batch - mix of new and duplicate
-        let batch2 = vec![
+        let batch2 = [
             // Exact duplicate (timestamp)
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             // New event
@@ -1288,7 +1288,7 @@ mod tests {
         };
 
         // First batch - events without UUIDs
-        let batch1 = vec![
+        let batch1 = [
             create_test_raw_event(None, "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(None, "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1302,7 +1302,7 @@ mod tests {
         assert!(matches!(results1[1], DeduplicationResult::New));
 
         // Second batch - duplicate events (only timestamp-based dedup)
-        let batch2 = vec![create_test_raw_event(
+        let batch2 = [create_test_raw_event(
             None,
             "event1",
             "user1",
@@ -1391,7 +1391,7 @@ mod tests {
         let uuid1 = Uuid::new_v4();
 
         // First event
-        let batch1 = vec![create_test_raw_event(
+        let batch1 = [create_test_raw_event(
             Some(uuid1),
             "event1",
             "user1",
@@ -1405,7 +1405,7 @@ mod tests {
 
         // Same event with different UUID
         let uuid2 = Uuid::new_v4();
-        let batch2 = vec![create_test_raw_event(
+        let batch2 = [create_test_raw_event(
             Some(uuid2),
             "event1",
             "user1",
@@ -1444,7 +1444,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         // Batch with duplicate events within the same batch
-        let batch = vec![
+        let batch = [
             create_test_raw_event(Some(uuid), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid), "event1", "user1", "2024-01-01T00:00:00Z"),
         ];

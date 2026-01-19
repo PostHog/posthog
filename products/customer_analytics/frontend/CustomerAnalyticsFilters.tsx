@@ -8,6 +8,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { formatDateRange } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -81,7 +82,6 @@ export function CustomerAnalyticsFilters(): JSX.Element {
     const {
         businessType,
         dateFilter: { dateTo, dateFrom },
-        groupsEnabled,
         groupOptions,
         selectedGroupType,
     } = useValues(customerAnalyticsSceneLogic)
@@ -90,8 +90,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
     const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateFilterApplied } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
-    // TODO: Add CTA for cross sell
-    const b2bDisabledReason = groupsEnabled ? '' : 'Group analytics add-on is not enabled'
+    const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
 
     return (
         <FilterBar
@@ -119,7 +118,6 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                                 label: 'B2B',
                                 value: 'b2b',
                                 'data-attr': 'customer-analytics-b2b',
-                                disabledReason: b2bDisabledReason,
                             },
                         ]}
                         value={businessType}
@@ -132,7 +130,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                             })
                         }}
                     />
-                    {businessType === 'b2b' && (
+                    {businessType === 'b2b' && !shouldShowGroupsIntroduction && (
                         <LemonSelect
                             size="small"
                             data-attr="customer-analytics-group-type"
