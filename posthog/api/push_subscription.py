@@ -214,11 +214,6 @@ def sdk_push_subscription_register(request: HttpRequest):
         platform=platform_enum,
     )
 
-    if not subscription.is_active or subscription.disabled_reason:
-        subscription.is_active = True
-        subscription.disabled_reason = None
-        subscription.save(update_fields=["is_active", "disabled_reason"])
-
     logger.info(
         "push_subscription_registered",
         team_id=team.id,
