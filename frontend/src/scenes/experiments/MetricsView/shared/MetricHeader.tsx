@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPencil, IconPlusSmall } from '@posthog/icons'
+import { IconCopy, IconPencil, IconStack } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -13,7 +13,7 @@ import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
-import type { EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
@@ -39,7 +39,7 @@ const AddBreakdownButton = ({
     onChange,
 }: {
     experiment: Experiment
-    onChange: (breakdown: { type: string; property: any }) => void
+    onChange: (breakdown: Breakdown) => void
 }): JSX.Element | null => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
@@ -64,26 +64,18 @@ const AddBreakdownButton = ({
             overlay={
                 <TaxonomicFilter
                     onChange={(_, value) => {
-                        onChange({ type: 'event', property: value })
+                        onChange({ type: 'event', property: value?.toString() || '' })
                         setDropdownOpen(false)
                     }}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                    ]}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                     metadataSource={metadataSource}
                 />
             }
             visible={dropdownOpen}
             onClickOutside={() => setDropdownOpen(false)}
         >
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                icon={<IconPlusSmall />}
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-            >
-                Add breakdown
+            <LemonButton type="secondary" size="xsmall" onClick={() => setDropdownOpen(!dropdownOpen)}>
+                <IconStack />
             </LemonButton>
         </LemonDropdown>
     )
@@ -96,6 +88,7 @@ export const MetricHeader = ({
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
+    onBreakdownChange,
 }: {
     displayOrder?: number
     metric: any
@@ -103,17 +96,12 @@ export const MetricHeader = ({
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
+    onBreakdownChange: (breakdown: Breakdown) => void
 }): JSX.Element => {
     const showBreakdownFilter = useFeatureFlag('EXPERIMENTS_BREAKDOWN_FILTER')
 
     /**
-     * This is a bit overkill, since primary and secondary metric dialogs are
-     * identical.
-     * Also, it's not the responsibility of this component to understand
-     * the difference between primary and secondary metrics.
-     * For this component, primary and secondary are identical,
-     * except for which modal to open.
-     * The openModal function has to be provided as a dependency.
+     * This is necessary for legacy experiments support
      */
     const {
         openPrimaryMetricModal,
@@ -225,6 +213,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {metric.goal === 'decrease' && (
+                        <LemonTag type="highlight" size="small">
+                            Goal: Decrease
+                        </LemonTag>
+                    )}
                     {metric.isSharedMetric && (
                         <LemonTag type="option" size="small">
                             Shared
@@ -232,20 +225,9 @@ export const MetricHeader = ({
                     )}
                 </div>
             </div>
-            {showBreakdownFilter && (
+            {showBreakdownFilter && (metric.breakdownFilter?.breakdowns || []).length < 3 && (
                 <div className="flex justify-end items-end">
-                    <AddBreakdownButton
-                        experiment={experiment}
-                        onChange={(breakdown) => {
-                            /**
-                             * TODO: Handle the breakdown selection
-                             * this is to please the eslint gods
-                             */
-                            if (breakdown) {
-                                return
-                            }
-                        }}
-                    />
+                    <AddBreakdownButton experiment={experiment} onChange={onBreakdownChange} />
                 </div>
             )}
         </div>

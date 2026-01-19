@@ -3,114 +3,117 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
-import { availableOnboardingProducts } from 'scenes/onboarding/utils'
-import { getProductIcon } from 'scenes/products/Products'
+import { addProductIntent } from 'lib/utils/product-intents'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey, SidePanelTab } from '~/types'
+import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { getTreeItemsProducts } from '~/products'
+import {
+    FileSystemImport,
+    ProductIntentContext,
+    ProductKey,
+    UserProductListItem,
+    UserProductListReason,
+} from '~/queries/schema/schema-general'
 
-import { FlaggedFeature } from '../FlaggedFeature'
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-
-type Payload = {
-    product_key: string
-    header?: string
-    text?: string
-    docs_link?: string
-    app_link?: string
-    product_info_link?: string
-}
+import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'
 
 export function NavPanelAdvertisement(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const logic = navPanelAdvertisementRecommendedLogic()
+    const { oldestRecommendedProduct } = useValues(logic)
+    const { pinnedFolder } = useValues(pinnedFolderLogic)
+    const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
-    if (featureFlags[FEATURE_FLAGS.TARGETED_PRODUCT_UPSELL] === 'control') {
+    // Only show when custom-products:// sidebar is active and not collapsed
+    if (pinnedFolder !== 'custom-products://' || isLayoutNavCollapsed) {
         return null
     }
 
-    return (
-        <FlaggedFeature
-            flag={FEATURE_FLAGS.TARGETED_PRODUCT_UPSELL}
-            children={(_flagValue, payload: Payload) => {
-                if (payload === undefined) {
-                    return null
-                }
-                return <NavPanelAdvertisementContent payload={payload} />
-            }}
-        />
-    )
+    if (!oldestRecommendedProduct) {
+        return null
+    }
+
+    return <NavPanelAdvertisementContent recommendedProduct={oldestRecommendedProduct} />
 }
 
-export function NavPanelAdvertisementContent({ payload }: { payload: Payload }): JSX.Element | null {
-    const product = availableOnboardingProducts[payload.product_key as keyof typeof availableOnboardingProducts]
-    const logic = navPanelAdvertisementLogic({ productKey: payload.product_key })
+export function NavPanelAdvertisementContent({
+    recommendedProduct,
+}: {
+    recommendedProduct: UserProductListItem
+}): JSX.Element | null {
+    const allProducts = getTreeItemsProducts()
+    const productInfo: FileSystemImport | undefined = allProducts.find(
+        (p: FileSystemImport) => p.path === recommendedProduct.product_path
+    )
+
+    const logic = navPanelAdvertisementLogic({ productKey: recommendedProduct.product_path })
     const { hideAdvertisement } = useActions(logic)
     const { hidden } = useValues(logic)
 
     useEffect(() => {
-        // if it's going to render, capture an event saying it will render
-        if (!hidden && (product || payload.header)) {
+        if (!hidden && productInfo) {
             posthog.capture('nav panel advertisement shown', {
-                product_key: payload.product_key,
-                payload,
+                product_path: recommendedProduct.product_path,
+                product_id: recommendedProduct.id,
             })
         }
-    }, [payload.product_key, payload.header, payload, product, hidden])
+    }, [recommendedProduct.product_path, recommendedProduct.id, productInfo, hidden])
 
-    if (hidden || (!product && !payload.header)) {
+    const reasonText = getReasonText(recommendedProduct)
+    if (hidden || !productInfo || !reasonText) {
         return null
     }
 
     return (
-        <div className="w-full my-1">
-            <Tooltip
-                title="Based on your usage we think you might like this other product
-                            we have, so we're gently bringing it to your attention :) Feel free to 
-                            dismiss it to make it go away."
-            >
-                <p className="text-xxs text-muted mb-1 mr-0.5 p-0 text-right">ads via PostHog</p>
-            </Tooltip>
+        <div className="w-full">
             <Link
-                to={payload.app_link}
+                to={productInfo.href}
                 className="text-primary"
                 onClick={() => {
                     posthog.capture('nav panel advertisement clicked', {
-                        product_key: payload.product_key,
-                        payload,
+                        product_path: recommendedProduct.product_path,
+                        product_id: recommendedProduct.id,
                     })
-                    if (payload.product_key in ProductKey) {
-                        addProductIntent({
-                            product_type: payload.product_key as ProductKey,
-                            intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
-                            metadata: payload,
-                        })
+                    if (productInfo.intents && productInfo.intents.length > 0) {
+                        const productKey = productInfo.intents[0]
+                        if (productKey in ProductKey) {
+                            addProductIntent({
+                                product_type: productKey as ProductKey,
+                                intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
+                                metadata: { product_path: recommendedProduct.product_path },
+                            })
+                        }
                     }
                 }}
             >
-                <div className="border rounded bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
+                <div className="border rounded-sm bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
                     <div className="flex justify-between mt-1">
                         <div className="flex items-center gap-2">
-                            {product && getProductIcon(product.iconColor, product.icon, 'text-lg')}
-                            <strong>{payload.header || product?.name}</strong>
+                            <strong>
+                                <span role="img" aria-label="sparkles">
+                                    ✨
+                                </span>{' '}
+                                {productInfo.path}
+                            </strong>
                         </div>
                         <LemonButton
-                            icon={<IconX className="text-muted" />}
+                            icon={<IconX className="text-muted m-1" />}
                             tooltip="Dismiss"
                             tooltipPlacement="right"
                             size="xxsmall"
                             onClick={(e) => {
                                 e.preventDefault()
                                 e.stopPropagation()
+
                                 posthog.capture('nav panel advertisement dismissed', {
-                                    product_key: payload.product_key,
-                                    payload,
+                                    product_path: recommendedProduct.product_path,
+                                    product_id: recommendedProduct.id,
                                 })
+
                                 hideAdvertisement()
                             }}
                             noPadding
@@ -118,37 +121,25 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                     </div>
 
                     <div className="flex flex-col gap-1">
-                        <p className="mb-0">{payload.text}</p>
-                        <p className="mb-0">
-                            <Link
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    posthog.capture('nav panel advertisement learn more clicked', {
-                                        product_key: payload.product_key,
-                                        payload,
-                                    })
-                                    window.open(payload.product_info_link, '_blank')
-                                }}
-                            >
-                                Learn more
-                            </Link>{' '}
-                            &middot;{' '}
-                            <Link
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Docs, payload.docs_link)
-                                    posthog.capture('nav panel advertisement docs clicked', {
-                                        product_key: payload.product_key,
-                                        payload,
-                                    })
-                                }}
-                            >
-                                Docs
-                            </Link>
-                        </p>
+                        <p className="mb-0">{getReasonText(recommendedProduct)}</p>
                     </div>
                 </div>
             </Link>
         </div>
     )
+}
+
+const getReasonText = (product: UserProductListItem): string | null => {
+    if (product.reason_text) {
+        return product.reason_text
+    }
+
+    switch (product.reason) {
+        case UserProductListReason.SALES_LED:
+            return "We've added this product to your sidebar because we believe you'd benefit from it! Your TAM will reach out to help you learn more about it."
+        case UserProductListReason.NEW_PRODUCT:
+            return "We've just released this new product. Based on your usage, we believe you'll like it. Give it a try!"
+    }
+
+    return null
 }

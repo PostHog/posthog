@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+import { P, match } from 'ts-pattern'
 
-import { IconCheckCircle, IconRevert, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconRevert, IconSort, IconTrash, IconUpload, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -13,10 +14,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { ReleasePreviewPill } from 'products/error_tracking/frontend/components/ReleasesPreview/ReleasePreviewPill'
+
 import { UploadModal } from './UploadModal'
-import { symbolSetLogic } from './symbolSetLogic'
+import { SymbolSetOrder, symbolSetLogic } from './symbolSetLogic'
 
 const SYMBOL_SET_FILTER_OPTIONS = [
     {
@@ -71,8 +75,8 @@ export function SymbolSets(): JSX.Element {
 
 const SymbolSetTable = (): JSX.Element => {
     // @ts-expect-error: automagical typing does not work here for some obscure reason
-    const { pagination, symbolSets, symbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { deleteSymbolSet, setUploadSymbolSetId } = useActions(symbolSetLogic)
+    const { pagination, symbolSets, symbolSetResponseLoading, symbolSetOrder } = useValues(symbolSetLogic)
+    const { deleteSymbolSet, setUploadSymbolSetId, setSymbolSetOrder } = useActions(symbolSetLogic)
 
     const columns: LemonTableColumns<ErrorTrackingSymbolSet> = [
         {
@@ -87,11 +91,9 @@ const SymbolSetTable = (): JSX.Element => {
             },
         },
         {
-            title: 'Usage',
-            dataIndex: 'frames_count',
-            tooltip: 'Number of frames using this symbol set',
-            render: (count) => {
-                return <span className="text-secondary">{count}</span>
+            title: 'Release',
+            render: (_, { release }) => {
+                return release ? <ReleasePreviewPill release={release} /> : '-'
             },
         },
         {
@@ -112,10 +114,28 @@ const SymbolSetTable = (): JSX.Element => {
                 )
             },
         },
-        { title: 'Created At', dataIndex: 'created_at', render: (data) => humanFriendlyDetailedTime(data as string) },
+        {
+            title: (
+                <SortingHeaderColumn sortOrder={symbolSetOrder} setSortOrder={setSymbolSetOrder} columnKey="last_used">
+                    Last Used
+                </SortingHeaderColumn>
+            ),
+            dataIndex: 'last_used',
+            render: (data) => (data ? humanFriendlyDetailedTime(data as string) : '-'),
+        },
+        {
+            title: (
+                <SortingHeaderColumn sortOrder={symbolSetOrder} setSortOrder={setSymbolSetOrder} columnKey="created_at">
+                    Created At
+                </SortingHeaderColumn>
+            ),
+            dataIndex: 'created_at',
+            render: (data) => humanFriendlyDetailedTime(data as string),
+        },
         {
             dataIndex: 'id',
             align: 'right',
+
             render: (_, { id, failure_reason }) => {
                 return (
                     <div className="flex justify-end items-center gap-1">
@@ -172,5 +192,39 @@ const SymbolSetTable = (): JSX.Element => {
             dataSource={symbolSets}
             emptyState={!symbolSetResponseLoading ? emptyState : undefined}
         />
+    )
+}
+
+function SortingHeaderColumn({
+    columnKey,
+    sortOrder,
+    setSortOrder,
+    children,
+}: {
+    columnKey: SymbolSetOrder
+    sortOrder: SymbolSetOrder
+    setSortOrder: (sortOrder: SymbolSetOrder) => void
+    children: React.ReactNode
+}): JSX.Element {
+    const isUsed = sortOrder.includes(columnKey)
+    const order = sortOrder.startsWith('-') ? 'desc' : 'asc'
+    const onSortOrderToggle = (): void => {
+        if (isUsed) {
+            setSortOrder((order === 'asc' ? `-${columnKey}` : columnKey) as SymbolSetOrder)
+        } else {
+            setSortOrder(columnKey as SymbolSetOrder)
+        }
+    }
+    return (
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => onSortOrderToggle()}>
+            <div className="font-semibold">{children}</div>
+            {
+                match([isUsed, order])
+                    .with([true, 'asc'], () => <IconArrowUp />)
+                    .with([true, 'desc'], () => <IconArrowDown />)
+                    .with([false, P.any], () => <IconSort />)
+                    .otherwise(() => null) as JSX.Element
+            }
+        </div>
     )
 }

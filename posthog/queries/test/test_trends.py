@@ -10,6 +10,7 @@ from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_action,
     _create_event,
     _create_person,
     also_test_with_different_timezones,
@@ -67,14 +68,6 @@ def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optiona
             ret_dict["label"] = f"{entity.name} - {cohort.name}"
             ret_dict["breakdown_value"] = cohort.pk
     return ret_dict
-
-
-def _create_action(**kwargs):
-    team = kwargs.pop("team")
-    name = kwargs.pop("name")
-    properties = kwargs.pop("properties", {})
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": name, "properties": properties}])
-    return action
 
 
 def _create_cohort(**kwargs):
@@ -8633,7 +8626,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "hour",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         is_present = Trends().get_cached_result(filter, self.team)
@@ -8663,7 +8656,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "hour",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8699,7 +8692,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "events": [{"id": "sign up", "name": "sign up"}],
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8739,7 +8732,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "week",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)
@@ -8777,7 +8770,7 @@ class TestTrendUtils(ClickhouseTestMixin, APIBaseTest):
                 "interval": "month",
             },
         )
-        cache_key = generate_cache_key(f"{filter.toJSON()}_{self.team.pk}")
+        cache_key = generate_cache_key(self.team.pk, f"{filter.toJSON()}_{self.team.pk}")
         cache.set(cache_key, fake_cached, settings.CACHED_RESULTS_TTL)
 
         res = Trends().get_cached_result(filter, self.team)

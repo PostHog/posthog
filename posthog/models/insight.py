@@ -122,6 +122,10 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def __str__(self):
         return self.name or self.derived_name or self.short_id
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_query = self.query
+
     def save(self, *args, **kwargs) -> None:
         # generate query metadata if needed
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
@@ -140,10 +144,6 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
                 )
                 capture_exception(e)
         super().save(*args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_query = self.query
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Insight"]:
@@ -289,6 +289,22 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
+    @property
+    def show_legend(self) -> bool:
+        """Extract show_legend display setting from insight configuration"""
+        try:
+            if self.query:
+                source = self.query.get("source", {})
+
+                # Check any filter which might contain `showLegend`
+                for value in source.values():
+                    if isinstance(value, dict) and "showLegend" in value:
+                        return bool(value.get("showLegend", False))
+
+            return bool(self.filters.get("show_legend", False) if self.filters else False)
+        except (AttributeError, TypeError, KeyError):
+            return False
+
     def generate_query_metadata(self):
         from posthog.hogql_queries.query_metadata import extract_query_metadata
 
@@ -320,7 +336,9 @@ class InsightViewed(models.Model):
 def generate_insight_filters_hash(insight: Insight, dashboard: Optional[Dashboard]) -> str:
     try:
         dashboard_insight_filter = get_filter(data=insight.dashboard_filters(dashboard=dashboard), team=insight.team)
-        candidate_filters_hash = generate_cache_key("{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id))
+        candidate_filters_hash = generate_cache_key(
+            insight.team.pk, "{}_{}".format(dashboard_insight_filter.toJSON(), insight.team_id)
+        )
         return candidate_filters_hash
     except Exception as e:
         logger.error(

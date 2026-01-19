@@ -120,7 +120,7 @@ def validate_migration_sql(sql) -> bool:
         ):
             print(
                 f"\n\n\033[91mFound a CONSTRAINT command without NOT VALID. This locks tables which causes downtime. "
-                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "See https://github.com/PostHog/posthog/blob/master/docs/published/safe-django-migrations.md for guidance."
                 "If adding the constraint by itself, please use `AddConstraintNotValid()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#adding-constraints-without-enforcing-validation.\n"
                 f"Source: `{operation_sql}`"
@@ -133,7 +133,7 @@ def validate_migration_sql(sql) -> bool:
         ):
             print(
                 f"\n\n\033[91mFound a CREATE INDEX command that isn't run CONCURRENTLY. This locks tables which causes downtime. "
-                "If adding a foreign key field, see `0415_pluginconfig_match_action` for an example of how to do this safely. "
+                "See https://github.com/PostHog/posthog/blob/master/docs/published/safe-django-migrations.md for guidance."
                 "If adding the index by itself, please use `AddIndexConcurrently()` of `django.contrib.postgres.operations` instead. "
                 "See https://docs.djangoproject.com/en/4.2/ref/contrib/postgres/operations/#concurrent-index-operations.\n"
                 f"Source: `{operation_sql}`"

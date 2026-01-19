@@ -24,12 +24,12 @@ DEFAULT_SERVICES=(
 MODE="sync"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_SERVER_DIR="$SCRIPT_DIR/../plugin-server"
+NODEJS_DIR="$SCRIPT_DIR/../nodejs"
 
 # Ensure DEBUG is set for local dev
 export DEBUG=1
 
-cd "$PLUGIN_SERVER_DIR"
+cd "$NODEJS_DIR"
 
 # Parse arguments - handle both orders
 SERVICE=""

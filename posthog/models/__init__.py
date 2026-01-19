@@ -19,7 +19,9 @@ from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople, CohortCalculationHistory
+from .column_configuration import ColumnConfiguration
 from .comment import Comment
+from .core_event import CoreEvent
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
 from .data_color_theme import DataColorTheme
@@ -33,6 +35,7 @@ from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
+from .exported_recording import ExportedRecording
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
 from .surveys.survey_response_archive import SurveyResponseArchive
@@ -53,6 +56,8 @@ from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .link import Link
+from .llm_prompt import LLMPrompt
+from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
@@ -69,6 +74,7 @@ from .project import Project
 from .property import Property
 from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
+from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
 from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
@@ -84,11 +90,17 @@ from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
+from .web_analytics_filter_preset import WebAnalyticsFilterPreset
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
+from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
+
 __all__ = [
+    "Approval",
+    "ApprovalPolicy",
+    "ChangeRequest",
     "AlertConfiguration",
     "Action",
     "ActionStep",
@@ -105,6 +117,8 @@ __all__ = [
     "Cohort",
     "CohortPeople",
     "CohortCalculationHistory",
+    "ColumnConfiguration",
+    "CoreEvent",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
@@ -122,6 +136,7 @@ __all__ = [
     "ExperimentSavedMetric",
     "ExperimentToSavedMetric",
     "ExportedAsset",
+    "ExportedRecording",
     "FeatureFlag",
     "FileSystem",
     "FileSystemViewLog",
@@ -134,6 +149,7 @@ __all__ = [
     "HogFunction",
     "HogFunctionTemplate",
     "Link",
+    "LLMPrompt",
     "HostDefinition",
     "Insight",
     "InsightCachingState",
@@ -142,6 +158,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MaterializedColumnSlot",
+    "MaterializedColumnSlotState",
     "MessageCategory",
     "MessageRecipientPreference",
     "MessageTemplate",
@@ -174,6 +192,7 @@ __all__ = [
     "Property",
     "PropertyDefinition",
     "ProxyRecord",
+    "QuickFilter",
     "RetentionFilter",
     "RemoteConfig",
     "EventSchema",
@@ -204,6 +223,7 @@ __all__ = [
     "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
+    "WebAnalyticsFilterPreset",
     "WebExperiment",
     "Comment",
     # Deprecated models here for backwards compatibility

@@ -5,6 +5,7 @@ Your task is to analyze the provided text representation and generate a concise,
 NOTES:
 - The data is a text representation from a wide range of systems, frameworks and sdk's so it can be a bit messy in parts and thats fine.
 - Some events and generations or messages etc might be repeated in parts thats also fine too.
+- Large traces may show "[SAMPLED VIEW: Showing ~X% of Y lines...]" at the top - this means the trace was uniformly sampled. Gaps in line numbers (e.g., L001, L050, L150) indicate where lines were omitted. The sampled lines are representative of the full trace.
 - The goal here is for useful and actionable summarization.
 
 IMPORTANT GUIDELINES:

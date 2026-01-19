@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -13,6 +13,7 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -307,13 +308,34 @@ class DashboardSerializer(DashboardMetadataSerializer):
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
+        existing_dashboard: Dashboard | None = None
+        if use_dashboard:
+            try:
+                existing_dashboard = Dashboard.objects.get(
+                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
+                )
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+
         request_filters = request.data.get("filters")
         if request_filters:
             if not isinstance(request_filters, dict):
                 raise serializers.ValidationError("Filters must be a dictionary")
             filters = request_filters
+        elif existing_dashboard:
+            filters = existing_dashboard.filters
         else:
             filters = {}
+
+        if existing_dashboard and existing_dashboard.variables:
+            validated_data["variables"] = existing_dashboard.variables
+
+        if existing_dashboard and existing_dashboard.breakdown_colors:
+            validated_data["breakdown_colors"] = existing_dashboard.breakdown_colors
+
+        if existing_dashboard and existing_dashboard.data_color_theme_id:
+            validated_data["data_color_theme_id"] = existing_dashboard.data_color_theme_id
+
         dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
         if use_template:
@@ -329,24 +351,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
-        elif use_dashboard:
-            try:
-                existing_dashboard = Dashboard.objects.get(
-                    id=use_dashboard, team__project_id=self.context["get_team"]().project_id
-                )
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .exclude(deleted=True)
-                    .select_related("insight")
-                )
-                for existing_tile in existing_tiles:
-                    if self.initial_data.get("duplicate_tiles", False):
-                        self._deep_duplicate_tiles(dashboard, existing_tile)
-                    else:
-                        existing_tile.copy_to_dashboard(dashboard)
-
-            except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+        elif existing_dashboard:
+            existing_tiles = (
+                DashboardTile.objects.filter(dashboard=existing_dashboard)
+                .exclude(deleted=True)
+                .select_related("insight")
+            )
+            for existing_tile in existing_tiles:
+                if self.initial_data.get("duplicate_tiles", False):
+                    self._deep_duplicate_tiles(dashboard, existing_tile)
+                else:
+                    existing_tile.copy_to_dashboard(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
@@ -429,10 +444,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard = None
+                group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
@@ -509,13 +524,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
         if delete_related_insights:
-            insights_to_update = []
-            for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.count() == 1:
-                    insight.deleted = True
-                    insights_to_update.append(insight)
+            # Count only non-deleted tiles. Note: deleted is nullable, so we exclude deleted=True
+            # rather than filtering for deleted=False (which would miss deleted=None)
+            insight_ids_to_delete = list(
+                instance.tiles.filter(insight__isnull=False)
+                .annotate(
+                    insight_tile_count=Count(
+                        "insight__dashboard_tiles",
+                        filter=~Q(insight__dashboard_tiles__deleted=True),
+                    )
+                )
+                .filter(insight_tile_count=1)
+                .values_list("insight_id", flat=True)
+            )
 
-            Insight.objects.bulk_update(insights_to_update, ["deleted"])
+            if insight_ids_to_delete:
+                Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
+
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
@@ -597,6 +622,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -697,10 +723,13 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
-        # Filter unlisted dashboards from general list, but allow access via:
-        # - Direct ID lookup (detail action)
-        # - Tag-based queries (e.g. ?tags=llm-analytics for product dashboards)
-        if self.action == "list" and not self.request.query_params.get("tags"):
+        # Allow filtering by creation_mode query param
+        creation_mode = self.request.query_params.get("creation_mode")
+        if creation_mode:
+            queryset = queryset.filter(creation_mode=creation_mode)
+        # Filter unlisted dashboards from general list unless explicitly requested
+        # Direct ID lookups (detail action) are allowed through retrieve()
+        elif self.action == "list":
             queryset = queryset.exclude(creation_mode="unlisted")
 
         return queryset

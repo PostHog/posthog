@@ -13,6 +13,7 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -28,6 +29,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     PropertyOperator,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -172,6 +174,59 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
+
+    def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
+        _create_person(
+            properties={
+                "email": f"first@posthog.com",
+                "name": "Mr Jump the Gun",
+            },
+            team=self.team,
+            distinct_ids=["jump-the-gun"],
+            is_identified=True,
+        )
+        _create_event(
+            distinct_id="jump-the-gun",
+            event=f"$pageview",
+            team=self.team,
+        )
+        self.random_uuid = self._create_random_persons()
+        _create_person(
+            properties={
+                "email": "last@posthog.com",
+                "name": "Mr Sleepy",
+            },
+            team=self.team,
+            distinct_ids=["sleepy"],
+            is_identified=True,
+        )
+        _create_event(
+            distinct_id="sleepy",
+            event=f"$pageview",
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        for direction, expected_email in [("DESC", "last@posthog.com"), ("ASC", "first@posthog.com")]:
+            with self.subTest(direction):
+                # Create ActorsQuery with InsightActorsQuery source, similar to PowerUsersTable
+                query = ActorsQuery(
+                    select=["properties.email", "event_count", "last_seen"],
+                    source=InsightActorsQuery(
+                        source=TrendsQuery(
+                            series=[EventsNode(event="$pageview")],
+                            dateRange=DateRange(date_from="-30d"),
+                            interval=IntervalType.DAY,
+                            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_TABLE),
+                        ),
+                        series=0,
+                    ),
+                    orderBy=[f"last_seen {direction}"],
+                )
+
+                runner = self._create_runner(query)
+                results = runner.calculate().results
+                self.assertEqual(results[0][0], expected_email)
 
     def test_persons_query_order_by_with_aliases(self):
         # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
@@ -710,11 +765,8 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Insert a newer version without the email property (simulating deletion)
         sync_execute(
             """
-            INSERT INTO person (
-                id, team_id, properties, is_identified, is_deleted, version, created_at
-            ) VALUES (
-                %(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s
-            )
+            INSERT INTO person (id, team_id, properties, is_identified, is_deleted, version, created_at)
+            VALUES (%(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s)
             """,
             {
                 "person_id": str(person.uuid),
@@ -748,3 +800,89 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PersonsArgMaxVersion.V2,
             "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
         )
+
+    def test_person_strategy_batches_large_actor_sets(self):
+        """Verify that PersonStrategy.get_actors batches queries."""
+        from posthog.hogql_queries.actor_strategies import PersonStrategy
+        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+
+        # Create 5 persons
+        person_uuids = []
+        for i in range(5):
+            person = _create_person(
+                properties={"email": f"batch_test_{i}@example.com"},
+                team=self.team,
+                distinct_ids=[f"batch-test-{UUIDT()}-{i}"],
+                is_identified=True,
+            )
+            person_uuids.append(str(person.uuid))
+        flush_persons_and_events()
+
+        query = ActorsQuery()
+        paginator = HogQLHasMorePaginator(limit=100, offset=0)
+        strategy = PersonStrategy(team=self.team, query=query, paginator=paginator)
+
+        # Temporarily set a small batch size to verify batching works
+        with patch.object(PersonStrategy, "BATCH_SIZE", 2):
+            result = strategy.get_actors(person_uuids)
+
+        self.assertEqual(len(result), 5)
+        for uuid in person_uuids:
+            self.assertIn(uuid, result)
+
+    @freeze_time("2023-05-10T15:00:00Z")
+    def test_last_seen_for_persons(self):
+        # Create person with events at different times
+        _create_person(
+            properties={"email": "test@example.com"},
+            team=self.team,
+            distinct_ids=["user123"],
+            is_identified=True,
+        )
+
+        # Create events at different times
+        with freeze_time("2023-05-08T10:00:00Z"):
+            _create_event(event="early_event", distinct_id="user123", team=self.team)
+
+        with freeze_time("2023-05-09T14:30:00Z"):
+            _create_event(event="late_event", distinct_id="user123", team=self.team)
+
+        flush_persons_and_events()
+
+        # Query with last_seen included
+        query = ActorsQuery(select=["person", "id", "last_seen"])
+        runner = ActorsQueryRunner(query=query, team=self.team)
+
+        response = runner.calculate()
+
+        self.assertEqual(len(response.results), 2, "One for each event")
+        result = response.results[0]
+
+        # Check that last_seen is the timestamp of the latest event
+        last_seen_idx = response.columns.index("last_seen")
+        last_seen_value = result[last_seen_idx]
+
+        self.assertEqual(str(last_seen_value), "2023-05-09 14:30:00+00:00")
+
+    def test_last_seen_not_calculated_when_not_requested(self):
+        _create_person(
+            properties={"email": "test@example.com"},
+            team=self.team,
+            distinct_ids=["user123"],
+            is_identified=True,
+        )
+        _create_event(event="test_event", distinct_id="user123", team=self.team)
+        flush_persons_and_events()
+
+        # Query without last_seen
+        query = ActorsQuery(select=["person", "id"])
+        runner = ActorsQueryRunner(query=query, team=self.team)
+
+        response = runner.calculate()
+
+        # Should not have last_seen column
+        self.assertNotIn("last_seen", response.columns)
+        # Generated SQL should not contain events table reference
+        hogql = runner.to_query()
+        printed_query = str(hogql)
+        self.assertNotIn("events", printed_query.lower())

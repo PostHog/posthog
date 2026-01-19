@@ -1,36 +1,40 @@
 """
 Management command to analyze actual team cache sizes for accurate memory estimation.
+
+IMPORTANT: This command requires FLAGS_REDIS_URL to be set. It will error if the
+dedicated flags cache is not configured to prevent analyzing the wrong cache.
 """
 
 import gzip
 import json
 import statistics
 
-from django.core.management.base import BaseCommand
-
+from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
 from posthog.models.team import Team
-from posthog.storage.team_metadata_cache import _load_team_metadata
+from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG, _load_team_metadata
 
 
-class Command(BaseCommand):
+class Command(BaseHyperCacheCommand):
     help = "Analyze actual team metadata cache sizes to estimate memory usage"
 
+    def get_hypercache_config(self):
+        """Return the HyperCache management configuration."""
+        return TEAM_HYPERCACHE_MANAGEMENT_CONFIG
+
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--sample-size",
-            type=int,
-            default=100,
-            help="Number of teams to sample (default: 100)",
-        )
-        parser.add_argument(
-            "--detailed",
-            action="store_true",
-            help="Show detailed field-level analysis",
-        )
+        self.add_analyze_arguments(parser)
 
     def handle(self, *args, **options):
         sample_size = options["sample_size"]
         detailed = options["detailed"]
+
+        # Validate input arguments to prevent resource exhaustion
+        if not self.validate_sample_size(sample_size):
+            return
+
+        # Check if dedicated cache is configured
+        if not self.check_dedicated_cache_configured():
+            return
 
         self.stdout.write("Analyzing team cache sizes...")
 
@@ -98,21 +102,21 @@ class Command(BaseCommand):
 
         self.stdout.write("\n" + "-" * 40)
         self.stdout.write("Uncompressed JSON sizes:")
-        self.stdout.write(f"  Mean:   {self._format_bytes(statistics.mean(raw_sizes))}")
-        self.stdout.write(f"  Median: {self._format_bytes(statistics.median(raw_sizes))}")
-        self.stdout.write(f"  Min:    {self._format_bytes(min(raw_sizes))}")
-        self.stdout.write(f"  Max:    {self._format_bytes(max(raw_sizes))}")
-        self.stdout.write(f"  P95:    {self._format_bytes(self._percentile(raw_sizes, 95))}")
-        self.stdout.write(f"  P99:    {self._format_bytes(self._percentile(raw_sizes, 99))}")
+        self.stdout.write(f"  Mean:   {self.format_bytes(statistics.mean(raw_sizes))}")
+        self.stdout.write(f"  Median: {self.format_bytes(statistics.median(raw_sizes))}")
+        self.stdout.write(f"  Min:    {self.format_bytes(min(raw_sizes))}")
+        self.stdout.write(f"  Max:    {self.format_bytes(max(raw_sizes))}")
+        self.stdout.write(f"  P95:    {self.format_bytes(self.calculate_percentile(raw_sizes, 95))}")
+        self.stdout.write(f"  P99:    {self.format_bytes(self.calculate_percentile(raw_sizes, 99))}")
 
         self.stdout.write("\n" + "-" * 40)
         self.stdout.write("Compressed (gzip) sizes:")
-        self.stdout.write(self.style.SUCCESS(f"  Mean:   {self._format_bytes(statistics.mean(compressed_sizes))}"))
-        self.stdout.write(self.style.SUCCESS(f"  Median: {self._format_bytes(statistics.median(compressed_sizes))}"))
-        self.stdout.write(f"  Min:    {self._format_bytes(min(compressed_sizes))}")
-        self.stdout.write(f"  Max:    {self._format_bytes(max(compressed_sizes))}")
-        self.stdout.write(f"  P95:    {self._format_bytes(self._percentile(compressed_sizes, 95))}")
-        self.stdout.write(f"  P99:    {self._format_bytes(self._percentile(compressed_sizes, 99))}")
+        self.stdout.write(self.style.SUCCESS(f"  Mean:   {self.format_bytes(statistics.mean(compressed_sizes))}"))
+        self.stdout.write(self.style.SUCCESS(f"  Median: {self.format_bytes(statistics.median(compressed_sizes))}"))
+        self.stdout.write(f"  Min:    {self.format_bytes(min(compressed_sizes))}")
+        self.stdout.write(f"  Max:    {self.format_bytes(max(compressed_sizes))}")
+        self.stdout.write(f"  P95:    {self.format_bytes(self.calculate_percentile(compressed_sizes, 95))}")
+        self.stdout.write(f"  P99:    {self.format_bytes(self.calculate_percentile(compressed_sizes, 99))}")
 
         self.stdout.write("\n" + "-" * 40)
         self.stdout.write("Compression ratios:")
@@ -125,7 +129,7 @@ class Command(BaseCommand):
         self.stdout.write("=" * 60)
 
         avg_compressed = statistics.mean(compressed_sizes)
-        p95_compressed = self._percentile(compressed_sizes, 95)
+        p95_compressed = self.calculate_percentile(compressed_sizes, 95)
 
         for team_count in [100, 1000, 5000, 10000, 50000]:
             avg_total = (avg_compressed * team_count) / (1024 * 1024)
@@ -146,7 +150,7 @@ class Command(BaseCommand):
             for field, count in sorted_fields[:20]:
                 percentage = (count / len(teams)) * 100
                 avg_size = statistics.mean(field_sizes[field]) if field_sizes[field] else 0
-                self.stdout.write(f"  {field:40} {percentage:5.1f}% ({self._format_bytes(avg_size)} avg)")
+                self.stdout.write(f"  {field:40} {percentage:5.1f}% ({self.format_bytes(avg_size)} avg)")
 
             # Find the largest fields
             self.stdout.write("\nLargest fields by average size:")
@@ -154,7 +158,7 @@ class Command(BaseCommand):
             field_avg_sizes.sort(key=lambda x: x[1], reverse=True)
             for field, avg_size in field_avg_sizes[:10]:
                 percentage = (field_usage[field] / len(teams)) * 100
-                self.stdout.write(f"  {field:40} {self._format_bytes(avg_size)} ({percentage:.1f}% of teams)")
+                self.stdout.write(f"  {field:40} {self.format_bytes(avg_size)} ({percentage:.1f}% of teams)")
 
         self.stdout.write("\n" + "=" * 60)
         self.stdout.write(
@@ -165,20 +169,5 @@ class Command(BaseCommand):
             )
         )
 
-    def _format_bytes(self, bytes_val: float) -> str:
-        """Format bytes in human-readable format."""
-        for unit in ["B", "KB", "MB", "GB"]:
-            if bytes_val < 1024.0:
-                return f"{bytes_val:.1f} {unit}"
-            bytes_val /= 1024.0
-        return f"{bytes_val:.1f} TB"
-
-    def _percentile(self, data: list[float], percentile: int) -> float:
-        """Calculate percentile of data."""
-        if not data:
-            return 0
-        data_sorted = sorted(data)
-        index = (percentile / 100) * (len(data_sorted) - 1)
-        lower = data_sorted[int(index)]
-        upper = data_sorted[min(int(index) + 1, len(data_sorted) - 1)]
-        return lower + (upper - lower) * (index % 1)
+        # Update cache metrics
+        self._update_cache_stats_safe()

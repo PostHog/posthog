@@ -1,19 +1,22 @@
 use anyhow::{Context, Result};
 use dashmap::DashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::kafka::types::Partition;
 use crate::metrics::MetricsHelper;
 use crate::metrics_const::{
-    CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM, CLEANUP_OPERATIONS_COUNTER,
+    ACTIVE_STORE_COUNT, CLEANUP_BYTES_FREED_HISTOGRAM, CLEANUP_DURATION_HISTOGRAM,
+    CLEANUP_OPERATIONS_COUNTER, STORE_CREATION_DURATION_MS, STORE_CREATION_EVENTS,
 };
+use crate::rocksdb::metrics_consts::ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE;
 use crate::store::{DeduplicationStore, DeduplicationStoreConfig};
+use crate::utils::{format_partition_dir, format_store_path};
 
 /// Information about folder sizes on disk
 #[derive(Debug, Clone)]
@@ -111,6 +114,11 @@ pub struct StoreManager {
 
     /// Flag to prevent concurrent cleanup operations
     cleanup_running: AtomicBool,
+
+    /// Flag indicating whether a Kafka rebalance is in progress
+    /// When true, orphan cleanup should be skipped to avoid deleting directories
+    /// that are about to be assigned
+    rebalancing: AtomicBool,
 }
 
 impl StoreManager {
@@ -123,7 +131,21 @@ impl StoreManager {
             store_config,
             metrics,
             cleanup_running: AtomicBool::new(false),
+            rebalancing: AtomicBool::new(false),
         }
+    }
+
+    /// Set the rebalancing flag to indicate a Kafka rebalance is in progress
+    ///
+    /// When true, operations like orphan directory cleanup will be skipped
+    /// to avoid deleting directories that are about to be assigned.
+    pub fn set_rebalancing(&self, rebalancing: bool) {
+        self.rebalancing.store(rebalancing, Ordering::SeqCst);
+    }
+
+    /// Check if a Kafka rebalance is currently in progress
+    pub fn is_rebalancing(&self) -> bool {
+        self.rebalancing.load(Ordering::SeqCst)
     }
 
     /// Get an existing store for a partition, if it exists
@@ -138,7 +160,34 @@ impl StoreManager {
     /// - If the store exists, it returns it immediately
     /// - If the store doesn't exist, it creates it atomically
     /// - If multiple workers try to create the same store, only one succeeds
+    ///
+    /// Use `get_or_create_for_rebalance` during rebalancing to pre-create stores.
+    /// Use this method during message processing - it will warn if a store needs to be created
+    /// (indicating pre-creation didn't complete in time).
     pub async fn get_or_create(&self, topic: &str, partition: i32) -> Result<DeduplicationStore> {
+        self.get_or_create_internal(topic, partition, false).await
+    }
+
+    /// Get or create a deduplication store during rebalancing (pre-creation)
+    ///
+    /// This should be called during `async_setup_assigned_partitions` to pre-create stores
+    /// before messages start flowing. Unlike `get_or_create`, this won't emit a warning
+    /// when creating a new store.
+    pub async fn get_or_create_for_rebalance(
+        &self,
+        topic: &str,
+        partition: i32,
+    ) -> Result<DeduplicationStore> {
+        self.get_or_create_internal(topic, partition, true).await
+    }
+
+    /// Internal implementation of get_or_create with rebalance context
+    async fn get_or_create_internal(
+        &self,
+        topic: &str,
+        partition: i32,
+        is_rebalance: bool,
+    ) -> Result<DeduplicationStore> {
         let partition_key = Partition::new(topic.to_string(), partition);
 
         // Fast path: check if store already exists
@@ -152,6 +201,7 @@ impl StoreManager {
 
         // Slow path: need to create the store
         // DashMap's entry API ensures only one worker creates the store
+        let creation_start = std::time::Instant::now();
         let result = self
             .stores
             .entry(partition_key.clone())
@@ -161,10 +211,24 @@ impl StoreManager {
                 // Ensure parent directory exists
                 // Note: This is inside the closure so only the creating thread does this
                 self.ensure_directory_exists(&store_path)?;
-                info!(
-                    "Creating new deduplication store for partition {}:{} at path: {}",
-                    topic, partition, store_path
-                );
+
+                // Warn if store is being created during message processing (not during rebalance)
+                // This indicates pre-creation didn't complete in time
+                if !is_rebalance {
+                    warn!(
+                        topic = topic,
+                        partition = partition,
+                        path = %store_path,
+                        "Creating store during message processing - pre-creation did not complete in time"
+                    );
+                } else {
+                    info!(
+                        topic = topic,
+                        partition = partition,
+                        path = store_path,
+                        "Pre-creating deduplication store during rebalance"
+                    );
+                }
 
                 let mut partition_config = self.store_config.clone();
                 partition_config.path = PathBuf::from(&store_path);
@@ -172,15 +236,42 @@ impl StoreManager {
                 DeduplicationStore::new(partition_config, topic.to_string(), partition)
                     .with_context(|| {
                         format!(
-                            "Failed to create deduplication store for {topic}:{partition} at path {store_path}",                            
+                            "Failed to create deduplication store for {topic}:{partition} at path {store_path}",
                         )
                     })
             });
 
+        let creation_duration = creation_start.elapsed();
         match result {
             Ok(entry) => {
-                info!("Successfully created deduplication store for partition {topic}:{partition}",);
-                Ok(entry.clone())
+                metrics::histogram!(STORE_CREATION_DURATION_MS)
+                    .record(creation_duration.as_millis() as f64);
+                metrics::counter!(STORE_CREATION_EVENTS, "outcome" => "success").increment(1);
+                let store = entry.clone();
+                // Drop the entry reference before accessing stores.len() to avoid deadlock
+                drop(entry);
+                let store_count = self.stores.len();
+                metrics::gauge!(ACTIVE_STORE_COUNT).set(store_count as f64);
+
+                // Warn on slow store creation (> 5 seconds indicates potential issues)
+                if creation_duration.as_secs() > 5 {
+                    warn!(
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        active_stores = store_count,
+                        "Slow deduplication store creation"
+                    );
+                } else {
+                    info!(
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        active_stores = store_count,
+                        "Successfully created deduplication store"
+                    );
+                }
+                Ok(store)
             }
             Err(e) => {
                 // This could happen if:
@@ -190,12 +281,15 @@ impl StoreManager {
                 // Check if another worker succeeded
                 if let Some(store) = self.stores.get(&partition_key) {
                     warn!(
-                        "Store for {}:{} was created by another worker, using existing store",
-                        topic, partition
+                        topic = topic,
+                        partition = partition,
+                        "Store was created by another worker, using existing store"
                     );
                     Ok(store.clone())
                 } else {
                     // Real failure - no one succeeded in creating the store
+                    metrics::counter!(STORE_CREATION_EVENTS, "outcome" => "failure").increment(1);
+
                     // Build the complete error chain
                     let mut error_chain = vec![format!("{:?}", e)];
                     let mut source = e.source();
@@ -205,10 +299,11 @@ impl StoreManager {
                     }
 
                     error!(
-                        "Failed to create store for {}:{} - {}",
-                        topic,
-                        partition,
-                        error_chain.join(" -> ")
+                        topic = topic,
+                        partition = partition,
+                        duration_ms = creation_duration.as_millis(),
+                        error = error_chain.join(" -> "),
+                        "Failed to create deduplication store"
                     );
 
                     Err(e)
@@ -217,57 +312,125 @@ impl StoreManager {
         }
     }
 
-    /// Remove a store from management and clean up its files (used during partition rebalancing)
+    /// Remove a store from management and clean up its files.
     ///
-    /// This method:
-    /// - Removes the store from the map
-    /// - Drops the store (closing RocksDB)
-    /// - Deletes ALL files for this partition from disk (including old timestamp directories)
+    /// This is a convenience method that calls `unregister_store()` followed by
+    /// `cleanup_store_files()`. Use this for simple cleanup outside rebalance scenarios.
+    ///
+    /// For rebalance scenarios, prefer the two-step process:
+    /// 1. Call `unregister_store()` BEFORE shutting down workers (prevents new store creation)
+    /// 2. Call `cleanup_store_files()` AFTER workers are fully stopped (safe file deletion)
+    ///
+    /// See `test_rebalance_removes_stores_before_workers_shutdown` for rationale.
     pub fn remove(&self, topic: &str, partition: i32) -> Result<()> {
-        let partition_key = Partition::new(topic.to_string(), partition);
+        self.unregister_store(topic, partition);
+        self.cleanup_store_files(topic, partition)
+    }
 
-        // Remove the store from the map
-        if let Some((_, store)) = self.stores.remove(&partition_key) {
-            info!(
-                "Removing deduplication store for partition {}:{}",
-                topic, partition
+    // Internally register a restored set of checkpoint files at the given store path
+    // and topic/partition coordinates
+    pub fn restore_imported_store(&self, topic: &str, partition: i32, path: &Path) -> Result<()> {
+        let store_config = DeduplicationStoreConfig {
+            path: path.to_path_buf(),
+            max_capacity: self.store_config.max_capacity,
+        };
+        let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
+            .with_context(|| {
+                format!(
+                    "Failed to restore imported checkpoint for {topic}:{partition} at path {}",
+                    path.display(),
+                )
+            })?;
+
+        // Don't fail here but do report this it's evidence of a race condition
+        if let Some(existing_store) = self
+            .stores
+            .insert(Partition::new(topic.to_string(), partition), restored)
+        {
+            metrics::counter!(
+                STORE_CREATION_EVENTS,
+                "outcome" => "duplicate_on_restore",
+            )
+            .increment(1);
+            error!(
+                existing_store_path =% existing_store.get_db_path().display(),
+                restored_store_path =% path.display(),
+                topic = topic,
+                partition = partition,
+                "Unexpected duplicate store found when registering imported checkpoint"
             );
-
-            // Drop the store explicitly to close RocksDB before deleting files
-            drop(store);
         }
 
-        // Delete the entire topic_partition directory (not just the current timestamp subdirectory)
-        // This ensures we clean up all historical data for this partition
-        let partition_dir = format!(
-            "{}/{}_{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
-            partition
-        );
+        Ok(())
+    }
 
-        let partition_path = PathBuf::from(&partition_dir);
+    /// Unregister a store from the DashMap without deleting files (Step 1 of two-step cleanup).
+    ///
+    /// Call this BEFORE shutting down partition workers during rebalance. This prevents
+    /// workers from creating new stores via `get_or_create()` during their shutdown.
+    ///
+    /// After workers are fully stopped, call `cleanup_store_files()` to delete the files.
+    ///
+    /// The two-step process prevents a race condition where:
+    /// 1. Worker is processing during shutdown
+    /// 2. Worker calls `get_or_create()` which creates a new store
+    /// 3. `remove()` deletes the directory
+    /// 4. Worker's write fails with "No such file or directory"
+    pub fn unregister_store(&self, topic: &str, partition: i32) {
+        let partition_key = Partition::new(topic.to_string(), partition);
+
+        if let Some((_, store)) = self.stores.remove(&partition_key) {
+            info!(
+                topic = topic,
+                partition = partition,
+                "Unregistering deduplication store"
+            );
+            // Drop the store explicitly to close RocksDB
+            drop(store);
+        }
+    }
+
+    /// Delete all files for a partition from disk (Step 2 of two-step cleanup).
+    ///
+    /// Call this AFTER workers are fully shut down to avoid race conditions where
+    /// a worker tries to write to a deleted directory.
+    ///
+    /// Must be called after `unregister_store()` to ensure RocksDB is closed first.
+    pub fn cleanup_store_files(&self, topic: &str, partition: i32) -> Result<()> {
+        let partition_dir = self
+            .store_config
+            .path
+            .join(format_partition_dir(topic, partition));
+        let partition_dir_str = partition_dir.to_string_lossy().to_string();
+
+        let partition_path = partition_dir;
+
         if partition_path.exists() {
             match std::fs::remove_dir_all(&partition_path) {
                 Ok(_) => {
                     info!(
-                        "Deleted entire partition directory for {}:{} at path {}",
-                        topic, partition, partition_dir
+                        topic = topic,
+                        partition = partition,
+                        path = partition_dir_str,
+                        "Deleted partition directory"
                     );
                 }
                 Err(e) => {
-                    // Log but don't fail - this might happen if another process
-                    // is already recreating the store
                     warn!(
-                        "Failed to remove partition directory for {}:{} at path {}: {}. This is usually harmless.",
-                        topic, partition, partition_dir, e
+                        topic = topic,
+                        partition = partition,
+                        path = partition_dir_str,
+                        error = %e,
+                        "Failed to remove partition directory (usually harmless)"
                     );
                 }
             }
         } else {
             debug!(
-                "Partition directory for {}:{} doesn't exist at path {}",
-                topic, partition, partition_dir
+                topic = topic,
+                partition = partition,
+                path = partition_dir_str,
+                "Partition directory doesn't exist"
             );
         }
 
@@ -282,6 +445,11 @@ impl StoreManager {
 
     pub fn get_active_store_count(&self) -> usize {
         self.stores.len()
+    }
+
+    /// Get the base path where stores are created
+    pub fn base_path(&self) -> &Path {
+        &self.store_config.path
     }
 
     /// Cleanup old entries across all stores to maintain global capacity
@@ -305,6 +473,13 @@ impl StoreManager {
             flag: &self.cleanup_running,
         };
 
+        // Skip cleanup during rebalance to avoid deleting entries from stores
+        // that are being populated with imported checkpoints
+        if self.is_rebalancing() {
+            debug!("Skipping capacity cleanup - rebalance in progress");
+            return Ok(0);
+        }
+
         let start_time = Instant::now();
 
         // If max_capacity is 0, no cleanup needed (unlimited)
@@ -312,33 +487,56 @@ impl StoreManager {
             return Ok(0);
         }
 
-        // Calculate total size across all stores
+        // Collect store clones first to release DashMap guards before slow operations.
+        // This prevents blocking other DashMap operations during size calculation and cleanup.
+        let stores: Vec<DeduplicationStore> = self
+            .stores
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        // Calculate total size across all stores (no longer holding DashMap guards)
         let mut total_size = 0u64;
-        for entry in self.stores.iter() {
-            let store = entry.value();
-            // Get size of all column families for this store
+        for store in &stores {
             if let Ok(size) = store.get_total_size() {
                 total_size += size;
             }
         }
 
-        // Check if we're under capacity
-        if total_size <= self.store_config.max_capacity {
-            return Ok(0); // Under capacity, no cleanup needed
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        if total_size <= cleanup_threshold {
+            return Ok(0); // Under threshold, no cleanup needed
         }
 
+        // Determine capacity level for logging and cleanup aggressiveness
+        let capacity_ratio = total_size as f64 / self.store_config.max_capacity as f64;
+        let capacity_percent = (capacity_ratio * 100.0) as u32;
+
         info!(
-            "Global store size {} exceeds max capacity {}, triggering cleanup",
-            total_size, self.store_config.max_capacity
+            "Global store size {} ({}% of max capacity {}) exceeds cleanup threshold, triggering cleanup",
+            total_size, capacity_percent, self.store_config.max_capacity
         );
 
-        // We need to clean up - target 80% of max capacity
-        let target_size = (self.store_config.max_capacity as f64 * 0.8) as u64;
+        // We need to clean up - target 70% of max capacity to create buffer
+        let target_size = (self.store_config.max_capacity as f64 * 0.7) as u64;
         let bytes_to_free = total_size.saturating_sub(target_size);
 
         // Calculate cleanup percentage based on how much we need to free
         // If we need to free 20% of total size, clean up 20% of time range from each store
-        let cleanup_percentage = (bytes_to_free as f64 / total_size as f64).min(0.3); // Cap at 30% max
+        let raw_cleanup_percentage = bytes_to_free as f64 / total_size as f64;
+
+        // When over 90% capacity, be more aggressive - no cap on cleanup percentage
+        // Otherwise cap at 30% to avoid removing too much data at once
+        let cleanup_percentage = if capacity_ratio > 0.9 {
+            info!(
+                "Critical capacity ({}%) - using aggressive cleanup without cap",
+                capacity_percent
+            );
+            raw_cleanup_percentage.min(0.5) // Still cap at 50% to avoid removing everything
+        } else {
+            raw_cleanup_percentage.min(0.3) // Normal cap at 30%
+        };
 
         info!(
             "Cleaning up {:.1}% of time range from each store (need to free {} bytes)",
@@ -346,12 +544,19 @@ impl StoreManager {
             bytes_to_free
         );
 
-        // Cleanup stores with the calculated percentage
+        // Cleanup stores with the calculated percentage (no longer holding DashMap guards)
         let mut total_bytes_freed = 0u64;
+        for store in &stores {
+            // Check if rebalance started mid-cleanup - abort to avoid deleting
+            // entries from stores being populated with imported checkpoints
+            if self.is_rebalancing() {
+                info!(
+                    "Aborting capacity cleanup - rebalance started. Freed {} bytes so far",
+                    total_bytes_freed
+                );
+                return Ok(total_bytes_freed);
+            }
 
-        // Clean up all stores with the same percentage to ensure fair distribution
-        for entry in self.stores.iter() {
-            let store = entry.value();
             match store.cleanup_old_entries_with_percentage(cleanup_percentage) {
                 Ok(bytes_freed) => {
                     total_bytes_freed += bytes_freed;
@@ -396,6 +601,7 @@ impl StoreManager {
     }
 
     /// Check if cleanup is needed based on current global size
+    /// Cleanup triggers at 80% capacity to give background compaction time to reclaim space
     pub fn needs_cleanup(&self) -> bool {
         // Log folder sizes and assigned partitions
         self.log_folder_sizes_and_partitions();
@@ -404,18 +610,40 @@ impl StoreManager {
             return false;
         }
 
+        // Collect store clones first to release DashMap guards before slow operations
+        let stores: Vec<DeduplicationStore> = self
+            .stores
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
         let mut total_size = 0u64;
-        for entry in self.stores.iter() {
-            if let Ok(size) = entry.value().get_total_size() {
+        let mut max_oldest_data_age: Option<u64> = None;
+        for store in &stores {
+            if let Ok(size) = store.get_total_size() {
                 total_size += size;
+            }
+            // Emit per-partition oldest data age metric and track max
+            if let Ok(Some(age)) = store.get_oldest_data_age_seconds() {
+                metrics::gauge!(
+                    ROCKSDB_OLDEST_DATA_AGE_SECONDS_GAUGE,
+                    "topic" => store.get_topic().to_string(),
+                    "partition" => store.get_partition().to_string()
+                )
+                .set(age as f64);
+                max_oldest_data_age =
+                    Some(max_oldest_data_age.map_or(age, |current| current.max(age)));
             }
         }
 
+        // Start cleanup at 80% capacity to give compaction headroom
+        let cleanup_threshold = (self.store_config.max_capacity as f64 * 0.8) as u64;
+
         info!(
-            "Total size of all stores: {} bytes, max capacity: {} bytes",
-            total_size, self.store_config.max_capacity
+            "Total size of all stores: {} bytes, cleanup threshold: {} bytes, max capacity: {} bytes, oldest data age: {}s",
+            total_size, cleanup_threshold, self.store_config.max_capacity, max_oldest_data_age.unwrap_or(0)
         );
-        total_size > self.store_config.max_capacity
+        total_size > cleanup_threshold
     }
 
     /// Start a periodic cleanup task that runs in the background
@@ -423,6 +651,7 @@ impl StoreManager {
     pub fn start_periodic_cleanup(
         self: Arc<Self>,
         cleanup_interval: Duration,
+        orphan_min_staleness: Duration,
     ) -> CleanupTaskHandle {
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         let manager = self;
@@ -432,8 +661,8 @@ impl StoreManager {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             info!(
-                "Started periodic cleanup task with interval of {:?}",
-                cleanup_interval
+                "Started periodic cleanup task with interval of {:?}, orphan staleness {:?}",
+                cleanup_interval, orphan_min_staleness
             );
 
             loop {
@@ -442,7 +671,7 @@ impl StoreManager {
                         info!("Cleanup task tick - running periodic cleanup check");
 
                         // First, clean up orphaned directories (unassigned partitions)
-                        match manager.cleanup_orphaned_directories() {
+                        match manager.cleanup_orphaned_directories(orphan_min_staleness) {
                             Ok(0) => {
                                 debug!("No orphaned directories found");
                             }
@@ -504,15 +733,14 @@ impl StoreManager {
     /// Build the path for a store based on topic and partition
     /// Each store gets a unique timestamp-based subdirectory to avoid conflicts
     fn build_store_path(&self, topic: &str, partition: i32) -> String {
-        // Create a unique subdirectory for this store instance
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        format!(
-            "{}/{}_{}/{}",
-            self.store_config.path.display(),
-            topic.replace('/', "_"),
+        format_store_path(
+            &self.store_config.path,
+            topic,
             partition,
-            timestamp
+            chrono::Utc::now(),
         )
+        .to_string_lossy()
+        .to_string()
     }
 
     /// Ensure the parent directory for a store path exists
@@ -618,70 +846,240 @@ impl StoreManager {
         Ok(size)
     }
 
-    /// Clean up orphaned directories that don't belong to any assigned partition
-    pub fn cleanup_orphaned_directories(&self) -> Result<u64> {
-        let mut total_freed = 0u64;
+    /// Get the newest WAL (*.log) file modification time within a single timestamp directory.
+    /// Returns None if no WAL files are found.
+    fn get_wal_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
+        let mut newest: Option<SystemTime> = None;
 
-        // Build a set of currently assigned partition directories
-        let mut assigned_dirs = std::collections::HashSet::new();
-        for entry in self.stores.iter() {
-            let partition = entry.key();
-            let dir_name = format!(
-                "{}_{}",
-                partition.topic().replace('/', "_"),
-                partition.partition_number()
-            );
-            assigned_dirs.insert(dir_name);
-        }
-
-        info!(
-            "Checking for orphaned directories. Currently assigned: {:?}",
-            assigned_dirs
-        );
-
-        // Scan the store directory for all partition directories
-        if let Ok(entries) = std::fs::read_dir(&self.store_config.path) {
-            for entry in entries.flatten() {
-                if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_dir() {
-                        let dir_name = entry.file_name().to_string_lossy().to_string();
-
-                        // Check if this directory matches the pattern topic_partition
-                        // and is not in our assigned set
-                        if dir_name.contains('_') && !assigned_dirs.contains(&dir_name) {
-                            // This is an orphaned directory
-                            let dir_path = entry.path();
-                            let dir_size = Self::get_directory_size(&dir_path).unwrap_or(0);
-
-                            match std::fs::remove_dir_all(&dir_path) {
-                                Ok(_) => {
-                                    info!(
-                                        "Removed orphaned directory {} ({:.2} MB)",
-                                        dir_name,
-                                        dir_size as f64 / (1024.0 * 1024.0)
-                                    );
-                                    total_freed += dir_size;
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "Failed to remove orphaned directory {}: {}",
-                                        dir_name, e
-                                    );
-                                }
-                            }
+        if let Ok(files) = std::fs::read_dir(timestamp_dir) {
+            for file_entry in files.flatten() {
+                let file_path = file_entry.path();
+                if file_path.extension().is_some_and(|e| e == "log") {
+                    if let Ok(file_meta) = file_entry.metadata() {
+                        if let Ok(mtime) = file_meta.modified() {
+                            newest = Some(newest.map_or(mtime, |n: SystemTime| n.max(mtime)));
                         }
                     }
                 }
             }
         }
 
+        newest
+    }
+
+    /// Get the modification time of a timestamp directory.
+    /// This catches checkpoint imports in progress (directory created/modified but no LOCK/WAL yet).
+    fn get_dir_mtime(timestamp_dir: &Path) -> Option<SystemTime> {
+        std::fs::metadata(timestamp_dir)
+            .ok()
+            .and_then(|m| m.modified().ok())
+    }
+
+    /// Collect all timestamp subdirectories as cleanup candidates.
+    /// Returns Vec of (topic_partition_name, full_timestamp_dir_path).
+    /// Does NOT filter by safety checks - that happens during the deletion loop.
+    fn collect_orphan_candidates(&self) -> Vec<(String, PathBuf)> {
+        let mut candidates = Vec::new();
+
+        // Build a set of currently assigned partition directories
+        let mut assigned_dirs = std::collections::HashSet::new();
+        for entry in self.stores.iter() {
+            let partition = entry.key();
+            let dir_name = format_partition_dir(partition.topic(), partition.partition_number());
+            assigned_dirs.insert(dir_name);
+        }
+
+        info!(
+            "Collecting orphan candidates. Currently assigned partitions: {:?}",
+            assigned_dirs
+        );
+
+        // Scan the store directory for all partition directories
+        let Ok(partition_entries) = std::fs::read_dir(&self.store_config.path) else {
+            return candidates;
+        };
+
+        for partition_entry in partition_entries.flatten() {
+            let Ok(metadata) = partition_entry.metadata() else {
+                continue;
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+
+            let partition_dir_name = partition_entry.file_name().to_string_lossy().to_string();
+
+            // Skip if doesn't match topic_partition pattern or is assigned
+            if !partition_dir_name.contains('_') || assigned_dirs.contains(&partition_dir_name) {
+                continue;
+            }
+
+            // Enumerate all timestamp subdirectories under this orphan partition
+            let partition_path = partition_entry.path();
+            let Ok(timestamp_entries) = std::fs::read_dir(&partition_path) else {
+                continue;
+            };
+
+            for ts_entry in timestamp_entries.flatten() {
+                let Ok(ts_metadata) = ts_entry.metadata() else {
+                    continue;
+                };
+                if ts_metadata.is_dir() {
+                    candidates.push((partition_dir_name.clone(), ts_entry.path()));
+                }
+            }
+        }
+
+        debug!(
+            "Found {} orphan timestamp directory candidates",
+            candidates.len()
+        );
+        candidates
+    }
+
+    /// Check if a specific timestamp directory is safe to delete as an orphan.
+    /// Returns false (NOT safe) if:
+    /// - WAL files have been modified within the staleness threshold
+    /// - Directory modified within staleness threshold (checkpoint import)
+    /// - The parent partition is now in the stores map (re-assigned)
+    fn is_safe_to_delete_timestamp_dir(
+        &self,
+        timestamp_dir: &Path,
+        parent_dir_name: &str,
+        orphan_min_staleness: Duration,
+    ) -> bool {
+        let ts_dir_display = timestamp_dir.display();
+
+        // Check 1: WAL files modified recently - store may still be active
+        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
+        if let Some(wal_mtime) = Self::get_wal_mtime(timestamp_dir) {
+            let elapsed = wal_mtime.elapsed().unwrap_or(Duration::ZERO);
+            if elapsed < orphan_min_staleness {
+                info!(
+                    path = %ts_dir_display,
+                    wal_age_secs = elapsed.as_secs(),
+                    min_staleness_secs = orphan_min_staleness.as_secs(),
+                    "Orphan safety check: WAL file too recent, skipping deletion"
+                );
+                return false;
+            }
+        }
+
+        // Check 2: Directory modified recently - checkpoint import in progress
+        // Use Duration::ZERO on elapsed() failure to be conservative (treat as just modified)
+        if let Some(dir_mtime) = Self::get_dir_mtime(timestamp_dir) {
+            let elapsed = dir_mtime.elapsed().unwrap_or(Duration::ZERO);
+            if elapsed < orphan_min_staleness {
+                info!(
+                    path = %ts_dir_display,
+                    dir_age_secs = elapsed.as_secs(),
+                    min_staleness_secs = orphan_min_staleness.as_secs(),
+                    "Orphan safety check: directory too recent, skipping deletion"
+                );
+                return false;
+            }
+        }
+
+        // Check 3: Double-check stores map - partition may have been re-assigned
+        for entry in self.stores.iter() {
+            let partition = entry.key();
+            let assigned_dir =
+                format_partition_dir(partition.topic(), partition.partition_number());
+            if assigned_dir == parent_dir_name {
+                info!(
+                    path = %ts_dir_display,
+                    "Orphan safety check: parent partition now in stores map, skipping deletion"
+                );
+                return false;
+            }
+        }
+
+        // All checks passed - safe to delete
+        true
+    }
+
+    /// Clean up orphaned timestamp directories that don't belong to any assigned partition.
+    ///
+    /// Safety checks before deletion:
+    /// 1. Skip if stores map is empty (startup race)
+    /// 2. Skip if rebalancing is in progress
+    /// 3. For each candidate timestamp dir: check WAL mtime, dir mtime, and re-verify stores map
+    pub fn cleanup_orphaned_directories(&self, orphan_min_staleness: Duration) -> Result<u64> {
+        // Guard: skip cleanup if no stores are registered yet (startup race) or
+        // all stores were just unregistered (rebalance). This prevents deleting
+        // valid directories before partition assignment completes.
+        if self.stores.is_empty() {
+            debug!("Skipping orphan cleanup - no stores registered");
+            return Ok(0);
+        }
+
+        // Guard: skip cleanup during rebalance to avoid deleting directories
+        // that are about to be assigned to us
+        if self.is_rebalancing() {
+            debug!("Skipping orphan cleanup - rebalance in progress");
+            return Ok(0);
+        }
+
+        // Collect all timestamp subdirectories under orphan partitions
+        let candidates = self.collect_orphan_candidates();
+
+        if candidates.is_empty() {
+            debug!("No orphaned timestamp directories found");
+            return Ok(0);
+        }
+
+        let mut total_freed = 0u64;
+
+        for (parent_dir_name, timestamp_path) in candidates {
+            // Re-check rebalance mid-loop - abort to avoid deleting directories
+            // that may be about to be assigned
+            if self.is_rebalancing() {
+                info!(
+                    "Aborting orphan cleanup - rebalance started. Freed {} bytes so far",
+                    total_freed
+                );
+                return Ok(total_freed);
+            }
+
+            // Safety checks: WAL mtime, dir mtime, double-check stores map
+            if !self.is_safe_to_delete_timestamp_dir(
+                &timestamp_path,
+                &parent_dir_name,
+                orphan_min_staleness,
+            ) {
+                debug!(
+                    path = %timestamp_path.display(),
+                    "Skipping orphan candidate - failed safety checks"
+                );
+                continue;
+            }
+
+            let dir_size = Self::get_directory_size(&timestamp_path).unwrap_or(0);
+
+            match std::fs::remove_dir_all(&timestamp_path) {
+                Ok(_) => {
+                    info!(
+                        "Removed orphaned timestamp directory {} ({:.2} MB)",
+                        timestamp_path.display(),
+                        dir_size as f64 / (1024.0 * 1024.0)
+                    );
+                    total_freed += dir_size;
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to remove orphaned timestamp directory {}: {}",
+                        timestamp_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+
         if total_freed > 0 {
             info!(
-                "Cleaned up {:.2} MB of orphaned directories",
+                "Cleaned up {:.2} MB of orphaned timestamp directories",
                 total_freed as f64 / (1024.0 * 1024.0)
             );
-        } else {
-            debug!("No orphaned directories found");
         }
 
         Ok(total_freed)
@@ -795,6 +1193,7 @@ mod tests {
         // Start periodic cleanup with short interval for testing
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_millis(100), // Very short interval for testing
+            Duration::from_secs(0),     // No staleness for testing
         );
 
         // Create a store and add data
@@ -842,6 +1241,7 @@ mod tests {
         // Start cleanup task
         let cleanup_handle = manager.clone().start_periodic_cleanup(
             Duration::from_secs(60), // Long interval
+            Duration::from_secs(0),  // No staleness for testing
         );
 
         // Give it time to start
@@ -967,5 +1367,464 @@ mod tests {
         for store in &stores {
             assert!(store.get_timestamp_record(&key).unwrap().is_some());
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_or_create_for_rebalance() {
+        // Test that get_or_create_for_rebalance works the same as get_or_create
+        // but is intended for pre-creation during rebalancing
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Pre-create during rebalance
+        let store1 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+
+        // Subsequent call (during message processing) should return the same store
+        let store2 = manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Verify they share state
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_store_precreation_before_message_processing() {
+        // Simulates the ideal flow: store is pre-created during rebalance,
+        // then used during message processing without creating a new one
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Step 1: Pre-create during rebalance (async_setup_assigned_partitions)
+        let _store = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Step 2: Message processing calls get_or_create
+        // This should return the existing store (no new creation)
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Still only 1 store
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Verify it's the same store by checking it works
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_rapid_revoke_assign_store_recreation() {
+        // Simulates rapid revoke -> assign where:
+        // 1. Store exists
+        // 2. Revoke removes it from map
+        // 3. Assign pre-creates a new one
+        // 4. Messages can use the new store
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // Initial assignment - pre-create store
+        let store1 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Add some data
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store1.put_timestamp_record(&key, &metadata).unwrap();
+
+        // Revoke - unregister store (but don't delete files yet)
+        manager.unregister_store("test-topic", 0);
+        assert_eq!(manager.get_active_store_count(), 0);
+
+        // Rapid re-assign - pre-create new store
+        let store2 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // The new store should be fresh (different RocksDB instance with new timestamp path)
+        // But both stores should work independently
+        let event2 = RawEvent {
+            event: "test_event_2".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user_2".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        let key2 = TimestampKey::from(&event2);
+        let metadata2 = TimestampMetadata::new(&event2);
+        store2.put_timestamp_record(&key2, &metadata2).unwrap();
+        assert!(store2.get_timestamp_record(&key2).unwrap().is_some());
+
+        // Message processing should use the new store
+        let store3 = manager.get_or_create("test-topic", 0).await.unwrap();
+        assert!(store3.get_timestamp_record(&key2).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_message_processing_creates_store_if_precreation_missed() {
+        // Simulates the case where messages arrive before pre-creation completes
+        // The processor's get_or_create should still work (and emit a warning)
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = StoreManager::new(config);
+
+        // No pre-creation - messages arrive first
+        // This would emit a warning in production
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Store should work normally
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+        store.put_timestamp_record(&key, &metadata).unwrap();
+        assert!(store.get_timestamp_record(&key).unwrap().is_some());
+
+        // Late pre-creation should just return the existing store
+        let store2 = manager
+            .get_or_create_for_rebalance("test-topic", 0)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+        assert!(store2.get_timestamp_record(&key).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_rebalance_and_message_processing() {
+        // Simulates concurrent pre-creation and message processing
+        // Only one store should be created
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Spawn concurrent tasks: some for rebalance, some for message processing
+        let mut handles = vec![];
+
+        for i in 0..5 {
+            let manager_clone = manager.clone();
+            let handle = if i % 2 == 0 {
+                // Rebalance pre-creation
+                tokio::spawn(async move {
+                    manager_clone
+                        .get_or_create_for_rebalance("test-topic", 0)
+                        .await
+                })
+            } else {
+                // Message processing
+                tokio::spawn(async move { manager_clone.get_or_create("test-topic", 0).await })
+            };
+            handles.push(handle);
+        }
+
+        // All should succeed
+        let mut stores = vec![];
+        for handle in handles {
+            let store = handle.await.unwrap().unwrap();
+            stores.push(store);
+        }
+
+        // Only one store should exist
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // All stores should be the same instance
+        let event = RawEvent {
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::Value::String("test_user".to_string())),
+            token: Some("test_token".to_string()),
+            timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        let key = TimestampKey::from(&event);
+        let metadata = TimestampMetadata::new(&event);
+
+        stores[0].put_timestamp_record(&key, &metadata).unwrap();
+        for store in &stores {
+            assert!(store.get_timestamp_record(&key).unwrap().is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_orphaned_directories_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+        assert_eq!(manager.get_active_store_count(), 1);
+
+        // Create an "orphaned" directory manually (not in stores map)
+        // Must have timestamp subdir structure: topic_partition/timestamp/files
+        let orphan_dir = temp_dir.path().join("other-topic_1");
+        let timestamp_subdir = orphan_dir.join("1234567890");
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
+
+        // When NOT rebalancing, cleanup should remove the orphan timestamp dir
+        assert!(!manager.is_rebalancing());
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert!(freed > 0);
+        assert!(
+            !timestamp_subdir.exists(),
+            "Orphan timestamp dir should be removed when not rebalancing"
+        );
+
+        // Recreate the orphan directory structure
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.txt"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, cleanup should skip and not remove the orphan
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert_eq!(freed, 0);
+        assert!(
+            timestamp_subdir.exists(),
+            "Orphan should NOT be removed during rebalance"
+        );
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should remove the orphan again
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert!(freed > 0);
+        assert!(
+            !timestamp_subdir.exists(),
+            "Orphan timestamp dir should be removed after rebalance ends"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capacity_cleanup_skips_during_rebalance() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 100, // Very small to trigger cleanup
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store and add data
+        let store = manager.get_or_create("test-topic", 0).await.unwrap();
+        for i in 0..10 {
+            let event = RawEvent {
+                uuid: Some(uuid::Uuid::new_v4()),
+                event: format!("test_event_{i}"),
+                distinct_id: Some(serde_json::Value::String(format!("user_{i}"))),
+                token: Some("test_token".to_string()),
+                timestamp: Some("2021-01-01T00:00:00Z".to_string()),
+                properties: std::collections::HashMap::new(),
+                ..Default::default()
+            };
+            let key = TimestampKey::from(&event);
+            let metadata = TimestampMetadata::new(&event);
+            store.put_timestamp_record(&key, &metadata).unwrap();
+        }
+
+        // Set rebalancing flag
+        manager.set_rebalancing(true);
+        assert!(manager.is_rebalancing());
+
+        // During rebalance, capacity cleanup should skip
+        let freed = manager.cleanup_old_entries_if_needed().unwrap();
+        assert_eq!(freed, 0, "Should skip cleanup during rebalance");
+
+        // Clear rebalancing flag
+        manager.set_rebalancing(false);
+        assert!(!manager.is_rebalancing());
+
+        // Now cleanup should run (may or may not free bytes depending on actual size)
+        let result = manager.cleanup_old_entries_if_needed();
+        assert!(result.is_ok(), "Cleanup should run after rebalance ends");
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_recent_wal_prevents_deletion() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0 (so stores map is not empty)
+        manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Create an "orphaned" directory with a recent WAL file
+        let orphan_dir = temp_dir.path().join("other-topic_1");
+        let timestamp_subdir = orphan_dir.join("1234567890");
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("000001.log"), b"wal data").unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
+
+        // Cleanup should NOT remove the timestamp dir because WAL file is too recent (staleness=15min)
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(900))
+            .unwrap();
+        assert_eq!(freed, 0, "Should not delete directory with recent WAL");
+        assert!(
+            timestamp_subdir.exists(),
+            "Timestamp dir with recent WAL should NOT be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_cleanup_old_wal_allows_deletion() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0 (so stores map is not empty)
+        manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Create an "orphaned" directory with a WAL file (no LOCK)
+        let orphan_dir = temp_dir.path().join("other-topic_1");
+        let timestamp_subdir = orphan_dir.join("1234567890");
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("000001.log"), b"wal data").unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
+        assert!(timestamp_subdir.exists());
+
+        // With zero staleness, cleanup should remove the timestamp dir
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert!(freed > 0, "Should delete directory with stale WAL");
+        assert!(
+            !timestamp_subdir.exists(),
+            "Timestamp dir with stale WAL should be removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_orphan_safety_checks_combined() {
+        // Verify all safety checks work together
+        let temp_dir = TempDir::new().unwrap();
+        let config = DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1024 * 1024 * 1024,
+        };
+
+        let manager = Arc::new(StoreManager::new(config));
+
+        // Create a store for partition 0
+        manager.get_or_create("test-topic", 0).await.unwrap();
+
+        // Test 1: Directory in stores map should NOT be deleted
+        // (the existing test-topic_0 directory)
+        let active_dir = temp_dir.path().join("test-topic_0");
+        assert!(active_dir.exists(), "Active store directory should exist");
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert_eq!(freed, 0, "No orphans should be found initially");
+        assert!(
+            active_dir.exists(),
+            "Active store directory should NOT be deleted"
+        );
+
+        // Test 2: True orphan (no LOCK, no recent WAL, not in stores) should be deleted
+        let orphan_dir = temp_dir.path().join("orphan-topic_99");
+        let timestamp_subdir = orphan_dir.join("9999999999");
+        std::fs::create_dir_all(&timestamp_subdir).unwrap();
+        std::fs::write(timestamp_subdir.join("dummy.sst"), b"test data").unwrap();
+
+        let freed = manager
+            .cleanup_orphaned_directories(Duration::from_secs(0))
+            .unwrap();
+        assert!(freed > 0, "True orphan should be deleted");
+        assert!(
+            !timestamp_subdir.exists(),
+            "Orphan timestamp directory should be removed"
+        );
     }
 }

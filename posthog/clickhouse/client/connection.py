@@ -28,6 +28,8 @@ class Workload(StrEnum):
     OFFLINE = "OFFLINE"
     # Logs queries
     LOGS = "LOGS"
+    # Endpoints (the product) queries
+    ENDPOINTS = "ENDPOINTS"
 
 
 class NodeRole(StrEnum):
@@ -40,6 +42,7 @@ class NodeRole(StrEnum):
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     SHUFFLEHOG = "shufflehog"
+    ENDPOINTS = "endpoints"
 
 
 _default_workload = Workload.ONLINE
@@ -47,6 +50,9 @@ _default_workload = Workload.ONLINE
 
 class ClickHouseUser(StrEnum):
     # Default, not annotated queries goes here.
+    # Avoid using for new queries. We are progressively constraining the resources for this user.
+    # Only resort to using during experimentation and development.
+    # Once you're past that, create a dedicated user for your product/use-case and use that instead.
     DEFAULT = "default"
     # All /api/ requests called programmatically
     API = "api"
@@ -59,6 +65,7 @@ class ClickHouseUser(StrEnum):
     HOGQL = "hogql"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"
+    ENDPOINTS = "endpoints"
 
     # Dev Operations - do not normally use
     OPS = "ops"
@@ -190,6 +197,9 @@ def get_kwargs_for_client(
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
     ) and settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None:
         return {**base_kwargs, "host": settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST, "verify": False}
+
+    if workload == Workload.ENDPOINTS:
+        return {**base_kwargs, "host": settings.CLICKHOUSE_ENDPOINTS_HOST}
 
     return base_kwargs
 

@@ -1,4 +1,4 @@
-import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -19,7 +19,6 @@ import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 
@@ -58,7 +57,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     })
 
     // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 

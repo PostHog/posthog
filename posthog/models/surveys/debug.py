@@ -278,7 +278,7 @@ def find_teams_with_cache_inconsistencies(
     if inconsistent_teams:
         print("\nFirst 10 inconsistent teams:")  # noqa: T201
         for idx, team_info in enumerate(inconsistent_teams[:10]):
-            print(f"{idx+1}. Team {team_info['team_id']} ({team_info['team_name']})")  # noqa: T201
+            print(f"{idx + 1}. Team {team_info['team_id']} ({team_info['team_name']})")  # noqa: T201
             for field in team_info["inconsistent_fields"]:
                 print(f"   - {field}: DB={team_info['db_values'][field]}, Cache={team_info['cache_values'][field]}")  # noqa: T201
 

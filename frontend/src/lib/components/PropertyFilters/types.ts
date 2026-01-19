@@ -34,6 +34,7 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     eventNames?: string[]
     excludedProperties?: ExcludedProperties
     propertyAllowList?: AllowedProperties
+    endpointFilters?: Record<string, any>
 }
 
 export interface PropertyFilterInternalProps {
@@ -61,4 +62,5 @@ export interface PropertyFilterInternalProps {
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
     addFilterDocLink?: string
+    endpointFilters?: Record<string, any>
 }

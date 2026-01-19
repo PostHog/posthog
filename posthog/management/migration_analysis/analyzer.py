@@ -18,6 +18,7 @@ from posthog.management.migration_analysis.operations import (
     RunPythonAnalyzer,
     RunSQLAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
+    is_unmanaged_model,
 )
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
@@ -28,9 +29,8 @@ class RiskAnalyzer:
     Analyzes Django migration operations and assigns risk scores.
 
     Risk scoring rules:
-    0: Safe - No contention risk (new tables, concurrent operations)
-    1: Needs Review - Brief lock required, review for high-traffic tables
-    2-3: Needs Review - Extended operations or performance impact
+    0-1: Safe - Brief or no lock, backwards compatible
+    2-3: Needs Review - May have performance impact
     4-5: Blocked - Table rewrites, breaks backwards compatibility, or can't rollback
     """
 
@@ -68,11 +68,17 @@ class RiskAnalyzer:
             loader: Optional Django MigrationLoader for checking migration history
         """
         # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
-        self.newly_created_models = {
-            op.name.lower()
-            for op in migration.operations
-            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name")
-        }
+        # Only count models that are managed=True (skipping unmanaged ones to avoid misleading messages)
+        self.newly_created_models = set()
+        self.unmanaged_models = set()
+
+        for op in migration.operations:
+            if op.__class__.__name__ == "CreateModel" and hasattr(op, "name"):
+                model_name = op.name.lower()
+                if is_unmanaged_model(op, migration):
+                    self.unmanaged_models.add(model_name)
+                else:
+                    self.newly_created_models.add(model_name)
 
         # Store loader for operations that need it
         self.loader = loader
@@ -81,6 +87,10 @@ class RiskAnalyzer:
         operation_risks = []
 
         for op in migration.operations:
+            # Skip operations on managed=False models - Django won't execute DDL for them
+            if is_unmanaged_model(op, migration):
+                continue
+
             risk = self.analyze_operation(op)
 
             # Skip AddIndex/AddConstraint on newly created tables - they're safe
@@ -112,6 +122,10 @@ class RiskAnalyzer:
         if self.newly_created_models:
             info_messages.append(
                 "ℹ️  Skipped operations on newly created tables (empty tables don't cause lock contention)."
+            )
+        if self.unmanaged_models:
+            info_messages.append(
+                "ℹ️  Skipped operations on unmanaged models (managed=False) - schema managed externally."
             )
 
         return MigrationRisk(
@@ -220,15 +234,39 @@ class RiskAnalyzer:
 
     def _check_ddl_isolation(self, categorizer: OperationCategorizer, operation_risks: list) -> list[str]:
         """Check if DDL operations should be isolated."""
-        if not categorizer.has_ddl or len(operation_risks) <= 1:
+        if not categorizer.has_ddl:
+            return []
+
+        # Count only top-level operations (nested ops inside SeparateDatabaseAndState
+        # are part of their parent, not separate "mixed" operations)
+        top_level_count = sum(1 for op in operation_risks if op.parent_index is None)
+        if top_level_count <= 1:
             return []
 
         ddl_refs = categorizer.format_operation_refs(categorizer.ddl_ops)
 
+        # Specific: DDL + DML
+        if categorizer.has_dml:
+            dml_refs = categorizer.format_operation_refs(categorizer.dml_ops)
+            return [
+                f"❌ BLOCKED: {ddl_refs} mixed with {dml_refs}    "
+                "Schema changes (ALTER TABLE) and data changes (UPDATE/DELETE) should be in separate migrations. "
+                "Both can use atomic=True (default) for rollback safety."
+            ]
+
+        # Specific: DDL + schema operations
+        if categorizer.has_schema_changes:
+            schema_refs = categorizer.format_operation_refs(categorizer.schema_ops)
+            return [
+                f"❌ BLOCKED: {ddl_refs} mixed with {schema_refs}    "
+                "RunSQL DDL and Django schema operations should be in separate migrations. "
+                "Both can use atomic=True (default) for rollback safety."
+            ]
+
+        # Generic fallback
         return [
             f"❌ BLOCKED: {ddl_refs} mixed with other operations    "
-            "RunSQL with DDL (CREATE INDEX/ALTER TABLE) should be isolated in their own migration "
-            "to avoid lock conflicts."
+            "Consider splitting into separate migrations for rollback safety."
         ]
 
     def _check_multiple_high_risk_ops(self, categorizer: OperationCategorizer) -> list[str]:

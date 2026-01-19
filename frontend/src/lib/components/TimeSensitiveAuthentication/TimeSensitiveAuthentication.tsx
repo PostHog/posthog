@@ -24,7 +24,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const showPassword = !ssoEnforcement && user?.has_password
 
     const extraQueryParams = {
-        next: encodeURI(location.href.replace(location.origin, '')),
+        next: location.href.replace(location.origin, ''),
         email: user?.email || '',
         reauth: 'true',
     }
@@ -77,6 +77,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 autoComplete="current-password"
+                                autoFocus
                             />
                         </LemonField>
                     ) : null}
@@ -102,6 +103,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
                         extraQueryParams={extraQueryParams}
+                        showPasskey={true}
                     />
                     {precheckResponse?.saml_available ? (
                         <SSOEnforcedLoginButton

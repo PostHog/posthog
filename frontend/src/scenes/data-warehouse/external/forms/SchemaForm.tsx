@@ -59,7 +59,7 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    const isSuggested = suggestedTablesMap[schema.table] !== null
+                                    const isSuggested = suggestedTablesMap[schema.table] !== undefined
                                     const tooltip =
                                         suggestedTablesMap[schema.table] ??
                                         'This table is suggested to be enabled for this source'
@@ -163,7 +163,7 @@ export default function SchemaForm(): JSX.Element {
                                                 onClick={() => openSyncMethodModal(schema)}
                                                 disabledReason={
                                                     !schema.incremental_available && !schema.append_available
-                                                        ? 'Full refresh is the only supported sync method'
+                                                        ? 'Full refresh is the only supported sync method for this table'
                                                         : undefined
                                                 }
                                             >

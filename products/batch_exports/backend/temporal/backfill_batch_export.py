@@ -172,8 +172,10 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             settings.TEMPORAL_CLIENT_KEY,
         )
 
-        details = temporalio.activity.info().heartbeat_details
+        schedule_handle = client.get_schedule_handle(inputs.schedule_id)
+        description = await schedule_handle.describe()
 
+        details = temporalio.activity.info().heartbeat_details
         if details:
             # If we receive details from a previous run, it means we were restarted for some reason.
             # Let's not double-backfill and instead wait for any outstanding runs.
@@ -195,9 +197,10 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
             start_at = dt.datetime.fromisoformat(last_activity_details.last_batch_data_interval_end)
 
-        schedule_handle = client.get_schedule_handle(inputs.schedule_id)
+            if description.schedule.spec.time_zone_name and description.schedule.spec.time_zone_name != "UTC":
+                # Details is always in UTC, we must re-convert it to the schedule's timezone
+                start_at = start_at.astimezone(zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name))
 
-        description = await schedule_handle.describe()
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
 
         if start_at is not None:

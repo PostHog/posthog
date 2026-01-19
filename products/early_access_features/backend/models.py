@@ -44,6 +44,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     description = models.TextField(blank=True)
     stage = models.CharField(max_length=40, choices=Stage.choices)
     documentation_url = models.URLField(max_length=800, blank=True)
+    payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self) -> str:

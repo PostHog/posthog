@@ -28,9 +28,11 @@ import {
 export function ClickToInspectActors({
     isTruncated,
     groupTypeLabel,
+    showShiftKeyHint,
 }: {
     isTruncated?: boolean
     groupTypeLabel: string
+    showShiftKeyHint?: boolean
 }): JSX.Element {
     return (
         <div className="table-subtext">
@@ -38,6 +40,14 @@ export function ClickToInspectActors({
                 <div className="table-subtext-truncated">
                     For readability, <b>not all series are displayed</b>.<br />
                 </div>
+            )}
+            {showShiftKeyHint && (
+                <>
+                    <div>
+                        Hold Shift (<kbd className="KeyboardShortcut__key">⇧</kbd>) to highlight individual bars
+                    </div>
+                    <br />
+                </>
             )}
             <div className="table-subtext-click-to-inspect">
                 <IconHandClick className="mr-1 mb-0.5" />
@@ -92,6 +102,7 @@ export function InsightTooltip({
     breakdownFilter,
     interval,
     dateRange,
+    showShiftKeyHint,
 }: InsightTooltipProps): JSX.Element {
     // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
     // and the insight has a breakdown or compare option enabled. This gives us space for labels
@@ -201,7 +212,11 @@ export function InsightTooltip({
                     showHeader={showHeader}
                 />
                 {!hideInspectActorsSection && (
-                    <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                    <ClickToInspectActors
+                        isTruncated={isTruncated}
+                        groupTypeLabel={groupTypeLabel}
+                        showShiftKeyHint={showShiftKeyHint}
+                    />
                 )}
             </div>
         )
@@ -261,7 +276,11 @@ export function InsightTooltip({
                 showHeader={showHeader}
             />
             {!hideInspectActorsSection && (
-                <ClickToInspectActors isTruncated={isTruncated} groupTypeLabel={groupTypeLabel} />
+                <ClickToInspectActors
+                    isTruncated={isTruncated}
+                    groupTypeLabel={groupTypeLabel}
+                    showShiftKeyHint={showShiftKeyHint}
+                />
             )}
         </div>
     )

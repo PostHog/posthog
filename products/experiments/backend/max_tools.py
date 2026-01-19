@@ -53,6 +53,9 @@ Examples:
     context_prompt_template: str = "Creates a new A/B test experiment in the project"
     args_schema: type[BaseModel] = CreateExperimentArgs
 
+    def get_required_resource_access(self):
+        return [("experiment", "editor")]
+
     async def _arun_impl(
         self,
         name: str,
@@ -91,6 +94,13 @@ Examples:
             if len(variants) < 2:
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' must have at least 2 variants for an experiment (e.g., control and test)"
+                )
+
+            # Validate that the first variant is "control" - required for experiment statistics
+            if variants[0].get("key") != "control":
+                raise ValueError(
+                    f"Feature flag '{feature_flag_key}' must have 'control' as the first variant. "
+                    f"Found '{variants[0].get('key')}' instead. Please update the feature flag variants."
                 )
 
             # If flag already exists and is already used by another experiment, raise error
@@ -205,6 +215,9 @@ class ExperimentSummaryTool(MaxTool):
     context_prompt_template: str = "Analyzes experiment results and generates executive summaries with key insights."
 
     args_schema: type[BaseModel] = ExperimentSummaryArgs
+
+    def get_required_resource_access(self):
+        return [("experiment", "viewer")]
 
     async def _analyze_experiment(self, context: MaxExperimentSummaryContext) -> ExperimentSummaryOutput:
         """Analyze experiment and generate summary."""

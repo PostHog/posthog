@@ -38,6 +38,7 @@ CREATE OR REPLACE TABLE logs31
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_mat_body_ipv4_matches mat_body_ipv4_matches TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_body_ngram3 body TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
+    INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
     PROJECTION projection_aggregate_counts
     (
         SELECT
@@ -78,6 +79,7 @@ create or replace table default.log_attributes
     `resource_fingerprint` UInt64 DEFAULT 0,
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
+    `attribute_type` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64),
     INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -86,7 +88,48 @@ create or replace table default.log_attributes
 )
 ENGINE = AggregatingMergeTree
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, time_bucket, resource_fingerprint, attribute_key, attribute_value);
+ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value);
+
+drop view if exists log_to_resource_attributes;
+CREATE MATERIALIZED VIEW log_to_resource_attributes TO log_attributes
+(
+    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `resource_fingerprint` UInt64,
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+    `attribute_type` LowCardinality(String),
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    service_name,
+    resource_fingerprint,
+    attribute_key,
+    attribute_value,
+    'resource' as attribute_type,
+    attribute_count
+FROM
+(
+    SELECT
+        team_id AS team_id,
+        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+        service_name AS service_name,
+        resource_fingerprint,
+        arrayJoin(resource_attributes) AS attribute,
+        attribute.1 AS attribute_key,
+        attribute.2 AS attribute_value,
+        sumSimpleState(1) AS attribute_count
+    FROM logs31
+    GROUP BY
+        team_id,
+        time_bucket,
+        service_name,
+        resource_fingerprint,
+        attribute
+);
 
 drop view if exists log_to_log_attributes;
 CREATE MATERIALIZED VIEW log_to_log_attributes TO log_attributes
@@ -97,6 +140,7 @@ CREATE MATERIALIZED VIEW log_to_log_attributes TO log_attributes
     `resource_fingerprint` UInt64,
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
+    `attribute_type` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)
 )
 AS SELECT
@@ -106,6 +150,7 @@ AS SELECT
     resource_fingerprint,
     attribute_key,
     attribute_value,
+    'log' as attribute_type,
     attribute_count
 FROM
 (
@@ -178,8 +223,35 @@ AS SELECT
 mapSort(mapApply((k,v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) as attributes_map_str,
 mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__float'), toFloat64OrNull(JSONExtract(v, 'String'))), attributes))) as attributes_map_float,
 mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__datetime'), parseDateTimeBestEffortOrNull(JSONExtract(v, 'String'), 6)), attributes))) as attributes_map_datetime,
-mapSort(resource_attributes) as resource_attributes,
+mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
 toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
-FROM kafka_logs_avro;
+FROM kafka_logs_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+
+create or replace table logs_kafka_metrics
+(
+    `_partition` UInt32,
+    `_topic` String,
+    `max_offset` SimpleAggregateFunction(max, UInt64),
+    `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_lag` SimpleAggregateFunction(max, UInt64)
+)
+ENGINE = MergeTree
+ORDER BY (_topic, _partition);
+
+drop view if exists kafka_logs_avro_kafka_metrics_mv;
+CREATE MATERIALIZED VIEW kafka_logs_avro_kafka_metrics_mv TO logs_kafka_metrics
+AS
+    SELECT
+        _partition,
+        _topic,
+        maxSimpleState(_offset) as max_offset,
+        maxSimpleState(observed_timestamp) as max_observed_timestamp,
+        maxSimpleState(timestamp) as max_timestamp,
+        maxSimpleState(now()) as max_created_at,
+        maxSimpleState(now() - observed_timestamp) as max_lag
+    FROM kafka_logs_avro
+    group by _partition, _topic;
 
 select 'clickhouse logs tables initialised successfully!';

@@ -2,6 +2,7 @@ import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { KeaDevtools } from 'lib/KeaDevTools'
+import { Command } from 'lib/components/Command/Command'
 import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -17,9 +18,11 @@ import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
+import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { MaxInstance } from './max/Max'
 
@@ -132,10 +135,13 @@ function AppScene(): JSX.Element | null {
     }
 
     return (
-        <>
+        <div className="contents isolate">
             <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
-        </>
+            <GlobalShortcuts />
+            <Command />
+            <ImpersonationNotice />
+        </div>
     )
 }

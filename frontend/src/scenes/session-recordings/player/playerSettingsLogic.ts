@@ -37,6 +37,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
         setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
+        setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -115,6 +116,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
             },
         ],
+        showMetadataFooter: [
+            false,
+            // Don't persist this setting as required for export only
+            {
+                setShowMetadataFooter: (_, { showMetadataFooter }) => showMetadataFooter,
+            },
+        ],
     })),
 
     selectors({
@@ -170,15 +178,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        // intentionally locked to replay/* to prevent other pages from setting the tab
-        // this is a debug affordance
-        ['**/replay/*']: (_, searchParams) => {
-            // this is a debug affordance, so we only listen to whether it should be open, not also closed
-            const inspectorSideBarOpen = searchParams.inspectorSideBar === true
-            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
-                actions.setSidebarOpen(inspectorSideBarOpen)
-            }
-        },
         ['**/shared/*']: (_, searchParams) => {
             // when sharing a recording, you can specify whether the inspector should be open.
             // we should obey that regardless of the preference stored here.
@@ -194,6 +193,18 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             const playerSpeed = Number(searchParams.playerSpeed ?? 1)
             if (values.speed !== playerSpeed) {
                 actions.setSpeed(playerSpeed)
+            }
+            const showMetadataFooter =
+                'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
+            if (values.showMetadataFooter !== showMetadataFooter) {
+                actions.setShowMetadataFooter(showMetadataFooter)
+            }
+        },
+        // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
+        '*': (_, searchParams, hashParams) => {
+            const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
+            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                actions.setSidebarOpen(inspectorSideBarOpen)
             }
         },
     })),

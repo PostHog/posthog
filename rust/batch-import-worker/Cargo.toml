@@ -22,6 +22,7 @@ common-alloc = { path = "../common/alloc" }
 common-types = { path = "../common/types" }
 common-metrics = { path = "../common/metrics" }
 common-dns = { path = "../common/dns" }
+common-continuous-profiling = { path = "../common/continuous_profiling" }
 health = { path = "../common/health" }
 anyhow = { workspace = true }
 envconfig = { workspace = true }

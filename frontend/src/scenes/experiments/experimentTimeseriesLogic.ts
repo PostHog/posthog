@@ -5,7 +5,7 @@ import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
@@ -28,6 +28,7 @@ export interface ProcessedTimeseriesDataPoint {
     lower_bound: number | null
     hasRealData: boolean
     number_of_samples?: number
+    denominator_sum?: number
     significant?: boolean
 }
 
@@ -173,6 +174,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                     lower_bound: lower,
                                     hasRealData: true,
                                     number_of_samples: variant.number_of_samples || 0,
+                                    denominator_sum: variant.denominator_sum || 0,
                                     significant: variant.significant ?? false,
                                 }
 
@@ -198,6 +200,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                             lower_bound: 0,
                             hasRealData: false,
                             number_of_samples: 0,
+                            denominator_sum: 0,
                             significant: false,
                         }
                     })
@@ -205,19 +208,29 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
 
-        // Progress message - only shown when we have partial data
+        // Progress message - shows calculation progress or completion
         progressMessage: [
             (s) => [s.timeseries],
             (timeseries: ExperimentMetricTimeseries | null): string | null => {
-                if (!timeseries || timeseries.status !== 'partial') {
+                if (!timeseries || !timeseries.timeseries) {
                     return null
                 }
 
                 const timeseriesData = timeseries.timeseries || {}
-                const computedDays = Object.values(timeseriesData).filter(Boolean).length
+                const computedDays = Object.values(timeseriesData).filter((value) => value !== null).length
                 const totalDays = Object.keys(timeseriesData).length
 
-                return totalDays > 0 ? `Computed ${computedDays} of ${totalDays} days` : null
+                if (totalDays === 0) {
+                    return null
+                }
+
+                // If all days are computed, show "Calculated N days"
+                if (computedDays === totalDays) {
+                    return `Calculated ${pluralize(totalDays, 'day')}`
+                }
+
+                // Otherwise show progress "Computed N of M days"
+                return `Computed ${computedDays} of ${totalDays} days`
             },
         ],
         hasTimeseriesData: [

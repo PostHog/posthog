@@ -1,4 +1,5 @@
 from .assistant import (
+    AgentArtifact,
     Conversation,
     ConversationCheckpoint,
     ConversationCheckpointBlob,
@@ -12,10 +13,12 @@ from .license import License
 from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
 from .rbac.role import Role, RoleMembership
+from .scim_provisioned_user import SCIMProvisionedUser
 from .session_summaries import SingleSessionSummary
 
 __all__ = [
     "AccessControl",
+    "AgentArtifact",
     "ConversationCheckpoint",
     "ConversationCheckpointBlob",
     "ConversationCheckpointWrite",
@@ -28,5 +31,6 @@ __all__ = [
     "License",
     "Role",
     "RoleMembership",
+    "SCIMProvisionedUser",
     "SingleSessionSummary",
 ]

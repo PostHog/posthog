@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
@@ -11,7 +12,7 @@ import { doesSurveyHaveDisplayConditions } from 'scenes/surveys/utils'
 import { AccessControlLevel, AccessControlResourceType, SurveyType } from '~/types'
 
 export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
-    const { survey } = useValues(surveyLogic)
+    const { survey, surveyWarnings } = useValues(surveyLogic)
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
     const { launchSurvey } = useActions(surveyLogic)
 
@@ -34,12 +35,15 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
                     LemonDialog.open({
                         title: 'Launch this survey?',
                         content: (
-                            <div className="text-sm text-secondary">
-                                The survey will immediately start displaying to{' '}
-                                {doesSurveyHaveDisplayConditions(survey)
-                                    ? 'users matching the display conditions'
-                                    : 'all your users'}
-                                .
+                            <div>
+                                <div className="text-sm text-secondary">
+                                    The survey will immediately start displaying to{' '}
+                                    {doesSurveyHaveDisplayConditions(survey)
+                                        ? 'users matching the display conditions'
+                                        : 'all your users'}
+                                    .
+                                </div>
+                                <SdkVersionWarnings warnings={surveyWarnings} />
                             </div>
                         ),
                         primaryButton: {

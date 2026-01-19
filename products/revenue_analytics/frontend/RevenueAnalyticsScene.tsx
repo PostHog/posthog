@@ -6,7 +6,6 @@ import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,10 +13,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
+import { RevenueAnalyticsViewStatusIcon } from './RevenueAnalyticsViewStatusIcon'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
@@ -53,26 +53,8 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
+                    actions={<RevenueAnalyticsViewStatusIcon />}
                 />
-
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-                >
-                    <p>
-                        Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
-                        issues directly to us!
-                    </p>
-                    <p>
-                        At this stage, Revenue Analytics is optimized for small/medium-sized companies. If you process
-                        more than 20,000 transactions/month you might have performance issues.
-                    </p>
-                    <p>
-                        Similarly, at this stage we're optimized for customers running on a subscription model (mostly
-                        SaaS). If you're running a business where your revenue is not coming from recurring payments,
-                        you might find Revenue analytics to be less useful/more empty than expected.
-                    </p>
-                </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (
                     <LemonBanner

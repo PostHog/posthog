@@ -8,6 +8,7 @@ import React from 'react'
 
 import { ProfilePicture, lemonToast } from '@posthog/lemon-ui'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
@@ -47,6 +48,8 @@ export type HedgehogBuddyProps = {
     hedgehogConfig?: HedgehogConfig
     tooltip?: JSX.Element
     static?: boolean
+    /** When true, pauses the animation loop without unmounting. Useful for background tabs. */
+    paused?: boolean
 }
 
 type Box = {
@@ -929,7 +932,7 @@ export class HedgehogActor {
 }
 
 export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps>(function HedgehogBuddy(
-    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode },
+    { onActorLoaded, onClick: _onClick, onPositionChange, hedgehogConfig, tooltip, static: staticMode, paused },
     ref
 ): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
@@ -942,6 +945,8 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     const actor = actorRef.current
     const [_, setTimerLoop] = useState(0)
     const { currentLocation } = useValues(router)
+
+    const shouldAnimate = !paused
 
     useEffect(() => {
         if (currentLocation.pathname.includes('/heatmaps')) {
@@ -968,6 +973,10 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
     }, [staticMode, actor.static])
 
     useEffect(() => {
+        if (!shouldAnimate) {
+            return
+        }
+
         let timer: any = null
 
         const loop = (): void => {
@@ -980,7 +989,7 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         return () => {
             clearTimeout(timer)
         }
-    }, [actor])
+    }, [actor, shouldAnimate])
 
     useEffect(() => {
         if (actor.isDragging) {
@@ -1012,6 +1021,7 @@ export function MyHedgehogBuddy({
     const [actor, setActor] = useState<HedgehogActor | null>(null)
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { user } = useValues(userLogic)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
         return actor?.setupKeyboardListeners()
@@ -1065,6 +1075,7 @@ export function MyHedgehogBuddy({
                 onClick={onClick}
                 onPositionChange={onPositionChange}
                 hedgehogConfig={hedgehogConfig}
+                paused={!isPageVisible}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
                         <div className="flex justify-center items-center p-2 whitespace-nowrap">

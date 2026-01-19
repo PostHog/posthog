@@ -217,6 +217,9 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
                 self.assertEqual(log.detail["context"]["team_name"], second_team.name)
 
     def test_activity_log_api_returns_personal_api_key_logs(self):
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+
         api_key = self.create_personal_api_key(label="API Test Key")
         api_key_id = api_key["id"]
         mask_value = api_key["mask_value"]
@@ -224,9 +227,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertTrue(len(logs) >= 1)
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey&include_organization_scoped=1"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey")
         self.assertEqual(response.status_code, 200)
 
         data = response.json()
@@ -242,6 +243,29 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         assert found_log is not None
         self.assertEqual(found_log["activity"], "created")
         self.assertEqual(found_log["detail"]["name"], mask_value)
+
+    def test_activity_log_api_excludes_org_level_logs_when_disabled(self):
+        self.team.receive_org_level_activity_logs = False
+        self.team.save()
+
+        api_key = self.create_personal_api_key(label="Org Scoped Key")
+        api_key_id = api_key["id"]
+
+        logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
+        self.assertTrue(len(logs) >= 1)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey")
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+
+        found_log = None
+        for result in data["results"]:
+            if result["scope"] == "PersonalAPIKey" and result["item_id"] == api_key_id:
+                found_log = result
+                break
+
+        self.assertIsNone(found_log)
 
     def test_team_scoped_api_key_creation_activity_logging(self):
         """Test that team-scoped API keys create logs with correct team_id."""

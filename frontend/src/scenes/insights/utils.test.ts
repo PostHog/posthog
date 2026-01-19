@@ -474,6 +474,25 @@ describe('formatBreakdownLabel()', () => {
         expect(formatter).toHaveBeenNthCalledWith(1, 'name', 661, 'group', 0)
         expect(formatter).toHaveBeenNthCalledWith(2, 'test', 662, 'group', 1)
     })
+
+    it('handles breakdown cohort that has no breakdown_type', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: 1,
+                    type: 'cohort',
+                },
+                {
+                    property: 5,
+                    type: 'cohort',
+                },
+            ],
+        }
+        const multipleBreakdownIndex = 1
+        expect(
+            formatBreakdownLabel(cohort.id, breakdownFilter, [cohort as any], identity, multipleBreakdownIndex)
+        ).toEqual(cohort.name)
+    })
 })
 
 describe('formatBreakdownType()', () => {

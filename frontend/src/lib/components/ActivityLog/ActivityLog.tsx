@@ -20,7 +20,8 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, AvailableFeature, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
 import MonacoDiffEditor from '../MonacoDiffEditor'
@@ -138,10 +139,10 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                 <ProfilePicture
                     showName={false}
                     user={{
-                        first_name: logItem.isSystem ? logItem.name : undefined,
+                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
                         email: logItem.email ?? undefined,
                     }}
-                    type={logItem.isSystem ? 'system' : 'person'}
+                    type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
                     size="xl"
                 />
                 <div className="ActivityLogRow__details flex-grow">

@@ -100,16 +100,16 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
 
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
-            queryset, params.get("include_organization_scoped") == "1", self.team_id, self.organization.id
+            queryset, bool(self.team.receive_org_level_activity_logs), self.team_id, self.organization.id
         )
 
         if params.get("user"):
@@ -134,6 +134,20 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return queryset
 
 
+class OptionalBooleanField(serializers.BooleanField):
+    """
+    A BooleanField that returns None when not present in the request.
+
+    DRF's standard BooleanField evaluates missing fields to False.
+    """
+
+    default_empty_html = None
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+
 class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     start_date = serializers.DateTimeField(required=False)
     end_date = serializers.DateTimeField(required=False)
@@ -143,8 +157,8 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
     search_text = serializers.CharField(required=False, allow_blank=True)
     detail_filters = serializers.JSONField(required=False, default={})
     hogql_filter = serializers.CharField(required=False, allow_blank=True)
-    was_impersonated = serializers.BooleanField(required=False)
-    is_system = serializers.BooleanField(required=False)
+    was_impersonated = OptionalBooleanField(required=False)
+    is_system = OptionalBooleanField(required=False)
     item_ids = serializers.ListField(child=serializers.CharField(), required=False, default=[])
 
 
@@ -186,10 +200,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     def _should_skip_parents_filter(self) -> bool:
         """
-        Skip parent filtering when include_organization_scoped=1.
+        Skip parent filtering when team has receive_org_level_activity_logs enabled.
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
-        return self.request.query_params.get("include_organization_scoped") == "1"
+        return bool(self.team.receive_org_level_activity_logs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -238,7 +252,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         queryset = apply_organization_scoped_filter(
             queryset,
-            self.request.query_params.get("include_organization_scoped") == "1",
+            bool(self.team.receive_org_level_activity_logs),
             self.team_id,
             self.organization.id,
         )
@@ -247,6 +261,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset.order_by("-created_at")
 
@@ -297,8 +313,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             return Response({"error": "Filters are invalid"}, status=400)
 
         query_params = {}
-        if self.request.query_params.get("include_organization_scoped"):
-            query_params["include_organization_scoped"] = "1"
 
         # Transform body params to query params to include the filters in the export path
         for key, value in filters_serializer.validated_data.items():

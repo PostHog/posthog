@@ -162,6 +162,98 @@ class TestTeamAccessCacheIntegration(TestCase):
         assert cached_data["team_id"] == team.id
         assert "last_updated" in cached_data
 
+    def test_warm_team_token_cache_with_all_access_scope(self):
+        """Test that personal API keys with '*' (all access) scope are included in cache.
+
+        This is a regression test for a bug where keys created with 'all access'
+        (scopes=["*"]) were not being added to the team access cache because
+        the query only checked for feature_flag:read, feature_flag:write, null,
+        or empty scopes.
+        """
+        from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+        from posthog.models.personal_api_key import hash_key_value
+
+        # Create real test data
+        organization = Organization.objects.create(name="Test Organization All Access")
+        team = Team.objects.create(
+            organization=organization,
+            name="Test Team All Access",
+            api_token="phc_test_all_access_123",
+        )
+
+        # Create user with org membership
+        user = User.objects.create(email="user_all_access@test.com", is_active=True)
+        OrganizationMembership.objects.create(organization=organization, user=user)
+
+        # Create personal API key with "*" (all access) scope - this is what the UI creates
+        # when selecting "All access"
+        PersonalAPIKey.objects.create(
+            user=user,
+            label="All Access Key",
+            secure_value=hash_key_value("test_all_access_key"),
+            scopes=["*"],  # All access scope
+        )
+
+        # Warm the cache
+        result = warm_team_token_cache(team.api_token)
+
+        # Verify cache warming succeeded
+        assert result is True, "Cache warming should succeed"
+
+        # Verify cache was populated
+        cached_data = team_access_tokens_hypercache.get_from_cache(team.api_token)
+        assert cached_data is not None, "Cache should be populated"
+
+        hashed_tokens = cached_data["hashed_tokens"]
+        expected_all_access_key = hash_key_value("test_all_access_key", mode="sha256")
+
+        # The key with "*" scope should be in the cache
+        assert expected_all_access_key in hashed_tokens, (
+            "Personal API key with '*' (all access) scope should be included in cache"
+        )
+
+    def test_warm_team_token_cache_with_scoped_all_access(self):
+        """Test that team-scoped personal API keys with '*' scope are included in cache."""
+        from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+        from posthog.models.personal_api_key import hash_key_value
+
+        # Create real test data
+        organization = Organization.objects.create(name="Test Org Scoped All Access")
+        team = Team.objects.create(
+            organization=organization,
+            name="Test Team Scoped All Access",
+            api_token="phc_test_scoped_all_access_123",
+        )
+
+        # Create user with org membership
+        user = User.objects.create(email="user_scoped_all_access@test.com", is_active=True)
+        OrganizationMembership.objects.create(organization=organization, user=user)
+
+        # Create personal API key scoped to specific team with "*" scope
+        PersonalAPIKey.objects.create(
+            user=user,
+            label="Scoped All Access Key",
+            secure_value=hash_key_value("test_scoped_all_access_key"),
+            scopes=["*"],
+            scoped_teams=[team.id],
+        )
+
+        # Warm the cache
+        result = warm_team_token_cache(team.api_token)
+
+        # Verify cache warming succeeded
+        assert result is True, "Cache warming should succeed"
+
+        # Verify cache was populated
+        cached_data = team_access_tokens_hypercache.get_from_cache(team.api_token)
+        assert cached_data is not None, "Cache should be populated"
+
+        hashed_tokens = cached_data["hashed_tokens"]
+        expected_key = hash_key_value("test_scoped_all_access_key", mode="sha256")
+
+        # The team-scoped key with "*" scope should be in the cache
+        assert expected_key in hashed_tokens, "Team-scoped personal API key with '*' scope should be included in cache"
+
     @patch("posthog.models.team.team.Team.objects.get")
     def test_warm_team_token_cache_team_not_found(self, mock_team_get):
         """Test warming cache when team doesn't exist."""
@@ -528,13 +620,12 @@ class TestGetTeamsForPersonalAPIKey(TestCase):
         assert result == []
 
 
-class TestUpdateUserAuthenticationCache(TestCase):
-    """Test the update_user_authentication_cache function."""
+class TestWarmUserTeamsCacheTask(TestCase):
+    """Test the warm_user_teams_cache_task Celery task."""
 
     def setUp(self):
         """Set up test data."""
         cache.clear()
-        # Note: HyperCache doesn't support wildcard clearing, individual tests will clear as needed
 
     def tearDown(self):
         """Clean up after tests."""
@@ -547,7 +638,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
 
         # Create real database objects
         org = Organization.objects.create(name="Test Org")
@@ -590,17 +681,17 @@ class TestUpdateUserAuthenticationCache(TestCase):
             warmed_teams.append(project_api_key)
             return original_warm_cache(project_api_key)
 
-        with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache", side_effect=track_warm_cache
-        ):
-            # Call function for user status change
-            update_user_authentication_cache(instance=user, update_fields=["is_active"])
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache):
+            # Call Celery task for user status change
+            result = warm_user_teams_cache_task(user_id=user.id)
 
         # Verify cache warming was called for all unique teams (team1, team2, team3)
         assert len(set(warmed_teams)) == 3
         assert team1.api_token in warmed_teams
         assert team2.api_token in warmed_teams
         assert team3.api_token in warmed_teams
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 3
 
     def test_user_deactivated_warms_affected_team_caches(self):
         """Test that when a user is deactivated, caches are warmed for all affected teams to remove their tokens."""
@@ -609,7 +700,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
 
         # Create real database objects
         org = Organization.objects.create(name="Test Org")
@@ -638,41 +729,39 @@ class TestUpdateUserAuthenticationCache(TestCase):
             warmed_teams.append(project_api_key)
             return original_warm_cache(project_api_key)
 
-        with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache", side_effect=track_warm_cache
-        ):
-            # Call function for user deactivation
-            update_user_authentication_cache(instance=user, update_fields=["is_active"])
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache):
+            # Call Celery task for user deactivation
+            result = warm_user_teams_cache_task(user_id=user.id)
 
         # Verify cache warming was called for affected teams (to remove deactivated user's tokens)
         assert len(warmed_teams) == 2
         assert team1.api_token in warmed_teams
         assert team2.api_token in warmed_teams
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 2
 
     @parameterized.expand(
         [
-            # (update_fields, num_teams, has_api_keys, expected_warm_calls, description)
-            (["email", "name"], 1, True, 1, "non-is_active fields with API keys"),
-            (None, 2, True, 2, "no update_fields (bulk operation) with multiple teams"),
-            (["is_active"], 0, False, 0, "user with no API keys"),
+            # (num_teams, has_api_keys, expected_warm_calls, description)
+            (1, True, 1, "single team with API keys"),
+            (2, True, 2, "multiple teams with API keys"),
+            (0, False, 0, "user with no API keys"),
         ]
     )
-    def test_update_user_authentication_cache_scenarios(
-        self, update_fields, num_teams, has_api_keys, expected_warm_calls, description
-    ):
-        """Test update_user_authentication_cache function with various scenarios."""
+    def test_warm_user_teams_cache_task_scenarios(self, num_teams, has_api_keys, expected_warm_calls, description):
+        """Test warm_user_teams_cache_task with various scenarios."""
         from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
 
         # Create org and teams
         org = Organization.objects.create(name=f"Test Org {description}")
         teams = []
         for i in range(max(1, num_teams)):  # Create at least 1 team even if user has no keys
-            team = Team.objects.create(organization=org, name=f"Team {i+1}")
+            team = Team.objects.create(organization=org, name=f"Team {i + 1}")
             teams.append(team)
 
         user = User.objects.create(email=f"test_{description}@example.com", is_active=True)
@@ -699,17 +788,17 @@ class TestUpdateUserAuthenticationCache(TestCase):
             warmed_teams.append(project_api_key)
             return original_warm_cache(project_api_key)
 
-        with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache", side_effect=track_warm_cache
-        ):
-            # Call with specified update_fields
-            update_user_authentication_cache(instance=user, update_fields=update_fields)
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache):
+            # Call Celery task
+            result = warm_user_teams_cache_task(user_id=user.id)
 
         # Verify expected cache warming calls
         assert len(warmed_teams) == expected_warm_calls
         if expected_warm_calls > 0:
             for team in teams[:num_teams]:
                 assert team.api_token in warmed_teams
+        assert result["status"] == "success"
+        assert result["teams_updated"] == expected_warm_calls
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_adding_user_to_organization_adds_keys_to_team_caches(self, mock_on_commit):
@@ -771,12 +860,12 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cache3_before = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_before is not None, "Cache should exist for team2"
         assert cache3_before is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value not in cache2_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team2 before joining"
-        assert (
-            unscoped_key.secure_value not in cache3_before["hashed_tokens"]
-        ), "Unscoped key should NOT be in team3 before joining"
+        assert unscoped_key.secure_value not in cache2_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team2 before joining"
+        )
+        assert unscoped_key.secure_value not in cache3_before["hashed_tokens"], (
+            "Unscoped key should NOT be in team3 before joining"
+        )
         assert scoped_key.secure_value not in cache2_before["hashed_tokens"], "Scoped key should NOT be in team2"
         assert scoped_key.secure_value not in cache3_before["hashed_tokens"], "Scoped key should NOT be in team3"
 
@@ -788,12 +877,12 @@ class TestUpdateUserAuthenticationCache(TestCase):
         cache3_after = team_access_tokens_hypercache.get_from_cache(team3.api_token)
         assert cache2_after is not None, "Cache should exist for team2"
         assert cache3_after is not None, "Cache should exist for team3"
-        assert (
-            unscoped_key.secure_value in cache2_after["hashed_tokens"]
-        ), "Unscoped key should be in team2 after joining"
-        assert (
-            unscoped_key.secure_value in cache3_after["hashed_tokens"]
-        ), "Unscoped key should be in team3 after joining"
+        assert unscoped_key.secure_value in cache2_after["hashed_tokens"], (
+            "Unscoped key should be in team2 after joining"
+        )
+        assert unscoped_key.secure_value in cache3_after["hashed_tokens"], (
+            "Unscoped key should be in team3 after joining"
+        )
         assert scoped_key.secure_value not in cache2_after["hashed_tokens"], "Scoped key should still NOT be in team2"
         assert scoped_key.secure_value not in cache3_after["hashed_tokens"], "Scoped key should still NOT be in team3"
 
@@ -862,9 +951,9 @@ class TestUpdateUserAuthenticationCache(TestCase):
             assert cached_data is not None, f"Cache should still exist for {team.api_token}"
             hashed_tokens = cached_data["hashed_tokens"]
 
-            assert (
-                key_to_remove.secure_value not in hashed_tokens
-            ), f"Removed user's key should NOT be in {team.name} cache"
+            assert key_to_remove.secure_value not in hashed_tokens, (
+                f"Removed user's key should NOT be in {team.name} cache"
+            )
             assert key_to_keep.secure_value in hashed_tokens, f"Kept user's key should still be in {team.name} cache"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -959,15 +1048,15 @@ class TestUpdateUserAuthenticationCache(TestCase):
         assert cached_data_team2 is not None, "Cache should exist for team2"
         assert cached_data_other is not None, "Cache should exist for other team"
 
-        assert (
-            key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team1"
-        assert (
-            key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"]
-        ), "Deleted key1 should NOT be in team2"
-        assert (
-            key1_to_delete.secure_value not in cached_data_other["hashed_tokens"]
-        ), "Deleted key1 should NOT be in other team"
+        assert key1_to_delete.secure_value not in cached_data_team1["hashed_tokens"], (
+            "Deleted key1 should NOT be in team1"
+        )
+        assert key1_to_delete.secure_value not in cached_data_team2["hashed_tokens"], (
+            "Deleted key1 should NOT be in team2"
+        )
+        assert key1_to_delete.secure_value not in cached_data_other["hashed_tokens"], (
+            "Deleted key1 should NOT be in other team"
+        )
         assert key2_scoped.secure_value in cached_data_team1["hashed_tokens"], "Key2 should still be in team1"
         assert key3_keep.secure_value in cached_data_team1["hashed_tokens"], "Key3 should still be in team1"
         assert key3_keep.secure_value in cached_data_team2["hashed_tokens"], "Key3 should still be in team2"
@@ -1134,8 +1223,8 @@ class TestUpdateUserAuthenticationCache(TestCase):
         assert PersonalAPIKey.objects.filter(user_id=user_to_keep.id).exists(), "Other user's keys should remain"
 
     @pytest.mark.skip(reason="Flaky in CI, works fine locally")
-    def test_update_user_authentication_cache_handles_warm_cache_failures(self):
-        """Test function handles individual cache warming failures gracefully."""
+    def test_warm_user_teams_cache_task_handles_warm_cache_failures(self):
+        """Test Celery task handles individual cache warming failures gracefully."""
         import logging
 
         from posthog.models.organization import Organization, OrganizationMembership
@@ -1143,7 +1232,7 @@ class TestUpdateUserAuthenticationCache(TestCase):
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
 
         # Create real database objects
         org = Organization.objects.create(name="Test Org")
@@ -1175,13 +1264,13 @@ class TestUpdateUserAuthenticationCache(TestCase):
             return original_warm_cache(project_api_key)
 
         # Capture log messages
-        with self.assertLogs("posthog.storage.team_access_cache_signal_handlers", level=logging.WARNING) as log_context:
+        with self.assertLogs("posthog.tasks.team_access_cache_tasks", level=logging.WARNING) as log_context:
             with patch(
-                "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache",
+                "posthog.tasks.team_access_cache_tasks.warm_team_token_cache",
                 side_effect=failing_warm_cache,
             ):
                 # Should not raise exception
-                update_user_authentication_cache(instance=user, update_fields=["is_active"])
+                result = warm_user_teams_cache_task(user_id=user.id)
 
         # Verify both cache warming attempts were made
         assert len(warmed_teams) == 2
@@ -1191,9 +1280,13 @@ class TestUpdateUserAuthenticationCache(TestCase):
         # Verify warning was logged for the failure
         assert any(f"Failed to warm cache for team {team1.api_token}" in record for record in log_context.output)
 
+        # Verify partial success in result
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 1  # Only one team succeeded
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    @patch("posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache")
-    def test_personal_api_key_last_used_at_update_skips_cache_warming(self, mock_warm_cache, mock_on_commit):
+    @patch("posthog.tasks.team_access_cache_tasks.warm_personal_api_key_teams_cache_task.delay")
+    def test_personal_api_key_last_used_at_update_skips_cache_warming(self, mock_task_delay, mock_on_commit):
         """Test that updating only last_used_at field doesn't trigger cache warming."""
 
         from django.utils import timezone
@@ -1220,32 +1313,31 @@ class TestUpdateUserAuthenticationCache(TestCase):
         )
 
         # Clear any calls from the initial creation
-        mock_warm_cache.reset_mock()
+        mock_task_delay.reset_mock()
 
         # Update only the last_used_at field (simulating authentication)
         now = timezone.now()
         personal_key.last_used_at = now
         personal_key.save(update_fields=["last_used_at"])
 
-        # Verify that cache update was NOT called
-        mock_warm_cache.assert_not_called()
+        # Verify that cache update task was NOT called
+        mock_task_delay.assert_not_called()
 
         # Now update a different field
-        mock_warm_cache.reset_mock()
+        mock_task_delay.reset_mock()
         personal_key.label = "Updated Label"
         personal_key.save(update_fields=["label"])
 
-        # Verify that cache update WAS called for non-last_used_at update
-        # It should be called once per team the user has access to
-        assert mock_warm_cache.call_count > 0, "Cache warming should be called for non-last_used_at updates"
+        # Verify that cache update task WAS called for non-last_used_at update
+        assert mock_task_delay.call_count > 0, "Cache warming task should be called for non-last_used_at updates"
 
         # Reset and test updating without specifying update_fields
-        mock_warm_cache.reset_mock()
+        mock_task_delay.reset_mock()
         personal_key.label = "Another Label"
         personal_key.save()
 
         # Should trigger cache update when update_fields is not specified
-        assert mock_warm_cache.call_count > 0, "Cache warming should be called when update_fields is not specified"
+        assert mock_task_delay.call_count > 0, "Cache warming task should be called when update_fields is not specified"
 
 
 class TestSignalHandlerCacheWarming(TestCase):
@@ -1261,13 +1353,13 @@ class TestSignalHandlerCacheWarming(TestCase):
         cache.clear()
 
     def test_personal_api_key_signal_handlers_warm_caches(self):
-        """Test that personal API key signal handlers warm caches efficiently."""
+        """Test that personal API key Celery tasks warm caches efficiently."""
         from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
 
         # Create real database objects
         org = Organization.objects.create(name="Test Org")
@@ -1297,18 +1389,18 @@ class TestSignalHandlerCacheWarming(TestCase):
             warmed_teams_save.append(project_api_key)
             return original_warm_cache(project_api_key)
 
-        with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache", side_effect=track_warm_cache_save
-        ):
-            # Test save handler
-            update_personal_api_key_authentication_cache(instance=key)
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache_save):
+            # Test Celery task
+            result = warm_personal_api_key_teams_cache_task(user_id=user.id)
 
         # Verify cache warming was called for each affected team
         assert len(warmed_teams_save) == 2
         assert team1.api_token in warmed_teams_save
         assert team2.api_token in warmed_teams_save
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 2
 
-        # Test delete handler with different team scope
+        # Test with different team scope
         key.scoped_teams = [team3.id]
         key.save()
 
@@ -1319,14 +1411,16 @@ class TestSignalHandlerCacheWarming(TestCase):
             return original_warm_cache(project_api_key)
 
         with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache",
+            "posthog.tasks.team_access_cache_tasks.warm_team_token_cache",
             side_effect=track_warm_cache_delete,
         ):
-            update_personal_api_key_authentication_cache(instance=key)
+            result = warm_personal_api_key_teams_cache_task(user_id=user.id)
 
         # Verify cache warming was called for the new scope
         assert len(warmed_teams_delete) == 1
         assert team3.api_token in warmed_teams_delete
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 1
 
     @patch("posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache")
     def test_team_signal_handlers_warm_caches(self, mock_warm_cache):
@@ -1689,7 +1783,7 @@ class TestSignalHandlerCacheWarming(TestCase):
 
     @pytest.mark.skip(reason="Flaky in CI, works fine locally")
     def test_signal_handlers_handle_cache_warming_failures(self):
-        """Test that signal handlers handle cache warming failures gracefully."""
+        """Test that Celery tasks handle cache warming failures gracefully."""
         import logging
 
         from posthog.models.organization import Organization, OrganizationMembership
@@ -1697,7 +1791,7 @@ class TestSignalHandlerCacheWarming(TestCase):
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
 
         # Create real database objects
         org = Organization.objects.create(name="Test Org")
@@ -1709,7 +1803,7 @@ class TestSignalHandlerCacheWarming(TestCase):
 
         # Create personal API key
         token_value = generate_random_token_personal()
-        key = PersonalAPIKey.objects.create(
+        PersonalAPIKey.objects.create(
             label="Test Key",
             user=user,
             scoped_teams=[team1.id, team2.id],
@@ -1729,13 +1823,13 @@ class TestSignalHandlerCacheWarming(TestCase):
             return original_warm_cache(project_api_key)
 
         # Capture log messages
-        with self.assertLogs("posthog.storage.team_access_cache_signal_handlers", level=logging.WARNING) as log_context:
+        with self.assertLogs("posthog.tasks.team_access_cache_tasks", level=logging.WARNING) as log_context:
             with patch(
-                "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache",
+                "posthog.tasks.team_access_cache_tasks.warm_team_token_cache",
                 side_effect=failing_warm_cache,
             ):
                 # Should not raise exception
-                update_personal_api_key_authentication_cache(instance=key)
+                result = warm_personal_api_key_teams_cache_task(user_id=user.id)
 
         # Verify both cache warming attempts were made
         assert len(warmed_teams) == 2
@@ -1745,13 +1839,17 @@ class TestSignalHandlerCacheWarming(TestCase):
         # Verify warning was logged for the failure
         assert any(f"Failed to warm cache for team {team1.api_token}" in record for record in log_context.output)
 
+        # Verify partial success
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 1  # Only one succeeded
+
     def test_signal_handlers_handle_empty_affected_teams(self):
-        """Test signal handlers handle cases where no teams are affected."""
+        """Test Celery tasks handle cases where no teams are affected."""
         from posthog.models.organization import Organization, OrganizationMembership
         from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_personal, mask_key_value
-        from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+        from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
 
         # Create org and user but no teams
         org = Organization.objects.create(name="Test Org")
@@ -1760,7 +1858,7 @@ class TestSignalHandlerCacheWarming(TestCase):
 
         # Create personal API key with no scoped teams (empty list means no teams)
         token_value = generate_random_token_personal()
-        key = PersonalAPIKey.objects.create(
+        PersonalAPIKey.objects.create(
             label="Test Key",
             user=user,
             scoped_teams=[],  # Empty list - no teams
@@ -1777,14 +1875,14 @@ class TestSignalHandlerCacheWarming(TestCase):
             warmed_teams.append(project_api_key)
             return original_warm_cache(project_api_key)
 
-        with patch(
-            "posthog.storage.team_access_cache_signal_handlers.warm_team_token_cache", side_effect=track_warm_cache
-        ):
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache):
             # Should not raise exception
-            update_personal_api_key_authentication_cache(instance=key)
+            result = warm_personal_api_key_teams_cache_task(user_id=user.id)
 
         # Verify no cache warming attempts (no teams affected)
         assert len(warmed_teams) == 0
+        assert result["status"] == "success"
+        assert result["teams_updated"] == 0
 
     @parameterized.expand(
         [
@@ -1819,6 +1917,194 @@ class TestSignalHandlerCacheWarming(TestCase):
             mock_warm_cache.assert_called_once_with("phs_team_token_123")
         else:
             mock_warm_cache.assert_not_called()
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_user_deactivation_removes_api_keys_from_cache_end_to_end(self, mock_on_commit):
+        """
+        End-to-end test: User.save(is_active=False) → signal → sync cache update → keys removed.
+
+        This tests the complete flow from deactivating a user to verifying their
+        API keys are immediately removed from all team caches. Deactivation uses
+        synchronous cache invalidation for security (immediate revocation).
+        """
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+        from posthog.models.utils import generate_random_token_personal, mask_key_value
+
+        # Create organization with teams
+        org = Organization.objects.create(name="Test Org for Deactivation E2E")
+        team1 = Team.objects.create(organization=org, name="Team 1")
+        team2 = Team.objects.create(organization=org, name="Team 2")
+
+        # Create active user with membership
+        user = User.objects.create(email="deactivate_me@example.com", is_active=True)
+        OrganizationMembership.objects.create(organization=org, user=user)
+
+        # Create personal API key for user
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+
+        # Warm caches - user's key should be present
+        warm_team_token_cache(team1.api_token)
+        warm_team_token_cache(team2.api_token)
+
+        cache1_before = team_access_tokens_hypercache.get_from_cache(team1.api_token)
+        cache2_before = team_access_tokens_hypercache.get_from_cache(team2.api_token)
+
+        assert cache1_before is not None, "Cache should exist for team1"
+        assert cache2_before is not None, "Cache should exist for team2"
+        assert key.secure_value in cache1_before["hashed_tokens"], "Key should be in team1 cache before deactivation"
+        assert key.secure_value in cache2_before["hashed_tokens"], "Key should be in team2 cache before deactivation"
+
+        # Load user from DB to set _original_is_active (simulates real Django behavior)
+        user = User.objects.get(pk=user.pk)
+        assert user._original_is_active is True, "User should have _original_is_active set after loading from DB"
+
+        # DEACTIVATE USER - this should trigger signal → sync cache update
+        user.is_active = False
+        user.save()
+
+        # Verify keys are IMMEDIATELY removed from caches (sync operation)
+        cache1_after = team_access_tokens_hypercache.get_from_cache(team1.api_token)
+        cache2_after = team_access_tokens_hypercache.get_from_cache(team2.api_token)
+
+        assert cache1_after is not None, "Cache should still exist for team1"
+        assert cache2_after is not None, "Cache should still exist for team2"
+        assert key.secure_value not in cache1_after["hashed_tokens"], (
+            "Deactivated user's key should be REMOVED from team1 cache"
+        )
+        assert key.secure_value not in cache2_after["hashed_tokens"], (
+            "Deactivated user's key should be REMOVED from team2 cache"
+        )
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_user_activation_adds_api_keys_to_cache_end_to_end(self, mock_on_commit):
+        """
+        End-to-end test: User.save(is_active=True) → signal → async cache update → keys added.
+
+        This tests the complete flow from activating a user to verifying their
+        API keys are added to all team caches. Activation uses asynchronous
+        cache warming since there's no security concern with a slight delay.
+        """
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+        from posthog.models.utils import generate_random_token_personal, mask_key_value
+
+        # Create organization with teams
+        org = Organization.objects.create(name="Test Org for Activation E2E")
+        team1 = Team.objects.create(organization=org, name="Team 1")
+        team2 = Team.objects.create(organization=org, name="Team 2")
+
+        # Create INACTIVE user with membership
+        user = User.objects.create(email="activate_me@example.com", is_active=False)
+        OrganizationMembership.objects.create(organization=org, user=user)
+
+        # Create personal API key for user
+        token = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+
+        # Warm caches - user's key should NOT be present (user is inactive)
+        warm_team_token_cache(team1.api_token)
+        warm_team_token_cache(team2.api_token)
+
+        cache1_before = team_access_tokens_hypercache.get_from_cache(team1.api_token)
+        cache2_before = team_access_tokens_hypercache.get_from_cache(team2.api_token)
+
+        assert cache1_before is not None, "Cache should exist for team1"
+        assert cache2_before is not None, "Cache should exist for team2"
+        assert key.secure_value not in cache1_before["hashed_tokens"], (
+            "Inactive user's key should NOT be in team1 cache"
+        )
+        assert key.secure_value not in cache2_before["hashed_tokens"], (
+            "Inactive user's key should NOT be in team2 cache"
+        )
+
+        # Load user from DB to set _original_is_active (simulates real Django behavior)
+        user = User.objects.get(pk=user.pk)
+        assert user._original_is_active is False, "User should have _original_is_active=False after loading from DB"
+
+        # ACTIVATE USER - this should trigger signal → async cache update
+        user.is_active = True
+        user.save()
+
+        # Verify keys are now in caches
+        cache1_after = team_access_tokens_hypercache.get_from_cache(team1.api_token)
+        cache2_after = team_access_tokens_hypercache.get_from_cache(team2.api_token)
+
+        assert cache1_after is not None, "Cache should still exist for team1"
+        assert cache2_after is not None, "Cache should still exist for team2"
+        assert key.secure_value in cache1_after["hashed_tokens"], "Activated user's key should be in team1 cache"
+        assert key.secure_value in cache2_after["hashed_tokens"], "Activated user's key should be in team2 cache"
+
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_user_save_without_is_active_change_skips_cache_update(self, mock_on_commit):
+        """
+        End-to-end test: User.save() with no is_active change → no cache update.
+
+        This tests that saving a user with unrelated field changes (like email)
+        does not trigger unnecessary cache warming operations.
+        """
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+        from posthog.models.utils import generate_random_token_personal, mask_key_value
+
+        # Create organization with team
+        org = Organization.objects.create(name="Test Org for No-Change E2E")
+        team = Team.objects.create(organization=org, name="Team 1")
+
+        # Create active user
+        user = User.objects.create(email="no_change@example.com", is_active=True)
+        OrganizationMembership.objects.create(organization=org, user=user)
+
+        # Create personal API key
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+        )
+
+        # Warm cache
+        warm_team_token_cache(team.api_token)
+
+        # Load user from DB
+        user = User.objects.get(pk=user.pk)
+
+        # Track cache warming calls
+        warmed_teams = []
+        original_warm_cache = warm_team_token_cache
+
+        def track_warm_cache(project_api_key):
+            warmed_teams.append(project_api_key)
+            return original_warm_cache(project_api_key)
+
+        with patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache", side_effect=track_warm_cache):
+            # Update email (unrelated to is_active) - should NOT trigger cache update
+            user.email = "updated_email@example.com"
+            user.save()
+
+        # Verify NO cache warming occurred
+        assert len(warmed_teams) == 0, "No cache warming should occur when is_active doesn't change"
 
 
 class TestUserPersonalAPIKeyTeamLookup(TestCase):

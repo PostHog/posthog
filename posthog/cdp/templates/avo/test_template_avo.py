@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.avo.template_avo import (
     TemplateAvoMigrator,
     template as template_avo,
@@ -53,50 +51,48 @@ class TestTemplateAvo(BaseHogFunctionTemplateTest):
         res = self.get_mock_fetch_calls()[0]
         res[1]["body"][0]["sessionId"] = "4d4454b4-31bb-4b13-8167-4ec76a0f49b6"
         res[1]["body"][0]["createdAt"] = "2024-09-06T09:04:28.324Z"
-        assert res == snapshot(
-            (
-                "https://api.avo.app/inspector/posthog/v1/track",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "env": "dev",
-                        "api-key": "NnBd7B55ZXC6o0Kh20pE",
-                        "content-type": "application/json",
-                        "accept": "application/json",
-                    },
-                    "body": [
-                        {
-                            "apiKey": "NnBd7B55ZXC6o0Kh20pE",
-                            "env": "dev",
-                            "appName": "PostHog",
-                            "sessionId": "4d4454b4-31bb-4b13-8167-4ec76a0f49b6",
-                            "createdAt": "2024-09-06T09:04:28.324Z",
-                            "avoFunction": False,
-                            "eventId": None,
-                            "eventHash": None,
-                            "appVersion": "1.0.0",
-                            "libVersion": "1.0.0",
-                            "libPlatform": "node",
-                            "trackingId": "",
-                            "samplingRate": 1,
-                            "type": "event",
-                            "eventName": "sign up",
-                            "messageId": "0191c693-d93b-7516-b1e3-64ec33c96464",
-                            "eventProperties": [
-                                {"propertyName": "distinct_id", "propertyType": "string"},
-                                {"propertyName": "token", "propertyType": "string"},
-                                {"propertyName": "bob", "propertyType": "object"},
-                                {"propertyName": "age", "propertyType": "int"},
-                                {"propertyName": "name", "propertyType": "string"},
-                                {"propertyName": "items", "propertyType": "list"},
-                                {"propertyName": "job", "propertyType": "boolean"},
-                                {"propertyName": "noop", "propertyType": "null"},
-                                {"propertyName": "test", "propertyType": "float"},
-                            ],
-                        }
-                    ],
+        assert res == (
+            "https://api.avo.app/inspector/posthog/v1/track",
+            {
+                "method": "POST",
+                "headers": {
+                    "env": "dev",
+                    "api-key": "NnBd7B55ZXC6o0Kh20pE",
+                    "content-type": "application/json",
+                    "accept": "application/json",
                 },
-            )
+                "body": [
+                    {
+                        "apiKey": "NnBd7B55ZXC6o0Kh20pE",
+                        "env": "dev",
+                        "appName": "PostHog",
+                        "sessionId": "4d4454b4-31bb-4b13-8167-4ec76a0f49b6",
+                        "createdAt": "2024-09-06T09:04:28.324Z",
+                        "avoFunction": False,
+                        "eventId": None,
+                        "eventHash": None,
+                        "appVersion": "1.0.0",
+                        "libVersion": "1.0.0",
+                        "libPlatform": "node",
+                        "trackingId": "",
+                        "samplingRate": 1,
+                        "type": "event",
+                        "eventName": "sign up",
+                        "messageId": "0191c693-d93b-7516-b1e3-64ec33c96464",
+                        "eventProperties": [
+                            {"propertyName": "distinct_id", "propertyType": "string"},
+                            {"propertyName": "token", "propertyType": "string"},
+                            {"propertyName": "bob", "propertyType": "object"},
+                            {"propertyName": "age", "propertyType": "int"},
+                            {"propertyName": "name", "propertyType": "string"},
+                            {"propertyName": "items", "propertyType": "list"},
+                            {"propertyName": "job", "propertyType": "boolean"},
+                            {"propertyName": "noop", "propertyType": "null"},
+                            {"propertyName": "test", "propertyType": "float"},
+                        ],
+                    }
+                ],
+            },
         )
 
     def test_automatic_type_mapping(self):
@@ -162,29 +158,27 @@ class TestTemplateMigration(BaseTest):
             {"excludeProperties": "price, currency", "includeProperties": "account_status, plan"}
         )
         template = TemplateAvoMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "apiKey": {"value": "1234567890"},
-                "environment": {"value": "dev"},
-                "appName": {"value": "PostHog"},
-                "excludeProperties": {"value": "price, currency"},
-                "includeProperties": {"value": "account_status, plan"},
-            }
-        )
+        assert template["inputs"] == {
+            "apiKey": {"value": "1234567890"},
+            "environment": {"value": "dev"},
+            "appName": {"value": "PostHog"},
+            "excludeProperties": {"value": "price, currency"},
+            "includeProperties": {"value": "account_status, plan"},
+        }
+
         assert template["filters"] == {"events": []}
 
     def test_include_events(self):
         obj = self.get_plugin_config({"includeEvents": "sign up,page view"})
         template = TemplateAvoMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "apiKey": {"value": "1234567890"},
-                "environment": {"value": "dev"},
-                "appName": {"value": "PostHog"},
-                "excludeProperties": {"value": ""},
-                "includeProperties": {"value": ""},
-            }
-        )
+        assert template["inputs"] == {
+            "apiKey": {"value": "1234567890"},
+            "environment": {"value": "dev"},
+            "appName": {"value": "PostHog"},
+            "excludeProperties": {"value": ""},
+            "includeProperties": {"value": ""},
+        }
+
         assert template["filters"] == {
             "events": [
                 {"id": "sign up", "name": "sign up", "type": "events", "order": 0},
@@ -195,15 +189,14 @@ class TestTemplateMigration(BaseTest):
     def test_exclude_events(self):
         obj = self.get_plugin_config({"excludeEvents": "sign up,page view"})
         template = TemplateAvoMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "apiKey": {"value": "1234567890"},
-                "environment": {"value": "dev"},
-                "appName": {"value": "PostHog"},
-                "excludeProperties": {"value": ""},
-                "includeProperties": {"value": ""},
-            }
-        )
+        assert template["inputs"] == {
+            "apiKey": {"value": "1234567890"},
+            "environment": {"value": "dev"},
+            "appName": {"value": "PostHog"},
+            "excludeProperties": {"value": ""},
+            "includeProperties": {"value": ""},
+        }
+
         assert template["filters"] == {
             "events": [
                 {
@@ -221,15 +214,14 @@ class TestTemplateMigration(BaseTest):
             {"excludeEvents": "page view, log in,page leave", "includeEvents": "sign up,page view"}
         )
         template = TemplateAvoMigrator.migrate(obj)
-        assert template["inputs"] == snapshot(
-            {
-                "apiKey": {"value": "1234567890"},
-                "environment": {"value": "dev"},
-                "appName": {"value": "PostHog"},
-                "excludeProperties": {"value": ""},
-                "includeProperties": {"value": ""},
-            }
-        )
+        assert template["inputs"] == {
+            "apiKey": {"value": "1234567890"},
+            "environment": {"value": "dev"},
+            "appName": {"value": "PostHog"},
+            "excludeProperties": {"value": ""},
+            "includeProperties": {"value": ""},
+        }
+
         assert template["filters"] == {
             "events": [
                 {"id": "sign up", "name": "sign up", "type": "events", "order": 0},

@@ -639,8 +639,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             }
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
-            // Only scroll to the product if it's an addon product. With subscribe to all products we don't need it for parent products.
-            if (scrollToProductKey && values.isAddonProduct && scrollToProductKey === props.product.type) {
+            // Scroll to the product or parent product
+            if (scrollToProductKey && scrollToProductKey === props.product.type) {
                 setTimeout(() => {
                     if (props.productRef?.current) {
                         props.productRef?.current.scrollIntoView({
@@ -760,8 +760,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             errors: ({ input }) => ({
                 input:
                     input === null || Number.isInteger(input)
-                        ? input > 25000
-                            ? 'Please enter a number less than 25,000'
+                        ? input > 50000
+                            ? 'Please enter a number less than 50,000'
                             : undefined
                         : 'Please enter a whole number',
             }),

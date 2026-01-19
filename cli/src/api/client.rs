@@ -1,6 +1,10 @@
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use reqwest::{
     blocking::{Client, RequestBuilder, Response},
     header::{HeaderMap, HeaderValue},
@@ -10,13 +14,14 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::debug;
 
-use crate::invocation_context::InvocationConfig;
+use crate::{invocation_context::InvocationConfig, utils::throttler::Throttler};
+const ONE_MINUTE_IN_MS: u64 = 60 * 1000;
 
 #[derive(Clone)]
 pub struct PHClient {
     config: InvocationConfig,
-    base_url: Url,
     client: Client,
+    throttler: Arc<Mutex<Throttler>>,
 }
 
 #[derive(Error, Debug)]
@@ -24,15 +29,15 @@ pub enum ClientError {
     RequestError(reqwest::Error),
     // All invalid status codes
     ApiError(u16, Box<Url>, String),
-    InvalidUrl(String, String),
+    InvalidUrl(String),
 }
 
 impl Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientError::RequestError(err) => write!(f, "Request error: {err}"),
-            ClientError::InvalidUrl(base_url, path) => {
-                write!(f, "Failed to build URL: {base_url} {path}")
+            ClientError::InvalidUrl(msg) => {
+                write!(f, "Failed to build URL: {msg}")
             }
             ClientError::ApiError(status, url, body) => {
                 // We only parse api error on display to catch all errors even when the body is not JSON
@@ -82,74 +87,78 @@ pub trait SendRequestFn: FnOnce(RequestBuilder) -> RequestBuilder {}
 
 impl PHClient {
     pub fn from_config(config: InvocationConfig) -> anyhow::Result<Self> {
-        let base_url = Self::build_base_url(&config)?;
-        let client = Self::build_client(&config)?;
+        let client = Self::build_client(config.skip_ssl)?;
+        let throttler = Arc::new(Mutex::new(Throttler::new(
+            config.rate_limit,
+            Duration::from_millis(ONE_MINUTE_IN_MS),
+        )));
         Ok(Self {
             config,
-            base_url,
             client,
+            throttler,
         })
     }
 
-    pub fn get(&self, path: &str) -> Result<RequestBuilder, ClientError> {
-        self.create_request(Method::GET, path)
+    pub fn get(&self, url: Url) -> RequestBuilder {
+        self.create_request(Method::GET, url)
     }
 
-    pub fn post(&self, path: &str) -> Result<RequestBuilder, ClientError> {
-        self.create_request(Method::POST, path)
+    pub fn post(&self, url: Url) -> RequestBuilder {
+        self.create_request(Method::POST, url)
     }
 
-    pub fn put(&self, path: &str) -> Result<RequestBuilder, ClientError> {
-        self.create_request(Method::PUT, path)
+    pub fn put(&self, url: Url) -> RequestBuilder {
+        self.create_request(Method::PUT, url)
     }
 
-    pub fn delete(&self, path: &str) -> Result<RequestBuilder, ClientError> {
-        self.create_request(Method::DELETE, path)
+    pub fn delete(&self, url: Url) -> RequestBuilder {
+        self.create_request(Method::DELETE, url)
     }
 
-    pub fn patch(&self, path: &str) -> Result<RequestBuilder, ClientError> {
-        self.create_request(Method::PATCH, path)
+    pub fn patch(&self, url: Url) -> RequestBuilder {
+        self.create_request(Method::PATCH, url)
     }
 
     pub fn send_get<F: FnOnce(RequestBuilder) -> RequestBuilder>(
         &self,
-        path: &str,
+        url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        self.send_request(Method::GET, path, builder)
+        self.send_request(Method::GET, url, builder)
     }
 
     pub fn send_post<F: FnOnce(RequestBuilder) -> RequestBuilder>(
         &self,
-        path: &str,
+        url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        self.send_request(Method::POST, path, builder)
+        self.send_request(Method::POST, url, builder)
     }
 
     pub fn send_delete<F: FnOnce(RequestBuilder) -> RequestBuilder>(
         &self,
-        path: &str,
+        url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        self.send_request(Method::DELETE, path, builder)
+        self.send_request(Method::DELETE, url, builder)
     }
 
     pub fn send_put<F: FnOnce(RequestBuilder) -> RequestBuilder>(
         &self,
-        path: &str,
+        url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        self.send_request(Method::PUT, path, builder)
+        self.send_request(Method::PUT, url, builder)
     }
 
     pub fn send_request<F: FnOnce(RequestBuilder) -> RequestBuilder>(
         &self,
         method: Method,
-        path: &str,
+        url: Url,
         builder: F,
     ) -> Result<Response, ClientError> {
-        let request = builder(self.create_request(method, path)?);
+        self.throttler.lock().unwrap().throttle();
+        let request = builder(self.create_request(method, url));
         match request.send() {
             Ok(response) => {
                 if response.status().is_success() {
@@ -169,31 +178,20 @@ impl PHClient {
         &self.config.env_id
     }
 
-    fn create_request(&self, method: Method, path: &str) -> Result<RequestBuilder, ClientError> {
-        let url = self.build_url(path)?;
+    fn create_request(&self, method: Method, url: Url) -> RequestBuilder {
         let headers = self.build_headers();
         debug!("building request for {method} {url}");
-        Ok(self
-            .client
+        self.client
             .request(method, url)
             .bearer_auth(&self.config.api_key)
-            .headers(headers))
+            .headers(headers)
     }
 
-    fn build_client(config: &InvocationConfig) -> anyhow::Result<Client> {
+    fn build_client(skip_ssl: bool) -> anyhow::Result<Client> {
         let client = Client::builder()
-            .danger_accept_invalid_certs(config.skip_ssl)
+            .danger_accept_invalid_certs(skip_ssl)
             .build()?;
         Ok(client)
-    }
-
-    fn build_base_url(config: &InvocationConfig) -> anyhow::Result<Url> {
-        let base_url = Url::parse(&format!(
-            "{}/api/environments/{}/",
-            config.host, config.env_id
-        ))
-        .context("Invalid base URL")?;
-        Ok(base_url)
     }
 
     fn build_headers(&self) -> HeaderMap {
@@ -203,9 +201,26 @@ impl PHClient {
         headers
     }
 
-    fn build_url(&self, path: &str) -> Result<Url, ClientError> {
-        self.base_url
+    pub fn env_url(&self, path: &str) -> Result<Url, ClientError> {
+        self.build_url("environments", path)
+    }
+
+    pub fn project_url(&self, path: &str) -> Result<Url, ClientError> {
+        self.build_url("projects", path)
+    }
+
+    fn build_url(&self, base: &str, path: &str) -> Result<Url, ClientError> {
+        let host = self.config.host.clone();
+        let env_id = self.config.env_id.clone();
+
+        let base_url = Url::parse(&host)
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}")))?
+            .join(&format!("api/{base}/{env_id}/"))
+            .map_err(|e| ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}")))?
             .join(path)
-            .map_err(|_| ClientError::InvalidUrl(self.base_url.clone().into(), path.to_string()))
+            .map_err(|e| {
+                ClientError::InvalidUrl(format!("{e} {host}/api/{base}/{env_id}/{path}"))
+            })?;
+        Ok(base_url)
     }
 }

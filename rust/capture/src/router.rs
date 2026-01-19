@@ -1,5 +1,6 @@
 use std::future::ready;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::Method;
@@ -7,12 +8,14 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use health::HealthRegistry;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::ai_s3::BlobStorage;
+use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -20,9 +23,9 @@ use common_redis::Client;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
-use crate::limiters::CaptureQuotaLimiter;
 use crate::metrics_middleware::{apply_request_timeout, track_metrics};
 use crate::prometheus::setup_metrics_recorder;
+use crate::quota_limiters::CaptureQuotaLimiter;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -33,14 +36,17 @@ pub struct State {
     pub sink: Arc<dyn sinks::Event + Send + Sync>,
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
+    pub global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
-    pub event_size_limit: usize,
+    pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
-    pub capture_mode: CaptureMode,
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
+    pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
+    pub body_chunk_read_timeout: Option<Duration>,
+    pub body_read_chunk_size_kb: usize,
 }
 
 #[derive(Clone)]
@@ -69,7 +75,7 @@ impl HistoricalConfig {
             return false;
         }
 
-        let days_stale = Duration::days(self.historical_rerouting_threshold_days);
+        let days_stale = ChronoDuration::days(self.historical_rerouting_threshold_days);
         let threshold = Utc::now() - days_stale;
         timestamp <= threshold
     }
@@ -77,6 +83,25 @@ impl HistoricalConfig {
 
 async fn index() -> &'static str {
     "capture"
+}
+
+async fn readiness() -> axum::http::StatusCode {
+    use crate::metrics_middleware::ShutdownStatus;
+
+    let shutdown_status = crate::metrics_middleware::get_shutdown_status();
+    let is_running_or_unknown =
+        shutdown_status == ShutdownStatus::Running || shutdown_status == ShutdownStatus::Unknown;
+
+    if is_running_or_unknown && std::path::Path::new("/tmp/shutdown").exists() {
+        crate::metrics_middleware::set_shutdown_status(ShutdownStatus::Prestop);
+        tracing::info!("Shutdown status change: PRESTOP");
+    }
+
+    if is_running_or_unknown {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -89,34 +114,42 @@ pub fn router<
     liveness: HealthRegistry,
     sink: S,
     redis: Arc<R>,
+    global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
+    deploy_role: String,
     concurrency_limit: Option<usize>,
-    event_size_limit: usize,
+    event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
     historical_rerouting_threshold_days: i64,
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
+    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     request_timeout_seconds: Option<u64>,
+    body_chunk_read_timeout_ms: Option<u64>,
+    body_read_chunk_size_kb: usize,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
         timesource: Arc::new(timesource),
         redis,
+        global_rate_limiter,
         quota_limiter: Arc::new(quota_limiter),
-        event_size_limit,
+        event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
         ),
-        capture_mode: capture_mode.clone(),
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
+        body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
+        body_read_chunk_size_kb,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -222,7 +255,7 @@ pub fn router<
 
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route("/_readiness", get(readiness))
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     let recordings_router = Router::new()
@@ -283,7 +316,7 @@ pub fn router<
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
     if metrics {
-        let recorder_handle = setup_metrics_recorder();
+        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
@@ -449,5 +482,41 @@ mod tests {
 
         // Clean up
         server_handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_fires_on_stalled_upload() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+        use bytes::Bytes;
+        use futures::{stream, StreamExt};
+
+        // Create a stream that yields one chunk then stalls
+        let chunks: Vec<Result<Bytes, std::io::Error>> = vec![Ok(Bytes::from("partial data"))];
+        let slow_stream = stream::iter(chunks).chain(stream::pending());
+        let body = Body::from_stream(slow_stream);
+
+        // Use a short chunk timeout
+        let timeout = Some(StdDuration::from_millis(100));
+        let result = extract_body_with_timeout(body, 1024 * 1024, timeout, 256, "/test").await;
+
+        // Should get a BodyReadTimeout error
+        assert!(matches!(
+            result,
+            Err(crate::api::CaptureError::BodyReadTimeout)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_body_chunk_timeout_disabled_when_none() {
+        use crate::extractors::extract_body_with_timeout;
+        use axum::body::Body;
+
+        // Normal body with no timeout
+        let body = Body::from(r#"{"event": "test"}"#);
+        let result = extract_body_with_timeout(body, 1024 * 1024, None, 256, "/test").await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), r#"{"event": "test"}"#.as_bytes());
     }
 }

@@ -11,7 +11,7 @@ export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // Run directly
 buildProductManifests()
 
-export function buildProductManifests() {
+function buildProductManifests() {
     // 1. Scan for manifest files
     const productsDir = path.join(__dirname, '../products')
     const products = fse.readdirSync(productsDir).filter((p) => !['__pycache__', 'README.md'].includes(p))
@@ -19,7 +19,11 @@ export function buildProductManifests() {
         .map((p) => path.resolve(productsDir, `${p}/manifest.tsx`))
         .filter((p) => fse.existsSync(p))
 
-    const program = ts.createProgram(sourceFiles, {
+    // Also include the schema file so we can resolve some enum values
+    const enumFile = path.resolve(__dirname, '../frontend/src/queries/schema/schema-general.ts')
+    const allSourceFiles = [...sourceFiles, enumFile]
+
+    const program = ts.createProgram(allSourceFiles, {
         target: 1, // ES5
         module: 1, // CommonJS
         noEmit: true,
@@ -153,7 +157,7 @@ export function buildProductManifests() {
     const globalNames = new Set()
 
     const addImport = (mod, kind, spec) => {
-        // Klutch
+        // Kludge
         if ((mod === './types' || mod === '~/types') && spec === 'ProductManifest') {
             return
         }
@@ -334,12 +338,18 @@ export function buildProductManifests() {
     // 8. Assemble `products.json`, write, format, move to src/
     // A much simplified version of `products.tsx` to simplify consumption from Python
     // without any of the AST/TSX code generation logic
-
+    //
+    // NOTE: The structure of products.json must match the TypeScript types defined in
+    // frontend/src/queries/schema/schema-general.ts (ProductItem and ProductsData).
+    // These types are used to generate Pydantic models in posthog/schema.py.
+    // If you change the keys here (keysToKeep), make sure to update the TypeScript types.
     const keysToKeep = ['path', 'category', 'iconType', 'type']
+    const keysToKeepArray = ['intents']
+    const productKeyEnumMap = buildEnumMapping(program, 'ProductKey')
     const productsJson = {
-        products: extractKeys(treeItemsProducts, keysToKeep),
-        games: extractKeys(treeItemsGames, keysToKeep),
-        metadata: extractKeys(treeItemsMetadata, keysToKeep),
+        products: extractKeys(treeItemsProducts, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
+        games: extractKeys(treeItemsGames, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
+        metadata: extractKeys(treeItemsMetadata, { keysToKeep, keysToKeepArray, enumMap: productKeyEnumMap }),
     }
 
     const jsonTmpDir = path.join(__dirname, 'tmp')
@@ -384,16 +394,70 @@ function withoutImport(prop) {
     return clone
 }
 
+// Build a mapping of enum values by parsing the enum definition file
+function buildEnumMapping(program, enumName) {
+    const enumMap = new Map()
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (!sourceFile.fileName.includes('schema-general.ts')) {
+            continue
+        }
+
+        ts.forEachChild(sourceFile, function walk(node) {
+            if (ts.isEnumDeclaration(node) && node.name.text === enumName) {
+                node.members.forEach((member) => {
+                    const memberName = member.name?.text || member.name?.escapedText
+                    if (member.initializer) {
+                        if (ts.isStringLiteral(member.initializer)) {
+                            enumMap.set(memberName, member.initializer.text)
+                        } else if (ts.isNumericLiteral(member.initializer)) {
+                            enumMap.set(memberName, Number(member.initializer.text))
+                        }
+                    }
+                })
+            } else {
+                ts.forEachChild(node, walk)
+            }
+        })
+    }
+
+    return enumMap
+}
+
+// Helper to resolve enum values from property access expressions (e.g., ProductKey.ENDPOINTS -> 'endpoints')
+function resolveEnumValue(node, enumMap) {
+    if (!ts.isPropertyAccessExpression(node)) {
+        return null
+    }
+
+    // Get the enum name (e.g., "ENDPOINTS" from ProductKey.ENDPOINTS)
+    const memberName = node.name?.text || node.name?.escapedText
+    if (memberName && enumMap.has(memberName)) {
+        return enumMap.get(memberName)
+    }
+
+    return null
+}
+
 // Helper to extract only specific keys from AST nodes
-function extractKeys(dict, keysToKeep) {
-    return Object.values(dict).map((node) => {
+function extractKeys(
+    dict /* : Record<any, ASTNode> */,
+    { keysToKeep /* : string[] */, keysToKeepArray /* : string[] */, enumMap /* : Map<string, string | number> */ } = {
+        keysToKeep: [],
+        keysToKeepArray: [],
+        enumMap: null,
+    }
+) {
+    return Object.values(dict).map((node /* : ASTNode */) => {
         if (!ts.isObjectLiteralExpression(node)) {
             return {}
         }
-        const result = {}
-        keysToKeep.forEach((key) => {
-            const prop = node.properties.find((p) => p.name?.text === key)
-            result[key] = null // default to null
+
+        const result /* : Record<string, string | boolean> */ = {}
+
+        const processKey = (key, { isArray }) => {
+            const prop /* : PropertyAssignment */ = node.properties.find((p) => p.name?.text === key)
+            result[key] = isArray ? [] : null // default to empty array/null
 
             if (prop && prop.initializer) {
                 if (ts.isStringLiteral(prop.initializer)) {
@@ -404,13 +468,30 @@ function extractKeys(dict, keysToKeep) {
                     result[key] = prop.initializer.text
                 } else if (ts.isNumericLiteral(prop.initializer)) {
                     result[key] = Number(prop.initializer.text)
+                } else if (ts.isArrayLiteralExpression(prop.initializer)) {
+                    result[key] = prop.initializer.elements.map((e) => {
+                        // Resolve enum values first
+                        if (enumMap && ts.isPropertyAccessExpression(e)) {
+                            const enumValue = resolveEnumValue(e, enumMap)
+                            if (enumValue !== null) {
+                                return enumValue
+                            }
+                        }
+
+                        // Else just return the escaped text
+                        return e.name.escapedText
+                    })
                 } else if (prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
                     result[key] = true
                 } else if (prop.initializer.kind === ts.SyntaxKind.FalseKeyword) {
                     result[key] = false
                 }
             }
-        })
+        }
+
+        keysToKeep.forEach((key) => processKey(key, { isArray: false }))
+        keysToKeepArray.forEach((key) => processKey(key, { isArray: true }))
+
         return result
     })
 }

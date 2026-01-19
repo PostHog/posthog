@@ -35,6 +35,12 @@ class RealtimeCohortCalculationForm(forms.Form):
         help_text="Filter cohorts by team_id (optional)",
         label="Team ID",
     )
+    cohort_id = forms.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Filter to a specific cohort_id (optional)",
+        label="Cohort ID",
+    )
 
 
 def analyze_realtime_cohort_calculation_view(request):
@@ -54,6 +60,8 @@ def analyze_realtime_cohort_calculation_view(request):
             command_args.extend(["--batch-delay-minutes", str(form.cleaned_data["batch_delay_minutes"])])
             if form.cleaned_data.get("team_id"):
                 command_args.extend(["--team-id", str(form.cleaned_data["team_id"])])
+            if form.cleaned_data.get("cohort_id"):
+                command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
 
             try:
                 call_command("analyze_realtime_cohort_calculation", *command_args)

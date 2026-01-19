@@ -8,7 +8,6 @@ import {
     DataTableNode,
     DataVisualizationNode,
     HogQuery,
-    InsightNodeKind,
     InsightQueryNode,
     InsightVizNode,
     Node,
@@ -25,7 +24,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { nodeKindToDefaultQuery } from '../InsightQuery/defaults'
+import { ProductAnalyticsInsightNodeKind, nodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
@@ -116,7 +115,10 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode =>
+export const queryFromKind = (
+    kind: ProductAnalyticsInsightNodeKind,
+    filterTestAccountsDefault: boolean
+): InsightVizNode =>
     setLatestVersionsOnQuery({
         kind: NodeKind.InsightVizNode,
         source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
@@ -126,6 +128,12 @@ export const getDefaultQuery = (
     insightType: InsightType,
     filterTestAccountsDefault: boolean
 ): DataTableNode | DataVisualizationNode | HogQuery | InsightVizNode => {
+    // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
+    // This is a fallback that should rarely be used
+    if (insightType === InsightType.WEB_ANALYTICS) {
+        throw new Error('Web Analytics insights must be created from Web Analytics tiles')
+    }
+
     if ([InsightType.SQL, InsightType.JSON, InsightType.HOG].includes(insightType)) {
         if (insightType === InsightType.JSON) {
             return examples.TotalEventsTable as DataTableNode
@@ -134,20 +142,20 @@ export const getDefaultQuery = (
         } else if (insightType === InsightType.HOG) {
             return examples.Hoggonacci as HogQuery
         }
-    } else {
-        if (insightType === InsightType.TRENDS) {
-            return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.FUNNELS) {
-            return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.RETENTION) {
-            return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.PATHS) {
-            return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.STICKINESS) {
-            return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
-        } else if (insightType === InsightType.LIFECYCLE) {
-            return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
-        }
+    }
+
+    if (insightType === InsightType.TRENDS) {
+        return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.FUNNELS) {
+        return queryFromKind(NodeKind.FunnelsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.RETENTION) {
+        return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.PATHS) {
+        return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.STICKINESS) {
+        return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.LIFECYCLE) {
+        return queryFromKind(NodeKind.LifecycleQuery, filterTestAccountsDefault)
     }
 
     throw new Error('encountered unexpected type for view')

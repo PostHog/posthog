@@ -5,7 +5,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { parseTagsFilter } from 'lib/utils'
+import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
@@ -347,7 +347,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/data-management/events': (_, searchParams) => {
             const { event, event_type, ordering, tags } = searchParams
 
@@ -359,7 +359,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
             }
 
-            actions.setFilters(filtersFromUrl)
+            if (!objectsEqual(values.filters, filtersFromUrl)) {
+                actions.setFilters(filtersFromUrl)
+            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.loadEventDefinitions()
+            }
         },
     })),
     actionToUrl(({ values }) => ({

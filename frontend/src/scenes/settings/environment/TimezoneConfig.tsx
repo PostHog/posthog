@@ -7,7 +7,7 @@ import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-export function TimezoneConfig(): JSX.Element {
+export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { currentTeam, timezone: currentTimezone, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -25,7 +25,6 @@ export function TimezoneConfig(): JSX.Element {
             <LemonInputSelect
                 mode="single"
                 placeholder="Select a time zone"
-                loading={currentTeamLoading}
                 disabled={currentTeamLoading}
                 value={[currentTeam.timezone]}
                 popoverClassName="z-[1000]"
@@ -37,7 +36,7 @@ export function TimezoneConfig(): JSX.Element {
                     }
                     const currentOffset = preflight.available_timezones[currentTimezone]
                     const newOffset = preflight.available_timezones[newTimezone]
-                    if (currentOffset === newOffset) {
+                    if (currentOffset === newOffset || !displayWarning) {
                         updateCurrentTeam({ timezone: newTimezone })
                     } else {
                         LemonDialog.open({

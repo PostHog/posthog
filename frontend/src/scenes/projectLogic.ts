@@ -2,9 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -31,7 +29,7 @@ export const projectLogic = kea<projectLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [userLogic, ['otherOrganizations']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -116,8 +114,15 @@ export const projectLogic = kea<projectLogicType>([
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
+        moveProjectDisabledReason: [
+            (s) => [s.otherOrganizations],
+            (otherOrganizations) =>
+                otherOrganizations.length === 0
+                    ? "You can't move the project because you aren't a member of another organization"
+                    : null,
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -137,9 +142,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
-                const redirectUrl = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
-                actions.switchTeam(currentProject.id, redirectUrl)
+                actions.switchTeam(currentProject.id, urls.onboarding())
             }
         },
 

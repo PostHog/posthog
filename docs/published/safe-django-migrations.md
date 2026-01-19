@@ -385,7 +385,7 @@ class Migration(migrations.Migration):
 
 Deploy this separately. Validation scans the table but uses `SHARE UPDATE EXCLUSIVE` lock which allows normal reads and writes but blocks other schema changes on that table.
 
-**Note:** This pattern also works for `FOREIGN KEY` constraints.
+**Note:** This pattern applies to `FOREIGN KEY` constraints on existing columns. New nullable FK columns don't need it - the column starts empty, so there's nothing to validate.
 
 ### Key Points
 
@@ -592,28 +592,58 @@ class Migration(migrations.Migration):
     ]
 ```
 
-### 2. Set atomic=False for Long-Running Operations
+### 2. Use atomic=False Only for CONCURRENTLY Operations
 
-PostgreSQL's `CONCURRENTLY` operations cannot run inside transactions. Additionally, set `atomic=False` for large backfills or long-running operations to allow partial progress to commit and avoid transaction timeouts.
+PostgreSQL's `CONCURRENTLY` operations cannot run inside transactions. Use `atomic=False` **only** when required.
 
 ```python
 class Migration(migrations.Migration):
-    atomic = False  # Required for CONCURRENTLY and recommended for long operations
+    atomic = False  # Required for CONCURRENTLY
 
     operations = [
-        migrations.RunSQL(
-            sql="CREATE INDEX CONCURRENTLY ...",
+        AddIndexConcurrently(
+            model_name="mymodel",
+            index=models.Index(fields=["field_name"], name="mymodel_field_idx"),
         ),
     ]
 ```
 
 **When to use `atomic=False`:**
 
-- `CREATE INDEX CONCURRENTLY` (required - Django's `AddIndexConcurrently` sets this automatically)
-- `DROP INDEX CONCURRENTLY` (required - `RemoveIndexConcurrently` sets this automatically)
+- `CREATE INDEX CONCURRENTLY` (required - `AddIndexConcurrently` needs this)
+- `DROP INDEX CONCURRENTLY` (required - `RemoveIndexConcurrently` needs this)
 - `REINDEX CONCURRENTLY` (required)
-- Large data backfills that might timeout
-- Long-running `RunPython` operations
+
+**When NOT to use `atomic=False`:**
+
+- Regular DDL operations (AddField, AlterField, RemoveField, etc.)
+- Data migrations (RunPython with UPDATE)
+- Any operation that should rollback on failure
+
+**Why this matters - the retry problem:**
+
+Our deployment uses `bin/migrate` with retry logic. If a migration fails mid-execution:
+
+- **With `atomic=True` (default)**: Nothing committed, retry works cleanly
+- **With `atomic=False`**: Partial changes committed, retry fails with "column already exists" or similar errors
+
+Example of what goes wrong:
+
+```text
+Migration with atomic=False:
+  Op1: AddField (commits) ✓
+  Op2: AddField (lock_timeout, fails) ✗
+
+Retry:
+  Op1: AddField → ERROR: column already exists!
+```
+
+**If you need both schema changes AND concurrent index creation:**
+
+Split into separate migrations:
+
+1. Migration 1: Schema changes (`atomic=True`, default)
+2. Migration 2: Concurrent index (`atomic=False`)
 
 **How atomic=False works:**
 
@@ -623,7 +653,7 @@ With `atomic=False`, each operation in the migration runs in its own transaction
 - If a migration fails midway, earlier operations have already committed and won't roll back
 - Always verify schema consistency after failed runs
 
-**Warning:** With `atomic=False`, migrations may partially apply changes if they fail. Have a recovery plan ready.
+**For large data backfills:** If you genuinely need `atomic=False` for long-running operations (not just CONCURRENTLY), ensure idempotency with `IF NOT EXISTS`, `WHERE NOT EXISTS`, or consider using async migrations instead.
 
 ### 3. Use IF EXISTS / IF NOT EXISTS for Idempotency
 

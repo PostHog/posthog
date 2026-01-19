@@ -1,5 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
+import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+
 export interface DayJSDateRange {
     start: dayjs.Dayjs
     end: dayjs.Dayjs
@@ -44,4 +46,32 @@ export function getConstrainedWeekRange(
         start: weekStart,
         end: weekEnd,
     }
+}
+
+export function formatResolvedDateRange(
+    resolvedDateRange: ResolvedDateRangeResponse | null | undefined
+): string | undefined {
+    if (!resolvedDateRange || !resolvedDateRange.date_from || !resolvedDateRange.date_to) {
+        return
+    }
+
+    const formatDate = (iso: string): { dateTime: string; tz: string } => {
+        // YYYY-MM-DD HH:mm
+        const dateTime = iso.slice(0, 16).replace('T', ' ')
+        // timezone (+00:00, -08:00, +08:00)
+        const tz = iso.endsWith('Z') ? '+00:00' : iso.slice(-6)
+        return { dateTime, tz }
+    }
+
+    const from = formatDate(resolvedDateRange.date_from)
+    const to = formatDate(resolvedDateRange.date_to)
+
+    return `${from.dateTime} - ${to.dateTime} (${from.tz})`
+}
+
+export function formatLocalizedDate(): string {
+    const localLang = navigator.language || document.documentElement.lang || 'en-US'
+    const usDateLocales = ['en-US', 'en-CA']
+
+    return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
 }

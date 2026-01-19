@@ -1,8 +1,12 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
+import { IconTrash } from '@posthog/icons'
+
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { LemonButton } from '../LemonButton'
+import { LemonDivider } from '../LemonDivider'
+import { IconLink } from '../icons'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
 
@@ -382,6 +386,125 @@ export const WithLink = (): JSX.Element => {
                         name: 'Franz B.',
                         occupation: 'Teacher',
                     },
+                ] as MockPerson[]
+            }
+        />
+    )
+}
+
+export const WithCellActions = (): JSX.Element => {
+    return (
+        <LemonTable
+            columns={[
+                {
+                    title: 'Name',
+                    dataIndex: 'name',
+                    cellActions: (value) => (
+                        <>
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                icon={<IconLink />}
+                                onClick={() => alert(`Viewing profile for ${value}`)}
+                            >
+                                View profile
+                            </LemonButton>
+                            <LemonButton fullWidth size="small" onClick={() => alert(`Copying ${value}`)}>
+                                Copy name
+                            </LemonButton>
+                        </>
+                    ),
+                },
+                {
+                    title: 'Occupation',
+                    dataIndex: 'occupation',
+                    cellActions: (value, record) => (
+                        <>
+                            <LemonButton fullWidth size="small" onClick={() => alert(`Filtering to ${value}`)}>
+                                Filter to {value}
+                            </LemonButton>
+                            <LemonDivider />
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                status="danger"
+                                icon={<IconTrash />}
+                                onClick={() => alert(`Removing ${record.name}`)}
+                            >
+                                Remove person
+                            </LemonButton>
+                        </>
+                    ),
+                },
+                {
+                    title: 'Age',
+                    key: 'age',
+                    render: (_, person) => `${person.name.length * 12} years`,
+                },
+            ]}
+            dataSource={
+                [
+                    { name: 'Werner C.', occupation: 'Engineer' },
+                    { name: 'Ursula Z.', occupation: 'Retired' },
+                    { name: 'Ludwig A.', occupation: 'Painter' },
+                    { name: 'Arnold S.', occupation: 'Body-builder' },
+                    { name: 'Franz B.', occupation: 'Teacher' },
+                ] as MockPerson[]
+            }
+        />
+    )
+}
+
+export const WithRowActions = (): JSX.Element => {
+    return (
+        <LemonTable
+            columns={[
+                {
+                    title: 'Name',
+                    dataIndex: 'name',
+                },
+                {
+                    title: 'Occupation',
+                    dataIndex: 'occupation',
+                },
+                {
+                    title: 'Age',
+                    key: 'age',
+                    render: (_, person) => `${person.name.length * 12} years`,
+                },
+            ]}
+            rowActions={(record) => (
+                <>
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        icon={<IconLink />}
+                        onClick={() => alert(`Viewing ${record.name}'s profile`)}
+                    >
+                        View profile
+                    </LemonButton>
+                    <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
+                        Edit
+                    </LemonButton>
+                    <LemonDivider />
+                    <LemonButton
+                        fullWidth
+                        size="small"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => alert(`Deleting ${record.name}`)}
+                    >
+                        Delete
+                    </LemonButton>
+                </>
+            )}
+            dataSource={
+                [
+                    { name: 'Werner C.', occupation: 'Engineer' },
+                    { name: 'Ursula Z.', occupation: 'Retired' },
+                    { name: 'Ludwig A.', occupation: 'Painter' },
+                    { name: 'Arnold S.', occupation: 'Body-builder' },
+                    { name: 'Franz B.', occupation: 'Teacher' },
                 ] as MockPerson[]
             }
         />

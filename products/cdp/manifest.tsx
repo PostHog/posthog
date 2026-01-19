@@ -1,6 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -38,6 +38,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Data pipelines`,
+            intents: [ProductKey.PIPELINE_DESTINATIONS, ProductKey.PIPELINE_TRANSFORMATIONS, ProductKey.SITE_APPS],
             category: 'Tools',
             type: 'hog_function',
             iconType: 'data_pipeline',
@@ -81,7 +82,6 @@ export const manifest: ProductManifest = {
             category: 'Pipeline',
             iconType: 'ingestion_warning',
             href: urls.ingestionWarnings(),
-            flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
             sceneKey: 'IngestionWarnings',
             sceneKeys: ['IngestionWarnings'],
         },

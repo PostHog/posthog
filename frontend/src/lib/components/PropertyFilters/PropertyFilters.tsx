@@ -71,7 +71,7 @@ export function PropertyFilters({
     logicalRowDivider = false,
     propertyGroupType = null,
     addText = null,
-    buttonText = 'Add filter',
+    buttonText = 'Filter',
     editable = true,
     buttonSize,
     hasRowOperator = true,

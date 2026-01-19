@@ -132,7 +132,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                         sessionRecordingId={recording.id}
                         mode={props.mode ?? SessionRecordingPlayerMode.Sharing}
                         autoPlay={props.autoplay ?? false}
-                        noInspector={!showInspector}
+                        withSidebar={showInspector}
                         noBorder={props.noBorder ?? false}
                         accessToken={exportToken}
                     />

@@ -1,7 +1,7 @@
 import './PlayerUpNext.scss'
 
 import clsx from 'clsx'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
@@ -11,45 +11,40 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
-import { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
-export interface PlayerUpNextProps {
-    playlistLogic: BuiltLogic<sessionRecordingsPlaylistLogicType>
-}
-
-export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element | null {
+export function PlayerUpNext(): JSX.Element | null {
     const timeoutRef = useRef<any>()
-    const { endReached, playNextAnimationInterrupted } = useValues(sessionRecordingPlayerLogic)
+    const { endReached, playNextAnimationInterrupted, playNextRecording } = useValues(sessionRecordingPlayerLogic)
     const { reportNextRecordingTriggered, setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic)
     const [animate, setAnimate] = useState(false)
 
-    const { nextSessionRecording } = useValues(playlistLogic)
-    const { setSelectedRecordingId } = useActions(playlistLogic)
-
-    useKeyboardHotkeys({
-        n: {
-            action: () => {
-                if (nextSessionRecording?.id) {
-                    reportNextRecordingTriggered(false)
-                    setSelectedRecordingId(nextSessionRecording.id)
-                }
+    useKeyboardHotkeys(
+        {
+            n: {
+                action: () => {
+                    if (playNextRecording) {
+                        reportNextRecordingTriggered(false)
+                        playNextRecording(false)
+                    }
+                },
             },
         },
-    })
+        [playNextRecording]
+    )
 
     const goToRecording = (automatic: boolean): void => {
-        if (!nextSessionRecording?.id) {
+        if (!playNextRecording) {
             return
         }
         reportNextRecordingTriggered(automatic)
-        setSelectedRecordingId(nextSessionRecording.id)
+        playNextRecording(automatic)
     }
 
     useEffect(() => {
         clearTimeout(timeoutRef.current)
 
-        if (endReached && nextSessionRecording?.id) {
+        if (endReached && playNextRecording) {
             setAnimate(true)
             setPlayNextAnimationInterrupted(false)
             timeoutRef.current = setTimeout(
@@ -62,7 +57,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         }
 
         return () => clearTimeout(timeoutRef.current)
-    }, [endReached, !!nextSessionRecording]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [endReached, !!playNextRecording]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (playNextAnimationInterrupted) {
@@ -71,7 +66,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         }
     }, [playNextAnimationInterrupted])
 
-    if (!nextSessionRecording) {
+    if (!playNextRecording) {
         return null
     }
 

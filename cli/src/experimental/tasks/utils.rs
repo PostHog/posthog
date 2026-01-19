@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use inquire::Select;
+use reqwest::Url;
 use std::collections::VecDeque;
 
 use super::{Task, TaskWorkflow, WorkflowStage};
@@ -83,7 +84,7 @@ pub struct WorkflowIterator {
 impl WorkflowIterator {
     fn new(client: PHClient) -> Result<Self> {
         let response = client
-            .get(&format!("task_workflows/?limit={BUFFER_SIZE}"))?
+            .get(client.project_url(&format!("task_workflows/?limit={BUFFER_SIZE}"))?)
             .send()
             .context("Failed to send request")?;
 
@@ -119,7 +120,7 @@ impl WorkflowIterator {
 
         let response = self
             .client
-            .get(&url)?
+            .get(Url::parse(&url)?)
             .send()
             .context("Failed to send request")?;
 
@@ -176,7 +177,7 @@ pub struct StageIterator {
 impl StageIterator {
     fn new(client: PHClient) -> Result<Self> {
         let response = client
-            .get(&format!("workflow_stages/?limit={BUFFER_SIZE}"))?
+            .get(client.project_url(&format!("workflow_stages/?limit={BUFFER_SIZE}"))?)
             .send()
             .context("Failed to send request")?;
 
@@ -211,7 +212,7 @@ impl StageIterator {
 
         let response = self
             .client
-            .get(&url)?
+            .get(Url::parse(&url)?)
             .send()
             .context("Failed to send request")?;
 

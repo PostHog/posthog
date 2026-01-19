@@ -27,6 +27,7 @@ from posthog.hogql.hogql import HogQLContext
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
+from posthog.kafka_client.topics import KAFKA_CDP_BACKFILL_EVENTS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -69,7 +70,7 @@ class BatchExportEventPropertyFilter:
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str]]] | None = None
+    filters: list[dict[str, str | list[str] | None]] | None = None
 
 
 @dataclass
@@ -313,6 +314,36 @@ class DatabricksBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class AzureBlobBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Azure Blob Storage export workflow.
+
+    NOTE: Connection credentials are stored in the Integration model.
+    The `integration_id` field from `BaseBatchExportInputs` is used to fetch them.
+    """
+
+    container_name: str
+    prefix: str = ""
+    compression: str | None = None
+    file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
+
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
+
+
+@dataclass(kw_only=True)
+class WorkflowsBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Workflows export workflow.
+
+    NOTE: "Workflows" in this context refers to PostHog Workflows. PostHog Workflows
+    are not related to Temporal Workflows.
+    """
+
+    topic: str = KAFKA_CDP_BACKFILL_EVENTS
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -334,8 +365,10 @@ DESTINATION_WORKFLOWS = {
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
+    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
 
@@ -468,28 +501,56 @@ def unpause_batch_export(
     backfill_export(temporal, batch_export_id, batch_export.team_id, start_at, end_at)
 
 
-def disable_and_delete_export(instance: BatchExport):
-    """Mark a BatchExport as deleted and delete its Temporal Schedule (including backfills)."""
+def delete_batch_export(instance: BatchExport):
+    """Delete a batch export.
+
+    This process involves:
+    * First, pausing the batch export so no new runs are scheduled.
+    * Second, canceling any running backfills.
+    * Third, canceling any running runs.
+    * Fourth and finally, deleting the Temporal Schedule.
+
+    The first step is necessary to avoid new runs being scheduled while we execute all
+    other steps.
+    """
     temporal = sync_connect()
 
     instance.deleted = True
+
+    try:
+        pause_batch_export(temporal, instance.id, note=f"Pausing due to delete request by team {instance.team_id}")
+    except BatchExportServiceRPCError:
+        logger.exception(
+            "Failed to pause batch export before deletion",
+            batch_export_id=instance.id,
+        )
 
     for backfill in running_backfills_for_batch_export(instance.id):
         try:
             async_to_sync(cancel_running_batch_export_backfill)(temporal, backfill)
         except Exception:
             logger.exception(
-                "Failed to delete backfill %s for batch export %s, but will continue on with delete",
-                backfill.id,
-                instance.id,
+                "Failed to cancel backfill",
+                backfill_id=backfill.id,
+                batch_export_id=instance.id,
+            )
+
+    for run in running_runs_for_batch_export(instance.id):
+        try:
+            cancel_running_batch_export_run(temporal, run)
+        except Exception:
+            logger.exception(
+                "Failed to cancel run",
+                run_id=run.id,
+                back_export_id=instance.id,
             )
 
     try:
         batch_export_delete_schedule(temporal, str(instance.pk))
     except BatchExportServiceScheduleNotFound as e:
         logger.warning(
-            "The Schedule %s could not be deleted as it was not found",
-            e.schedule_id,
+            "Schedule not found during delete",
+            schedule_id=e.schedule_id,
         )
 
     instance.save()
@@ -510,6 +571,13 @@ def running_backfills_for_batch_export(batch_export_id: UUID):
     """Return an iterator over running batch export backfills."""
     return BatchExportBackfill.objects.filter(
         batch_export_id=batch_export_id, status=BatchExportBackfill.Status.RUNNING
+    ).select_related("batch_export")
+
+
+def running_runs_for_batch_export(batch_export_id: UUID):
+    """Return an iterator over running batch export runs."""
+    return BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id, status=BatchExportRun.Status.RUNNING
     ).select_related("batch_export")
 
 
@@ -1010,6 +1078,7 @@ class BatchExportInsertInputs:
     # TODO - pass these in to all inherited classes
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
+    stage_folder: str | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -1044,4 +1113,6 @@ class BatchExportInsertInputs:
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
+            "batch_export_id": self.batch_export_id,
+            "stage_folder": self.stage_folder,
         }

@@ -2,25 +2,17 @@ use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, RedisError};
 use std::time::Duration;
-use tokio::time::timeout;
 use tracing::warn;
 
-use crate::{
-    Client, CompressionConfig, CustomRedisError, RedisValueFormat, DEFAULT_REDIS_TIMEOUT_MILLISECS,
-};
-
-fn get_redis_timeout_ms() -> u64 {
-    std::env::var("REDIS_TIMEOUT_MS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_REDIS_TIMEOUT_MILLISECS)
-}
+use crate::pipeline::{PipelineCommand, PipelineResult};
+use crate::{Client, CompressionConfig, CustomRedisError, RedisValueFormat};
 
 // Error messages for consistent handling of RawBytes format
 const ERR_RAWBYTES_GET: &str = "Use get_raw_bytes() for RawBytes format";
 const ERR_RAWBYTES_SET: &str =
     "RawBytes format not supported in set_with_format, use set_raw_bytes instead";
 
+#[derive(Clone)]
 pub struct RedisClient {
     connection: MultiplexedConnection,
     compression: CompressionConfig,
@@ -33,13 +25,16 @@ impl RedisClient {
     /// Defaults:
     /// - Format: Pickle (Django-compatible)
     /// - Compression: Disabled
+    /// - Timeouts: None (blocks indefinitely)
     ///
-    /// For Django-compatible compression, use `with_config()` with `CompressionConfig::default()`
+    /// For timeout configuration, use `with_config()` and specify `response_timeout` and `connection_timeout`.
     pub async fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
         Self::with_config(
             addr,
             CompressionConfig::disabled(),
             RedisValueFormat::default(),
+            None, // No response timeout
+            None, // No connection timeout
         )
         .await
     }
@@ -50,34 +45,61 @@ impl RedisClient {
     /// * `addr` - Redis connection string
     /// * `compression` - Compression configuration (see CompressionConfig)
     /// * `format` - Serialization format for values (see RedisValueFormat)
+    /// * `response_timeout` - Optional timeout for Redis command responses. `None` means no timeout (blocks indefinitely).
+    /// * `connection_timeout` - Optional timeout for establishing connections. `None` means no timeout (blocks indefinitely).
+    ///
+    /// # Errors
+    /// Returns `CustomRedisError::InvalidConfiguration` if `Some(Duration::ZERO)` is passed - use `None` for no timeout instead.
     ///
     /// # Examples
     /// ```no_run
     /// use common_redis::{RedisClient, CompressionConfig, RedisValueFormat};
+    /// use std::time::Duration;
     ///
     /// # async fn example() {
-    /// // Default settings
-    /// let client = RedisClient::new("redis://localhost:6379".to_string()).await.unwrap();
+    /// // With timeouts (100ms response, 5000ms connection)
+    /// let client = RedisClient::with_config(
+    ///     "redis://localhost:6379".to_string(),
+    ///     CompressionConfig::disabled(),
+    ///     RedisValueFormat::default(),
+    ///     Some(Duration::from_millis(100)),
+    ///     Some(Duration::from_millis(5000)),
+    /// ).await.unwrap();
     ///
-    /// // Custom compression only
+    /// // No timeouts (blocks indefinitely)
+    /// let client = RedisClient::with_config(
+    ///     "redis://localhost:6379".to_string(),
+    ///     CompressionConfig::disabled(),
+    ///     RedisValueFormat::default(),
+    ///     None,
+    ///     None,
+    /// ).await.unwrap();
+    ///
+    /// // Custom compression with timeouts
     /// let client = RedisClient::with_config(
     ///     "redis://localhost:6379".to_string(),
     ///     CompressionConfig::new(true, 1024, 3),
     ///     RedisValueFormat::default(),
+    ///     Some(Duration::from_millis(100)),
+    ///     Some(Duration::from_millis(5000)),
     /// ).await.unwrap();
     ///
-    /// // Custom format only
+    /// // Custom format with no timeouts
     /// let client = RedisClient::with_config(
     ///     "redis://localhost:6379".to_string(),
     ///     CompressionConfig::default(),
     ///     RedisValueFormat::Utf8,
+    ///     None,
+    ///     None,
     /// ).await.unwrap();
     ///
-    /// // Full custom configuration
+    /// // Full custom configuration with timeouts
     /// let client = RedisClient::with_config(
     ///     "redis://localhost:6379".to_string(),
     ///     CompressionConfig::new(true, 1024, 3),
     ///     RedisValueFormat::Utf8,
+    ///     Some(Duration::from_millis(100)),
+    ///     Some(Duration::from_millis(5000)),
     /// ).await.unwrap();
     /// # }
     /// ```
@@ -85,9 +107,45 @@ impl RedisClient {
         addr: String,
         compression: CompressionConfig,
         format: RedisValueFormat,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
     ) -> Result<RedisClient, CustomRedisError> {
         let client = redis::Client::open(addr)?;
-        let connection = client.get_multiplexed_async_connection().await?;
+
+        // Validate that Duration::ZERO is not passed - use None instead
+        if let Some(timeout) = response_timeout {
+            if timeout.is_zero() {
+                return Err(CustomRedisError::InvalidConfiguration(
+                    "Redis response timeout cannot be Duration::ZERO - use None for no timeout"
+                        .to_string(),
+                ));
+            }
+        }
+        if let Some(timeout) = connection_timeout {
+            if timeout.is_zero() {
+                return Err(CustomRedisError::InvalidConfiguration(
+                    "Redis connection timeout cannot be Duration::ZERO - use None for no timeout"
+                        .to_string(),
+                ));
+            }
+        }
+
+        // Use Redis native timeout configuration
+        // None means no timeout (blocks indefinitely)
+        let mut config = redis::AsyncConnectionConfig::new();
+
+        if let Some(timeout) = response_timeout {
+            config = config.set_response_timeout(timeout);
+        }
+
+        if let Some(timeout) = connection_timeout {
+            config = config.set_connection_timeout(timeout);
+        }
+
+        let connection = client
+            .get_multiplexed_async_connection_with_config(&config)
+            .await?;
+
         Ok(RedisClient {
             connection,
             compression,
@@ -172,9 +230,8 @@ impl Client for RedisClient {
         max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.zrangebyscore(k, min, max);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        Ok(fut?)
+        let results = conn.zrangebyscore(k, min, max).await?;
+        Ok(results)
     }
 
     async fn hincrby(
@@ -185,9 +242,8 @@ impl Client for RedisClient {
     ) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
         let count = count.unwrap_or(1);
-        let results = conn.hincr(k, v, count);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| e.into())
+        conn.hincr::<_, _, _, ()>(k, v, count).await?;
+        Ok(())
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
@@ -200,17 +256,15 @@ impl Client for RedisClient {
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.get(k);
-        let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        let raw_bytes: Vec<u8> = conn.get(k).await?;
 
-        if matches!(&fut, Ok(v) if v.is_empty()) {
+        // return NotFound error when empty
+        if raw_bytes.is_empty() {
             return Err(CustomRedisError::NotFound);
         }
 
-        let raw_bytes = fut?;
-
-        // Decompress if needed - gracefully handles both compressed and uncompressed data
+        // Always attempt decompression - handles both compressed and uncompressed data gracefully
+        // This ensures clients can read data regardless of compression settings used when writing
         let decompressed = Self::try_decompress(raw_bytes);
 
         match format {
@@ -231,17 +285,30 @@ impl Client for RedisClient {
 
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.get(k);
-        let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        let raw_bytes: Vec<u8> = conn.get(k).await?;
 
-        if matches!(&fut, Ok(v) if v.is_empty()) {
+        // return NotFound error when empty
+        if raw_bytes.is_empty() {
             return Err(CustomRedisError::NotFound);
         }
 
-        let raw_bytes = fut?;
-
+        // Always attempt decompression - handles both compressed and uncompressed data gracefully
+        // This ensures clients can read data regardless of compression settings used when writing
         Ok(Self::try_decompress(raw_bytes))
+    }
+
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
+        match ttl_seconds {
+            Some(ttl) => conn.set_ex::<_, _, ()>(k, v, ttl).await?,
+            None => conn.set::<_, _, ()>(k, v).await?,
+        }
+        Ok(())
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
@@ -257,18 +324,16 @@ impl Client for RedisClient {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
-        let results = conn.set(k, final_bytes);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        Ok(fut?)
+        conn.set::<_, _, ()>(k, final_bytes).await?;
+        Ok(())
     }
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, self.format)?;
 
         let mut conn = self.connection.clone();
-        let results = conn.set_ex(k, final_bytes, seconds);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        Ok(fut?)
+        conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;
+        Ok(())
     }
 
     async fn set_nx_ex(
@@ -292,39 +357,70 @@ impl Client for RedisClient {
         let mut conn = self.connection.clone();
         let seconds_usize = seconds as usize;
 
-        let result: Result<Option<String>, RedisError> = timeout(
-            Duration::from_millis(get_redis_timeout_ms()),
-            redis::cmd("SET")
-                .arg(&k)
-                .arg(&final_bytes)
-                .arg("EX")
-                .arg(seconds_usize)
-                .arg("NX")
-                .query_async(&mut conn),
-        )
-        .await?;
+        // Use SET with both NX and EX options
+        let result: Result<Option<String>, RedisError> = redis::cmd("SET")
+            .arg(&k)
+            .arg(&final_bytes)
+            .arg("EX")
+            .arg(seconds_usize)
+            .arg("NX")
+            .query_async(&mut conn)
+            .await;
 
         match result {
-            Ok(Some(_)) => Ok(true),
-            Ok(None) => Ok(false),
+            Ok(Some(_)) => Ok(true), // Key was set successfully
+            Ok(None) => Ok(false),   // Key already existed
             Err(e) => Err(e.into()),
         }
     }
 
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIRE")
+                .arg(&k)
+                .arg(ttl_seconds)
+                .arg("NX")
+                .ignore();
+        }
+
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).ignore();
+        }
+
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.del(k);
-        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
-        fut.map_err(|e| e.into())
+        conn.del::<_, ()>(k).await?;
+        Ok(())
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.hget(k, field);
-        let fut: Result<Option<String>, RedisError> =
-            timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        let result: Option<String> = conn.hget(k, field).await?;
 
-        match fut? {
+        match result {
             Some(value) => Ok(value),
             None => Err(CustomRedisError::NotFound),
         }
@@ -332,10 +428,228 @@ impl Client for RedisClient {
 
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
         let mut conn = self.connection.clone();
-        let results = conn.scard(k);
-        timeout(Duration::from_millis(get_redis_timeout_ms()), results)
-            .await?
-            .map_err(|e| e.into())
+        let result = conn.scard(k).await?;
+        Ok(result)
+    }
+
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
+        Ok(results)
+    }
+
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for k in &keys {
+            pipe.scard(k);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<u64> = pipe.query_async(&mut conn).await?;
+        Ok(results)
+    }
+
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut pipe = redis::pipe();
+        for (k, member) in items {
+            pipe.sadd(&k, &member).ignore();
+            pipe.cmd("EXPIRE")
+                .arg(&k)
+                .arg(ttl_seconds)
+                .arg("NX")
+                .ignore();
+        }
+        let mut conn = self.connection.clone();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError> {
+        if items.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for (k, v) in &items {
+            pipe.cmd("SET")
+                .arg(k)
+                .arg(v)
+                .arg("NX")
+                .arg("EX")
+                .arg(ttl_seconds);
+        }
+        let mut conn = self.connection.clone();
+        let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
+        Ok(results.into_iter().map(|r| r.is_some()).collect())
+    }
+
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.connection.clone();
+        redis::cmd("DEL")
+            .arg(&keys)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError> {
+        let mut pipe = redis::pipe();
+
+        // Track commands for result processing
+        let mut metas: Vec<PipelineCommand> = Vec::with_capacity(commands.len());
+
+        // Build the pipeline
+        for cmd in commands {
+            match &cmd {
+                PipelineCommand::Get { key, .. } | PipelineCommand::GetRawBytes { key } => {
+                    pipe.cmd("GET").arg(key);
+                }
+                PipelineCommand::Set { key, value, format } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SET").arg(key).arg(&bytes);
+                }
+                PipelineCommand::SetEx {
+                    key,
+                    value,
+                    seconds,
+                    format,
+                } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SETEX").arg(key).arg(*seconds).arg(&bytes);
+                }
+                PipelineCommand::SetNxEx {
+                    key,
+                    value,
+                    seconds,
+                    format,
+                } => {
+                    let bytes = self.serialize_and_compress(value.clone(), *format)?;
+                    pipe.cmd("SET")
+                        .arg(key)
+                        .arg(&bytes)
+                        .arg("EX")
+                        .arg(*seconds)
+                        .arg("NX");
+                }
+                PipelineCommand::Del { key } => {
+                    pipe.cmd("DEL").arg(key);
+                }
+                PipelineCommand::HGet { key, field } => {
+                    pipe.cmd("HGET").arg(key).arg(field);
+                }
+                PipelineCommand::HIncrBy { key, field, count } => {
+                    pipe.cmd("HINCRBY").arg(key).arg(field).arg(*count);
+                }
+                PipelineCommand::Scard { key } => {
+                    pipe.cmd("SCARD").arg(key);
+                }
+                PipelineCommand::ZRangeByScore { key, min, max } => {
+                    pipe.cmd("ZRANGEBYSCORE").arg(key).arg(min).arg(max);
+                }
+            }
+            metas.push(cmd);
+        }
+
+        // Execute the pipeline
+        let mut conn = self.connection.clone();
+        let raw_results: Vec<redis::Value> = pipe.query_async(&mut conn).await?;
+
+        // Process results
+        let mut results = Vec::with_capacity(raw_results.len());
+        for (i, raw) in raw_results.into_iter().enumerate() {
+            let cmd = &metas[i];
+            let result = self.process_pipeline_result(raw, cmd);
+            results.push(result);
+        }
+
+        Ok(results)
+    }
+}
+
+impl RedisClient {
+    /// Process a single pipeline result based on the command type.
+    fn process_pipeline_result(
+        &self,
+        raw: redis::Value,
+        command: &PipelineCommand,
+    ) -> Result<PipelineResult, CustomRedisError> {
+        match command {
+            PipelineCommand::Get { format, .. } => {
+                let bytes: Vec<u8> = redis::from_redis_value(&raw)?;
+                if bytes.is_empty() {
+                    return Err(CustomRedisError::NotFound);
+                }
+                let decompressed = Self::try_decompress(bytes);
+                let string = match format {
+                    RedisValueFormat::Pickle => {
+                        serde_pickle::from_slice(&decompressed, Default::default())?
+                    }
+                    RedisValueFormat::Utf8 => String::from_utf8(decompressed)?,
+                    RedisValueFormat::RawBytes => {
+                        return Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
+                    }
+                };
+                Ok(PipelineResult::String(string))
+            }
+            PipelineCommand::GetRawBytes { .. } => {
+                let bytes: Vec<u8> = redis::from_redis_value(&raw)?;
+                if bytes.is_empty() {
+                    return Err(CustomRedisError::NotFound);
+                }
+                let decompressed = Self::try_decompress(bytes);
+                Ok(PipelineResult::Bytes(decompressed))
+            }
+            PipelineCommand::Set { .. }
+            | PipelineCommand::SetEx { .. }
+            | PipelineCommand::Del { .. }
+            | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
+            PipelineCommand::SetNxEx { .. } => {
+                // SET NX returns OK if set, nil if key existed
+                match raw {
+                    redis::Value::Okay | redis::Value::SimpleString(_) => {
+                        Ok(PipelineResult::Bool(true))
+                    }
+                    redis::Value::Nil => Ok(PipelineResult::Bool(false)),
+                    _ => Ok(PipelineResult::Bool(false)),
+                }
+            }
+            PipelineCommand::HGet { .. } => {
+                let result: Option<String> = redis::from_redis_value(&raw)?;
+                match result {
+                    Some(value) => Ok(PipelineResult::String(value)),
+                    None => Err(CustomRedisError::NotFound),
+                }
+            }
+            PipelineCommand::Scard { .. } => {
+                let count: u64 = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Count(count))
+            }
+            PipelineCommand::ZRangeByScore { .. } => {
+                let strings: Vec<String> = redis::from_redis_value(&raw)?;
+                Ok(PipelineResult::Strings(strings))
+            }
+        }
     }
 }
 
@@ -411,6 +725,46 @@ mod tests {
             assert!(config.enabled);
             assert_eq!(config.threshold, 512);
             assert_eq!(config.level, 0);
+        }
+
+        #[tokio::test]
+        async fn test_zero_response_timeout_returns_error() {
+            let result = RedisClient::with_config(
+                "redis://localhost:6379".to_string(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Pickle,
+                Some(Duration::ZERO),
+                None,
+            )
+            .await;
+
+            assert!(matches!(
+                result,
+                Err(CustomRedisError::InvalidConfiguration(_))
+            ));
+            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                assert!(msg.contains("response timeout"));
+            }
+        }
+
+        #[tokio::test]
+        async fn test_zero_connection_timeout_returns_error() {
+            let result = RedisClient::with_config(
+                "redis://localhost:6379".to_string(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Pickle,
+                None,
+                Some(Duration::ZERO),
+            )
+            .await;
+
+            assert!(matches!(
+                result,
+                Err(CustomRedisError::InvalidConfiguration(_))
+            ));
+            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                assert!(msg.contains("connection timeout"));
+            }
         }
     }
 
@@ -678,5 +1032,330 @@ mod tests {
             assert_eq!(config.threshold, 1024);
             assert_eq!(config.level, 3);
         }
+    }
+}
+
+/// Integration tests using a real Redis instance via testcontainers.
+///
+/// These tests verify the actual Redis protocol implementation works correctly,
+/// complementing the mock-based unit tests.
+///
+/// # Requirements
+/// - Docker must be running and accessible
+/// - The `redis:7-alpine` image will be pulled if not present
+///
+/// # Running the tests
+/// These tests are ignored by default because they require Docker and are slower.
+/// Run them explicitly with:
+/// ```sh
+/// cargo test client::integration_tests -- --ignored --test-threads=1
+/// ```
+///
+/// The `--test-threads=1` flag is recommended to avoid container conflicts.
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::{ClientPipelineExt, PipelineResult};
+    use testcontainers::core::{IntoContainerPort, WaitFor};
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers::GenericImage;
+
+    async fn create_test_client() -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(6379.tcp())
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .start()
+            .await
+            .unwrap();
+
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let client = RedisClient::with_config(
+            url,
+            CompressionConfig::disabled(),
+            RedisValueFormat::Utf8,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        (client, container)
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_set_and_get() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .set("key1", "value1")
+            .set("key2", "value2")
+            .get("key1")
+            .get("key2")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(matches!(&results[2], Ok(PipelineResult::String(s)) if s == "value1"));
+        assert!(matches!(&results[3], Ok(PipelineResult::String(s)) if s == "value2"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_get_nonexistent_key() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .get("nonexistent_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_setex_with_ttl() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .setex("expiring_key", "temp_value", 3600)
+            .get("expiring_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "temp_value"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_set_nx_ex() {
+        let (client, _container) = create_test_client().await;
+
+        // First set should succeed (key doesn't exist)
+        let results = client
+            .pipeline()
+            .set_nx_ex("nx_key", "first_value", 3600)
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(true))));
+
+        // Second set should fail (key exists)
+        let results = client
+            .pipeline()
+            .set_nx_ex("nx_key", "second_value", 3600)
+            .get("nx_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert!(matches!(results[0], Ok(PipelineResult::Bool(false))));
+        // Value should still be the first one
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "first_value"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_del() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client
+            .pipeline()
+            .set("to_delete", "value")
+            .del("to_delete")
+            .get("to_delete")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[2], Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_empty() {
+        let (client, _container) = create_test_client().await;
+
+        let results = client.pipeline().execute().await.unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_result_order_preserved() {
+        let (client, _container) = create_test_client().await;
+
+        // Set up keys with different values
+        client
+            .pipeline()
+            .set("order_a", "1")
+            .set("order_b", "2")
+            .set("order_c", "3")
+            .execute()
+            .await
+            .unwrap();
+
+        // Get them back in a different order
+        let results = client
+            .pipeline()
+            .get("order_c")
+            .get("order_a")
+            .get("order_b")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 3);
+        assert!(matches!(&results[0], Ok(PipelineResult::String(s)) if s == "3"));
+        assert!(matches!(&results[1], Ok(PipelineResult::String(s)) if s == "1"));
+        assert!(matches!(&results[2], Ok(PipelineResult::String(s)) if s == "2"));
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_large_batch() {
+        let (client, _container) = create_test_client().await;
+
+        // Build a pipeline with 100 operations
+        let mut pipeline = client.pipeline();
+        for i in 0..100 {
+            pipeline = pipeline.set(format!("batch_key_{i}"), format!("value_{i}"));
+        }
+        let results = pipeline.execute().await.unwrap();
+        assert_eq!(results.len(), 100);
+        assert!(results.iter().all(|r| matches!(r, Ok(PipelineResult::Ok))));
+
+        // Verify all keys were set correctly
+        let mut pipeline = client.pipeline();
+        for i in 0..100 {
+            pipeline = pipeline.get(format!("batch_key_{i}"));
+        }
+        let results = pipeline.execute().await.unwrap();
+        assert_eq!(results.len(), 100);
+
+        for (i, result) in results.iter().enumerate() {
+            let expected = format!("value_{i}");
+            assert!(
+                matches!(result, Ok(PipelineResult::String(s)) if s == &expected),
+                "Mismatch at index {i}: expected {expected:?}, got {result:?}"
+            );
+        }
+    }
+
+    /// Helper to create a test client with compression enabled.
+    /// Uses a low threshold (100 bytes) to ensure compression triggers for test values.
+    async fn create_test_client_with_compression(
+    ) -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(6379.tcp())
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .start()
+            .await
+            .unwrap();
+
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let client = RedisClient::with_config(
+            url,
+            CompressionConfig::new(true, 100, 0), // threshold: 100 bytes, level: default
+            RedisValueFormat::Utf8,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        (client, container)
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_with_compression_enabled() {
+        let (client, _container) = create_test_client_with_compression().await;
+
+        // Create values that exceed the compression threshold (100 bytes)
+        let large_value = "x".repeat(500); // 500 bytes > 100 byte threshold
+
+        let results = client
+            .pipeline()
+            .set("compressed_key1", large_value.clone())
+            .set("compressed_key2", large_value.clone())
+            .get("compressed_key1")
+            .get("compressed_key2")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(
+            matches!(&results[2], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[2]
+        );
+        assert!(
+            matches!(&results[3], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[3]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_pipeline_compression_mixed_sizes() {
+        let (client, _container) = create_test_client_with_compression().await;
+
+        // Mix of small (no compression) and large (compressed) values
+        let small_value = "tiny"; // 4 bytes < 100 byte threshold
+        let large_value = "y".repeat(200); // 200 bytes > 100 byte threshold
+
+        let results = client
+            .pipeline()
+            .set("small_key", small_value)
+            .set("large_key", large_value.clone())
+            .get("small_key")
+            .get("large_key")
+            .execute()
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 4);
+        assert!(matches!(results[0], Ok(PipelineResult::Ok)));
+        assert!(matches!(results[1], Ok(PipelineResult::Ok)));
+        assert!(
+            matches!(&results[2], Ok(PipelineResult::String(s)) if s == small_value),
+            "Expected small_value, got {:?}",
+            results[2]
+        );
+        assert!(
+            matches!(&results[3], Ok(PipelineResult::String(s)) if s == &large_value),
+            "Expected large_value, got {:?}",
+            results[3]
+        );
     }
 }

@@ -23,6 +23,7 @@ import { ExporterFormat } from '~/types'
 import { retentionLogic } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { formatRetentionCohortLabel } from './utils'
 
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -37,8 +38,9 @@ export function RetentionModal(): JSX.Element | null {
         insightEventsQueryUrl,
         actorsQuery,
         isCohortModalOpen,
+        theme,
+        retentionFilter,
     } = useValues(retentionModalLogic(insightProps))
-    const { theme } = useValues(retentionModalLogic(insightProps))
     const { closeModal, saveAsCohort, setIsCohortModalOpen } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
 
@@ -69,6 +71,8 @@ export function RetentionModal(): JSX.Element | null {
             : results[selectedInterval]
     const rowLength = row.values.length
     const isEmpty = row.values[0]?.count === 0
+
+    const modalTitle = row.date ? `${formatRetentionCohortLabel(row, retentionFilter?.period)} Cohort` : row.label
 
     return (
         <>
@@ -145,7 +149,7 @@ export function RetentionModal(): JSX.Element | null {
                     </div>
                 }
                 width={isEmpty ? undefined : '90%'}
-                title={`${row.date.format('MMMM D, YYYY')} Cohort`}
+                title={modalTitle}
             >
                 {people && !!people.missing_persons && (
                     <MissingPersonsAlert

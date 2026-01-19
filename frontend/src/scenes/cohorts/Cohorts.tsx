@@ -5,8 +5,11 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -24,7 +27,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CohortType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -86,6 +90,7 @@ export function Cohorts(): JSX.Element {
         {
             width: 0,
             render: function RenderActions(_, cohort) {
+                const cohortId = typeof cohort.id === 'number' ? cohort.id : null
                 return (
                     <More
                         overlay={
@@ -93,26 +98,31 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton to={urls.cohort(cohort.id)} fullWidth>
                                     Edit
                                 </LemonButton>
-                                <LemonButton
-                                    to={
-                                        combineUrl(urls.replay(), {
-                                            filters: {
-                                                properties: [
+                                {cohortId && (
+                                    <ViewRecordingsPlaylistButton
+                                        filters={{
+                                            filter_group: {
+                                                type: FilterLogicalOperator.And,
+                                                values: [
                                                     {
-                                                        key: 'id',
-                                                        label: cohort.name,
-                                                        type: 'cohort',
-                                                        value: cohort.id,
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: PropertyFilterType.Cohort,
+                                                                key: 'id',
+                                                                operator: PropertyOperator.In,
+                                                                value: cohortId,
+                                                            },
+                                                        ],
                                                     },
                                                 ],
                                             },
-                                        }).url
-                                    }
-                                    fullWidth
-                                    targetBlank
-                                >
-                                    View session recordings
-                                </LemonButton>
+                                        }}
+                                        fullWidth
+                                        label="View session recordings"
+                                        data-attr="cohort-view-recordings"
+                                    />
+                                )}
                                 <LemonButton
                                     onClick={() =>
                                         exportCohortPersons(cohort.id, [
@@ -169,15 +179,24 @@ export function Cohorts(): JSX.Element {
 
     const filtersSection = (
         <div className="flex justify-between gap-2 flex-wrap">
-            <LemonInput
-                className="w-60"
-                type="search"
-                placeholder="Search for cohorts"
-                onChange={(search) => {
-                    setCohortFilters({ search: search || undefined, page: 1 })
-                }}
-                value={cohortFilters.search}
-            />
+            <AppShortcut
+                name="SearchCohorts"
+                keybind={[keyBinds.filter]}
+                intent="Search cohorts"
+                interaction="click"
+                scope={Scene.Cohorts}
+            >
+                <LemonInput
+                    className="w-60"
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={(search) => {
+                        setCohortFilters({ search: search || undefined, page: 1 })
+                    }}
+                    value={cohortFilters.search}
+                />
+            </AppShortcut>
+
             <div className="flex items-center gap-2">
                 <span>
                     <b>Type</b>
@@ -235,14 +254,23 @@ export function Cohorts(): JSX.Element {
                     type: sceneConfigurations[Scene.Cohorts].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        data-attr="new-cohort"
-                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    <AppShortcut
+                        name="NewCohort"
+                        keybind={[keyBinds.new]}
+                        intent="New cohort"
+                        interaction="click"
+                        scope={Scene.Cohorts}
                     >
-                        New cohort
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr="new-cohort"
+                            onClick={() => router.actions.push(urls.cohort('new'))}
+                            tooltip="New cohort"
+                        >
+                            New cohort
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
 

@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -23,7 +25,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, InsightShortId, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { AnnotationScope, AnnotationType, InsightShortId } from '~/types'
 
 import { AnnotationModal } from './AnnotationModal'
 import { annotationModalLogic, annotationScopeToLevel, annotationScopeToName } from './annotationModalLogic'
@@ -154,9 +157,22 @@ export function Annotations(): JSX.Element {
                     type: sceneConfigurations[Scene.Annotations].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton type="primary" onClick={() => openModalToCreateAnnotation()} size="small">
-                        New annotation
-                    </LemonButton>
+                    <AppShortcut
+                        name="NewAnnotation"
+                        keybind={[keyBinds.new]}
+                        intent="New annotation"
+                        interaction="click"
+                        scope={Scene.Annotations}
+                    >
+                        <LemonButton
+                            type="primary"
+                            onClick={() => openModalToCreateAnnotation()}
+                            size="small"
+                            tooltip="New annotation"
+                        >
+                            New annotation
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
             <div className="flex flex-row items-center gap-2 justify-end">

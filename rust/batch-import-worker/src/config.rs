@@ -1,4 +1,5 @@
 use crate::job::backoff::BackoffPolicy;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 // Re-export KafkaConfig for testing
@@ -6,6 +7,9 @@ pub use common_kafka::config::KafkaConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // ~100MB
     #[envconfig(default = "100000000")]
     pub chunk_size: usize,

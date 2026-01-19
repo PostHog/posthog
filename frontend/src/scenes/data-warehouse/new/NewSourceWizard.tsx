@@ -1,8 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect } from 'react'
 
-import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { IconQuestion } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
@@ -13,6 +15,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
@@ -72,6 +75,7 @@ interface NewSourcesWizardProps {
     onComplete?: () => void
     allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
     initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
+    hideBackButton?: boolean
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
@@ -99,6 +103,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         nextButtonText,
         selectedConnector,
         connectors,
+        isSelfManagedSource,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -117,37 +122,63 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 setInitialConnector(initialConnector)
             }
         }
-    }, [props.initialSource, connectors, setInitialConnector])
+    }, [props.initialSource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
             return null
         }
 
+        const nextButton = (disabledReason?: string | false): JSX.Element => (
+            <LemonButton
+                loading={isLoading || manualLinkIsLoading}
+                disabledReason={disabledReason || (!canGoNext && 'You cant click next yet')}
+                type="primary"
+                center
+                onClick={() => onSubmit()}
+                data-attr="source-link"
+            >
+                {nextButtonText}
+            </LemonButton>
+        )
+
         return (
             <div className="flex flex-row gap-2 justify-end mt-4">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
-                <LemonButton
-                    loading={isLoading || manualLinkIsLoading}
-                    disabledReason={!canGoNext && 'You cant click next yet'}
-                    type="primary"
-                    center
-                    onClick={() => onSubmit()}
-                    data-attr="source-link"
-                >
-                    {nextButtonText}
-                </LemonButton>
+                {!props.hideBackButton && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
+                {isSelfManagedSource ? (
+                    nextButton()
+                ) : (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.ExternalDataSource}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
+                    </AccessControlAction>
+                )}
             </div>
         )
-    }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
+    }, [
+        currentStep,
+        canGoBack,
+        onBack,
+        isLoading,
+        manualLinkIsLoading,
+        canGoNext,
+        nextButtonText,
+        onSubmit,
+        props.hideBackButton,
+        isSelfManagedSource,
+    ])
 
     return (
         <div>
@@ -229,13 +260,26 @@ function SecondStep(): JSX.Element {
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
 
-            {selectedConnector.docsUrl && (
-                <div className="inline-block">
-                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+            <div className="flex flex-row gap-1">
+                {selectedConnector.permissionsCaption && (
+                    <Tooltip
+                        title={
+                            <LemonMarkdown className="text-sm">{selectedConnector.permissionsCaption}</LemonMarkdown>
+                        }
+                        interactive
+                    >
+                        <LemonTag type="muted" size="small">
+                            Permissions required <IconQuestion />
+                        </LemonTag>
+                    </Tooltip>
+                )}
+                {selectedConnector.permissionsCaption && selectedConnector.docsUrl && <span>&nbsp;|&nbsp;</span>}
+                {selectedConnector.docsUrl && (
+                    <Link to={selectedConnector.docsUrl} target="_blank">
                         View docs
-                    </LemonButton>
-                </div>
-            )}
+                    </Link>
+                )}
+            </div>
 
             <LemonDivider />
 

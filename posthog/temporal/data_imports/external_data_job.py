@@ -43,6 +43,10 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
+from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+)
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -230,7 +234,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            job_id, incremental, source_type = await workflow.execute_activity(
+            job_id, incremental_or_append, source_type = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -290,7 +294,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-                if incremental or is_resumable_source
+                if incremental_or_append or is_resumable_source
                 else {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
@@ -338,6 +342,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+            # Start DuckLake copy workflow as a child (fire-and-forget)
+            await workflow.start_child_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                DataImportsDuckLakeCopyInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    schema_ids=[inputs.external_data_schema_id],
+                ),
+                id=f"ducklake-copy-data-imports-{job_id}",
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
             )
 
         except exceptions.ActivityError as e:

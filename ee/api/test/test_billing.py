@@ -355,7 +355,6 @@ class TestBillingAPI(APILicensedTest):
 
         assert response.json() == {
             "customer_id": "cus_123",
-            "customer_id": "cus_123",
             "customer_trust_scores": {
                 "data_warehouse": 15,
                 "feature_flags": 15,
@@ -511,7 +510,6 @@ class TestBillingAPI(APILicensedTest):
                     "unit_amount_usd": "0.00",
                     "usage_limit": None,
                     "image_url": "https://posthog.com/static/images/product-os.png",
-                    "percentage_usage": 0,
                     "usage_key": "events",
                     "addons": [
                         {
@@ -812,7 +810,7 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         self.organization.customer_id = None
-        # For key values check: TRUST_SCORE_KEYS
+        # For key values check: QuotaResource values
         self.organization.customer_trust_scores = {
             "events": 0,
             "exceptions": 0,
@@ -957,7 +955,7 @@ class TestActivateBillingAPI(APILicensedTest):
         url = "/api/billing/deactivate"
         data = {"products": "product_1"}
 
-        response = self.client.get(url, data)
+        response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
@@ -967,7 +965,7 @@ class TestActivateBillingAPI(APILicensedTest):
         url = "/api/billing/deactivate"
         data = {"none": "nothing"}
 
-        response = self.client.get(url, data)
+        response = self.client.post(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -1054,6 +1052,72 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
         _, call_args, _ = mock_apply_startup_program.mock_calls[0]
         self.assertEqual(call_args[0], self.organization)
         self.assertEqual(call_args[1], expected_data)
+
+
+class TestCouponClaimBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/coupons/claim"
+        self.data = {"code": "TEST-CODE-123"}
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_success(self, mock_claim_coupon):
+        mock_claim_coupon.return_value = {
+            "success": True,
+            "code": "TEST-CODE-123",
+            "expires_at": "2026-01-01T00:00:00Z",
+        }
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], True)
+        self.assertEqual(response.json()["code"], "TEST-CODE-123")
+        mock_claim_coupon.assert_called_once_with(self.organization, {"code": "TEST-CODE-123"})
+
+    def test_claim_coupon_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "You need to be an organization admin or owner to claim coupons")
+
+    def test_claim_coupon_missing_code(self):
+        empty_data: dict[str, Any] = {}
+
+        response = self.client.post(self.url, empty_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "code",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.claim_coupon")
+    def test_claim_coupon_billing_error_with_detail(self, mock_claim_coupon):
+        # DRF validation error
+        mock_claim_coupon.side_effect = Exception(
+            "Billing service returned bad status code: 400",
+            "body:",
+            {"detail": "Customer has already claimed a coupon from this campaign."},
+        )
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_json = response.json()
+        self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
 class TestBillingUsageRequestSerializer(TestCase):

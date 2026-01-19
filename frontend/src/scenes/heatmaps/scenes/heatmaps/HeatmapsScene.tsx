@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -109,15 +111,24 @@ export function HeatmapsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Heatmaps].iconType || 'default',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        to={urls.heatmap('new')}
-                        data-attr="heatmaps-new-heatmap-button"
-                        size="small"
-                        icon={<IconPlusSmall />}
+                    <AppShortcut
+                        name="NewHeatmap"
+                        keybind={[keyBinds.new]}
+                        intent="New heatmap"
+                        interaction="click"
+                        scope={Scene.Heatmaps}
                     >
-                        New heatmap
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            to={urls.heatmap('new')}
+                            data-attr="heatmaps-new-heatmap-button"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            tooltip="New heatmap"
+                        >
+                            New heatmap
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
             <LemonBanner
@@ -132,12 +143,20 @@ export function HeatmapsScene(): JSX.Element {
                 </p>
             </LemonBanner>
             <div className="flex justify-between gap-2 items-center flex-wrap">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for heatmaps"
-                    onChange={(value) => setHeatmapsFilters({ ...filters, search: value || '' })}
-                    value={filters.search || ''}
-                />
+                <AppShortcut
+                    name="SearchHeatmaps"
+                    keybind={[keyBinds.filter]}
+                    intent="Search heatmaps"
+                    interaction="click"
+                    scope={Scene.Heatmaps}
+                >
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for heatmaps"
+                        onChange={(value) => setHeatmapsFilters({ ...filters, search: value || '' })}
+                        value={filters.search || ''}
+                    />
+                </AppShortcut>
 
                 <div className="flex items-center gap-2">
                     <span>Created by:</span>

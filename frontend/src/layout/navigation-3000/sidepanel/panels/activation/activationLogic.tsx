@@ -8,6 +8,7 @@ import {
     IconDatabase,
     IconFeatures,
     IconGraph,
+    IconLlmAnalytics,
     IconMessage,
     IconPieChart,
     IconRewindPlay,
@@ -17,10 +18,8 @@ import {
 
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -28,11 +27,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     ActivationTaskStatus,
     EventDefinitionType,
     OnboardingStepKey,
-    ProductKey,
     ReplayTabs,
     TeamBasicType,
     type TeamPublicType,
@@ -68,16 +67,7 @@ const CACHE_PREFIX = 'v1'
 export const activationLogic = kea<activationLogicType>([
     path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
     connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            membersLogic,
-            ['memberCount'],
-            sidePanelStateLogic,
-            ['modalMode'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [teamLogic, ['currentTeam'], membersLogic, ['memberCount'], sidePanelStateLogic, ['modalMode']],
         actions: [
             teamLogic,
             ['loadCurrentTeam', 'updateCurrentTeam'],
@@ -97,6 +87,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: ActivationTask) => ({ id }),
         markTaskAsCompleted: (id: ActivationTask) => ({ id }),
         markTaskAsSkipped: (id: ActivationTask) => ({ id }),
+        unmarkTaskAsSkipped: (id: ActivationTask) => ({ id }),
         toggleShowHiddenSections: () => ({}),
         addIntentForSection: (section: ActivationSection) => ({ section }),
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
@@ -163,6 +154,23 @@ export const activationLogic = kea<activationLogicType>([
                 },
             },
         ],
+        hasSentAIEvent: {
+            __default: undefined as boolean | undefined,
+            loadAIEventDefinitions: async (): Promise<boolean> => {
+                const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
+
+                const aiEventDefinitions = await api.eventDefinitions.list({
+                    event_type: EventDefinitionType.Event,
+                    search: '$ai_',
+                })
+
+                const validAIEvent = aiEventDefinitions.results.find(
+                    (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
+                )
+
+                return !!validAIEvent
+            },
+        },
     })),
     selectors({
         savedOnboardingTasks: [
@@ -187,30 +195,17 @@ export const activationLogic = kea<activationLogicType>([
                 ),
         ],
         hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.visible).length > 0],
-        showSaveInsightTask: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.SAVE_INSIGHT_TASK] === 'test',
-        ],
         tasks: [
-            (s) => [s.savedOnboardingTasks, s.showSaveInsightTask],
-            (savedOnboardingTasks, showSaveInsightTask) => {
-                const tasks: ActivationTaskType[] = ACTIVATION_TASKS.map((task) => {
-                    const title =
-                        task.id === ActivationTask.CreateFirstInsight && showSaveInsightTask
-                            ? 'Save an insight'
-                            : task.title
-                    return {
-                        ...task,
-                        skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
-                        completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
-                        lockedReason: task.dependsOn?.find(
-                            (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
-                        )?.reason,
-                        title,
-                    }
-                })
-
-                return tasks
+            (s) => [s.savedOnboardingTasks],
+            (savedOnboardingTasks) => {
+                return ACTIVATION_TASKS.map((task) => ({
+                    ...task,
+                    skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
+                    completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
+                    lockedReason: task.dependsOn?.find(
+                        (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
+                    )?.reason,
+                }))
             },
         ],
         visibleTasks: [
@@ -276,7 +271,12 @@ export const activationLogic = kea<activationLogicType>([
             switch (id) {
                 // Quick Start
                 case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS, OnboardingStepKey.INSTALL))
+                    router.actions.push(
+                        urls.onboarding({
+                            productKey: ProductKey.PRODUCT_ANALYTICS,
+                            stepKey: OnboardingStepKey.INSTALL,
+                        })
+                    )
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
@@ -335,6 +335,17 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTask.CollectSurveyResponses:
                     router.actions.push(urls.surveys())
                     break
+
+                // LLM Analytics
+                case ActivationTask.IngestFirstLLMEvent:
+                    router.actions.push(
+                        urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                    )
+                    break
+                case ActivationTask.ViewFirstTrace:
+                    router.actions.push(urls.llmAnalyticsTraces())
+                    break
+
                 default:
                     // For tasks with just a URL or no direct route
                     break
@@ -357,6 +368,22 @@ export const activationLogic = kea<activationLogicType>([
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
+        },
+        unmarkTaskAsSkipped: ({ id }) => {
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (!skipped) {
+                return
+            }
+
+            posthog.capture('activation sidebar task unskipped', {
+                task: id,
+            })
+
+            const onboardingTasks = { ...values.currentTeam?.onboarding_tasks }
+            delete onboardingTasks[id]
+
+            actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
         markTaskAsCompleted: ({ id }) => {
             const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED
@@ -414,10 +441,19 @@ export const activationLogic = kea<activationLogicType>([
             if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.TrackCustomEvents]) {
                 actions.loadCustomEvents({})
             }
+
+            if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.IngestFirstLLMEvent]) {
+                actions.loadAIEventDefinitions()
+            }
         },
         loadCustomEventsSuccess: () => {
             if (values.customEventsCount > 0) {
                 actions.markTaskAsCompleted(ActivationTask.TrackCustomEvents)
+            }
+        },
+        loadAIEventDefinitionsSuccess: () => {
+            if (values.hasSentAIEvent) {
+                actions.markTaskAsCompleted(ActivationTask.IngestFirstLLMEvent)
             }
         },
         onTeamLoad: ({ team }) => {
@@ -452,6 +488,11 @@ export const activationLogic = kea<activationLogicType>([
 
         if (values.currentTeam) {
             actions.onTeamLoad(values.currentTeam)
+        }
+
+        // Load AI events on mount (handles page load with sidebar already open)
+        if (!values.currentTeam?.onboarding_tasks?.[ActivationTask.IngestFirstLLMEvent]) {
+            actions.loadAIEventDefinitions()
         }
 
         // Auto-expand first available task with content
@@ -499,6 +540,10 @@ export enum ActivationTask {
     // Surveys
     LaunchSurvey = 'launch_survey',
     CollectSurveyResponses = 'collect_survey_responses',
+
+    // LLM Analytics
+    IngestFirstLLMEvent = 'ingest_first_llm_event',
+    ViewFirstTrace = 'view_first_trace',
 }
 
 export enum ActivationSection {
@@ -510,6 +555,7 @@ export enum ActivationSection {
     Experiments = 'experiments',
     DataWarehouse = 'data_warehouse',
     Surveys = 'surveys',
+    LlmAnalytics = 'llm_analytics',
 }
 
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
@@ -555,6 +601,10 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     [ActivationSection.Surveys]: {
         title: 'Surveys',
         icon: <IconMessage className="w-5 h-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
+    },
+    [ActivationSection.LlmAnalytics]: {
+        title: 'LLM analytics',
+        icon: <IconLlmAnalytics className="w-5 h-5" color={availableOnboardingProducts.llm_analytics.iconColor} />,
     },
 }
 
@@ -705,5 +755,28 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
             },
         ],
         buttonText: 'View responses',
+    },
+
+    // LLM Analytics
+    {
+        id: ActivationTask.IngestFirstLLMEvent,
+        title: 'Send your first LLM event',
+        canSkip: false,
+        section: ActivationSection.LlmAnalytics,
+        url: 'https://posthog.com/docs/llm-analytics/installation',
+        buttonText: 'Install SDK',
+    },
+    {
+        id: ActivationTask.ViewFirstTrace,
+        title: 'View your first trace',
+        canSkip: false,
+        section: ActivationSection.LlmAnalytics,
+        dependsOn: [
+            {
+                task: ActivationTask.IngestFirstLLMEvent,
+                reason: 'Send an LLM event first',
+            },
+        ],
+        buttonText: 'View traces',
     },
 ]

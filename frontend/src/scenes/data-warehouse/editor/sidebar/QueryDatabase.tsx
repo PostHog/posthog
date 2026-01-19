@@ -11,6 +11,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
+import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -45,10 +47,11 @@ export const QueryDatabase = (): JSX.Element => {
         openUnsavedQuery,
         deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
-    const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
-
     const { deleteDraft } = useActions(draftsLogic)
+    const { queryInput, selectedQueryTablesAndColumns } = useValues(multitabEditorLogic)
+    const { setQueryInput } = useActions(multitabEditorLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -84,7 +87,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
-                    void copyToClipboard(item.record.columnName, item.record.columnName)
+                    setQueryInput(buildQueryForColumnClick(queryInput, item.record.table, item.record.columnName))
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -95,11 +98,18 @@ export const QueryDatabase = (): JSX.Element => {
                 // Check if item has search matches for highlighting
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
+                const isSelected =
+                    item.record?.type === 'column' &&
+                    selectedQueryTablesAndColumns[item.record.table]?.[item.record.columnName]
 
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
+                            <SearchHighlightMultiple
+                                string={item.name}
+                                substring={searchTerm}
+                                className={cn('text-xs', isSelected && 'underline')}
+                            />
                         ) : (
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
@@ -111,9 +121,10 @@ export const QueryDatabase = (): JSX.Element => {
                                             'drafts',
                                             'unsaved-folder',
                                             'endpoints',
-                                        ].includes(item.record?.type) && 'font-bold',
+                                        ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
-                                        'truncate'
+                                        'truncate',
+                                        isSelected && 'underline'
                                     )}
                                 >
                                     {item.name}
@@ -241,6 +252,25 @@ export const QueryDatabase = (): JSX.Element => {
                                     >
                                         <ButtonPrimitive menuItem>Add join</ButtonPrimitive>
                                     </DropdownMenuItem>
+                                    {item.record?.view?.is_materialized && (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                runDataWarehouseSavedQuery(viewId)
+                                            }}
+                                        >
+                                            <ButtonPrimitive
+                                                menuItem
+                                                disabledReasons={{
+                                                    'Materialization is already running':
+                                                        item.record?.view?.status === 'Running',
+                                                }}
+                                            >
+                                                Sync now
+                                            </ButtonPrimitive>
+                                        </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
                                         asChild
@@ -378,7 +408,8 @@ export const QueryDatabase = (): JSX.Element => {
                                             undefined,
                                             undefined,
                                             undefined,
-                                            OutputTab.Endpoint
+                                            OutputTab.Endpoint,
+                                            item.record?.endpoint?.name
                                         )
                                     )
                                 }}
@@ -405,7 +436,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.dataWarehouseSourceNew())
+                                sceneLogic.actions.newTab(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >
@@ -432,6 +463,14 @@ export const QueryDatabase = (): JSX.Element => {
                         </ButtonPrimitive>
                     )
                 }
+            }}
+            renderItemTooltip={(item) => {
+                // Show tooltip with full name for items that could be truncated
+                const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
+                if (tooltipTypes.includes(item.record?.type)) {
+                    return item.name
+                }
+                return undefined
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {

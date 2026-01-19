@@ -116,6 +116,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
         toggleResultHidden: (dataset: IndexedTrendResult) => ({ dataset }),
         toggleAllResultsHidden: (datasets: IndexedTrendResult[], hidden: boolean) => ({ datasets, hidden }),
+        setHoveredDatasetIndex: (index: number | null) => ({ index }),
+        setIsShiftPressed: (isPressed: boolean) => ({ isPressed }),
     }),
 
     reducers({
@@ -123,6 +125,18 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             false,
             {
                 setBreakdownValuesLoading: (_, { loading }) => loading,
+            },
+        ],
+        hoveredDatasetIndex: [
+            null as number | null,
+            {
+                setHoveredDatasetIndex: (_, { index }) => index,
+            },
+        ],
+        isShiftPressed: [
+            false,
+            {
+                setIsShiftPressed: (_, { isPressed }) => isPressed,
             },
         ],
     }),

@@ -1,5 +1,7 @@
 import time
 import datetime
+from dataclasses import dataclass
+from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -8,15 +10,30 @@ from django.http import HttpRequest
 from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
+import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available
+from posthog.email import is_email_available, is_http_email_service_available
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+mfa_logger = structlog.get_logger("posthog.auth.mfa")
+
+
+def _obfuscate_token(token: str | None) -> str:
+    """Return first 5 and last 5 chars of token, with middle obfuscated."""
+    if not token:
+        return ""
+    if len(token) <= 10:
+        return "*" * len(token)
+    return f"{token[:5]}...{token[-5:]}"
+
 
 # Enforce Two-Factor Authentication only on sessions created after this date
 TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)
@@ -154,7 +171,11 @@ def is_domain_sso_enforced(request: HttpRequest):
 
 def is_sso_authentication_backend(request: HttpRequest):
     SSO_AUTHENTICATION_BACKENDS = []
-    NON_SSO_AUTHENTICATION_BACKENDS = ["axes.backends.AxesBackend", "django.contrib.auth.backends.ModelBackend"]
+    NON_SSO_AUTHENTICATION_BACKENDS = [
+        "axes.backends.AxesBackend",
+        "django.contrib.auth.backends.ModelBackend",
+        "posthog.auth.WebauthnBackend",
+    ]
 
     if not hasattr(request, "session"):
         return False
@@ -182,12 +203,23 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
     def check_token(self, user, token):
         """Override to use 10-minute timeout instead of PASSWORD_RESET_TIMEOUT (1 hour)."""
         if not (user and token):
+            mfa_logger.warning(
+                "Email MFA token check failed: missing user or token",
+                user_id=getattr(user, "pk", None),
+                has_token=bool(token),
+                token=_obfuscate_token(token),
+            )
             return False
 
         try:
             ts_b36, _ = token.split("-")
             ts = base36_to_int(ts_b36)
         except ValueError:
+            mfa_logger.warning(
+                "Email MFA token check failed: malformed token",
+                user_id=user.pk,
+                token=_obfuscate_token(token),
+            )
             return False
 
         # Validate token signature
@@ -195,10 +227,33 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
             if constant_time_compare(self._make_token_with_timestamp(user, ts, secret), token):
                 break
         else:
+            mfa_logger.warning(
+                "Email MFA token check failed: signature mismatch (token may have been invalidated by login, password change, email change, or account deactivation)",
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
+            )
             return False
 
         # Check 10-minute timeout (600 seconds)
-        return (self._num_seconds(self._now()) - ts) <= 600
+        token_age_seconds = self._num_seconds(self._now()) - ts
+        if token_age_seconds > 600:
+            mfa_logger.warning(
+                "Email MFA token check failed: token expired",
+                user_id=user.pk,
+                token_age_seconds=token_age_seconds,
+                max_age_seconds=600,
+                token=_obfuscate_token(token),
+            )
+            return False
+
+        mfa_logger.info(
+            "Email MFA token check successful",
+            user_id=user.pk,
+            token_age_seconds=token_age_seconds,
+            token=_obfuscate_token(token),
+        )
+        return True
 
     def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
         """Include last_login and is_active to invalidate tokens after use or deactivation."""
@@ -212,33 +267,92 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
 email_mfa_token_generator = EmailMFATokenGenerator()
 
 
+@dataclass
+class EmailMFACheckResult:
+    should_send: bool
+    suppression_bypassed: bool = False
+    suppression_reason: Optional[str] = None
+    suppression_cached: bool = False
+
+
 class EmailMFAVerifier:
-    def should_send_email_mfa_verification(self, user: User) -> bool:
+    def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="email_mfa_bypassed_due_to_suppression",
+                properties={
+                    "reason": reason,
+                    "cached": cached,
+                },
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture email MFA suppression bypass event",
+                user_id=user.pk,
+                error=str(e),
+            )
+
+    def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
         if is_dev_mode() and not settings.TEST:
-            return False
+            return EmailMFACheckResult(should_send=False)
 
         if not is_email_available(with_absolute_urls=True):
-            return False
+            return EmailMFACheckResult(should_send=False)
+
+        if not is_http_email_service_available():
+            mfa_logger.info(
+                "Email MFA bypassed - HTTP email service not configured",
+                user_id=user.pk,
+            )
+            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
+                suppression_cached=False,
+            )
 
         try:
-            import posthoganalytics
-
             organization = user.organization
             if not organization:
-                return False
+                return EmailMFACheckResult(should_send=False)
 
-            return posthoganalytics.feature_enabled(
+            feature_enabled = posthoganalytics.feature_enabled(
                 "email-mfa",
                 str(user.distinct_id),
                 groups={"organization": str(organization.id)},
             )
+            if not feature_enabled:
+                return EmailMFACheckResult(should_send=False)
+
         except Exception:
-            return False
+            return EmailMFACheckResult(should_send=False)
+
+        suppression_result = check_esp_suppression(user.email)
+        if suppression_result.is_suppressed:
+            reason = suppression_result.reason or ""
+            from_cache = suppression_result.from_cache
+            mfa_logger.info(
+                "Email MFA bypassed due to ESP suppression",
+                user_id=user.pk,
+                reason=reason,
+                cached=from_cache,
+            )
+            self._capture_suppression_bypass_event(user, reason, from_cache)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=reason,
+                suppression_cached=from_cache,
+            )
+
+        return EmailMFACheckResult(should_send=True)
 
     def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_email_mfa_verification(user):
+        if not self.should_send_email_mfa_verification(user).should_send:
             return False
 
         try:
@@ -246,8 +360,19 @@ class EmailMFAVerifier:
             email.send_email_mfa_link(user.pk, token)
             request.session["email_mfa_pending_user_id"] = user.pk
             request.session["email_mfa_token_created_at"] = int(time.time())
+            mfa_logger.info(
+                "Email MFA verification email sent",
+                user_id=user.pk,
+                user_last_login=str(user.last_login) if user.last_login else None,
+                token=_obfuscate_token(token),
+            )
             return True
         except Exception as e:
+            mfa_logger.exception(
+                "Email MFA verification email failed",
+                user_id=user.pk,
+                error=str(e),
+            )
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
 

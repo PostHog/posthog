@@ -1,11 +1,14 @@
 import datetime as dt
-import collections.abc
 from datetime import timedelta
 from math import ceil
 
 from django.db import models
 
-from posthog.clickhouse.client import sync_execute
+# This import prevents a circular import during Django app loading.
+# The import chain: apps.py -> tasks -> async_migrations/definition.py -> models.utils
+# triggers models/__init__.py which imports batch_exports.models. Without this import,
+# ModelActivityMixin is loaded before Django apps are ready, causing AppRegistryNotReady.
+from posthog.clickhouse.client import sync_execute  # noqa: F401
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
@@ -30,6 +33,8 @@ class BatchExportDestination(UUIDTModel):
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         DATABRICKS = "Databricks"
+        AZURE_BLOB = "AzureBlob"
+        WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -39,10 +44,11 @@ class BatchExportDestination(UUIDTModel):
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        # Databricks does not have any secret fields, as we use integrations to store credentials
-        "Databricks": set(),
+        "Databricks": set(),  # uses Integration model to store credentials
+        "AzureBlob": set(),  # uses Integration model to store credentials
         "HTTP": {"token"},
         "NoOp": set(),
+        "Workflows": set(),
     }
 
     type = models.CharField(
@@ -138,45 +144,6 @@ class BatchExportRun(UUIDTModel):
     def workflow_id(self) -> str:
         """Return the Workflow id that corresponds to this BatchExportRun model."""
         return f"{self.batch_export.id}-{self.data_interval_end:%Y-%m-%dT%H:%M:%S}Z"
-
-
-def fetch_batch_export_run_count(
-    *,
-    team_id: int,
-    data_interval_start: dt.datetime,
-    data_interval_end: dt.datetime,
-    exclude_events: collections.abc.Iterable[str] | None = None,
-    include_events: collections.abc.Iterable[str] | None = None,
-) -> int:
-    """Fetch a list of batch export log entries from ClickHouse."""
-    if exclude_events:
-        exclude_events_statement = f"AND event NOT IN ({','.join(exclude_events)})"
-    else:
-        exclude_events_statement = ""
-
-    if include_events:
-        include_events_statement = f"AND event IN ({','.join(include_events)})"
-    else:
-        include_events_statement = ""
-
-    data_interval_start_ch = data_interval_start.strftime("%Y-%m-%d %H:%M:%S")
-    data_interval_end_ch = data_interval_end.strftime("%Y-%m-%d %H:%M:%S")
-
-    clickhouse_query = f"""
-        SELECT count(*)
-        FROM events
-        WHERE
-            team_id = {team_id}
-            AND timestamp >= toDateTime64('{data_interval_start_ch}', 6, 'UTC')
-            AND timestamp < toDateTime64('{data_interval_end_ch}', 6, 'UTC')
-            {exclude_events_statement}
-            {include_events_statement}
-    """
-
-    try:
-        return sync_execute(clickhouse_query)[0][0]
-    except Exception:
-        return 0
 
 
 BATCH_EXPORT_INTERVALS = [

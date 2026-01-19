@@ -20,7 +20,6 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team
-from posthog.session_recordings.queries.session_replay_events import ttl_days
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -60,7 +59,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
             max(s.retention_period_days) as retention_period_days,
-            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, {ttl_days})) as expiry_time,
+            dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
             round((
@@ -201,7 +200,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
-                "ttl_days": ast.Constant(value=ttl_days(self._team)),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):

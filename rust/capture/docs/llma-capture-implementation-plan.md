@@ -11,14 +11,13 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 #### 0.1 Routing Configuration
 
 - [x] Create new `/i/v0/ai` endpoint in capture service
-- [ ] Set up routing for `/i/v0/ai` endpoint to capture service
+- [x] Set up routing for `/i/v0/ai` endpoint to capture service (Caddy routes in docker-compose, capture-ai service on port 3308)
 
 #### 0.2 End-to-End Integration Tests
 
 - [x] Implement Rust integration tests for multipart parsing and validation
 - [x] Create Python acceptance test scenarios with multipart requests and blob data
 - [x] Test Kafka message output and S3 storage integration
-- [ ] Set up automated test suite for continuous validation
 
 ### Phase 1: HTTP Endpoint
 
@@ -40,19 +39,19 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Validate required fields (event name, distinct_id, $ai_model)
 - [x] Implement size limits (32KB event, 960KB combined, 25MB total, 27.5MB request body)
 
-#### 1.3 Initial Deployment
+#### 1.3 Initial Deployment (Dev)
 
-- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
-- [ ] Test basic multipart parsing and Kafka output functionality
-- [ ] Verify endpoint responds correctly to AI events
+- [x] Deploy capture-ai service to dev with basic `/i/v0/ai` endpoint
+- [x] Test basic multipart parsing and Kafka output functionality
+- [x] Verify endpoint responds correctly to AI events
 
 ### Phase 2: Basic S3 Uploads
 
 #### 2.1 Simple S3 Upload (per blob)
 
-- [ ] Upload individual blobs to S3 as separate objects
-- [ ] Generate S3 URLs for blobs (including byte range parameters)
-- [ ] Store S3 blob metadata
+- [x] Upload individual blobs to S3 as separate objects (concatenated into single file per event)
+- [x] Generate S3 URLs for blobs (format: `s3://{bucket}/{prefix}{token}/{uuid}?range={start}-{end}`)
+- [x] Store S3 blob metadata (URLs stored in event properties)
 - [ ] Track S3 upload success/failure rates
 - [ ] Monitor blob size distributions
 
@@ -60,27 +59,30 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 3.1 S3 Bucket Configuration
 
-- [ ] Set up S3 buckets for dev and production environments
-- [ ] Set up bucket structure with `llma/` prefix
+- [x] Set up S3 buckets for local dev (MinIO: `ai-blobs` bucket via docker-compose)
+- [x] Set up bucket structure with `llma/` prefix
+- [ ] Set up S3 buckets for dev environment
 - [ ] Configure S3 lifecycle policies for retention (30d default)
 - [ ] Set up S3 access policies for capture service
 - [ ] Create service accounts with appropriate S3 permissions
 
-#### 3.2 Capture S3 Configuration
+#### 3.2 Capture S3 Configuration (Dev)
 
+- [x] Configure capture-ai service for local dev with S3 (bin/start-rust-service, mprocs.yaml)
+- [x] Test S3 connectivity and uploads (acceptance tests pass)
 - [ ] Deploy capture-ai service to dev environment with S3 configuration
-- [ ] Deploy capture-ai service to production environment with S3 configuration
 - [ ] Set up IAM roles and permissions for capture-ai service
 - [ ] Configure S3 read/write permissions
-- [ ] Test S3 connectivity and uploads
 
 ### Phase 4: Multipart File Processing
 
 #### 4.1 Multipart File Creation
 
-- [ ] Implement multipart/mixed format
-- [ ] Store metadata within multipart format
-- [ ] Generate S3 URLs for blobs (including byte range parameters)
+- [x] Implement multipart/mixed format for S3 storage
+- [x] Store headers (Content-Type, Content-Disposition, Content-Encoding) within multipart format
+- [x] Generate S3 URLs with byte range parameters (ranges exclude boundaries, include headers + body)
+- [x] Full document parseable as valid multipart/mixed
+- [x] Individual ranges parseable as MIME parts using standard parsers (httparse in Rust, email.parser in Python)
 
 ### Phase 5: Authorization
 
@@ -142,13 +144,40 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Implement total parts size limit (25MB default, configurable)
 - [x] Implement request body size limit (110% of total parts limit)
 - [x] Return 413 Payload Too Large for size violations
-- [ ] Add request rate limiting per team
+- [x] Add quota limiting per team (via `quota_limiter.check_and_filter()`, returns `BillingLimit` error when exceeded)
 - [ ] Implement per-team payload size limits
 
-### Phase 10: Data Deletion (Optional)
+### Phase 10: Production Deployment
 
-#### 10.1 Data Deletion (Choose One Approach)
+#### 10.1 Production S3 Infrastructure
+
+- [ ] Set up S3 buckets for production environment
+- [ ] Configure S3 lifecycle policies for production
+- [ ] Set up S3 access policies for production capture service
+- [ ] Create production service accounts with appropriate S3 permissions
+
+#### 10.2 Capture Service Production Deployment
+
+- [ ] Deploy capture-ai service to production with basic `/i/v0/ai` endpoint
+- [ ] Test basic multipart parsing and Kafka output functionality in production
+- [ ] Verify endpoint responds correctly to AI events in production
+- [ ] Deploy capture-ai service to production environment with S3 configuration
+- [ ] Set up production IAM roles and permissions for capture-ai service
+- [ ] Configure production S3 read/write permissions
+
+### Phase 11: Data Deletion (Optional)
+
+#### 11.1 Data Deletion (Choose One Approach)
 
 - [ ] Option A: S3 expiry (passive) - rely on lifecycle policies
 - [ ] Option B: S3 delete by prefix functionality
 - [ ] Option C: Per-team encryption keys
+
+### Phase 12: Automated Testing
+
+#### 12.1 Continuous Validation
+
+- [ ] Set up automated test suite for continuous validation
+- [ ] Configure CI/CD pipeline integration for capture-ai tests
+- [ ] Set up automated regression testing for `/i/v0/ai` endpoint
+- [ ] Implement automated S3 integration validation tests

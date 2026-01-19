@@ -14,9 +14,10 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
-import { getProductIcon } from 'scenes/products/Products'
+import { getProductIcon } from 'scenes/onboarding/productSelection/ProductSelection'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType } from '~/types'
 
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
@@ -79,6 +80,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const productDisplayNameOverrides: Record<string, string> = {
         realtime_destinations: 'Data pipelines',
+        workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
 
@@ -116,7 +118,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
-                            <div>{getProductIcon(displayProductName, product.icon_key, 'text-2xl shrink-0')}</div>
+                            <div>{getProductIcon(product.icon_key, { className: 'text-2xl shrink-0' })}</div>
                             <div>
                                 <h3 className="font-bold mb-0 flex items-center gap-x-2">
                                     {displayProductName}{' '}

@@ -2,10 +2,11 @@ import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,7 +17,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { isValidBreakdown } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
@@ -88,8 +89,10 @@ export function InsightsTable({
         insightData,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
-    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
-    const { setDetailedResultsAggregationType } = useActions(insightsTableDataLogic(insightProps))
+    const { aggregation, allowAggregation, pinnedColumns, isColumnPinned } = useValues(
+        insightsTableDataLogic(insightProps)
+    )
+    const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -172,9 +175,21 @@ export function InsightsTable({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdownFilter={breakdownFilter} />,
+            title: (
+                <BreakdownColumnTitle
+                    breakdownFilter={breakdownFilter}
+                    isPinned={isColumnPinned('breakdown')}
+                    onTogglePin={() => toggleColumnPin('breakdown')}
+                />
+            ),
             render: (_, item) => {
-                return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                return (
+                    <BreakdownColumnItem
+                        item={item}
+                        formatItemBreakdownLabel={formatItemBreakdownLabel}
+                        breakdownFilter={breakdownFilter}
+                    />
+                )
             },
             key: 'breakdown',
             sorter: (a, b) => {
@@ -210,16 +225,26 @@ export function InsightsTable({
                     index
                 )
 
+            const columnKey = `breakdown-${breakdown.property?.toString() || index}`
             columns.push({
                 title: (
-                    <MultipleBreakdownColumnTitle>
+                    <MultipleBreakdownColumnTitle
+                        isPinned={isColumnPinned(columnKey)}
+                        onTogglePin={() => toggleColumnPin(columnKey)}
+                    >
                         {extractExpressionComment(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
                 render: (_, item) => {
-                    return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
+                    return (
+                        <BreakdownColumnItem
+                            item={item}
+                            formatItemBreakdownLabel={formatItemBreakdownLabel}
+                            breakdownFilter={breakdownFilter}
+                        />
+                    )
                 },
-                key: `breakdown-${breakdown.property?.toString() || index}`,
+                key: columnKey,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
                     const rightValue = Array.isArray(b.breakdown_value) ? b.breakdown_value[index] : b.breakdown_value
@@ -273,6 +298,11 @@ export function InsightsTable({
         })
     }
 
+    const renderCount = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
+        [trendsFilter]
+    )
+
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
         if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
@@ -312,13 +342,21 @@ export function InsightsTable({
                 />
             ),
             render: (_, item: IndexedTrendResult) => {
-                return <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+                return (
+                    <ValueColumnItem
+                        index={index}
+                        item={item}
+                        isStickiness={isStickiness}
+                        renderCount={renderCount}
+                        formatPropertyValueForDisplay={formatPropertyValueForDisplay}
+                    />
+                )
             },
             key: `data-${index}`,
             sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => dataSorter(a, b, index),
             align: 'right',
         }))
-    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [indexedResults, renderCount, formatPropertyValueForDisplay, isStickiness, compareFilter?.compare, interval]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     columns.push(...valueColumns)
 
@@ -351,6 +389,7 @@ export function InsightsTable({
                     : undefined
             }
             firstColumnSticky
+            pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
         />
     )

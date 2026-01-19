@@ -1,26 +1,55 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
+import { IconExternal, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Conversation, ConversationStatus, ConversationType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { maxLogic } from './maxLogic'
-import { formatConversationDate } from './utils'
+import { formatConversationDate, getSlackThreadUrl } from './utils'
 
 export interface ConversationHistoryProps {
     sidePanel?: boolean
+    compact?: boolean
 }
 
-export function ConversationHistory({ sidePanel = false }: ConversationHistoryProps): JSX.Element {
-    const { conversationHistory, conversationHistoryLoading } = useValues(maxLogic)
+export function ConversationHistory({ sidePanel = false, compact = false }: ConversationHistoryProps): JSX.Element {
+    const { conversationHistory, conversationHistoryLoading, conversationId } = useValues(maxLogic)
     const { toggleConversationHistory, openConversation } = useActions(maxLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+
+    if (compact) {
+        return (
+            <div className="flex flex-col gap-1 w-full pb-10">
+                {conversationHistory.length > 0 ? (
+                    conversationHistory.map((conversation) => (
+                        <CompactConversationCard
+                            key={conversation.id}
+                            conversation={conversation}
+                            openConversation={openConversation}
+                            isActive={conversation.id === conversationId}
+                        />
+                    ))
+                ) : conversationHistoryLoading ? (
+                    <div className="flex flex-col gap-1">
+                        <LemonSkeleton className="h-8" />
+                        <LemonSkeleton className="h-8 opacity-60" />
+                        <LemonSkeleton className="h-8 opacity-30" />
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
+                        <p className="text-sm mb-0">No chats yet</p>
+                    </div>
+                )}
+            </div>
+        )
+    }
 
     return (
         <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
@@ -51,7 +80,7 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                         productKey={ProductKey.MAX}
                         thingName="chat"
                         titleOverride="Start getting things done with PostHog AI"
-                        description="PostHog AI is an agent that answers data questions, gets things done in UI, and provides insights from PostHog’s documentation."
+                        description="PostHog AI is an agent that answers data questions, gets things done in UI, and provides insights from PostHog's documentation."
                         docsURL="https://posthog.com/docs/data/max-ai"
                         actionElementOverride={
                             <LemonButton
@@ -82,7 +111,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
-            to={combineUrl(urls.max(conversation.id), { from: 'history' }).url}
+            to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
                     e.preventDefault()
@@ -92,13 +121,59 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
         >
             <div className="flex items-center gap-2">
                 <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
                 {conversation.type === ConversationType.DeepResearch && <LemonTag>Deep research</LemonTag>}
+                {conversation.slack_thread_key && (
+                    <LemonTag>
+                        <Link
+                            to={getSlackThreadUrl(conversation.slack_thread_key, conversation.slack_workspace_domain)}
+                            target="_blank"
+                            className="flex items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}
+                            tooltip="This chat was started in Slack"
+                        >
+                            Slack thread <IconExternal />
+                        </Link>
+                    </LemonTag>
+                )}
             </div>
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />
             ) : (
                 <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
             )}
+        </Link>
+    )
+}
+
+interface CompactConversationCardProps {
+    conversation: Conversation
+    openConversation: (conversationId: string) => void
+    isActive?: boolean
+}
+
+function CompactConversationCard({
+    conversation,
+    openConversation,
+    isActive,
+}: CompactConversationCardProps): JSX.Element {
+    return (
+        <Link
+            to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
+            onClick={(e) => {
+                e.preventDefault()
+                openConversation(conversation.id)
+            }}
+            buttonProps={{
+                active: isActive,
+                fullWidth: true,
+            }}
+            tooltip={conversation.title || 'view conversation'}
+            tooltipPlacement="right"
+        >
+            <span className="flex-1 line-clamp-1 text-primary">{conversation.title}</span>
+            {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
+            <span className="opacity-30 text-xs">{formatConversationDate(conversation.updated_at)}</span>
         </Link>
     )
 }

@@ -18,9 +18,9 @@ def create_mock_operation(op_class, **kwargs):
 class TestRiskLevelScoring:
     def test_safe_scores(self):
         assert RiskLevel.from_score(0) == RiskLevel.SAFE
+        assert RiskLevel.from_score(1) == RiskLevel.SAFE
 
     def test_needs_review_scores(self):
-        assert RiskLevel.from_score(1) == RiskLevel.NEEDS_REVIEW
         assert RiskLevel.from_score(2) == RiskLevel.NEEDS_REVIEW
         assert RiskLevel.from_score(3) == RiskLevel.NEEDS_REVIEW
 
@@ -50,7 +50,7 @@ class TestAddFieldOperations:
 
         assert risk.score == 1
         assert "nullable" in risk.reason.lower()
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
 
     def test_add_blank_field_without_null(self):
         """blank=True doesn't make database safe - only null=True does."""
@@ -66,7 +66,7 @@ class TestAddFieldOperations:
 
         # blank=True is just form validation, so this needs a default to be safe
         assert risk.score == 1
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
 
     def test_add_not_null_with_default(self):
         field: models.Field = models.CharField(max_length=100, default="test", null=False, blank=False)
@@ -81,7 +81,7 @@ class TestAddFieldOperations:
 
         assert risk.score == 1
         assert "constant" in risk.reason.lower()
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
 
     def test_add_not_null_without_default(self):
         """Test NOT NULL field without default - Django doesn't set default, it's NOT_PROVIDED by default."""
@@ -102,6 +102,23 @@ class TestAddFieldOperations:
         assert risk.score == 5
         assert "locks table" in risk.reason.lower()
         assert risk.level == RiskLevel.BLOCKED
+
+    def test_add_many_to_many_field(self):
+        """ManyToMany fields create junction tables, not columns - always safe."""
+        field: models.Field = models.ManyToManyField("posthog.Survey", blank=True)
+
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="testmodel",
+            name="linked_surveys",
+            field=field,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert "junction table" in risk.reason.lower()
+        assert risk.level == RiskLevel.SAFE
 
 
 class TestRemoveOperations:
@@ -374,7 +391,7 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
     def test_run_sql_with_concurrent_index_with_if_not_exists(self):
-        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (NEEDS_REVIEW)."""
+        """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (SAFE)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_foo ON users(foo);",
@@ -383,7 +400,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_with_concurrent_index_without_if_not_exists(self):
@@ -400,7 +417,7 @@ class TestRunSQLOperations:
         assert risk.guidance and "if not exists" in risk.guidance.lower()
 
     def test_run_sql_with_drop_index_concurrent_with_if_exists(self):
-        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (NEEDS_REVIEW)."""
+        """Test DROP INDEX CONCURRENTLY with IF EXISTS - score 1 (SAFE)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="DROP INDEX CONCURRENTLY IF EXISTS idx_foo;",
@@ -409,7 +426,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_with_drop_index_concurrent_without_if_exists(self):
@@ -426,7 +443,7 @@ class TestRunSQLOperations:
         assert risk.guidance and "if exists" in risk.guidance.lower()
 
     def test_run_sql_with_reindex_concurrent(self):
-        """Test REINDEX CONCURRENTLY - should be needs review (score 1)."""
+        """Test REINDEX CONCURRENTLY - should be safe (score 1)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="REINDEX INDEX CONCURRENTLY idx_foo;",
@@ -435,11 +452,11 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
         assert "safe" in risk.reason.lower() or "non-blocking" in risk.reason.lower()
 
     def test_run_sql_add_constraint_not_valid(self):
-        """Test ADD CONSTRAINT ... NOT VALID - needs review (score 1)."""
+        """Test ADD CONSTRAINT ... NOT VALID - safe (score 1)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0) NOT VALID;",
@@ -448,7 +465,7 @@ class TestRunSQLOperations:
         risk = self.analyzer.analyze_operation(op)
 
         assert risk.score == 1
-        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert risk.level == RiskLevel.SAFE
         assert "not valid" in risk.reason.lower() or "validates new rows" in risk.reason.lower()
 
     def test_run_sql_validate_constraint(self):
@@ -504,6 +521,33 @@ class TestRunSQLOperations:
         assert risk.level == RiskLevel.SAFE
         assert "instant" in risk.reason.lower() or "metadata" in risk.reason.lower()
         assert "using index" in risk.reason.lower()
+
+    def test_run_sql_add_constraint_without_not_valid(self):
+        """Test bare ADD CONSTRAINT without NOT VALID - should warn to use NOT VALID pattern."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE users ADD CONSTRAINT check_age CHECK (age >= 0);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 4
+        assert risk.level == RiskLevel.BLOCKED
+        assert "not valid" in risk.reason.lower()
+        assert risk.guidance and "not valid" in risk.guidance.lower()
+
+    def test_run_sql_temp_table_on_commit_drop_not_flagged(self):
+        """Test CREATE TEMP TABLE ... ON COMMIT DROP - should NOT be flagged as dangerous DROP."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE TEMP TABLE tmp_batch (id uuid) ON COMMIT DROP;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should NOT be blocked - ON COMMIT DROP is temp table cleanup, not dangerous
+        assert risk.level != RiskLevel.BLOCKED
+        assert "drop" not in risk.reason.lower() or "dangerous" not in risk.reason.lower()
 
     def test_run_sql_alter_table_drop_column_if_exists(self):
         """Test ALTER TABLE DROP COLUMN IF EXISTS - should be dangerous (score 5), not confused with DROP TABLE."""
@@ -617,11 +661,10 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        # DROP INDEX without CONCURRENTLY is dangerous (score 5)
-        # Note: This is NOT a table drop, so it stays at score 5
-        assert risk.score == 5
-        assert risk.level == RiskLevel.BLOCKED
-        assert "dangerous" in risk.reason.lower()
+        # DROP INDEX is not as dangerous as DROP TABLE/COLUMN - falls through to generic review
+        # It's reversible (can recreate index) and doesn't cause data loss
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
 
 class TestDropTableValidation:
@@ -1068,8 +1111,8 @@ class TestCombinationRisks:
         assert any("CRITICAL" in warning for warning in combination_risks)
         assert any("DML" in warning for warning in combination_risks)
 
-    def test_runsql_with_ddl_and_other_operations(self):
-        """Warning: RunSQL with DDL (non-concurrent) mixed with other operations"""
+    def test_runsql_with_ddl_and_schema_operations(self):
+        """DDL + schema ops should give specific message about splitting"""
         mock_migration = MagicMock()
         mock_migration.atomic = True
         mock_migration.operations = [
@@ -1083,7 +1126,28 @@ class TestCombinationRisks:
         combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
 
         assert len(combination_risks) > 0
-        assert any("BLOCKED" in warning or "DDL" in warning for warning in combination_risks)
+        # Should give specific message about DDL + schema ops
+        assert any("RunSQL DDL and Django schema operations" in warning for warning in combination_risks)
+        assert any("atomic=True" in warning for warning in combination_risks)
+
+    def test_runsql_ddl_with_dml_specific_message(self):
+        """DDL + DML should give specific message about schema vs data changes"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="ALTER TABLE test_table ADD COLUMN foo text;"),
+            create_mock_operation(migrations.RunSQL, sql="UPDATE test_table SET foo = 'bar';"),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert len(combination_risks) > 0
+        # Should give specific message about DDL + DML
+        assert any(
+            "Schema changes (ALTER TABLE) and data changes (UPDATE/DELETE)" in warning for warning in combination_risks
+        )
+        assert any("atomic=True" in warning for warning in combination_risks)
 
     def test_runsql_concurrent_index_no_ddl_warning(self):
         """CREATE INDEX CONCURRENTLY should NOT trigger DDL isolation warning"""
@@ -1270,6 +1334,105 @@ class TestCombinationRisks:
         ddl_warnings = [r for r in migration_risk.combination_risks if "DDL" in r and "isolation" in r]
         assert len(ddl_warnings) == 0, f"Should not warn about DDL isolation for CONCURRENTLY: {ddl_warnings}"
 
+    def test_separate_database_and_state_with_alter_table_no_false_positive(self):
+        """
+        Test that SeparateDatabaseAndState with a single DDL RunSQL does NOT trigger
+        the "DDL mixed with other operations" warning.
+
+        This was a false positive: the nested RunSQL inside SeparateDatabaseAndState
+        was counted as a separate operation, triggering the warning even though
+        there's only one top-level operation.
+
+        Pattern from 0948_hogfunction_batch_export migration:
+        - SeparateDatabaseAndState with state_operations (AddField, AlterField)
+        - database_operations containing RunSQL with ALTER TABLE
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0948_hogfunction_batch_export"
+        mock_migration.atomic = True
+
+        # Create the SeparateDatabaseAndState operation like 0948
+        state_op1 = create_mock_operation(
+            migrations.AddField,
+            model_name="hogfunction",
+            name="batch_export",
+            field=models.ForeignKey("batchexport", null=True, blank=True, on_delete=models.SET_NULL),
+        )
+        state_op2 = create_mock_operation(
+            migrations.AlterField,
+            model_name="batchexportdestination",
+            name="type",
+            field=models.CharField(max_length=64),
+        )
+
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "posthog_hogfunction" ADD COLUMN "batch_export_id" uuid NULL;',
+        )
+
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[state_op1, state_op2],
+            database_operations=[db_op],
+        )
+
+        mock_migration.operations = [separate_op]
+
+        migration_risk = self.analyzer.analyze_migration(
+            mock_migration, "posthog/migrations/0948_hogfunction_batch_export.py"
+        )
+
+        # Should NOT have DDL isolation warning - there's only one top-level operation
+        ddl_warnings = [r for r in migration_risk.combination_risks if "mixed with other operations" in r]
+        assert len(ddl_warnings) == 0, (
+            f"SeparateDatabaseAndState with single DDL should not trigger DDL isolation warning. "
+            f"Got warnings: {ddl_warnings}"
+        )
+
+    def test_separate_database_and_state_plus_other_op_triggers_ddl_warning(self):
+        """
+        Test that SeparateDatabaseAndState with DDL PLUS another top-level operation
+        DOES correctly trigger the "DDL mixed with other operations" warning.
+
+        This is the correct behavior - if there are truly multiple top-level operations
+        and one contains DDL, we should warn.
+        """
+        mock_migration = MagicMock()
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_mixed_ops"
+        mock_migration.atomic = True
+
+        # SeparateDatabaseAndState with DDL
+        db_op = create_mock_operation(
+            migrations.RunSQL,
+            sql='ALTER TABLE "test" ADD COLUMN "foo" integer;',
+        )
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[],
+            database_operations=[db_op],
+        )
+
+        # Another top-level operation (not inside SeparateDatabaseAndState)
+        add_field_op = create_mock_operation(
+            migrations.AddField,
+            model_name="othermodel",
+            name="bar",
+            field=models.CharField(max_length=100, null=True),
+        )
+
+        mock_migration.operations = [separate_op, add_field_op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_mixed_ops.py")
+
+        # SHOULD have DDL isolation warning - there are two top-level operations
+        # Message should be specific about DDL + schema operations
+        ddl_warnings = [r for r in migration_risk.combination_risks if "RunSQL DDL and Django schema operations" in r]
+        assert len(ddl_warnings) == 1, (
+            f"Should warn about DDL mixed with schema operations. Got warnings: {migration_risk.combination_risks}"
+        )
+
     def test_create_model_with_add_index_safe(self):
         """AddIndex on newly created table should be filtered out (case-insensitive matching like Django)"""
         mock_migration = MagicMock()
@@ -1365,3 +1528,200 @@ class TestCombinationRisks:
         # Index on existing table should still be score 4
         assert migration_risk.operations[0].score == 4
         assert migration_risk.level == RiskLevel.BLOCKED
+
+
+class TestUnmanagedModels:
+    def test_is_unmanaged_model_with_managed_false_option(self):
+        """is_unmanaged_model should detect managed=False in CreateModel options"""
+        from posthog.management.migration_analysis.operations import is_unmanaged_model
+
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test_app"
+
+        # CreateModel with managed=False
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            options={"managed": False},
+        )
+
+        assert is_unmanaged_model(op, mock_migration) is True
+
+    def test_is_unmanaged_model_with_managed_true(self):
+        """is_unmanaged_model should return False for managed=True"""
+        from posthog.management.migration_analysis.operations import is_unmanaged_model
+
+        mock_migration = MagicMock()
+        mock_migration.app_label = "test_app"
+
+        # CreateModel with managed=True
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="TestModel",
+            options={"managed": True},
+        )
+
+        assert is_unmanaged_model(op, mock_migration) is False
+
+
+class TestAtomicFalsePolicy:
+    """Tests for AtomicFalsePolicy - validates atomic=False usage in migrations."""
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_atomic_false_with_addfield_warns(self):
+        """atomic=False with regular AddField should warn (not block)"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("WARNING" in v for v in migration_risk.policy_violations)
+        assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_with_add_index_concurrently_ok(self):
+        """atomic=False with AddIndexConcurrently is correct - no warning"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Create AddIndexConcurrently operation
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_true_with_concurrent_blocked(self):
+        """CONCURRENTLY without atomic=False should be BLOCKED (will fail at runtime)"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Create AddIndexConcurrently operation
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_with_runsql_concurrently_ok(self):
+        """atomic=False with RunSQL CONCURRENTLY is correct - no warning"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_test ON test_table (col);")
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_true_with_runsql_concurrently_blocked(self):
+        """RunSQL with CONCURRENTLY without atomic=False should be BLOCKED"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_test ON test_table (col);")
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_mixed_ops_recommends_split(self):
+        """atomic=False with AddField + CONCURRENTLY should recommend splitting"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        add_index_op = MagicMock()
+        add_index_op.__class__.__name__ = "AddIndexConcurrently"
+
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            ),
+            add_index_op,
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have "atomic=False without CONCURRENTLY" warning (CONCURRENTLY is present)
+        assert not any("atomic=False without CONCURRENTLY" in v for v in migration_risk.policy_violations)
+        # Should recommend splitting
+        assert any("RECOMMEND SPLIT" in v for v in migration_risk.policy_violations)
+
+    def test_third_party_app_not_checked(self):
+        """Third-party app migrations should not be checked for atomic policy"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "some_third_party_app"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "some_third_party_app/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings (not a PostHog app)
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_default_true_no_warning(self):
+        """Migration without explicit atomic (defaults to True) with regular ops should have no atomic warning"""
+        mock_migration = MagicMock()
+        # No atomic attribute set - defaults to True
+        del mock_migration.atomic
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_remove_index_concurrently_requires_atomic_false(self):
+        """RemoveIndexConcurrently without atomic=False should be blocked"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        op = MagicMock()
+        op.__class__.__name__ = "RemoveIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)

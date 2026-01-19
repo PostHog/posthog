@@ -41,6 +41,11 @@ describe('dateFilterLogic', () => {
             isVisible: true,
             view: DateFilterView.FixedRange,
         })
+        logic.actions.openFixedRangeWithTime()
+        await expectLogic(logic).toMatchValues({
+            isVisible: true,
+            view: DateFilterView.FixedRangeWithTime,
+        })
         logic.actions.openDateToNow()
         await expectLogic(logic).toMatchValues({
             isVisible: true,
@@ -50,6 +55,86 @@ describe('dateFilterLogic', () => {
         await expectLogic(logic).toMatchValues({
             isVisible: false,
             view: DateFilterView.DateToNow,
+        })
+    })
+
+    it('isFixedRangeWithTime is true when both dates have time precision', async () => {
+        props = {
+            key: 'test-time-precision',
+            onChange,
+            dateFrom: '2024-01-15T10:30:00',
+            dateTo: '2024-01-16T14:45:00',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const withTimePrecision = dateFilterLogic(props)
+        withTimePrecision.mount()
+
+        await expectLogic(withTimePrecision).toMatchValues({
+            isFixedRange: true,
+            isFixedRangeWithTime: true,
+            dateFromHasTimePrecision: true,
+            dateToHasTimePrecision: true,
+        })
+    })
+
+    it('isFixedRangeWithTime is false when dates have no time precision', async () => {
+        props = {
+            key: 'test-no-time-precision',
+            onChange,
+            dateFrom: '2024-01-15',
+            dateTo: '2024-01-16',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const withoutTimePrecision = dateFilterLogic(props)
+        withoutTimePrecision.mount()
+
+        await expectLogic(withoutTimePrecision).toMatchValues({
+            isFixedRange: true,
+            isFixedRangeWithTime: false,
+            dateFromHasTimePrecision: false,
+            dateToHasTimePrecision: false,
+        })
+    })
+
+    it('isFixedRangeWithTime is true when only dateFrom has time precision', async () => {
+        props = {
+            key: 'test-from-time-precision',
+            onChange,
+            dateFrom: '2024-01-15T10:30:00',
+            dateTo: '2024-01-16',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const withFromTimePrecision = dateFilterLogic(props)
+        withFromTimePrecision.mount()
+
+        await expectLogic(withFromTimePrecision).toMatchValues({
+            isFixedRange: true,
+            isFixedRangeWithTime: true,
+            dateFromHasTimePrecision: true,
+            dateToHasTimePrecision: false,
+        })
+    })
+
+    it('isFixedRangeWithTime is true when only dateTo has time precision', async () => {
+        props = {
+            key: 'test-to-time-precision',
+            onChange,
+            dateFrom: '2024-01-15',
+            dateTo: '2024-01-16T14:45:00',
+            dateOptions: dateMapping,
+            isDateFormatted: false,
+        }
+        const withToTimePrecision = dateFilterLogic(props)
+        withToTimePrecision.mount()
+
+        await expectLogic(withToTimePrecision).toMatchValues({
+            isFixedRange: true,
+            isFixedRangeWithTime: true,
+            dateFromHasTimePrecision: false,
+            dateToHasTimePrecision: true,
         })
     })
 

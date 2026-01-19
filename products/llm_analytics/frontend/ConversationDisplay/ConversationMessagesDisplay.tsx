@@ -15,10 +15,22 @@ import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
-import { CompatMessage, VercelSDKImageMessage } from '../types'
-import { looksLikeXml } from '../utils'
+import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
+import {
+    getGeminiInlineData,
+    isAnthropicDocumentMessage,
+    isAnthropicImageMessage,
+    isGeminiAudioMessage,
+    isGeminiDocumentMessage,
+    isGeminiImageMessage,
+    isOpenAIAudioMessage,
+    isOpenAIFileMessage,
+    isOpenAIImageURLMessage,
+    looksLikeXml,
+} from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
+import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
 export function ConversationMessagesDisplay({
@@ -231,6 +243,127 @@ export const ImageMessageDisplay = ({
     return <span>{content}</span>
 }
 
+function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {
+    if (typeof item === 'string') {
+        return searchQuery?.trim() ? (
+            <SearchHighlight string={item} substring={searchQuery} className="whitespace-pre-wrap" />
+        ) : (
+            <span className="whitespace-pre-wrap">{item}</span>
+        )
+    }
+
+    if (!item || typeof item !== 'object' || !('type' in item)) {
+        return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+    }
+
+    if (item.type === 'text' && 'text' in item && typeof item.text === 'string') {
+        return searchQuery?.trim() ? (
+            <SearchHighlight string={item.text} substring={searchQuery} className="whitespace-pre-wrap" />
+        ) : (
+            <span className="whitespace-pre-wrap">{item.text}</span>
+        )
+    }
+
+    if (item.type === 'image' && 'image' in item && typeof item.image === 'string') {
+        return <ImageMessageDisplay message={{ content: { type: 'image', image: item.image } }} />
+    }
+
+    if (isOpenAIImageURLMessage(item)) {
+        return <img src={item.image_url.url} alt="Message content" className="max-w-full max-h-[400px] rounded" />
+    }
+
+    if (isAnthropicImageMessage(item)) {
+        return (
+            <img
+                src={`data:${item.source.media_type};base64,${item.source.data}`}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+            />
+        )
+    }
+
+    if (isGeminiImageMessage(item)) {
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
+        return (
+            <img
+                src={`data:${inlineData.mime_type};base64,${inlineData.data}`}
+                alt="Message content"
+                className="max-w-full max-h-[400px] rounded"
+            />
+        )
+    }
+
+    if (isOpenAIFileMessage(item)) {
+        if (!item.file.file_data.startsWith('data:')) {
+            return <span className="text-muted">{item.file.filename}</span>
+        }
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a href={item.file.file_data} download={item.file.filename} className="text-link hover:underline">
+                {item.file.filename}
+            </a>
+        )
+    }
+
+    if (isAnthropicDocumentMessage(item)) {
+        const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${item.source.media_type};base64,${item.source.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
+            </a>
+        )
+    }
+
+    if (isGeminiDocumentMessage(item)) {
+        const inlineData = getGeminiInlineData(item)
+        if (!inlineData) {
+            return null
+        }
+        const fileName = `document.${inlineData.mime_type.split('/')[1] || 'bin'}`
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                href={`data:${inlineData.mime_type};base64,${inlineData.data}`}
+                download={fileName}
+                className="text-link hover:underline"
+            >
+                {fileName}
+            </a>
+        )
+    }
+
+    if (isOpenAIAudioMessage(item) || isGeminiAudioMessage(item)) {
+        const mimeType = 'mime_type' in item ? item.mime_type : undefined
+        const transcript = 'transcript' in item ? item.transcript : undefined
+
+        return (
+            <div className="space-y-2">
+                <audio
+                    controls
+                    className="w-[500px]"
+                    src={mimeType ? `data:${mimeType};base64,${item.data}` : `data:audio/wav;base64,${item.data}`}
+                />
+                {transcript && typeof transcript === 'string' && (
+                    <div className="text-xs text-muted p-2 bg-bg-light rounded border">
+                        <div className="font-semibold mb-1">Transcript:</div>
+                        <div className="whitespace-pre-wrap">{transcript}</div>
+                    </div>
+                )}
+            </div>
+        )
+    }
+
+    return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+}
+
 export const LLMMessageDisplay = React.memo(
     ({
         message,
@@ -283,7 +416,7 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage | object[],
+            content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[],
             searchQuery?: string
         ): JSX.Element | null => {
             if (!content) {
@@ -296,52 +429,7 @@ export const LLMMessageDisplay = React.memo(
                     <>
                         {content.map((item, index) => (
                             <React.Fragment key={index}>
-                                {typeof item === 'string' ? (
-                                    searchQuery?.trim() ? (
-                                        <SearchHighlight
-                                            string={item}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item}</span>
-                                    )
-                                ) : item &&
-                                  typeof item === 'object' &&
-                                  'type' in item &&
-                                  item.type === 'text' &&
-                                  'text' in item ? (
-                                    searchQuery?.trim() && typeof item.text === 'string' ? (
-                                        <SearchHighlight
-                                            string={item.text}
-                                            substring={searchQuery}
-                                            className="whitespace-pre-wrap"
-                                        />
-                                    ) : (
-                                        <span className="whitespace-pre-wrap">{item.text}</span>
-                                    )
-                                ) : item &&
-                                  typeof item === 'object' &&
-                                  'type' in item &&
-                                  item.type === 'image' &&
-                                  'image' in item &&
-                                  typeof item.image === 'string' ? (
-                                    <ImageMessageDisplay
-                                        message={{
-                                            content: {
-                                                type: 'image',
-                                                image: item.image,
-                                            },
-                                        }}
-                                    />
-                                ) : (
-                                    <HighlightedJSONViewer
-                                        src={item}
-                                        name={null}
-                                        collapsed={5}
-                                        searchQuery={searchQuery}
-                                    />
-                                )}
+                                {renderContentItem(item, searchQuery)}
                                 {index < content.length - 1 && <div className="border-t my-2" />}
                             </React.Fragment>
                         ))}
@@ -528,6 +616,9 @@ export const LLMMessageDisplay = React.memo(
                                     iconSize="small"
                                     description="message content"
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
+                                />
+                                <MessageActionsMenu
+                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
                                 />
                             </>
                         )}

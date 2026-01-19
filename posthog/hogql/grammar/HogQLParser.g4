@@ -51,7 +51,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
-select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
+select: (selectSetStmt | selectStmt | hogqlxTagElement) SEMICOLON? EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 

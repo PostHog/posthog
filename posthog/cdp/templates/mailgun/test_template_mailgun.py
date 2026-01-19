@@ -1,7 +1,5 @@
 from typing import Optional
 
-from inline_snapshot import snapshot
-
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.mailgun.template_mailgun import template_mailgun_send_email
 
@@ -32,16 +30,15 @@ class TestTemplateMailgunSendEmail(BaseHogFunctionTemplateTest):
             inputs=create_inputs(), functions={"generateUUIDv4": lambda: "bcf493bf-5640-4519-817e-610dc1ba48bd"}
         )
 
-        assert self.get_mock_fetch_calls()[0] == snapshot(
-            (
-                "https://api.mailgun.net/v3/DOMAIN_NAME/messages",
-                {
-                    "method": "POST",
-                    "headers": {
-                        "Authorization": "Basic YXBpOkFQSV9LRVk=",
-                        "Content-Type": "multipart/form-data; boundary=---011000010111000001101001",
-                    },
-                    "body": """\
+        assert self.get_mock_fetch_calls()[0] == (
+            "https://api.mailgun.net/v3/DOMAIN_NAME/messages",
+            {
+                "method": "POST",
+                "headers": {
+                    "Authorization": "Basic YXBpOkFQSV9LRVk=",
+                    "Content-Type": "multipart/form-data; boundary=---011000010111000001101001",
+                },
+                "body": """\
 -----011000010111000001101001\r
 Content-Disposition: form-data; name="from"\r
 \r
@@ -64,8 +61,7 @@ Content-Disposition: form-data; name="html"\r
 <h1>Test</h1>\r
 -----011000010111000001101001\r
 """,
-                },
-            )
+            },
         )
 
         assert self.get_mock_print_calls() == []

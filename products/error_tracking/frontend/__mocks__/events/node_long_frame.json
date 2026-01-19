@@ -1,0 +1,242 @@
+{
+    "uuid": "0195ec43-11be-736d-8e5f-dd8980808099",
+    "event": "$exception",
+    "properties": {
+        "$exception_list": [
+            {
+                "id": "019b0d6a-3c01-7471-ac2f-5d20ce3b2bb8",
+                "type": "Error",
+                "value": "Failed to fetch logo: Forbidden",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic",
+                    "synthetic": false
+                },
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "e2a1bf681562897a121192d792d4e334cf8ac3f9597bbfad922edb61640482ae8eb9ed0efdea791ac344cb9cfb615e7d7095ee823ddd795d0e2b93dba94e5784/0",
+                            "mangled_name": "v",
+                            "line": 714,
+                            "column": 31,
+                            "source": "../../../../node_modules/.pnpm/next%4016.0.7_%40babel%2Bcore%407.28.5_%40opentelemetry%2Bapi%401.9.0_react-dom%4019.2.1_react%4019.2.1__react%4019.2.1/node_modules/next/dist/esm/build/templates/app-page.js%3Fpage%3D/page",
+                            "module": "_8752b2ea._",
+                            "in_app": false,
+                            "resolved_name": "v",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "chunk_id": "019b0b8f-b8f4-7db3-87b1-a1ff282cf2ba",
+                                    "colno": 2713,
+                                    "context_line": null,
+                                    "filename": "/var/task/.next/server/chunks/ssr/_8752b2ea._.js",
+                                    "function": "v",
+                                    "in_app": true,
+                                    "lineno": 2,
+                                    "module": "_8752b2ea._",
+                                    "post_context": [],
+                                    "pre_context": [],
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "72c1ba4277c159870385bd17736457a9bdbc919d1808f1bd84da120a01e67cda53e3951826229066c5367bf405b883888d551e9070fdf967b2e820214f8a367c/0",
+                            "mangled_name": "sz.handleResponse",
+                            "line": 22,
+                            "source": "/var/task/node_modules/.pnpm/next@16.0.7_@babel+core@7.28.5_@opentelemetry+api@1.9.0_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+                            "module": "next.dist.compiled.next-server:app-page-turbo.runtime.prod",
+                            "in_app": false,
+                            "resolved_name": "sz.handleResponse",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "7f4fdff4849d1e98198a53d756d7f001387267981122df28985416ff0682d99e0dc54f39e509b89d6968c7715dd8bf5198f82b5bcc0ea31e5e536be224fa0c20/0",
+                            "mangled_name": "r",
+                            "line": 503,
+                            "column": 12,
+                            "source": "../../../../node_modules/.pnpm/next%4016.0.7_%40babel%2Bcore%407.28.5_%40opentelemetry%2Bapi%401.9.0_react-dom%4019.2.1_react%4019.2.1__react%4019.2.1/node_modules/next/dist/esm/build/templates/app-page.js%3Fpage%3D/page",
+                            "module": "_8752b2ea._",
+                            "in_app": false,
+                            "resolved_name": "r",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "chunk_id": "019b0b8f-b8f4-7db3-87b1-a1ff282cf2ba",
+                                    "colno": 10500,
+                                    "context_line": null,
+                                    "filename": "/var/task/.next/server/chunks/ssr/_8752b2ea._.js",
+                                    "function": "r",
+                                    "in_app": true,
+                                    "lineno": 1,
+                                    "module": "_8752b2ea._",
+                                    "post_context": [],
+                                    "pre_context": [],
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "2fd23477f915f1185a8f18837fd58f7da98ccb548149d9de8b27b8211346c7fabf58a9f404c729d1721c1dc52f487201a35268ae7c35ffc723b7b5c2723b23ab/0",
+                            "mangled_name": "se",
+                            "line": 20,
+                            "source": "/var/task/node_modules/.pnpm/next@16.0.7_@babel+core@7.28.5_@opentelemetry+api@1.9.0_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+                            "module": "next.dist.compiled.next-server:app-page-turbo.runtime.prod",
+                            "in_app": false,
+                            "resolved_name": "se",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "3074ff02fb6059c87f8763bbc3e5419e0602801bade66a08b659219c34ac55c5d43a4ad961b4658288f1228b926dcfe57e74b99a969a4030e9cc90ee32a0bc87/0",
+                            "mangled_name": "rO",
+                            "line": 14,
+                            "source": "/var/task/node_modules/.pnpm/next@16.0.7_@babel+core@7.28.5_@opentelemetry+api@1.9.0_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+                            "module": "next.dist.compiled.next-server:app-page-turbo.runtime.prod",
+                            "in_app": false,
+                            "resolved_name": "rO",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "fe2e4924270773609c89b79361af50a42282980b8c17111404f346aef5172edfc3a262ca43c6e68806be867da4204e2aee629598bba3a024e453db17bb30323f/0",
+                            "mangled_name": "?",
+                            "line": 15,
+                            "source": "/var/task/node_modules/.pnpm/next@16.0.7_@babel+core@7.28.5_@opentelemetry+api@1.9.0_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+                            "module": "next.dist.compiled.next-server:app-page-turbo.runtime.prod",
+                            "in_app": false,
+                            "resolved_name": "?",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "16d9a241e84229ac1811f74f1d31f42097f077a6903f1efc6d86a20c963961bdb7220c51a33fc823ab7ae5f18931c8de22de160b940819c546e58d09471d7b88/0",
+                            "mangled_name": "rj",
+                            "line": 15,
+                            "source": "/var/task/node_modules/.pnpm/next@16.0.7_@babel+core@7.28.5_@opentelemetry+api@1.9.0_react-dom@19.2.1_react@19.2.1__react@19.2.1/node_modules/next/dist/compiled/next-server/app-page-turbo.runtime.prod.js",
+                            "module": "next.dist.compiled.next-server:app-page-turbo.runtime.prod",
+                            "in_app": false,
+                            "resolved_name": "rj",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "c2cc0683fb5ab88a379bc15a948d1517f5124a885f32e12b2be51e419bd1e081d877f135b008853b287de881f3395b020e154f984ed0c5bc86574b31bc06d385/0",
+                            "mangled_name": "gb",
+                            "line": 471,
+                            "column": 16,
+                            "source": "../../../../actions/db/brand-sessions-actions.ts",
+                            "module": "actions_db_brand-sessions-actions_ts_ae0722b4._",
+                            "in_app": true,
+                            "resolved_name": "gb",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "chunk_id": "019b0b8f-b875-7cc2-8963-74b2f300d89a",
+                                    "colno": 106761,
+                                    "context_line": null,
+                                    "filename": "/var/task/.next/server/chunks/ssr/actions_db_brand-sessions-actions_ts_ae0722b4._.js",
+                                    "function": "gb",
+                                    "in_app": true,
+                                    "lineno": 26,
+                                    "module": "actions_db_brand-sessions-actions_ts_ae0722b4._",
+                                    "post_context": [],
+                                    "pre_context": [],
+                                    "synthetic": false
+                                }
+                            }
+                        },
+                        {
+                            "raw_id": "a4193d6ca8a87193a2065b61f1e6118157ec1944951d7ec3274201828c7cd97941fe406c70c1da70e12a5d6a80e9a41f9dc92b23e6ac45323a79c23ba04ed64a/0",
+                            "mangled_name": "process.processTicksAndRejections",
+                            "line": 105,
+                            "source": "node:internal/process/task_queues",
+                            "module": "task_queues",
+                            "in_app": false,
+                            "resolved_name": "process.processTicksAndRejections",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false
+                        },
+                        {
+                            "raw_id": "edbb567c0768b490d506b3d42d52557ddee3624e4947024758e8927c50c919eb785308ec0e55f321d3946e0f2f5944b1f251483d300b8198ce7443553ddd88ab/0",
+                            "mangled_name": "_",
+                            "line": 97,
+                            "column": 39,
+                            "source": "../../../../lib/utopia-image-utils.ts",
+                            "module": "actions_db_brand-sessions-actions_ts_ae0722b4._",
+                            "in_app": true,
+                            "resolved_name": "_",
+                            "lang": "javascript",
+                            "resolved": true,
+                            "synthetic": false,
+                            "suspicious": false,
+                            "junk_drawer": {
+                                "raw_frame": {
+                                    "chunk_id": "019b0b8f-b875-7cc2-8963-74b2f300d89a",
+                                    "colno": 2530,
+                                    "context_line": null,
+                                    "filename": "/var/task/.next/server/chunks/ssr/actions_db_brand-sessions-actions_ts_ae0722b4._.js",
+                                    "function": "_",
+                                    "in_app": true,
+                                    "lineno": 1,
+                                    "module": "actions_db_brand-sessions-actions_ts_ae0722b4._",
+                                    "post_context": [],
+                                    "pre_context": [],
+                                    "synthetic": false
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "$exception_fingerprint": "df6afed395ba4a59807838d76419d422986af6b58f7c069f90d06bfe0d9cbeecd2ac6e4f35335a9c889c56e503975902c4ecd314abf14ebf3a8fe9a7e1ceabc8",
+        "$exception_proposed_fingerprint": "df6afed395ba4a59807838d76419d422986af6b58f7c069f90d06bfe0d9cbeecd2ac6e4f35335a9c889c56e503975902c4ecd314abf14ebf3a8fe9a7e1ceabc8",
+        "$exception_fingerprint_record": [
+            {
+                "type": "exception",
+                "id": "019b0d6a-3c01-7471-ac2f-5d20ce3b2bb8",
+                "pieces": ["Exception Type"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "c2cc0683fb5ab88a379bc15a948d1517f5124a885f32e12b2be51e419bd1e081d877f135b008853b287de881f3395b020e154f984ed0c5bc86574b31bc06d385/0",
+                "pieces": ["Source file name", "Module name", "Resolved function name"]
+            },
+            {
+                "type": "frame",
+                "raw_id": "edbb567c0768b490d506b3d42d52557ddee3624e4947024758e8927c50c919eb785308ec0e55f321d3946e0f2f5944b1f251483d300b8198ce7443553ddd88ab/0",
+                "pieces": ["Source file name", "Module name", "Resolved function name"]
+            }
+        ],
+        "$exception_issue_id": "019b07d0-226b-7c93-94b7-bb77fe777b05",
+        "$lib": "posthog-node",
+        "$lib_version": "5.14.1",
+        "$exception_level": "error",
+        "$geoip_disable": true,
+        "$exception_handled": true
+    }
+}

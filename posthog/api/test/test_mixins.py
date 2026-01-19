@@ -767,3 +767,129 @@ class TestValidatedRequestDecorator(APIBaseTest):
             mock_endpoint(view_instance, mock_request)
 
         assert "timeout" in str(exc_info.value)
+
+    def test_validated_query_data_is_available(self):
+        """validated_query_data should be set on request when query_serializer is provided"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            page = serializers.IntegerField(required=False, default=1)
+            limit = serializers.IntegerField(required=False, default=10)
+            include_deleted = serializers.BooleanField(required=False, default=False)
+
+        @validated_request(
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            # Access validated query data directly
+            page = request.validated_query_data["page"]
+            limit = request.validated_query_data["limit"]
+            include_deleted = request.validated_query_data["include_deleted"]
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                    "page": page,
+                    "limit": limit,
+                    "include_deleted": include_deleted,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("page=5&limit=25&include_deleted=true")
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["page"] == 5
+        assert response.data["limit"] == 25
+        assert response.data["include_deleted"] is True
+
+    def test_validated_query_data_uses_defaults(self):
+        """validated_query_data should use serializer defaults when params not provided"""
+
+        class QueryParamSerializer(serializers.Serializer):
+            page = serializers.IntegerField(required=False, default=1)
+            limit = serializers.IntegerField(required=False, default=10)
+
+        @validated_request(
+            query_serializer=QueryParamSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+        )
+        def mock_endpoint(view_self, request, **kwargs):
+            page = request.validated_query_data["page"]
+            limit = request.validated_query_data["limit"]
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": "test",
+                    "page": page,
+                    "limit": limit,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+        from django.http import QueryDict
+
+        mock_get = QueryDict("")  # No params provided
+        mock_request._request = Mock()
+        mock_request._request.GET = mock_get
+        mock_request.query_params = mock_get
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["page"] == 1  # Default value
+        assert response.data["limit"] == 10  # Default value
+
+    def test_response_serializer_instance(self):
+        """Response serializer can be provided as instance (e.g., MySerializer()), too"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer()),  # Instance
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": request.validated_data["distinct_id"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ok"
+        assert response.data["distinct_id"] == "user_123"

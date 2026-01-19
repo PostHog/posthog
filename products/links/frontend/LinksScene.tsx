@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -16,7 +18,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { LinkType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { LinkType } from '~/types'
 
 import { LinkMetricSparkline } from './LinkMetricSparkline'
 import { linksLogic } from './linksLogic'
@@ -101,32 +104,41 @@ export function LinksScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Links].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlus />}
-                        onClick={() => router.actions.push(urls.link('new'))}
-                        size="small"
-                        sideAction={{
-                            dropdown: {
-                                overlay: (
-                                    <>
-                                        <LemonButton disabledReason="Coming soon" fullWidth>
-                                            Import from Bit.ly
-                                        </LemonButton>
-                                        <LemonButton disabledReason="Coming soon" fullWidth>
-                                            Import from Dub.co
-                                        </LemonButton>
-                                        <LemonButton disabledReason="Coming soon" fullWidth>
-                                            Import from CSV
-                                        </LemonButton>
-                                    </>
-                                ),
-                                placement: 'bottom-end',
-                            },
-                        }}
+                    <AppShortcut
+                        name="NewLink"
+                        keybind={[keyBinds.new]}
+                        intent="Create link"
+                        interaction="click"
+                        scope={Scene.Links}
                     >
-                        Create link
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={() => router.actions.push(urls.link('new'))}
+                            size="small"
+                            tooltip="Create link"
+                            sideAction={{
+                                dropdown: {
+                                    overlay: (
+                                        <>
+                                            <LemonButton disabledReason="Coming soon" fullWidth>
+                                                Import from Bit.ly
+                                            </LemonButton>
+                                            <LemonButton disabledReason="Coming soon" fullWidth>
+                                                Import from Dub.co
+                                            </LemonButton>
+                                            <LemonButton disabledReason="Coming soon" fullWidth>
+                                                Import from CSV
+                                            </LemonButton>
+                                        </>
+                                    ),
+                                    placement: 'bottom-end',
+                                },
+                            }}
+                        >
+                            Create link
+                        </LemonButton>
+                    </AppShortcut>
                 }
             />
 

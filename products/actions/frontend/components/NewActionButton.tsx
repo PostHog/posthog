@@ -5,9 +5,12 @@ import { IconPencil, IconSearch } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -22,9 +25,23 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                 resourceType={AccessControlResourceType.Action}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                <LemonButton size="small" type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                    New action
-                </LemonButton>
+                <AppShortcut
+                    name="NewAction"
+                    keybind={[keyBinds.new]}
+                    intent="New action"
+                    interaction="click"
+                    scope={Scene.Actions}
+                >
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => setVisible(true)}
+                        data-attr="create-action"
+                        tooltip="New action"
+                    >
+                        New action
+                    </LemonButton>
+                </AppShortcut>
             </AccessControlAction>
             <LemonModal
                 isOpen={visible}

@@ -1,3 +1,5 @@
+import { P, match } from 'ts-pattern'
+
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
@@ -8,14 +10,6 @@ import {
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
-
-export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.length > 0 && exceptionList.some((e) => !!e.stacktrace)
-}
-
-export function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktraceHasInAppFrames(stacktrace))
-}
 
 export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['stacktrace']): boolean {
     return stacktrace?.frames?.some(({ in_app }) => in_app) ?? false
@@ -229,6 +223,16 @@ export function stringify(value: any): string {
     return ''
 }
 
+export function formatFunctionName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang' | 'mangled_name'>
+): string | undefined {
+    const functionName: string | undefined = frame.resolved_name ?? frame.mangled_name ?? undefined
+    return match([frame.lang, frame.module, functionName])
+        .with(['java', P.string, P.string], ([_, module, functionName]) => `${module}.${functionName}`)
+        .with(['java', P.string, P.nullish], ([_, module]) => `${module}`)
+        .otherwise(() => functionName)
+}
+
 export function formatResolvedName(
     frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang'>
 ): string | null {
@@ -240,7 +244,6 @@ export function formatResolvedName(
 
 export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
     const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
-
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
 
@@ -248,4 +251,13 @@ export function formatExceptionDisplay(
     exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace' | 'value'>
 ): string {
     return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
+}
+
+export function createFrameFilter(showAllFrames: boolean) {
+    return (frame: ErrorTrackingStackFrame) => {
+        if (showAllFrames) {
+            return true
+        }
+        return frame.in_app
+    }
 }

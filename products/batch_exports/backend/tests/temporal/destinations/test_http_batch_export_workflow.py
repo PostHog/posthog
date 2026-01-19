@@ -10,6 +10,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pytest_asyncio
 from aioresponses import aioresponses
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -45,7 +46,7 @@ pytestmark = [
     pytest.mark.django_db,
 ]
 
-TEST_URL = "http://example.com/batch"
+TEST_URL = "https://us.i.posthog.com/batch/"
 TEST_TOKEN = "abcdef123456"
 
 
@@ -77,7 +78,7 @@ async def assert_clickhouse_records_in_mock_server(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     backfill_details: BackfillDetails | None = None,
-    filters: list[dict[str, str | list[str]]] | None = None,
+    filters: list[dict[str, str | list[str] | None]] | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records
@@ -304,7 +305,7 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
             await activity_environment.run(insert_into_http_activity, insert_inputs)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def http_batch_export(ateam, http_config, interval, exclude_events, temporal_client):
     destination_data = {
         "type": "HTTP",

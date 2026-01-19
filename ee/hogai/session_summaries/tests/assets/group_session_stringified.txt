@@ -1,130 +1,119 @@
 # Patterns
 
-## Pattern: Pay-gate Blocks Core Settings (critical)
-Users trying to reach project or environment settings are shown a pay-gate and leave without upgrading, cutting short deeper engagement and any chance of conversion.
+## Pattern: Session Summaries Dead End (critical)
+The Session Summaries view repeatedly fails to load (placeholder or 5xx responses) and users abandon the page after several retries, blocking discovery of the new feature.
 
 ### Potential indicators
-- Event "pay gate shown" triggered while user is on settings-related URLs (e.g., /settings/project, /settings/environment)
-- No subsequent "upgrade", "plan selected", or billing page visit before session end
-- Session outcome marked unsuccessful with abandonment flagged in same segment as the pay gate
-- User attempts to access the gated page again within the same session (more than 1 navigation to the same settings area) before giving up
+- Navigation to "/session-summaries" followed by one or more "client_request_failure" events
+- Page reloads or returns to the same URL within less than 2 minutes without ever fetching data successfully
+- Segment outcome or session outcome includes the words "abandoned", "placeholder", or "coming soon" for Session Summaries
+- Confusion events (rage-clicks, repeated clicks) recorded on the Session Summaries page
 
 ### Session examples
 
-#### Session `0197e8d5-6eb2-79b6-95bf-5a5ba11edbfa` - Segment #2
-Entered settings, hit paywall, and exited
+#### Session `019a58ac-ac6f-76db-b53f-4074ed3bb190` - Segment #2
+Repeated attempts to load Session Summaries with failures
 
 **Key event:**
-- Issues noticed: abandonment, confusion. Paywall displayed repeatedly, blocking desired settings at 00:00:45, as "pay gate shown" event (event_uuid: `0197e8d6-2490-7cbc-96f1-f60012051e4b`).
+- Issues noticed: abandonment. Left page after repeated failures at 00:13:26, as "$pageleave" event (event_uuid: `019a58b8-fd43-7be5-b466-7d60ed48972e`).
 
 **Before it:**
-- Clicked Settings link from sidebar at 00:00:45, as "$autocapture" (click) event (event_uuid: `0197e8d6-2490-7cbc-96f1-f60012051e4b`).
-
-**After it:**
-- Navigated to Integrations page then became idle at 00:00:48, as "$pageview" event (event_uuid: `0197e8d6-2490-7cbc-96f1-f60012051e4b`).
-
-**Outcome:**
-Failure. Paywall blocked deeper settings; user did not upgrade and eventually left.
-
-#### Session `0197e8d5-5a41-7628-8954-ab652f7afed0` - Segment #2
-Explore view settings – blocked by first pay-gate
-
-**Key event:**
-- Issues noticed: abandonment. First pay gate appears when opening settings panel at 00:04:59, as "pay gate shown" event (event_uuid: `0197e8d9-ea0b-79c4-8574-81e21cc8036e`).
-
-**Before it:**
-- User retries by clicking Reload but remains in limited view at 00:04:28, as "$autocapture" (click) event (event_uuid: `0197e8d9-ea0b-79c4-8574-81e21cc8036e`).
+- Loaded placeholder 'coming soon' content at 00:09:01, as "client_request_failure" event (event_uuid: `019a58b8-fd43-7be5-b466-7d60ed48972e`).
+- Issues noticed: confusion. Closed side panel while searching for fix at 00:09:02, as "$autocapture" (click) event (event_uuid: `019a58b8-fd43-7be5-b466-7d60ed48972e`).
+- Issues noticed: non-blocking exception. Feature flags error surfaced during retries at 00:10:40, as "onFeatureFlags error" event (event_uuid: `019a58b8-fd43-7be5-b466-7d60ed48972e`).
 
 **After it:**
 - Nothing, end of the segment.
 
 **Outcome:**
-Failure. Settings exploration halted by first pay gate.
+Failure. Placeholder content shown; user left page.
 
-#### Session `0197e8d5-5a41-7628-8954-ab652f7afed0` - Segment #3
-Navigate to Insights & environment settings – second pay-gate
+#### Session `019a58ac-ac6f-76db-b53f-4074ed3bb190` - Segment #3
+Final reload after idle, still failing
 
 **Key event:**
-- Issues noticed: abandonment. Second pay gate blocks environment settings page at 00:07:01, as "pay gate shown" event (event_uuid: `0197e8db-c58c-72e6-b6cd-d3c263754943`).
+- Issues noticed: blocking exception. API failure immediately repeats at 00:26:49, as "client_request_failure" event (event_uuid: `019a58c5-3e07-720f-a7bf-f14ad666be92`).
 
 **Before it:**
-- Sidebar navigation to Product Analytics (Insights) at 00:06:34, as "$autocapture" (click) event (event_uuid: `0197e8db-c58c-72e6-b6cd-d3c263754943`).
+- Reloaded Session Summaries page after idle at 00:26:48, as "$pageview" event (event_uuid: `019a58c5-3e07-720f-a7bf-f14ad666be92`).
+
+**After it:**
+- Issues noticed: confusion. Dismissed banner without resolving issue at 00:26:55, as "$autocapture" (click) event (event_uuid: `019a58c5-3e07-720f-a7bf-f14ad666be92`).
+
+**Outcome:**
+Failure. Return visit still failed due to same API errors.
+
+#### Session `019a58ac-ac6f-76db-b53f-4074ed3bb190` - Segment #2
+Repeated attempts to load Session Summaries with failures
+
+**Key event:**
+- Issues noticed: confusion. Closed side panel while searching for fix at 00:09:02, as "$autocapture" (click) event (event_uuid: `019a58b4-f59f-7d90-9689-5713bfd7ac1f`).
+
+**Before it:**
+- Loaded placeholder 'coming soon' content at 00:09:01, as "client_request_failure" event (event_uuid: `019a58b4-f59f-7d90-9689-5713bfd7ac1f`).
+
+**After it:**
+- Issues noticed: non-blocking exception. Feature flags error surfaced during retries at 00:10:40, as "onFeatureFlags error" event (event_uuid: `019a58b4-f59f-7d90-9689-5713bfd7ac1f`).
+- Issues noticed: abandonment. Left page after repeated failures at 00:13:26, as "$pageleave" event (event_uuid: `019a58b4-f59f-7d90-9689-5713bfd7ac1f`).
+
+**Outcome:**
+Failure. Placeholder content shown; user left page.
+
+#### Session `019a58ac-ac6f-76db-b53f-4074ed3bb190` - Segment #3
+Final reload after idle, still failing
+
+**Key event:**
+- Issues noticed: confusion. Dismissed banner without resolving issue at 00:26:55, as "$autocapture" (click) event (event_uuid: `019a58c5-530d-715e-a748-4b1f7126f27f`).
+
+**Before it:**
+- Reloaded Session Summaries page after idle at 00:26:48, as "$pageview" event (event_uuid: `019a58c5-530d-715e-a748-4b1f7126f27f`).
+- Issues noticed: blocking exception. API failure immediately repeats at 00:26:49, as "client_request_failure" event (event_uuid: `019a58c5-530d-715e-a748-4b1f7126f27f`).
 
 **After it:**
 - Nothing, end of the segment.
 
 **Outcome:**
-Failure. Insights opened but environment settings blocked again by pay gate.
+Failure. Return visit still failed due to same API errors.
 
-#### Session `0197e8d5-5a41-7628-8954-ab652f7afed0` - Segment #6
-Return to Activity & Live – frustration and project settings pay-gate
+#### Session `019a5952-220f-7193-a552-6a2ecfbd92bd` - Segment #2
+Attempt Session Summaries (multiple API failures)
 
 **Key event:**
-- Issues noticed: abandonment. Pay gate shown on Project Settings page at 00:14:31, as "pay gate shown" event (event_uuid: `0197e8e2-a2e9-7081-8e0f-37c961e74796`).
+- Issues noticed: confusion, blocking exception. API failures blocked Session Summaries load at 00:20:13, as "client_request_failure" event (event_uuid: `019a5964-ab83-7737-ae00-d70f185f8e8d`).
 
 **Before it:**
-- Issues noticed: confusion. Rage-clicks on “AlloTools” list item indicating frustration at 00:14:24, as "$rageclick" (click) event (event_uuid: `0197e8e2-a2e9-7081-8e0f-37c961e74796`).
+- Navigated to Session Summaries page at 00:20:05, as "$autocapture" (click) event (event_uuid: `019a5964-ab83-7737-ae00-d70f185f8e8d`).
+- Issues noticed: abandonment, confusion. User quickly left page after failure at 00:20:07, as "$pageleave" event (event_uuid: `019a5964-ab83-7737-ae00-d70f185f8e8d`).
 
 **After it:**
-- Issues noticed: confusion. Dead click followed by copying validation message at 00:15:37, as "$dead_click" (click) event (event_uuid: `0197e8e2-a2e9-7081-8e0f-37c961e74796`).
+- Nothing, end of the segment.
 
 **Outcome:**
-Failure. Live view frustration and yet another pay gate ended session.
+Failure. Session Summaries never loaded; repeated failures led to abandonment.
 
-## Pattern: Frustration Click Loops (high)
-After hitting a blocker or unclear UI state, users repeatedly click or toggle the same element (rage-clicks, rapid checkbox switches, reload spamming), signalling confusion and potential churn.
+## Pattern: Error-Driven Rage-Clicks (high)
+After encountering a blocking error or pay-gate, users rapidly click the same element (rage-click) and then abandon the flow, signalling high frustration.
 
 ### Potential indicators
-- "$rageclick" or "$dead_click" events recorded on the same target element
-- "confusion": true on multiple consecutive events within a 10-second window
-- More than 3 identical clicks/toggles on the same control without state change (e.g., checkbox rapidly on/off, repeated Reload button presses)
-- Frustration sequence followed by idle time or session exit without completing intended task
+- Rageclick event occurs within 10 seconds after an error, pay-gate, or blocking exception
+- Segment confusion_count 1 or more and abandonment_count 1 in the same segment
+- Multiple identical $autocapture clicks on the same selector within less than 5 seconds
+- Session outcome notes "frustration", "rage-click", or "left without completing task"
 
 ### Session examples
 
-#### Session `0197e8d5-6f25-7310-a1d9-00f7557f4b8f` - Segment #0
-Initial price-calculator setup
+#### Session `019a5a31-6bbd-7203-9766-90d9c8ad1eb4` - Segment #1
+Blocked attempting to open settings, frustration follows
 
 **Key event:**
-- Issues noticed: confusion. Rapidly toggled Website analytics checkbox multiple times at 00:01:05, as "$autocapture" (click) event (event_uuid: `0197e8d6-6ff4-7abf-861b-58ed46233c10`).
+- Issues noticed: abandonment, confusion. Rage-clicks on blocked element, then session ends at 00:00:15, as "$autocapture" (click) event (event_uuid: `019a5a33-7b18-78ed-8f6b-7a1042bcb624`).
 
 **Before it:**
-- Changed monthly event volume input at 00:00:59, as "$autocapture" (click) event (event_uuid: `0197e8d6-6ff4-7abf-861b-58ed46233c10`).
-
-**After it:**
-- Opened “explain event types” help section at 00:01:11, as "$autocapture" (click) event (event_uuid: `0197e8d6-6ff4-7abf-861b-58ed46233c10`).
-
-**Outcome:**
-Success. Customized initial pricing inputs, brief checkbox indecision resolved quickly.
-
-#### Session `0197e8d5-5a41-7628-8954-ab652f7afed0` - Segment #6
-Return to Activity & Live – frustration and project settings pay-gate
-
-**Key event:**
-- Issues noticed: confusion. Rage-clicks on “AlloTools” list item indicating frustration at 00:14:24, as "$rageclick" (click) event (event_uuid: `0197e8e2-8626-796a-8711-41f657435816`).
-
-**Before it:**
-- Nothing, start of the segment.
-
-**After it:**
-- Issues noticed: abandonment. Pay gate shown on Project Settings page at 00:14:31, as "pay gate shown" event (event_uuid: `0197e8e2-8626-796a-8711-41f657435816`).
-- Issues noticed: confusion. Dead click followed by copying validation message at 00:15:37, as "$dead_click" (click) event (event_uuid: `0197e8e2-8626-796a-8711-41f657435816`).
-
-**Outcome:**
-Failure. Live view frustration and yet another pay gate ended session.
-
-#### Session `0197e8d5-5a41-7628-8954-ab652f7afed0` - Segment #6
-Return to Activity & Live – frustration and project settings pay-gate
-
-**Key event:**
-- Issues noticed: confusion. Dead click followed by copying validation message at 00:15:37, as "$dead_click" (click) event (event_uuid: `0197e8e3-b0eb-7a2b-be7d-d040d686ee19`).
-
-**Before it:**
-- Issues noticed: confusion. Rage-clicks on “AlloTools” list item indicating frustration at 00:14:24, as "$rageclick" (click) event (event_uuid: `0197e8e3-b0eb-7a2b-be7d-d040d686ee19`).
-- Issues noticed: abandonment. Pay gate shown on Project Settings page at 00:14:31, as "pay gate shown" event (event_uuid: `0197e8e3-b0eb-7a2b-be7d-d040d686ee19`).
+- Clicked to access project/environment settings at 00:00:05, as "$autocapture" (click) event (event_uuid: `019a5a33-7b18-78ed-8f6b-7a1042bcb624`).
+- Pay-gate surfaced, blocking settings access at 00:00:05, as "$autocapture" (click) event (event_uuid: `019a5a33-7b18-78ed-8f6b-7a1042bcb624`).
 
 **After it:**
 - Nothing, end of the segment.
 
 **Outcome:**
-Failure. Live view frustration and yet another pay gate ended session.
+Failure. Pay-gate stopped settings exploration; frustration led to abandonment.

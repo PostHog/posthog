@@ -79,6 +79,13 @@ class MetaAdsSource(SimpleSource[MetaAdsSourceConfig]):
                         required=True,
                         kind="meta-ads",
                     ),
+                    SourceFieldInputConfig(
+                        name="sync_lookback_days",
+                        label="Sync history for insights (days) - applies to AdStats, AdsetStats, CampaignStats",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=False,
+                        placeholder="90",
+                    ),
                 ],
             ),
             betaSource=True,

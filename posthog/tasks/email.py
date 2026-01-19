@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+import datetime
 from enum import Enum
 from typing import Literal, Optional
 from urllib.parse import quote
@@ -11,6 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from celery import shared_task
+from posthoganalytics import new_context, tag
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
@@ -46,16 +47,21 @@ class NotificationSetting(Enum):
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
+    PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
 
 
 NotificationSettingType = Literal[
-    "weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned", "discussions_mentioned"
+    "weekly_project_digest",
+    "plugin_disabled",
+    "error_tracking_issue_assigned",
+    "discussions_mentioned",
+    "project_api_key_exposed",
 ]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
     for user in User.objects.filter(is_active=True, is_staff=True):
-        message.add_recipient(email=user.email, name=user.first_name)
+        message.add_user_recipient(user)
 
     message.send()
 
@@ -123,6 +129,9 @@ def should_send_notification(
     elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
         return settings.get(notification_type, True)
 
+    elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
+        return settings.get(notification_type, True)
+
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
@@ -142,7 +151,7 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+            "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
@@ -151,7 +160,8 @@ def send_invite(invite_id: str) -> None:
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
     )
-    message.add_recipient(email=invite.target_email)
+    # Using invite_id that will be aliased to user.distinct_id after invite is accepted
+    message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
     message.send()
 
 
@@ -176,7 +186,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     members_to_email = organization.members.exclude(email=invitee.email)
     if members_to_email:
         for user in members_to_email:
-            message.add_recipient(email=user.email, name=user.first_name)
+            message.add_user_recipient(user)
         message.send()
 
 
@@ -197,7 +207,7 @@ def send_password_reset(user_id: int, token: str) -> None:
             "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send(send_async=False)
 
 
@@ -215,7 +225,7 @@ def send_password_changed_email(user_id: int) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -234,7 +244,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
             "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}{f'?next={next_url}' if next_url else ''}",
         },
     )
-    message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
+    message.add_user_recipient(user, email_override=user.pending_email)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -262,7 +272,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send(send_async=False)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
@@ -301,7 +311,7 @@ def send_fatal_plugin_error(
         },
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -325,7 +335,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         template_context={"hog_function": hog_function, "team": team},
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -371,7 +381,7 @@ def send_batch_export_run_failure(
     logger.info("Prepared notification email for campaign %s", campaign_key)
 
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
@@ -456,7 +466,7 @@ def send_two_factor_auth_enabled_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -473,7 +483,7 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
@@ -490,13 +500,13 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
             "user_email": user.email,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def login_from_new_device_notification(
-    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str, backend_name: str
+    user_id: int, login_time: datetime.datetime, short_user_agent: str, ip_address: str, backend_name: str
 ) -> None:
     """Send login notification email if login is from a new device"""
     if not is_email_available(with_absolute_urls=True):
@@ -543,7 +553,7 @@ def login_from_new_device_notification(
             "login_method": login_method,
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
     message.send()
 
     # Capture event using ph_client for reliability in Celery tasks
@@ -563,7 +573,9 @@ def login_from_new_device_notification(
     ph_client.shutdown()
 
 
-def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
+def get_users_for_orgs_with_no_ingested_events(
+    org_created_from: datetime.datetime, org_created_to: datetime.datetime
+) -> list[User]:
     # Get all users for organization that haven't ingested any events
     users = []
     recently_created_organizations = Organization.objects.filter(
@@ -621,49 +633,64 @@ def send_error_tracking_issue_assigned(assignment_id: str, assigner_id: int) -> 
         },
     )
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
     message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], slug: str) -> None:
-    comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+    with new_context():
+        tag("task", "send_discussions_mentioned")
 
-    if not is_email_available(with_absolute_urls=True):
-        return
+        comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
 
-    team = comment.team
-    commenter = comment.created_by
-    memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+        if not is_email_available(with_absolute_urls=True):
+            logger.warning("Skipping discussions mentioned email: email service not available")
+            return
 
-    if not memberships_to_email or not commenter:
-        return
+        team = comment.team
+        commenter = comment.created_by
+        memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
 
-    # Filter the memberships list to only include users mentioned
-    memberships_to_email = [
-        membership
-        for membership in memberships_to_email
-        if (membership.user.id in mentioned_user_ids and membership.user != commenter)
-    ]
+        if not commenter:
+            logger.warning("Skipping discussions mentioned email: no commenter")
+            return
 
-    href = f"{settings.SITE_URL}{slug}"
+        if not memberships_to_email:
+            logger.warning("Skipping discussions mentioned email: no members mentioned")
+            return
 
-    campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
-        template_name="discussions_mentioned",
-        template_context={
-            "commenter": commenter,
-            "content": comment.content,
-            "team": team,
-            "href": href,
-        },
-    )
+        # Filter the memberships list to only include users mentioned
+        memberships_to_email = [
+            membership
+            for membership in memberships_to_email
+            if (membership.user.id in mentioned_user_ids and membership.user != commenter)
+        ]
 
-    for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send()
+        if not memberships_to_email:
+            logger.warning("Skipping discussions mentioned email: no valid recipients after filtering")
+            return
+
+        href = f"{settings.SITE_URL}{slug}"
+
+        campaign_key: str = f"discussions_user_mentioned_{comment.id}_updated_at_{comment.created_at.timestamp()}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"[Discussions]: {commenter.first_name} mentioned you in project '{team}'",
+            template_name="discussions_mentioned",
+            template_context={
+                "commenter": commenter,
+                "content": comment.content,
+                "team": team,
+                "href": href,
+            },
+        )
+
+        logger.info(f"Sending discussions mentioned email for comment ({comment.id})")
+
+        for membership in memberships_to_email:
+            message.add_user_recipient(membership.user)
+        message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -722,7 +749,7 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
 
     # Add recipients (either filtered list for test override or full list for normal flow)
     for membership in memberships_to_email:
-        message.add_recipient(email=membership.user.email, name=membership.user.first_name)
+        message.add_user_recipient(membership.user)
 
     message.send()
     logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
@@ -963,5 +990,40 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
             "url": f"{settings.SITE_URL}/settings/user-api-keys",
         },
     )
-    message.add_recipient(user.email)
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
+
+    # Filter to admins since they can rotate keys
+    memberships_to_email = [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
+
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project-secret-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
+        # TODO rename when Project Secret API Keys are launched
+        # subject=f"Project secret API key has been exposed for {team.name}",
+        subject=f"Feature Flags Secure API key has been exposed for {team.name}",
+        template_name="project_secret_api_key_exposed",
+        template_context={
+            # "preheader": "Project secret API key has been exposed",
+            "preheader": "Feature Flags Secure API key has been exposed",
+            "project_name": team.name,
+            "more_info": more_info,
+            "mask_value": mask_value,
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
     message.send()

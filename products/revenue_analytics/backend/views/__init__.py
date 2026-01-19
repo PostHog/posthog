@@ -41,10 +41,15 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
     DATABASE_SCHEMA_TABLE_KIND = DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION
 
 
+class RevenueAnalyticsMRRView(RevenueAnalyticsBaseView):
+    DATABASE_SCHEMA_TABLE_KIND = DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR
+
+
 KIND_TO_CLASS: dict[DatabaseSchemaManagedViewTableKind, type[RevenueAnalyticsBaseView]] = {
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION: RevenueAnalyticsSubscriptionView,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM: RevenueAnalyticsRevenueItemView,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE: RevenueAnalyticsChargeView,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER: RevenueAnalyticsCustomerView,
     DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_PRODUCT: RevenueAnalyticsProductView,
+    DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_MRR: RevenueAnalyticsMRRView,
 }

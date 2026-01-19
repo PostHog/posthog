@@ -22,8 +22,11 @@ COPY .devcontainer/library-scripts /tmp/library-scripts
 
 ENV DOCKER_BUILDKIT=1
 RUN /tmp/library-scripts/docker-in-docker-debian.sh
+# this runs as root
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["/usr/local/share/docker-init.sh"]
 VOLUME [ "/var/lib/docker" ]
+# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["sleep", "infinity"]
 
 # Add in some useful dev cli tools

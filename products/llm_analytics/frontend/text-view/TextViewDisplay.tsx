@@ -72,7 +72,8 @@ export function TextViewDisplay({
                 document.removeEventListener('mousedown', handleClickOutside)
             }
         }
-    }, [popoutSegment, setPopoutSegment])
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- setPopoutSegment is a stable Kea action
+    }, [popoutSegment])
 
     const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])
     const lineNumberPadding = useMemo(() => calculateLineNumberPadding(textRepr || ''), [textRepr])
@@ -162,6 +163,7 @@ export function TextViewDisplay({
                                     activeLineNumber={lineNumber}
                                     lineNumberPadding={lineNumberPadding}
                                     onCopyPermalink={onCopyPermalink}
+                                    enableLineActions
                                 />
                             </span>
                         )
@@ -184,6 +186,7 @@ export function TextViewDisplay({
                             setPopoutSegment={setPopoutSegment}
                             activeLineNumber={lineNumber}
                             lineNumberPadding={lineNumberPadding}
+                            enableLineActions
                         />
                     )
                 })}

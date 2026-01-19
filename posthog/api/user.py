@@ -11,10 +11,10 @@ from typing import Any, Optional, cast
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -25,6 +25,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
@@ -61,10 +62,11 @@ from posthog.event_usage import (
 )
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at
+from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
@@ -79,6 +81,8 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
+NUM_2FA_BACKUP_CODES = 10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -92,6 +96,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    is_impersonated_read_only = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -120,12 +125,14 @@ class UserSerializer(serializers.ModelSerializer):
             "is_email_verified",
             "notification_settings",
             "anonymize_data",
+            "allow_impersonation",
             "toolbar_mode",
             "has_password",
             "id",
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -143,6 +150,7 @@ class UserSerializer(serializers.ModelSerializer):
             "theme_mode",
             "hedgehog_config",
             "allow_sidebar_suggestions",
+            "shortcut_position",
             "role_at_organization",
         ]
 
@@ -156,6 +164,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -183,6 +192,13 @@ class UserSerializer(serializers.ModelSerializer):
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
+
+    def get_is_impersonated_read_only(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        if not is_impersonated_session(self.context["request"]):
+            return None
+        return is_read_only_impersonation(self.context["request"])
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -349,6 +365,7 @@ class UserSerializer(serializers.ModelSerializer):
         instance = cast(User, super().update(instance, validated_data))
 
         if password:
+            # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validated in validate_password_change above)
             instance.set_password(password)
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
@@ -361,7 +378,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
-        return super().to_representation(instance)
+        data = super().to_representation(instance)
+
+        # Backfill shortcut_position default for frontend if null
+        if data.get("shortcut_position") is None:
+            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+
+        return data
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
@@ -403,6 +426,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+@extend_schema(tags=["core"])
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -420,7 +444,13 @@ class UserViewSet(
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
     ]
-    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization", "allow_sidebar_suggestions"]
+    time_sensitive_allow_if_only_fields = [
+        "theme_mode",
+        "set_current_organization",
+        "allow_sidebar_suggestions",
+        "shortcut_position",
+        "has_seen_product_intro_for",
+    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
@@ -490,7 +520,7 @@ class UserViewSet(
             user.email = user.pending_email
             user.pending_email = None
             user.save()
-            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
+            send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()
@@ -666,7 +696,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(NUM_2FA_BACKUP_CODES):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)
@@ -685,6 +715,70 @@ class UserViewSet(
         send_two_factor_auth_disabled_email.delay(user.id)
 
         return Response({"success": True})
+
+
+@authenticate_secondarily
+def get_toolbar_preloaded_flags(request):
+    """Retrieve cached feature flags for toolbar"""
+    toolbar_flags_key = request.GET.get("key")
+
+    if not toolbar_flags_key:
+        logger.warning("[Toolbar Flags] No key parameter provided")
+        return JsonResponse({"error": "key parameter is required"}, status=400)
+
+    cache_key = f"toolbar_flags_{toolbar_flags_key}"
+    cache_data = cache.get(cache_key)
+
+    if cache_data is None:
+        logger.warning(f"[Toolbar Flags] Flags not found or expired for key: {toolbar_flags_key}")
+        return JsonResponse({"error": "Flags not found or expired"}, status=404)
+
+    # Security: Verify the requesting user has access to this team's flags
+    if cache_data.get("team_id") != request.user.team.id:
+        logger.warning(
+            f"[Toolbar Flags] User {request.user.id} attempted to access toolbar flags for team {cache_data.get('team_id')}"
+        )
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    feature_flags = cache_data.get("feature_flags", {})
+
+    return JsonResponse({"featureFlags": feature_flags})
+
+
+@authenticate_secondarily
+@require_http_methods(["POST"])
+def prepare_toolbar_preloaded_flags(request):
+    """
+    Evaluate feature flags for a user and store them in cache for toolbar launch.
+    Returns a cache key to avoid URL length limits.
+    """
+    try:
+        data = json.loads(request.body)
+        distinct_id = data.get("distinct_id")
+
+        if not distinct_id:
+            logger.warning("[Toolbar Flags] No distinct_id provided")
+            return JsonResponse({"error": "distinct_id is required"}, status=400)
+
+        team = request.user.team
+        if not team:
+            logger.warning("[Toolbar Flags] No team found")
+            return JsonResponse({"error": "No team found"}, status=400)
+
+        flags, _, _, _ = get_all_feature_flags(team, distinct_id, groups={})
+        key = secrets.token_urlsafe(16)
+        cache_key = f"toolbar_flags_{key}"
+        cache_data = {
+            "feature_flags": flags,
+            "team_id": team.id,
+        }
+
+        cache.set(cache_key, cache_data, timeout=300)  # 5 minute TTL
+
+        return JsonResponse({"key": key, "flag_count": len(flags)})
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        logger.exception("Error preparing toolbar launch", error=str(e))
+        return JsonResponse({"error": "Invalid request"}, status=400)
 
 
 @authenticate_secondarily
@@ -710,11 +804,16 @@ def redirect_to_site(request):
         "temporaryToken": request.user.temporary_token,
         "actionId": request.GET.get("actionId"),
         "experimentId": request.GET.get("experimentId"),
+        "productTourId": request.GET.get("productTourId"),
         "userIntent": request.GET.get("userIntent"),
         "toolbarVersion": "toolbar",
         "apiURL": request.build_absolute_uri("/")[:-1],
         "dataAttributes": team.data_attributes,
     }
+
+    toolbar_flags_key = request.GET.get("toolbarFlagsKey")
+    if toolbar_flags_key:
+        params["toolbarFlagsKey"] = toolbar_flags_key
 
     if not settings.TEST and not os.environ.get("OPT_OUT_CAPTURE"):
         params["instrument"] = True

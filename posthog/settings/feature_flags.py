@@ -4,22 +4,9 @@ from contextlib import suppress
 
 from posthog.settings.utils import get_from_env, get_list
 
-# The features here are released on the frontend, but the flags are just not yet removed from the code
-# WARNING: ONLY the frontend has feature flag overrides. Flags on the backend will NOT be affected by this setting
-# Sync with common/storybook/.storybook/decorators/withFeatureFlags.tsx
-PERSISTED_FEATURE_FLAGS = [
-    *get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")),
-    "simplify-actions",
-    "historical-exports-v2",
-    "ingestion-warnings-enabled",
-    "persons-hogql-query",
-    "datanode-concurrency-limit",
-    "session-table-property-filters",
-    "query-async",
-    "artificial-hog",
-    "recordings-blobby-v2-replay",
-    "use-blob-v2-lts",
-]
+# Used mostly by the hobby install to have some feature flags enabled by default
+# NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
+PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
@@ -42,4 +29,43 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: int = get_from_env(
 )
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = get_from_env(
     "FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int
+)
+
+# Feature flag cache refresh settings
+FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(
+    "FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS", 24, type_cast=int
+)
+
+# Maximum number of teams to refresh per cache refresh run to prevent memory spikes.
+# With ~200k teams, 5000 is a starting point that processes all teams across ~40 runs.
+# Run `python manage.py analyze_flags_cache_sizes` to measure actual memory usage.
+# Based on typical flag data, 5000 teams ≈ 10-100 MB depending on flag complexity.
+# See cache_expiry_manager.py for implementation details.
+FLAGS_CACHE_REFRESH_LIMIT: int = get_from_env("FLAGS_CACHE_REFRESH_LIMIT", 5000, type_cast=int)
+
+# Batch size for flags cache verification. Each batch loads both cached data
+# (from Redis) and DB data (FeatureFlag objects) into memory simultaneously.
+# Teams with 100+ flags and large filters JSONs can use significant memory.
+# Reduced from 1000 to 250 to prevent OOM. Decrease further if OOMs persist.
+FLAGS_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env("FLAGS_CACHE_VERIFICATION_CHUNK_SIZE", 250, type_cast=int)
+
+# Grace period in minutes for skipping cache fixes during verification.
+# If a flag was updated within this window, the verification task will skip
+# "fixing" it to avoid race conditions with async cache update tasks.
+# The next verification run will fix it if the cache is still stale.
+FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
+    "FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
+)
+
+# Batch size for team metadata cache verification. Team metadata is much smaller
+# than flags data, so we can use larger batches without OOM risk.
+TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
+    "TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE", 1000, type_cast=int
+)
+
+# Grace period in minutes for skipping team metadata cache fixes during verification.
+# If a team was updated within this window, the verification task will skip
+# "fixing" it to avoid race conditions with async cache update tasks.
+TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
+    "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )

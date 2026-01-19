@@ -7,12 +7,17 @@ use thiserror::Error;
 pub use redis::ErrorKind as RedisErrorKind;
 pub use redis::RetryMethod;
 
-const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
+// Re-export pipeline types
+pub use pipeline::{Pipeline, PipelineCommand, PipelineResult};
+
+// ClientPipelineExt is defined later in this file after the Client trait
 
 #[derive(Error, Debug, Clone)]
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
     #[error("Parse error: {0}")]
     ParseError(String),
     #[error("Timeout error")]
@@ -29,13 +34,11 @@ impl From<serde_pickle::Error> for CustomRedisError {
 
 impl From<redis::RedisError> for CustomRedisError {
     fn from(err: redis::RedisError) -> Self {
-        CustomRedisError::Redis(Arc::new(err))
-    }
-}
-
-impl From<tokio::time::error::Elapsed> for CustomRedisError {
-    fn from(_: tokio::time::error::Elapsed) -> Self {
-        CustomRedisError::Timeout
+        if err.is_timeout() {
+            CustomRedisError::Timeout
+        } else {
+            CustomRedisError::Redis(Arc::new(err))
+        }
     }
 }
 
@@ -61,6 +64,9 @@ impl CustomRedisError {
         match self {
             // Timeouts are transient - not unrecoverable
             CustomRedisError::Timeout => false,
+
+            // Configuration errors are permanent - unrecoverable
+            CustomRedisError::InvalidConfiguration(_) => true,
 
             // Parse errors are permanent bugs - unrecoverable
             CustomRedisError::ParseError(_) => true,
@@ -98,6 +104,9 @@ impl CustomRedisError {
         match self {
             // Timeouts: wait before retrying to avoid hammering the service
             CustomRedisError::Timeout => RetryMethod::WaitAndRetry,
+
+            // Configuration errors are permanent - don't retry
+            CustomRedisError::InvalidConfiguration(_) => RetryMethod::NoRetry,
 
             // Parse errors are permanent bugs - don't retry
             CustomRedisError::ParseError(_) => RetryMethod::NoRetry,
@@ -175,21 +184,16 @@ impl CompressionConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RedisValueFormat {
+    #[default]
     Pickle,
     Utf8,
     RawBytes,
 }
 
-impl Default for RedisValueFormat {
-    fn default() -> Self {
-        Self::Pickle
-    }
-}
-
 #[async_trait]
-pub trait Client {
+pub trait Client: Send + Sync {
     async fn zrangebyscore(
         &self,
         k: String,
@@ -211,6 +215,14 @@ pub trait Client {
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError>;
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError>;
+    /// Set raw bytes directly without any serialization or compression.
+    /// Used primarily for tests that need to write pickle-formatted data.
+    async fn set_bytes(
+        &self,
+        k: String,
+        v: Vec<u8>,
+        ttl_seconds: Option<u64>,
+    ) -> Result<(), CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn set_with_format(
         &self,
@@ -228,14 +240,80 @@ pub trait Client {
         seconds: u64,
         format: RedisValueFormat,
     ) -> Result<bool, CustomRedisError>;
+    async fn batch_incr_by_expire_nx(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
+    /// Like batch_incr_by_expire_nx but always sets the TTL (no NX flag).
+    /// Compatible with Redis 6.x which doesn't support EXPIRE ... NX.
+    async fn batch_incr_by_expire(
+        &self,
+        items: Vec<(String, i64)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;
+    async fn mget(&self, keys: Vec<String>) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError>;
+    async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError>;
+    async fn batch_sadd_expire(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<(), CustomRedisError>;
+    async fn batch_set_nx_ex(
+        &self,
+        items: Vec<(String, String)>,
+        ttl_seconds: usize,
+    ) -> Result<Vec<bool>, CustomRedisError>;
+    async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError>;
+    /// Execute a batch of pipeline commands in a single round-trip.
+    ///
+    /// Returns a vector of results, one for each command in the same order.
+    /// The outer Result is for connection-level errors, inner Results are per-command.
+    async fn execute_pipeline(
+        &self,
+        commands: Vec<PipelineCommand>,
+    ) -> Result<Vec<Result<PipelineResult, CustomRedisError>>, CustomRedisError>;
 }
+
+/// Extension trait providing the `.pipeline()` builder method.
+///
+/// Requires `Clone` because the client is cloned into the Pipeline builder.
+/// For trait objects (`dyn Client`), call `execute_pipeline()` directly instead.
+pub trait ClientPipelineExt: Client + Clone {
+    /// Create a new pipeline for batching multiple Redis commands.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use common_redis::{Client, ClientPipelineExt, PipelineResult};
+    ///
+    /// async fn example(client: &impl ClientPipelineExt) {
+    ///     let results = client.pipeline()
+    ///         .set("key1", "value1")
+    ///         .set("key2", "value2")
+    ///         .get("key3")
+    ///         .execute()
+    ///         .await
+    ///         .unwrap();
+    /// }
+    /// ```
+    fn pipeline(&self) -> Pipeline<Self> {
+        Pipeline::new(self.clone())
+    }
+}
+
+// Blanket implementation for all types that implement Client and Clone
+impl<T: Client + Clone> ClientPipelineExt for T {}
 
 // Module declarations
 mod client;
 mod mock;
+mod pipeline;
 mod read_write;
 
 // Re-export public APIs
@@ -266,6 +344,12 @@ mod tests {
         #[test]
         fn test_not_found_is_unrecoverable() {
             let err = CustomRedisError::NotFound;
+            assert!(err.is_unrecoverable_error());
+        }
+
+        #[test]
+        fn test_invalid_configuration_is_unrecoverable() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
             assert!(err.is_unrecoverable_error());
         }
 
@@ -305,6 +389,12 @@ mod tests {
         #[test]
         fn test_not_found_no_retry() {
             let err = CustomRedisError::NotFound;
+            assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
+        }
+
+        #[test]
+        fn test_invalid_configuration_no_retry() {
+            let err = CustomRedisError::InvalidConfiguration("test config error".to_string());
             assert!(matches!(err.retry_method(), RetryMethod::NoRetry));
         }
 

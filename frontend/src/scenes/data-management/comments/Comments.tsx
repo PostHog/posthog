@@ -14,13 +14,15 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { getText } from 'scenes/comments/Comment'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CommentType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CommentType } from '~/types'
 
 import { SCOPE_OPTIONS, commentsLogic, openURLFor } from './commentsLogic'
 
@@ -42,8 +44,9 @@ export function Comments(): JSX.Element {
             key: 'content',
             width: '30%',
             render: function RenderComment(_, comment: CommentType): JSX.Element {
-                let renderedContent = <>{comment.content ?? ''}</>
-                if ((comment.content || '').trim().length > 50) {
+                const textContent = getText(comment)
+                let renderedContent = <>{textContent}</>
+                if (textContent.length > 50) {
                     renderedContent = (
                         <Tooltip
                             title={
@@ -51,11 +54,11 @@ export function Comments(): JSX.Element {
                                     className="whitespace-pre-wrap break-words"
                                     data-attr="comment-scene-comment-title-rendered-content"
                                 >
-                                    {comment.content ?? ''}
+                                    {textContent}
                                 </div>
                             }
                         >
-                            {(comment.content ?? '').slice(0, 47) + '...'}
+                            {textContent.slice(0, 47) + '...'}
                         </Tooltip>
                     )
                 }

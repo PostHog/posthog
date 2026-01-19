@@ -17,17 +17,19 @@ use property_defs_rs::{
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
 use tokio::task::JoinHandle;
+use tracing::level_filters::LevelFilter;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
 
 fn setup_tracing() {
-    let log_layer: tracing_subscriber::filter::Filtered<
-        tracing_subscriber::fmt::Layer<tracing_subscriber::Registry>,
-        EnvFilter,
-        tracing_subscriber::Registry,
-    > = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer().with_filter(
+        EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy()
+            .add_directive("pyroscope=warn".parse().unwrap()),
+    );
     tracing_subscriber::registry().with(log_layer).init();
 }
 
@@ -63,6 +65,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting up property definitions service...");
 
     let config = Config::init_with_defaults()?;
+
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 

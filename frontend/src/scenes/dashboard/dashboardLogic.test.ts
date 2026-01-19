@@ -637,6 +637,42 @@ describe('dashboardLogic', () => {
                     })
             })
         })
+
+        describe('page visibility', () => {
+            it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setAutoRefresh(true, 1800)
+                })
+                    .toDispatchActions(['setAutoRefresh', 'resetInterval'])
+                    .toMatchValues({
+                        autoRefresh: { enabled: true, interval: 1800 },
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPageVisibility(false)
+                }).toDispatchActions(['setPageVisibility'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPageVisibility(true)
+                }).toDispatchActions(['setPageVisibility', 'resetInterval'])
+            })
+
+            it('does not restart auto-refresh on page visible if auto-refresh is disabled', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setAutoRefresh(false, 1800)
+                })
+                    .toDispatchActions(['setAutoRefresh'])
+                    .toMatchValues({
+                        autoRefresh: { enabled: false, interval: 1800 },
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setPageVisibility(true)
+                })
+                    .toDispatchActions(['setPageVisibility'])
+                    .toNotHaveDispatchedActions(['resetInterval'])
+            })
+        })
     })
 
     describe('external updates', () => {

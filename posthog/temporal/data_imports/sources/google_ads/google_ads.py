@@ -26,7 +26,7 @@ from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SC
 from products.data_warehouse.backend.types import IncrementalFieldType
 
 
-def _clean_customer_id(s: str | None) -> str | None:
+def clean_customer_id(s: str | None) -> str | None:
     """Clean customer IDs from Google Ads.
 
     Customer IDs can contain dashes, but we need the ID without them.
@@ -45,7 +45,7 @@ class GoogleAdsServiceAccountSourceConfig(config.Config):
     ~100 sources still use this method for auth. We recommend using
     `GoogleAdsSourceConfig` instead"""
 
-    customer_id: str = config.value(converter=_clean_customer_id)
+    customer_id: str = config.value(converter=clean_customer_id)
 
     private_key: str = config.value(
         default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
@@ -70,7 +70,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
 
         login_customer_id: str | None = None
         if config.is_mcc_account and config.is_mcc_account.enabled:
-            login_customer_id = config.is_mcc_account.mcc_client_id
+            login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
         client = GoogleAdsClient.load_from_dict(
             {
@@ -166,20 +166,35 @@ class GoogleAdsColumn(Column):
 def _resolve_protobuf_message_type_url(type_url: str) -> type:
     """Traverse a protobuf message type URL to find it's Python type."""
     match type_url.split("."):
-        case (
-            ["google", "ads", "googleads", "v19", "common", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "common", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "common", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "common",
+            *rest,
+        ]:
             return _traverse_attributes(ga_common, *rest)
-        case (
-            ["google", "ads", "googleads", "v19", "enums", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "enums", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "enums", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "enums",
+            *rest,
+        ]:
             return _traverse_attributes(ga_enums, *rest)
-        case (
-            ["google", "ads", "googleads", "v19", "resources", *rest]
-            | ["com", "google", "ads", "googleads", "v19", "resources", *rest]
-        ):
+        case ["google", "ads", "googleads", "v19", "resources", *rest] | [
+            "com",
+            "google",
+            "ads",
+            "googleads",
+            "v19",
+            "resources",
+            *rest,
+        ]:
             return _traverse_attributes(ga_resources, *rest)
         case _:
             raise ValueError(f"Type url could not be found: '{type_url}'")
@@ -329,7 +344,7 @@ def google_ads_source(
 
         client = google_ads_client(config, team_id)
         service = client.get_service("GoogleAdsService", version="v19")
-        stream = service.search_stream(query=query, customer_id=_clean_customer_id(config.customer_id))
+        stream = service.search_stream(query=query, customer_id=clean_customer_id(config.customer_id))
 
         yield from _stream_as_arrow_table(stream, table)
 

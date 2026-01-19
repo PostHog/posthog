@@ -173,8 +173,8 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         response_data = response.json()
-        self.assertEqual(2, response_data["_version"])
-        self.assertIn("_version_created_at", response_data)
+        self.assertEqual(2, response_data["endpoint_version"])
+        self.assertIn("endpoint_version_created_at", response_data)
 
     def test_run_specific_version(self):
         """Running with version param should execute that version."""
@@ -206,7 +206,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         response_data = response.json()
-        self.assertEqual(1, response_data["_version"])
+        self.assertEqual(1, response_data["endpoint_version"])
 
     def test_run_nonexistent_version_returns_404(self):
         """Running non-existent version should return 404."""

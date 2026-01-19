@@ -1,10 +1,10 @@
 import asyncio
-from typing import Literal, Self, cast
+from typing import TYPE_CHECKING, Literal, Self, cast
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import AgentMode
+from posthog.schema import AgentMode, AssistantTool
 
 from posthog.models import Team, User
 
@@ -12,6 +12,9 @@ from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
+
+if TYPE_CHECKING:
+    from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 
 SWITCH_MODE_PROMPT = """
 Use this tool to switch to a specialized mode with different tools and capabilities. Your conversation history and context are preserved across mode switches.
@@ -57,26 +60,26 @@ async def _get_modes_prompt(
     state: AssistantState | None = None,
     config: RunnableConfig | None = None,
     context_manager: AssistantContextManager,
+    mode_registry: dict[AgentMode, "AgentModeDefinition"],
 ) -> str:
     """Get the prompt containing the description of the available modes."""
-    from ee.hogai.mode_registry import MODE_REGISTRY
 
     all_futures: list[asyncio.Future[list[MaxTool]]] = []
-    for definition in MODE_REGISTRY.values():
+    for definition in mode_registry.values():
         all_futures.append(
             asyncio.gather(
                 *[
                     tool_class.create_tool_class(team=team, user=user, state=state, config=config)
                     for tool_class in definition.toolkit_class(
                         team=team, user=user, context_manager=context_manager
-                    ).custom_tools
+                    ).tools
                 ]
             )
         )
 
     resolved_tools = await asyncio.gather(*all_futures)
     formatted_modes: list[str] = []
-    for definition, tools in zip(MODE_REGISTRY.values(), resolved_tools):
+    for definition, tools in zip(mode_registry.values(), resolved_tools):
         formatted_modes.append(
             f"- {definition.mode.value} – {definition.mode_description}. [Mode tools: {', '.join([tool.get_name() for tool in tools])}]"
         )
@@ -90,28 +93,29 @@ async def _get_default_tools_prompt(
     user: User,
     state: AssistantState | None = None,
     config: RunnableConfig | None = None,
+    default_tool_classes: list[type["MaxTool"]],
 ) -> str:
     """Get the prompt containing the description of the default tools."""
-    from ee.hogai.graph.agent_modes.nodes import DEFAULT_TOOLS
-
+    excluded_tool_classes: set[type[MaxTool]] = {SwitchModeTool}
     resolved_tools = await asyncio.gather(
         *[
             tool_class.create_tool_class(team=team, user=user, state=state, config=config)
-            for tool_class in DEFAULT_TOOLS
-            if tool_class != SwitchModeTool
+            for tool_class in default_tool_classes
+            if tool_class not in excluded_tool_classes
         ]
     )
-    return ", ".join([tool.get_name() for tool in resolved_tools]) + ", switch_mode"
+    tools = [tool.get_name() for tool in resolved_tools]
+    tools.append(AssistantTool.SWITCH_MODE)
+    return ", ".join(tools)
 
 
 class SwitchModeTool(MaxTool):
-    name: Literal["switch_mode"] = "switch_mode"
+    name: Literal[AssistantTool.SWITCH_MODE] = AssistantTool.SWITCH_MODE
+    _mode_registry: dict[AgentMode, "AgentModeDefinition"]
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:
-        from ee.hogai.mode_registry import MODE_REGISTRY
-
-        if new_mode not in MODE_REGISTRY:
-            available = ", ".join(MODE_REGISTRY.keys())
+        if new_mode not in self._mode_registry:
+            available = ", ".join(self._mode_registry.keys())
             return (
                 format_prompt_string(SWITCH_MODE_FAILURE_PROMPT, new_mode=new_mode, available_modes=available),
                 self._state.agent_mode,
@@ -125,23 +129,37 @@ class SwitchModeTool(MaxTool):
         *,
         team: Team,
         user: User,
+        mode_registry: dict[AgentMode, "AgentModeDefinition"] | None = None,
+        default_tool_classes: list[type["MaxTool"]] | None = None,
         node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        from ee.hogai.mode_registry import MODE_REGISTRY
+        if mode_registry is None or default_tool_classes is None:
+            # These are set as optional parameters to make mypy happy
+            raise ValueError("SwitchModeTool requires mode_registry and default_tool_classes parameters")
 
         context_manager = AssistantContextManager(team, user, config)
         default_tools, available_modes = await asyncio.gather(
-            _get_default_tools_prompt(team=team, user=user, state=state, config=config),
-            _get_modes_prompt(team=team, user=user, state=state, config=config, context_manager=context_manager),
+            _get_default_tools_prompt(
+                team=team, user=user, state=state, config=config, default_tool_classes=default_tool_classes
+            ),
+            _get_modes_prompt(
+                team=team,
+                user=user,
+                state=state,
+                config=config,
+                context_manager=context_manager,
+                mode_registry=mode_registry,
+            ),
         )
         description_prompt = format_prompt_string(
             SWITCH_MODE_PROMPT, default_tools=default_tools, available_modes=available_modes
         )
+        cls._mode_registry = mode_registry
 
-        ModeKind = Literal[*MODE_REGISTRY.keys()]  # type: ignore
+        ModeKind = Literal[*mode_registry.keys()]  # type: ignore
         args_schema = create_model(
             "SwitchModeToolArgs",
             __base__=BaseModel,

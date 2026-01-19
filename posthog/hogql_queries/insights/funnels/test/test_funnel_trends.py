@@ -14,6 +14,8 @@ from posthog.test.base import (
 from parameterized import parameterized
 
 from posthog.schema import (
+    BreakdownAttributionType,
+    BreakdownFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -21,12 +23,12 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     FunnelsFilter,
     FunnelsQuery,
-    FunnelsQueryResponse,
+    FunnelVizType,
     IntervalType,
     PropertyOperator,
 )
 
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType, FunnelVizType
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.cohort.cohort import Cohort
@@ -38,8 +40,7 @@ FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
 
 
-class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
+class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_actors_at_step(self, filter, entrance_period_start, drop_off):
@@ -128,7 +129,6 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         filters = {
             "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
             "funnel_viz_type": "trends",
             "display": TRENDS_LINEAR,
             "interval": "day",
@@ -1234,10 +1234,7 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             results = response.results
 
             self.assertEqual(len(results), 2)
-            # Old funnels incorrectly return None instead of empty string for empty breakdown values in these two attribution modes
-            # Not worth fixing for now
-            if response.isUdf or attribution_type not in ("all_events", "step"):
-                self.assertEqual(results[0]["breakdown_value"], [""])
+            self.assertEqual(results[0]["breakdown_value"], [""])
             self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             self.assertEqual(results[1]["breakdown_value"], ["foo"])
             self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
@@ -2447,24 +2444,22 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
         results = full_results.results
 
-        # Normal funnels fail on this
-        if full_results.isUdf:
-            assert 4 == len(results)
-            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-            assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert 4 == len(results)
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-            filters["breakdown_attribution_type"] = "step"
-            filters["breakdown_attribution_value"] = 1
-            query = cast(FunnelsQuery, filter_to_query(filters))
-            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        filters["breakdown_attribution_type"] = "step"
+        filters["breakdown_attribution_value"] = 1
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-            assert 4 == len(results)
-            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-            assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert 4 == len(results)
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
     def test_breakdown_with_attribution_2(self):
         events = [
@@ -2549,23 +2544,22 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         full_results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
         results = full_results.results
 
-        if full_results.isUdf:
-            assert 4 == len(results)
-            assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-            assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert 4 == len(results)
+        assert [1, 0] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
-            filters["breakdown_attribution_type"] = "step"
-            filters["breakdown_attribution_value"] = 2
-            query = cast(FunnelsQuery, filter_to_query(filters))
-            results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        filters["breakdown_attribution_type"] = "step"
+        filters["breakdown_attribution_value"] = 2
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-            assert 4 == len(results)
-            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
-            assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
-            assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert 4 == len(results)
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [0, 1] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Chrome"]]
+        assert [1, 1] == [x["reached_from_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
+        assert [1, 0] == [x["reached_to_step_count"] for x in results if x["breakdown_value"] == ["Safari"]]
 
     def test_exclusion_with_property_filter(self):
         journeys_for(
@@ -2768,26 +2762,163 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["reached_to_step_count"], 1)
         self.assertEqual(results[1]["reached_to_step_count"], 0)
 
+    def test_different_prop_val_in_strict_filter(self):
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="first"), EventsNode(event="second")],
+            breakdownFilter=BreakdownFilter(breakdown="bd"),
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            interval=IntervalType.DAY,
+            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT, funnelVizType=FunnelVizType.TRENDS),
+        )
 
-class TestFunnelTrends(BaseTestFunnelTrends):
-    __test__ = True
+        _create_person(
+            distinct_ids=["many_other_events"],
+            team_id=self.team.pk,
+            properties={"test": "okay"},
+        )
+        _create_event(
+            team=self.team,
+            event="first",
+            distinct_id="many_other_events",
+            properties={"bd": "one"},
+            timestamp=datetime(2024, 1, 2),
+        )
+        _create_event(
+            team=self.team,
+            event="first",
+            distinct_id="many_other_events",
+            properties={"bd": "two"},
+            timestamp=datetime(2024, 1, 3),
+        )
+        _create_event(
+            team=self.team,
+            event="unmatched",
+            distinct_id="many_other_events",
+            properties={"bd": "one"},
+            timestamp=datetime(2024, 1, 4),
+        )
+        _create_event(
+            team=self.team,
+            event="unmatched",
+            distinct_id="many_other_events",
+            properties={"bd": "two"},
+            timestamp=datetime(2024, 1, 5),
+        )
+        _create_event(
+            team=self.team,
+            event="second",
+            distinct_id="many_other_events",
+            properties={"bd": "one"},
+            timestamp=datetime(2024, 1, 6),
+        )
+        _create_event(
+            team=self.team,
+            event="second",
+            distinct_id="many_other_events",
+            properties={"bd": "two"},
+            timestamp=datetime(2024, 1, 7),
+        )
 
-    def test_assert_udf_flag_is_working(self):
+        # First Touchpoint (just "one")
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        self.assertEqual(
+            [
+                {
+                    "breakdown_value": ["one"],
+                    "count": 8,
+                    "data": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "days": [
+                        "2024-01-01",
+                        "2024-01-02",
+                        "2024-01-03",
+                        "2024-01-04",
+                        "2024-01-05",
+                        "2024-01-06",
+                        "2024-01-07",
+                        "2024-01-08",
+                    ],
+                    "labels": [
+                        "1-Jan-2024",
+                        "2-Jan-2024",
+                        "3-Jan-2024",
+                        "4-Jan-2024",
+                        "5-Jan-2024",
+                        "6-Jan-2024",
+                        "7-Jan-2024",
+                        "8-Jan-2024",
+                    ],
+                }
+            ],
+            results,
+        )
+
+        # All events attribution
+        assert funnels_query.funnelsFilter is not None
+        funnels_query.funnelsFilter.breakdownAttributionType = BreakdownAttributionType.ALL_EVENTS
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+
+        assert len(results) == 2
+        assert all(data == 0 for result in results for data in result["data"])
+
+    # This is a change in behavior that only applies to UDFs - it seems more correct than what was happening before
+    # In old style UDFs, an exclusion like this would still count, even if it were outside of the match window
+    def test_excluded_after_time_expires(self):
+        events = [
+            {
+                "event": "step one",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 0),
+            },
+            # Exclusion happens after time expires
+            {
+                "event": "exclusion",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 11),
+            },
+            {
+                "event": "step two",
+                "timestamp": datetime(2021, 5, 1, 0, 0, 12),
+            },
+        ]
+        journeys_for(
+            {
+                "user_one": events,
+            },
+            self.team,
+        )
+
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "hour",
+            "interval": "day",
             "date_from": "2021-05-01 00:00:00",
-            "funnel_window_interval": 7,
+            "date_to": "2021-05-13 23:59:59",
+            "funnel_window_interval": 10,
+            "funnel_window_interval_unit": "second",
             "events": [
                 {"id": "step one", "order": 0},
                 {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
+            ],
+            "exclusions": [
+                {
+                    "id": "exclusion",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
             ],
         }
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = cast(FunnelsQueryResponse, FunnelsQueryRunner(query=query, team=self.team).calculate())
+        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        self.assertFalse(results.isUdf)
+        self.assertEqual(1, results[0]["reached_from_step_count"])
+        self.assertEqual(0, results[0]["reached_to_step_count"])

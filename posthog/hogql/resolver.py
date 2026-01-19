@@ -1,11 +1,12 @@
 import dataclasses
 from datetime import date, datetime
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -30,6 +31,7 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
 )
+from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.utils import UUIDT
@@ -69,7 +71,7 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
@@ -90,7 +92,7 @@ def resolve_types_from_table(
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
-    dialect: Literal["hogql", "clickhouse"],
+    dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
 ) -> _T_AST:
     return Resolver(scopes=scopes, context=context, dialect=dialect).visit(node)
@@ -112,7 +114,7 @@ class Resolver(CloningVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: Literal["hogql", "clickhouse"] = "clickhouse",
+        dialect: HogQLDialect = "clickhouse",
         scopes: Optional[list[ast.SelectQueryType]] = None,
     ):
         super().__init__()
@@ -606,6 +608,9 @@ class Resolver(CloningVisitor):
         if len(node.chain) == 0:
             raise ResolutionError("Invalid field access with empty chain")
 
+        # Apply virtual property mapping before field resolution
+        node = map_virtual_properties(node)
+
         node = super().visit_field(node)
 
         # Only look for fields in the last SELECT scope, instead of all previous select queries.
@@ -691,7 +696,6 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-
                 raise QueryError(f"Unable to resolve field: {name}")
             else:
                 type = ast.UnresolvedFieldType(name=name)

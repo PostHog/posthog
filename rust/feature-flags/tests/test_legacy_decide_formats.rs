@@ -87,13 +87,7 @@ async fn test_legacy_decide_v1_format() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flags_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -219,13 +213,7 @@ async fn test_legacy_decide_v2_format() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flags_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 
@@ -313,13 +301,7 @@ async fn test_decide_header_changes_version_interpretation() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(
-        client,
-        team.id,
-        team.project_id(),
-        Some(flags_json.to_string()),
-    )
-    .await?;
+    insert_flags_for_team_in_redis(client, team.id, Some(flags_json.to_string())).await?;
 
     let server = ServerHandle::for_config(config).await;
 

@@ -19,7 +19,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
@@ -78,21 +78,25 @@ interface SegmentMetaProps {
 
 function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
     const [elapsedSeconds, setElapsedSeconds] = useState(0)
+    const { isVisible: isPageVisible } = usePageVisibility()
 
     useEffect(() => {
         if (operation !== undefined) {
-            setElapsedSeconds(0) // Reset timer only when operation changes and is provided
+            setElapsedSeconds(0)
         }
     }, [operation])
 
-    // Run on mount only to avoid resetting interval
-    useOnMountEffect(() => {
+    useEffect(() => {
+        if (!isPageVisible) {
+            return
+        }
+
         const interval = setInterval(() => {
             setElapsedSeconds((prev) => prev + 1)
         }, 1000)
 
         return () => clearInterval(interval)
-    })
+    }, [isPageVisible])
 
     return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
 }
@@ -311,7 +315,7 @@ function SessionSummaryKeyActions({
     segmentName?: string | null
     onSeekToTime: (time: number) => void
 }): JSX.Element {
-    const timeToSeeekTo = (ms: number): number => Math.max(ms - 4000, 0)
+    const timeToSeekTo = (ms: number): number => Math.max(ms - 4000, 0)
     return (
         <>
             {keyActions.events?.map((event: SessionKeyAction, eventIndex: number, events: SessionKeyAction[]) =>
@@ -329,7 +333,7 @@ function SessionSummaryKeyActions({
                             if (!isValidTimestamp(event.milliseconds_since_start)) {
                                 return
                             }
-                            onSeekToTime(timeToSeeekTo(event.milliseconds_since_start))
+                            onSeekToTime(timeToSeekTo(event.milliseconds_since_start))
                         }}
                     >
                         <div className="flex flex-row gap-2">
@@ -415,9 +419,9 @@ function SessionSummaryTitle(): JSX.Element {
     return (
         <h3 className="text-lg font-semibold mt-2 flex items-center gap-2">
             <IconAIText />
-            AI Replay Research
-            <LemonTag type="completion" size="medium">
-                ALPHA
+            AI summary
+            <LemonTag type="warning" size="medium">
+                BETA
             </LemonTag>
         </h3>
     )
@@ -440,7 +444,7 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
     return (
         <LemonBanner type={sessionSummary?.session_outcome?.success ? 'success' : 'error'} className="mb-4">
             <div className="text-sm font-normal">
-                <div>{sessionSummary?.session_outcome?.description}</div>
+                <strong>Session outcome:</strong> {sessionSummary?.session_outcome?.description}
             </div>
         </LemonBanner>
     )

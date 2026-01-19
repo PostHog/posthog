@@ -7,6 +7,8 @@ import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
+import { PropertyDefinitionType } from '~/types'
+
 import { NotebookNodeType } from '../types'
 import { Properties } from './components/Properties'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -28,19 +30,13 @@ const Component = (): JSX.Element | null => {
         return null
     }
 
-    const pinnedProperties = Object.fromEntries(
-        Object.entries(groupData.group_properties).filter(([key, _]) => pinnedGroupProperties.includes(key))
-    )
-    const unpinnedProperties = Object.fromEntries(
-        Object.entries(groupData.group_properties).filter(([key, _]) => !pinnedGroupProperties.includes(key))
-    )
-
     return (
         <Properties
-            pinnedProperties={pinnedProperties}
-            unpinnedProperties={unpinnedProperties}
+            properties={groupData.group_properties || {}}
+            pinnedProperties={pinnedGroupProperties}
             onPin={pinGroupProperty}
             onUnpin={unpinGroupProperty}
+            type={PropertyDefinitionType.Group}
         />
     )
 }

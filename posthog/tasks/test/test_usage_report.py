@@ -424,6 +424,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 "posthog-php",
                 "posthog-dotnet",
                 "posthog-elixir",
+                "posthog-unity",
             ]
 
             for sdk in sdks:
@@ -581,6 +582,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "php_events_count_in_period": 1,
                     "dotnet_events_count_in_period": 1,
                     "elixir_events_count_in_period": 1,
+                    "unity_events_count_in_period": 1,
                     "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
                     "mobile_recording_bytes_in_period": 6,
@@ -648,6 +650,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "php_events_count_in_period": 1,
                             "dotnet_events_count_in_period": 1,
                             "elixir_events_count_in_period": 1,
+                            "unity_events_count_in_period": 1,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -709,6 +712,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
+                            "unity_events_count_in_period": 0,
                             "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
                             "mobile_recording_bytes_in_period": 6,
@@ -793,6 +797,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "php_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 0,
                     "elixir_events_count_in_period": 0,
+                    "unity_events_count_in_period": 0,
                     "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_bytes_in_period": 0,
@@ -860,6 +865,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
                             "elixir_events_count_in_period": 0,
+                            "unity_events_count_in_period": 0,
                             "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_bytes_in_period": 0,
@@ -2370,6 +2376,157 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
         assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_workflow_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        # Create workflow metrics for org 1 team 1
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=10,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="push",
+            count=5,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="sms",
+            count=3,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="fetch",
+            count=8,
+        )
+
+        # Create workflow metrics for org 1 team 2
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=15,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="push",
+            count=7,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="sms",
+            count=2,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            metric_name="billable_invocation",
+            metric_kind="fetch",
+            count=12,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+
+        # Test org-level workflow metrics (sum of both teams)
+        assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
+        assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
+        assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
+        assert org_1_report["workflow_billable_invocations_in_period"] == 20  # 8 + 12
+
+        # Test team 1 workflow metrics
+        assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
+        assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
+        assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
+        assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 8
+
+        # Test team 2 workflow metrics
+        assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
+        assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
+        assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
+        assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 12
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_logs_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+
+        # Create logs metrics for org 1 team 1: 1.5 GB
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=1_500_000_000,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=1000,
+        )
+
+        # Create logs metrics for org 1 team 2: 2.5 GB
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="logs",
+            metric_name="bytes_ingested",
+            count=2_500_000_000,
+        )
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=2000,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+
+        # Test org-level logs metrics (sum of both teams)
+        assert org_1_report["logs_bytes_in_period"] == 4_000_000_000  # 1.5B + 2.5B
+        assert org_1_report["logs_records_in_period"] == 3000  # 1000 + 2000
+        assert org_1_report["logs_gb_in_period"] == 4.0  # 1.5 + 2.5
+
+        # Test team 1 logs metrics
+        assert org_1_report["teams"]["3"]["logs_bytes_in_period"] == 1_500_000_000
+        assert org_1_report["teams"]["3"]["logs_records_in_period"] == 1000
+        assert org_1_report["teams"]["3"]["logs_gb_in_period"] == 1.5
+
+        # Test team 2 logs metrics
+        assert org_1_report["teams"]["4"]["logs_bytes_in_period"] == 2_500_000_000
+        assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
+        assert org_1_report["teams"]["4"]["logs_gb_in_period"] == 2.5
+
 
 @freeze_time("2022-01-10T10:00:00Z")
 class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
@@ -2425,15 +2582,6 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
                 timestamp=now() - relativedelta(hours=i),
                 team=self.org_2_team_3,
             )
-
-        # not captured because it was a bug in our own SDK
-        _create_event(
-            distinct_id="4",
-            event="$exception",
-            properties={"$exception_values": ["persistence.isDisabled is not a function"]},
-            timestamp=now() - relativedelta(hours=1),
-            team=self.org_1_team_1,
-        )
 
         # some out of range events
         _create_event(
@@ -2687,6 +2835,177 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         # Expected: No charges for search-only traces with kind='docs'
         self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_only_summarize_sessions_tools(self, mock_region: MagicMock) -> None:
+        """Test that generations with only summarize_sessions tools are NOT billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with only summarize_sessions tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_summarize",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        # Create generation for this trace (should NOT be billed)
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_summarize",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges for summarize_sessions-only traces
+        self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_mixed_excluded_tools(self, mock_region: MagicMock) -> None:
+        """Test that traces with only excluded tools (summarize_sessions + docs-search) are NOT billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with both excluded tools
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_mixed_excluded",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
+                                {"name": "search", "args": {"kind": "docs"}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_mixed_excluded",
+                "$ai_total_cost_usd": 2.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: No charges when all tools are in the excluded list
+        self.assertEqual(len(result), 0)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_with_summarize_sessions_and_billable_tool(self, mock_region: MagicMock) -> None:
+        """Test that traces with summarize_sessions + a billable tool ARE billed."""
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        # Create a trace with summarize_sessions + a billable tool
+        _create_event(
+            event="$ai_trace",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1),
+            properties={
+                "$ai_trace_id": "trace_mixed_billable",
+                "$ai_output_state": {
+                    "messages": [
+                        {
+                            "tool_calls": [
+                                {"name": "summarize_sessions", "args": {"session_ids": ["abc123"]}},
+                                {"name": "create_trends_insight", "args": {"query": "pageviews"}},
+                            ]
+                        }
+                    ]
+                },
+                "region": "US",
+            },
+        )
+
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_1",
+            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_mixed_billable",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "region": "US",
+            },
+        )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        # Expected: 1.0 USD * 100 * 1.2 = 120 credits
+        # Trace with any non-excluded tool should be billable
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][0], self.org_1_team_1.id)
+        self.assertEqual(result[0][1], 120)
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_with_search_non_docs_kind(self, mock_region: MagicMock) -> None:
@@ -3924,13 +4243,13 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         # Verify the calls
         self.assertEqual(mock_execute_split_query.call_count, 2)
 
-        # First call (get_teams_with_billable_event_count_in_period) should use 3 splits
+        # First call (get_teams_with_billable_event_count_in_period) should use 12 splits
         first_call_kwargs = mock_execute_split_query.call_args_list[0][1]
-        self.assertEqual(first_call_kwargs["num_splits"], 3)
+        self.assertEqual(first_call_kwargs["num_splits"], 12)
 
-        # Second call (get_all_event_metrics_in_period) should use 3 splits
+        # Second call (get_all_event_metrics_in_period) should use 12 splits
         second_call_kwargs = mock_execute_split_query.call_args_list[1][1]
-        self.assertEqual(second_call_kwargs["num_splits"], 3)
+        self.assertEqual(second_call_kwargs["num_splits"], 12)
 
     def test_ai_events_not_double_counted(self) -> None:
         """Test that AI events are excluded from billable event counts and counted separately."""

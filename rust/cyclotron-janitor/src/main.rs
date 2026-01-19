@@ -53,6 +53,15 @@ async fn main() {
     let config = Config::init_from_env().expect("failed to load configuration from env");
     tracing_subscriber::fmt::init();
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            error!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     let liveness = HealthRegistry::new("liveness");
 
     let janitor_config = config.get_janitor_config();

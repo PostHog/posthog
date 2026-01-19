@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { TeamMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -75,7 +74,14 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
     connect(() => ({
-        values: [userLogic, ['user'], organizationLogic, ['currentOrganization'], billingLogic, ['billing']],
+        values: [
+            userLogic,
+            ['user'],
+            organizationLogic,
+            ['currentOrganization', 'isAdminOrOwner'],
+            billingLogic,
+            ['billing'],
+        ],
     })),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
@@ -110,16 +116,16 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 return !!billing?.startup_program_label
             },
         ],
+        currentStartupProgramLabel: [
+            (s) => [s.billing],
+            (billing: BillingType | null) => {
+                return billing?.startup_program_label || null
+            },
+        ],
         wasPreviouslyOnStartupPlan: [
             (s) => [s.billing],
             (billing: BillingType | null) => {
                 return !!billing?.startup_program_label_previous
-            },
-        ],
-        isUserOrganizationOwnerOrAdmin: [
-            (s) => [s.user],
-            (user) => {
-                return (user?.organization?.membership_level ?? 0) >= TeamMembershipLevel.Admin
             },
         ],
         domainFromEmail: [

@@ -1,6 +1,8 @@
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -10,6 +12,7 @@ export const manifest: ProductManifest = {
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
         surveyTemplates: (): string => '/survey_templates',
+        surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     },
     fileSystemTypes: {
         survey: {
@@ -32,6 +35,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Surveys',
+            intents: [ProductKey.SURVEYS],
             category: 'Behavior',
             type: 'survey',
             href: urls.surveys(),
