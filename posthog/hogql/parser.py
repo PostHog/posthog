@@ -106,6 +106,7 @@ def _compare_with_cpp_json(
         cpp_json_ast = fn(source, start=None) if rule == "expr" else fn(source)
     except Exception as err:
         logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
+        return
 
     if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
         logger.warning(
