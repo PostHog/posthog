@@ -72,7 +72,7 @@ export interface LogsLogicProps {
     tabId: string
 }
 
-export const logsSceneLogic = kea<logsLogicType>([
+export const logsSceneLogic = kea<logsSceneLogicType>([
     props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     tabAwareScene(),
