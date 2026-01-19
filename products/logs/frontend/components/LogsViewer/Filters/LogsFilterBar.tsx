@@ -9,13 +9,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
-import { DateRangeFilter } from 'products/logs/frontend/components/LogsViewer/Filters/DateRangeFilter'
-import { LogsFilterGroup } from 'products/logs/frontend/components/LogsViewer/Filters/FilterGroup'
-import { FilterHistoryDropdown } from 'products/logs/frontend/components/LogsViewer/Filters/FilterHistoryDropdown'
-import { LogsDateRangePicker } from 'products/logs/frontend/components/LogsViewer/Filters/LogsDateRangePicker/LogsDateRangePicker'
-import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
-import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
+
+import { DateRangeFilter } from './DateRangeFilter'
+import { LogsFilterGroup } from './FilterGroup'
+import { FilterHistoryDropdown } from './FilterHistoryDropdown'
+import { LogsDateRangePicker } from './LogsDateRangePicker/LogsDateRangePicker'
+import { ServiceFilter } from './ServiceFilter'
+import { SeverityLevelsFilter } from './SeverityLevelsFilter'
 
 export const LogsFilterBar = (): JSX.Element => {
     const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
