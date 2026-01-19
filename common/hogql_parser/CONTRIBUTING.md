@@ -107,10 +107,10 @@ From the repository root:
 
 ```bash
 # Using Ninja (recommended, faster)
-pnpm --filter=@posthog/hogql-parser build:ninja
+pnpm --filter=@posthog/hogql-parser build
 
 # Or using Make
-pnpm --filter=@posthog/hogql-parser build
+pnpm --filter=@posthog/hogql-parser build:make
 ```
 
 This will generate the following files in `common/hogql_parser/dist/`:

@@ -204,6 +204,14 @@ jobs:
                   node-version: 22.22.0
                   cache: pnpm
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@v14
+              with:
+                  version: '3.1.51'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 

@@ -278,9 +278,6 @@ jobs:
             - name: Install Ninja
               run: sudo apt-get install -y ninja-build
 
-            - name: Build hogql-parser WASM
-              run: pnpm --filter=@posthog/hogql-parser build:ninja
-
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile

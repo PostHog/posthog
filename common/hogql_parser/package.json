@@ -19,8 +19,8 @@
         "dist/index.d.ts"
     ],
     "scripts": {
-        "build": "emcmake cmake -S . -B build_wasm && emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
-        "build:ninja": "emcmake cmake -S . -B build_wasm -G Ninja && emmake cmake --build build_wasm --config Release && cmake --install build_wasm"
+        "build:make": "emcmake cmake -S . -B build_wasm && emmake cmake --build build_wasm --config Release && cmake --install build_wasm",
+        "build": "emcmake cmake -S . -B build_wasm -G Ninja && emmake cmake --build build_wasm --config Release && cmake --install build_wasm"
     },
     "keywords": [
         "hogql",
