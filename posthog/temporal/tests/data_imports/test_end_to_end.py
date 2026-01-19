@@ -2959,14 +2959,17 @@ async def test_cdp_producer(team, stripe_customer, mock_stripe_client, minio_cli
         filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
-    _, inputs = await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-        mock_data_response=stripe_customer["data"],
-    )
+    with mock.patch(
+        "posthog.temporal.data_imports.external_data_job.start_child_workflow"
+    ) as mock_start_child_workflow:
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            table_name="stripe_customer",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_customer["data"],
+        )
 
     @sync_to_async
     def get_jobs():
@@ -2988,3 +2991,12 @@ async def test_cdp_producer(team, stripe_customer, mock_stripe_client, minio_cli
     assert len(files["Contents"]) == 1
     file = files["Contents"][0]
     assert file["Key"] == f"{path}chunk_0.parquet"
+
+    mock_start_child_workflow.assert_called_with(
+        workflow="dwh-cdp-producer-job",
+        arg=mock.ANY,
+        id=f"dwh-cdp-producer-job-{job.id}",
+        task_queue=mock.ANY,
+        parent_close_policy=mock.ANY,
+        retry_policy=mock.ANY,
+    )

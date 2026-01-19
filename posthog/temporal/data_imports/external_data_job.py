@@ -11,7 +11,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
-from temporalio.workflow import ParentClosePolicy
+from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
@@ -311,7 +311,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )  # type: ignore
 
             if pipeline_result["should_trigger_cdp_producer"]:
-                await workflow.start_child_workflow(
+                await start_child_workflow(
                     workflow="dwh-cdp-producer-job",
                     arg=dataclasses.asdict(
                         CDPProducerWorkflowInputs(

@@ -14,7 +14,7 @@ LOGGER = get_logger(__name__)
 
 
 @activity.defn
-def produce_to_kafka_activity(inputs: CDPProducerWorkflowInputs) -> None:
+def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> None:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -33,7 +33,7 @@ class CDPProducerJobWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: CDPProducerWorkflowInputs) -> None:
         await workflow.execute_activity(
-            produce_to_kafka_activity,
+            produce_to_cdp_kafka_activity,
             inputs,
             start_to_close_timeout=timedelta(hours=24),
             retry_policy=RetryPolicy(maximum_attempts=1),
