@@ -16,6 +16,10 @@ func Index(c echo.Context) error {
 	return c.String(http.StatusOK, "RealTime Hog 3000")
 }
 
+func parseBoolParam(value string) bool {
+	return strings.ToLower(value) == "true" || value == "1"
+}
+
 type Counter struct {
 	EventCount int
 	UserCount  int
@@ -71,25 +75,13 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
-		var (
-			teamID  int
-			token   string
-			geoOnly bool
-			err     error
-		)
-
-		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
+		teamID, token, err := auth.GetAuthClaims(c.Request().Header)
 		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
 
 		eventType := c.QueryParam("eventType")
 		distinctId := c.QueryParam("distinctId")
-		geo := c.QueryParam("geo")
-
-		if strings.ToLower(geo) == "true" || geo == "1" {
-			geoOnly = true
-		}
 
 		var eventTypes []string
 		if eventType != "" {
@@ -101,7 +93,8 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 			TeamId:        teamID,
 			Token:         token,
 			DistinctId:    distinctId,
-			Geo:           geoOnly,
+			Geo:           parseBoolParam(c.QueryParam("geo")),
+			IncludeStats:  parseBoolParam(c.QueryParam("includeStats")),
 			EventTypes:    eventTypes,
 			EventChan:     make(chan interface{}, 100),
 			ShouldClose:   &atomic.Bool{},

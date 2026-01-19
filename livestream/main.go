@@ -107,7 +107,8 @@ func main() {
 		}
 	}()
 
-	filter := events.NewFilter(subChan, unSubChan, phEventChan)
+	statsProvider := events.NewStatsProvider(stats, sessionStats)
+	filter := events.NewFilter(subChan, unSubChan, phEventChan, statsProvider)
 	go filter.Run()
 
 	// Echo instance

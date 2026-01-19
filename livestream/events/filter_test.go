@@ -11,12 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTestStatsProvider() StatsProvider {
+	return NewStatsProvider(NewStatsKeeper(), NewSessionStatsKeeper(0, 0))
+}
+
 func TestNewFilter(t *testing.T) {
 	subChan := make(chan Subscription)
 	unSubChan := make(chan Subscription)
 	inboundChan := make(chan PostHogEvent)
 
-	filter := NewFilter(subChan, unSubChan, inboundChan)
+	filter := NewFilter(subChan, unSubChan, inboundChan, newTestStatsProvider())
 
 	assert.NotNil(t, filter)
 	assert.Equal(t, subChan, filter.SubChan)
@@ -27,9 +31,9 @@ func TestNewFilter(t *testing.T) {
 
 func TestRemoveSubscription(t *testing.T) {
 	subs := []Subscription{
-		{SubID: 1},
-		{SubID: 2},
-		{SubID: 3},
+		{SubID: 1, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 2, DroppedEvents: &atomic.Uint64{}},
+		{SubID: 3, DroppedEvents: &atomic.Uint64{}},
 	}
 
 	result := removeSubscription(2, subs)
@@ -89,20 +93,21 @@ func TestFilterRun(t *testing.T) {
 	unSubChan := make(chan Subscription)
 	inboundChan := make(chan PostHogEvent)
 
-	filter := NewFilter(subChan, unSubChan, inboundChan)
+	filter := NewFilter(subChan, unSubChan, inboundChan, newTestStatsProvider())
 
 	go filter.Run()
 
 	// Test subscription
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Token:       "token1",
-		DistinctId:  "user1",
-		EventTypes:  []string{"pageview"},
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Token:         "token1",
+		DistinctId:    "user1",
+		EventTypes:    []string{"pageview"},
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -147,18 +152,19 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	unSubChan := make(chan Subscription)
 	inboundChan := make(chan PostHogEvent)
 
-	filter := NewFilter(subChan, unSubChan, inboundChan)
+	filter := NewFilter(subChan, unSubChan, inboundChan, newTestStatsProvider())
 
 	go filter.Run()
 
 	// Test subscription with Geo enabled
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		SubID:       1,
-		TeamId:      1,
-		Geo:         true,
-		EventChan:   eventChan,
-		ShouldClose: &atomic.Bool{},
+		SubID:         1,
+		TeamId:        1,
+		Geo:           true,
+		EventChan:     eventChan,
+		ShouldClose:   &atomic.Bool{},
+		DroppedEvents: &atomic.Uint64{},
 	}
 	subChan <- sub
 
@@ -183,6 +189,84 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Timed out waiting for geo event")
 	}
+}
+
+func TestFilterRunIncludeStats(t *testing.T) {
+	subChan := make(chan Subscription)
+	unSubChan := make(chan Subscription)
+	inboundChan := make(chan PostHogEvent)
+
+	stats := NewStatsKeeper()
+	sessionStats := NewSessionStatsKeeper(0, 0)
+	statsProvider := NewStatsProvider(stats, sessionStats)
+
+	stats.GetStoreForToken("token1").Add("user1", NoSpaceType{})
+	stats.GetStoreForToken("token1").Add("user2", NoSpaceType{})
+	sessionStats.Add("token1", "session1")
+
+	filter := NewFilter(subChan, unSubChan, inboundChan, statsProvider)
+	go filter.Run()
+
+	t.Run("includes stats when IncludeStats is true", func(t *testing.T) {
+		eventChan := make(chan interface{}, 1)
+		sub := Subscription{
+			SubID:         1,
+			TeamId:        1,
+			Token:         "token1",
+			IncludeStats:  true,
+			EventChan:     eventChan,
+			ShouldClose:   &atomic.Bool{},
+			DroppedEvents: &atomic.Uint64{},
+		}
+		subChan <- sub
+		time.Sleep(10 * time.Millisecond)
+
+		inboundChan <- PostHogEvent{Uuid: "123", Token: "token1", Event: "test"}
+
+		select {
+		case receivedEvent := <-eventChan:
+			responseEvent := receivedEvent.(ResponsePostHogEvent)
+			require.NotNil(t, responseEvent.Stats)
+			assert.Equal(t, 2, responseEvent.Stats.UsersOnProduct)
+			assert.Equal(t, 1, responseEvent.Stats.ActiveRecordings)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Timed out waiting for event")
+		}
+
+		unSubChan <- sub
+		time.Sleep(10 * time.Millisecond)
+	})
+
+	t.Run("excludes stats when IncludeStats is false", func(t *testing.T) {
+		eventChan := make(chan interface{}, 1)
+		sub := Subscription{
+			SubID:         2,
+			TeamId:        1,
+			Token:         "token1",
+			IncludeStats:  false,
+			EventChan:     eventChan,
+			ShouldClose:   &atomic.Bool{},
+			DroppedEvents: &atomic.Uint64{},
+		}
+		subChan <- sub
+		time.Sleep(10 * time.Millisecond)
+
+		inboundChan <- PostHogEvent{Uuid: "456", Token: "token1", Event: "test"}
+
+		select {
+		case receivedEvent := <-eventChan:
+			responseEvent := receivedEvent.(ResponsePostHogEvent)
+			assert.Nil(t, responseEvent.Stats)
+
+			jsonBytes, _ := json.Marshal(responseEvent)
+			assert.NotContains(t, string(jsonBytes), "stats")
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Timed out waiting for event")
+		}
+
+		unSubChan <- sub
+		time.Sleep(10 * time.Millisecond)
+	})
 }
 
 func TestResponsePostHogEvent_MarshalJSON(t *testing.T) {

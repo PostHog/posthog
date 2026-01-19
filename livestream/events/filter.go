@@ -20,7 +20,8 @@ type Subscription struct {
 	DistinctId string
 	EventTypes []string
 
-	Geo bool
+	Geo          bool
+	IncludeStats bool
 
 	// Channels
 	EventChan   chan interface{}
@@ -38,6 +39,12 @@ type ResponsePostHogEvent struct {
 	PersonId   string                 `json:"person_id"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
+	Stats      *EventStats            `json:"stats,omitempty"`
+}
+
+type EventStats struct {
+	UsersOnProduct   int `json:"users_on_product"`
+	ActiveRecordings int `json:"active_recordings"`
 }
 
 //easyjson:json
@@ -48,14 +55,15 @@ type ResponseGeoEvent struct {
 }
 
 type Filter struct {
-	inboundChan chan PostHogEvent
-	SubChan     chan Subscription
-	UnSubChan   chan Subscription
-	subs        []Subscription
+	inboundChan   chan PostHogEvent
+	SubChan       chan Subscription
+	UnSubChan     chan Subscription
+	subs          []Subscription
+	statsProvider StatsProvider
 }
 
-func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent) *Filter {
-	return &Filter{SubChan: subChan, UnSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0)}
+func NewFilter(subChan chan Subscription, unSubChan chan Subscription, inboundChan chan PostHogEvent, statsProvider StatsProvider) *Filter {
+	return &Filter{SubChan: subChan, UnSubChan: unSubChan, inboundChan: inboundChan, subs: make([]Subscription, 0), statsProvider: statsProvider}
 }
 
 func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
@@ -110,7 +118,6 @@ func (c *Filter) Run() {
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
-			var responseEvent *ResponsePostHogEvent
 			var responseGeoEvent *ResponseGeoEvent
 
 			for _, sub := range c.subs {
@@ -119,7 +126,6 @@ func (c *Filter) Run() {
 					continue
 				}
 
-				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
@@ -146,8 +152,12 @@ func (c *Filter) Run() {
 						}
 					}
 				} else {
-					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
+					responseEvent := convertToResponsePostHogEvent(event, sub.TeamId)
+					if sub.IncludeStats {
+						responseEvent.Stats = &EventStats{
+							UsersOnProduct:   c.statsProvider.GetUsersOnProduct(event.Token),
+							ActiveRecordings: c.statsProvider.GetActiveRecordings(event.Token),
+						}
 					}
 
 					select {
