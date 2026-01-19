@@ -37,8 +37,27 @@ class EndpointVersion(models.Model):
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
+    description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+
+    cache_age_seconds = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Cache age in seconds. If null, uses default interval-based caching.",
+    )
+    is_materialized = models.BooleanField(
+        default=False,
+        help_text="Whether this version's query results are materialized",
+    )
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="endpoint_versions",
+        help_text="The underlying materialized view for this version",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -57,6 +76,40 @@ class EndpointVersion(models.Model):
 
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
+
+    def can_materialize(self) -> tuple[bool, str]:
+        """Check if this version can be materialized.
+
+        Returns: (can_materialize: bool, reason: str)
+        """
+        query_kind = self.query.get("kind") if self.query else None
+
+        MATERIALIZABLE_QUERY_TYPES = {
+            "HogQLQuery",
+            "TrendsQuery",
+            "FunnelsQuery",
+            "LifecycleQuery",
+            "RetentionQuery",
+            "PathsQuery",
+            "StickinessQuery",
+        }
+
+        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+            return (
+                False,
+                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+            )
+
+        if self.query.get("variables"):
+            return False, "Queries with variables cannot be materialized."
+
+        if query_kind == "HogQLQuery":
+            hogql_query = self.query.get("query")
+            if not hogql_query or not isinstance(hogql_query, str):
+                return False, "Query is empty or invalid."
+
+        return True, ""
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -190,6 +243,8 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     def can_materialize(self) -> tuple[bool, str]:
         """Check if endpoint can be materialized.
+
+        Note: TO BE DEPRECATED IN FAVOUR OF EndpointVersion.can_materialize()
 
         Returns: (can_materialize: bool, reason: str)
         """
