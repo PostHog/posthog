@@ -1346,8 +1346,8 @@ class SessionRecordingViewSet(
         if use_recording_api:
             async with encrypted_block_storage() as block_storage:
                 with (
-                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                    timer("fetch_blocks_via_recording_api"),
+                    tracer.start_as_current_span("fetch_blocks_via_recording_api"),
                 ):
                     blocks_data = await self._fetch_blocks_parallel(
                         blocks,
@@ -1360,8 +1360,8 @@ class SessionRecordingViewSet(
         else:
             async with session_recording_v2_object_storage.async_client() as block_storage:
                 with (
-                    timer("fetch_blocks_parallel__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_blocks_parallel__stream_blob_v2_to_client"),
+                    timer("fetch_blocks_via_s3"),
+                    tracer.start_as_current_span("fetch_blocks_via_s3"),
                 ):
                     blocks_data = await self._fetch_blocks_parallel(
                         blocks,
@@ -1397,8 +1397,8 @@ class SessionRecordingViewSet(
         if use_recording_api:
             async with encrypted_block_storage() as block_storage:
                 with (
-                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                    timer("fetch_compressed_blocks_via_recording_api"),
+                    tracer.start_as_current_span("fetch_compressed_blocks_via_recording_api"),
                 ):
                     blocks_data = await self._fetch_blocks_parallel(
                         blocks,
@@ -1411,8 +1411,8 @@ class SessionRecordingViewSet(
         else:
             async with session_recording_v2_object_storage.async_client() as block_storage:
                 with (
-                    timer("fetch_compressed_blocks__stream_blob_v2_to_client"),
-                    tracer.start_as_current_span("fetch_compressed_blocks__stream_blob_v2_to_client"),
+                    timer("fetch_compressed_blocks_via_s3"),
+                    tracer.start_as_current_span("fetch_compressed_blocks_via_s3"),
                 ):
                     blocks_data = await self._fetch_blocks_parallel(
                         blocks,
