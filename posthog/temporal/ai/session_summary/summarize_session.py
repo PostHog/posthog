@@ -23,7 +23,6 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities import (
-    SESSION_VIDEO_CHUNK_DURATION_S,
     analyze_video_segment_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
@@ -78,6 +77,8 @@ logger = structlog.get_logger(__name__)
 
 # How often to poll for new chunks from the LLM stream
 SESSION_SUMMARIES_STREAM_INTERVAL = 0.1  # 100ms
+# How large the chunks should be when analyzing videos
+SESSION_VIDEO_CHUNK_DURATION_S = 60
 
 
 @temporalio.activity.defn

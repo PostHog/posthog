@@ -30,8 +30,6 @@ from posthog.temporal.ai.session_summary.types.video import (
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import calculate_time_since_start, get_column_index, prepare_datetime
 
-SESSION_VIDEO_CHUNK_DURATION_S = 15
-
 logger = structlog.get_logger(__name__)
 
 
