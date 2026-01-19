@@ -76,6 +76,14 @@ jobs:
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-webpack-storybook-
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@v14
+              with:
+                  version: '3.1.51'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
