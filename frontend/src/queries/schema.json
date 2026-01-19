@@ -17214,6 +17214,13 @@
                 "debug": {
                     "type": "boolean"
                 },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },

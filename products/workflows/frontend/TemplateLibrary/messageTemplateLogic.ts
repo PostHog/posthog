@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -193,4 +193,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.resetTemplate(NEW_TEMPLATE)
         }
     }),
+    urlToAction(({ actions, props }) => ({
+        [urls.workflowsLibraryTemplateNew()]: () => {
+            // Reset state when navigating to the new template page to avoid stale data
+            // from previously created templates persisting in the form
+            if (props.id === 'new') {
+                actions.resetTemplate({ ...NEW_TEMPLATE })
+                actions.setOriginalTemplate({ ...NEW_TEMPLATE })
+            }
+        },
+    })),
 ])
