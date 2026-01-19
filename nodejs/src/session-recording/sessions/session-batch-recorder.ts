@@ -1,7 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { BaseKeyStore } from '../../recording-api/keystore'
-import { BaseRecordingEncryptor } from '../../recording-api/recording-io'
+import { BaseKeyStore, BaseRecordingEncryptor } from '../../recording-api/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'

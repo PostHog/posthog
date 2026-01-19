@@ -87,14 +87,29 @@ describe('KeyStore', () => {
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
         })
 
-        it('should cache the key in memory', async () => {
-            await keyStore.generateKey('session-123', 1)
+        it('should check team encryption setting', async () => {
+            await keyStore.generateKey('session-123', 42)
 
-            // Second call should use memory cache - no additional DynamoDB/KMS calls
-            const result = await keyStore.getKey('session-123', 1)
+            expect(mockTeamService.getEncryptionEnabledByTeamId).toHaveBeenCalledWith(42)
+        })
 
-            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1) // Only the generateKey call
-            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
+        it('should store cleartext entry when encryption is disabled', async () => {
+            mockTeamService.getEncryptionEnabledByTeamId.mockResolvedValue(false)
+
+            const result = await keyStore.generateKey('session-123', 1)
+
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+            expect(mockDynamoDBClient.send).toHaveBeenCalledTimes(1)
+
+            const dynamoCall = mockDynamoDBClient.send.mock.calls[0][0] as any
+            expect(dynamoCall.input.Item.session_state).toEqual({ S: 'cleartext' })
+            expect(dynamoCall.input.Item.encrypted_key).toBeUndefined()
+            expect(dynamoCall.input.Item.nonce).toBeUndefined()
+
+            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
+            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
+            expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.sessionState).toBe('cleartext')
         })
 
         it('should calculate expiration based on retention days', async () => {
@@ -133,22 +148,7 @@ describe('KeyStore', () => {
     })
 
     describe('getKey', () => {
-        it('should return cached key from memory if available', async () => {
-            // First generate a key to populate the cache
-            await keyStore.generateKey('session-123', 1)
-
-            // Reset mocks to verify cache is used
-            mockDynamoDBClient.send.mockClear()
-            mockKMSClient.send.mockClear()
-
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
-            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
-        })
-
-        it('should fetch from DynamoDB and decrypt if not cached', async () => {
+        it('should fetch from DynamoDB and decrypt', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -170,34 +170,6 @@ describe('KeyStore', () => {
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
             expect(result.nonce).toEqual(Buffer.from(mockNonce))
-        })
-
-        it('should cache key in memory after fetching from DynamoDB', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Item: {
-                    session_id: { S: 'session-123' },
-                    team_id: { N: '1' },
-                    encrypted_key: { B: mockEncryptedKey },
-                    nonce: { B: mockNonce },
-                    session_state: { S: 'ciphertext' },
-                },
-            })
-            ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
-                Plaintext: mockPlaintextKey,
-            })
-
-            await keyStore.getKey('session-123', 1)
-
-            // Reset mocks
-            mockDynamoDBClient.send.mockClear()
-            mockKMSClient.send.mockClear()
-
-            // Second call should use memory cache
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
-            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
         })
 
         it('should return cleartext key if key not found in DynamoDB', async () => {
@@ -332,25 +304,6 @@ describe('KeyStore', () => {
             expect(result).toBe(false)
         })
 
-        it('should update memory cache with deleted state', async () => {
-            // First generate a key to populate the cache
-            await keyStore.generateKey('session-123', 1)
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' }, session_state: { S: 'deleted' } },
-            })
-
-            await keyStore.deleteKey('session-123', 1)
-
-            // Reset mocks
-            mockDynamoDBClient.send.mockClear()
-
-            // Next getKey should use memory cache with deleted state
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
-            expect(result.sessionState).toBe('deleted')
-        })
-
         it('should throw error if DynamoDB update fails', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockRejectedValue(new Error('DynamoDB update error'))
 
@@ -421,136 +374,6 @@ describe('PassthroughKeyStore', () => {
     })
 })
 
-describe('KeyStore with Redis caching', () => {
-    let keyStore: KeyStore
-    let mockDynamoDBClient: jest.Mocked<DynamoDBClient>
-    let mockKMSClient: jest.Mocked<KMSClient>
-    let mockRetentionService: jest.Mocked<RetentionService>
-    let mockTeamService: jest.Mocked<TeamService>
-    let mockRedisClient: any
-    let mockRedisPool: any
-
-    const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
-    const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
-    const mockNonce = new Uint8Array([201, 202, 203, 204, 205, 206, 207, 208])
-
-    beforeEach(async () => {
-        jest.useFakeTimers()
-        jest.setSystemTime(new Date('2024-01-15T12:00:00Z'))
-
-        mockRedisClient = {
-            get: jest.fn().mockResolvedValue(null),
-            setex: jest.fn().mockResolvedValue('OK'),
-            del: jest.fn().mockResolvedValue(1),
-        }
-
-        mockRedisPool = {
-            acquire: jest.fn().mockResolvedValue(mockRedisClient),
-            release: jest.fn().mockResolvedValue(undefined),
-        }
-
-        mockDynamoDBClient = {
-            send: jest.fn().mockResolvedValue({}),
-        } as unknown as jest.Mocked<DynamoDBClient>
-
-        mockKMSClient = {
-            send: jest.fn().mockResolvedValue({
-                Plaintext: mockPlaintextKey,
-                CiphertextBlob: mockEncryptedKey,
-            }),
-        } as unknown as jest.Mocked<KMSClient>
-
-        mockRetentionService = {
-            getSessionRetentionDays: jest.fn().mockResolvedValue(30),
-        } as unknown as jest.Mocked<RetentionService>
-
-        mockTeamService = {
-            getEncryptionEnabledByTeamId: jest.fn().mockResolvedValue(true),
-        } as unknown as jest.Mocked<TeamService>
-
-        keyStore = new KeyStore(mockDynamoDBClient, mockKMSClient, mockRetentionService, mockTeamService, mockRedisPool)
-        await keyStore.start()
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
-    })
-
-    describe('generateKey', () => {
-        it('should cache the key in Redis when Redis pool is provided', async () => {
-            await keyStore.generateKey('session-123', 1)
-
-            expect(mockRedisPool.acquire).toHaveBeenCalled()
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400, // 24 hours
-                expect.any(String)
-            )
-            expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
-        })
-    })
-
-    describe('getKey', () => {
-        it('should check Redis cache before DynamoDB', async () => {
-            const cachedKey = {
-                plaintextKey: Buffer.from(mockPlaintextKey).toString('base64'),
-                encryptedKey: Buffer.from(mockEncryptedKey).toString('base64'),
-                nonce: Buffer.from(mockNonce).toString('base64'),
-                sessionState: 'ciphertext',
-            }
-            mockRedisClient.get.mockResolvedValue(JSON.stringify(cachedKey))
-
-            const result = await keyStore.getKey('session-123', 1)
-
-            expect(mockRedisPool.acquire).toHaveBeenCalled()
-            expect(mockRedisClient.get).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
-            expect(mockDynamoDBClient.send).not.toHaveBeenCalled()
-            expect(mockKMSClient.send).not.toHaveBeenCalled()
-            expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
-        })
-
-        it('should cache key in Redis after fetching from DynamoDB', async () => {
-            mockRedisClient.get.mockResolvedValue(null)
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Item: {
-                    session_id: { S: 'session-123' },
-                    team_id: { N: '1' },
-                    encrypted_key: { B: mockEncryptedKey },
-                    nonce: { B: mockNonce },
-                    session_state: { S: 'ciphertext' },
-                },
-            })
-            ;(mockKMSClient.send as jest.Mock).mockResolvedValue({
-                Plaintext: mockPlaintextKey,
-            })
-
-            await keyStore.getKey('session-123', 1)
-
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.any(String)
-            )
-        })
-    })
-
-    describe('deleteKey', () => {
-        it('should update Redis cache with deleted state', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Attributes: { session_id: { S: 'session-123' }, session_state: { S: 'deleted' } },
-            })
-
-            await keyStore.deleteKey('session-123', 1)
-
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
-                '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.stringContaining('"sessionState":"deleted"')
-            )
-        })
-    })
-})
-
 describe('getKeyStore', () => {
     let mockTeamService: jest.Mocked<TeamService>
     let mockRetentionService: jest.Mocked<RetentionService>
@@ -581,35 +404,12 @@ describe('getKeyStore', () => {
         expect(keyStore).toBeInstanceOf(PassthroughKeyStore)
     })
 
-    it('should accept optional config with redisPool and redisCacheEnabled', () => {
+    it('should accept custom kmsEndpoint and dynamoDBEndpoint', () => {
         ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
 
-        const mockRedisPool = {
-            acquire: jest.fn(),
-            release: jest.fn(),
-        } as any
-
         const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1', {
-            redisPool: mockRedisPool,
-            redisCacheEnabled: true,
-        })
-
-        expect(keyStore).toBeInstanceOf(KeyStore)
-    })
-
-    it('should not use redis pool when redisCacheEnabled is false', () => {
-        ;(envUtils.isCloud as jest.Mock).mockReturnValue(true)
-
-        const mockRedisPool = {
-            acquire: jest.fn(),
-            release: jest.fn(),
-        } as any
-
-        // When redisCacheEnabled is false, the keystore should not use Redis
-        // (this is verified by the KeyStore internal behavior, not directly testable here)
-        const keyStore = getKeyStore(mockTeamService, mockRetentionService, 'us-east-1', {
-            redisPool: mockRedisPool,
-            redisCacheEnabled: false,
+            kmsEndpoint: 'http://localhost:4566',
+            dynamoDBEndpoint: 'http://localhost:4566',
         })
 
         expect(keyStore).toBeInstanceOf(KeyStore)

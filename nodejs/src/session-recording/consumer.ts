@@ -6,8 +6,10 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../config/config'
 import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { BaseKeyStore, getKeyStore } from '../recording-api/keystore'
-import { BaseRecordingEncryptor, getBlockEncryptor } from '../recording-api/recording-io'
+import { getKeyStore } from '../recording-api/keystore'
+import { MemoryCachedKeyStore } from '../recording-api/keystore-cache'
+import { getBlockEncryptor } from '../recording-api/recording-encryptor'
+import { BaseKeyStore, BaseRecordingEncryptor } from '../recording-api/types'
 import {
     HealthCheckResult,
     PluginServerService,
@@ -226,10 +228,11 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        this.keyStore = getKeyStore(teamService, retentionService, region, {
+        const keyStore = getKeyStore(teamService, retentionService, region, {
             kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
             dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
+        this.keyStore = new MemoryCachedKeyStore(keyStore)
         this.encryptor = getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({

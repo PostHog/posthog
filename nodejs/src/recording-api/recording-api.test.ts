@@ -3,11 +3,10 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { RetentionService } from '../session-recording/retention/retention-service'
 import { TeamService } from '../session-recording/teams/team-service'
 import { Hub } from '../types'
-import { BaseKeyStore } from './keystore'
 import { getKeyStore } from './keystore'
 import { RecordingApi } from './recording-api'
-import { BaseRecordingDecryptor } from './recording-io'
-import { getBlockDecryptor } from './recording-io'
+import { getBlockDecryptor } from './recording-decryptor'
+import { BaseKeyStore, BaseRecordingDecryptor } from './types'
 
 jest.mock('@aws-sdk/client-s3', () => ({
     S3Client: jest.fn().mockImplementation(() => ({
@@ -21,7 +20,12 @@ jest.mock('./keystore', () => ({
     getKeyStore: jest.fn(),
 }))
 
-jest.mock('./recording-io', () => ({
+jest.mock('./keystore-cache', () => ({
+    MemoryCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
+    RedisCachedKeyStore: jest.fn().mockImplementation((delegate) => delegate),
+}))
+
+jest.mock('./recording-decryptor', () => ({
     getBlockDecryptor: jest.fn(),
 }))
 
@@ -113,8 +117,6 @@ describe('RecordingApi', () => {
                 expect.any(RetentionService),
                 'us-west-2',
                 {
-                    redisPool: expect.anything(),
-                    redisCacheEnabled: true,
                     kmsEndpoint: undefined,
                     dynamoDBEndpoint: undefined,
                 }
