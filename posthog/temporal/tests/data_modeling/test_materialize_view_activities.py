@@ -274,9 +274,9 @@ class TestMaterializeViewActivity:
         with (
             override_settings(
                 BUCKET_URL=f"s3://{bucket_name}",
-                AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                AIRBYTE_BUCKET_REGION="us-east-1",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
@@ -317,9 +317,9 @@ class TestMaterializeViewActivity:
         with (
             override_settings(
                 BUCKET_URL=f"s3://{bucket_name}",
-                AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                AIRBYTE_BUCKET_REGION="us-east-1",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table

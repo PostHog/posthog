@@ -3,7 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -12,7 +12,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
-from ee.admin.loginas_views import loginas_user
+from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_sso, vercel_webhooks
@@ -144,6 +144,7 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="loginas-logout",
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
+        path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
@@ -155,8 +156,8 @@ urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
-    path("login/vercel", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
-    path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    re_path(r"^login/vercel/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
+    re_path(r"^login/vercel/continue/?$", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
     path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(

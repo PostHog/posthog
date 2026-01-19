@@ -5,7 +5,8 @@ use std::time::Duration;
 use common_database::get_pool;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
-use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
+use feature_flags::team::team_models::Team;
+use feature_flags::utils::test_utils::team_token_hypercache_key;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
@@ -49,11 +50,10 @@ impl ServerHandle {
             limited_tokens.clone(),
         );
 
-        // Add handling for token verification
+        // Add handling for token verification using HyperCache format
         for (token, team_id) in valid_tokens {
-            println!(
-                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
-            );
+            let cache_key = team_token_hypercache_key(&token);
+            println!("Setting up mock for token: {token} with key: {cache_key}");
 
             // Create a minimal valid Team object
             let team = Team {
@@ -65,12 +65,12 @@ impl ServerHandle {
                 ..Default::default()
             };
 
-            // Serialize to JSON
+            // Serialize to JSON, then Pickle-encode it (matching HyperCache format)
             let team_json = serde_json::to_string(&team).unwrap();
             println!("Team JSON for mock: {team_json}");
+            let pickled_bytes = serde_pickle::ser::to_vec(&team_json, Default::default()).unwrap();
 
-            mock_client =
-                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
+            mock_client = mock_client.get_raw_bytes_ret(&cache_key, Ok(pickled_bytes));
         }
 
         tokio::spawn(async move {
@@ -213,18 +213,62 @@ impl ServerHandle {
                 test_before_acquire: *config.test_before_acquire,
             });
 
-            // Create HyperCacheReader for tests
-            let hypercache_config = HyperCacheConfig::new(
+            // Create HyperCacheReader for flags
+            let flags_hypercache_config = HyperCacheConfig::new(
                 "feature_flags".to_string(),
                 "flags.json".to_string(),
                 config.object_storage_region.clone(),
                 config.object_storage_bucket.clone(),
             );
             let flags_hypercache_reader =
-                match HyperCacheReader::new(redis_reader_client.clone(), hypercache_config).await {
+                match HyperCacheReader::new(redis_reader_client.clone(), flags_hypercache_config)
+                    .await
+                {
                     Ok(reader) => Arc::new(reader),
                     Err(e) => {
-                        tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                        tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                        return;
+                    }
+                };
+
+            // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
+            let flags_with_cohorts_hypercache_config = HyperCacheConfig::new(
+                "feature_flags".to_string(),
+                "flags_with_cohorts.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            let flags_with_cohorts_hypercache_reader = match HyperCacheReader::new(
+                redis_reader_client.clone(),
+                flags_with_cohorts_hypercache_config,
+            )
+            .await
+            {
+                Ok(reader) => Arc::new(reader),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags_with_cohorts HyperCacheReader: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+
+            // Create team metadata hypercache reader
+            let mut team_hypercache_config = HyperCacheConfig::new(
+                "team_metadata".to_string(),
+                "full_metadata.json".to_string(),
+                config.object_storage_region.clone(),
+                config.object_storage_bucket.clone(),
+            );
+            team_hypercache_config.token_based = true;
+            let team_hypercache_reader =
+                match HyperCacheReader::new(redis_reader_client.clone(), team_hypercache_config)
+                    .await
+                {
+                    Ok(reader) => Arc::new(reader),
+                    Err(e) => {
+                        tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
                         return;
                     }
                 };
@@ -240,6 +284,8 @@ impl ServerHandle {
                 session_replay_billing_limiter,
                 cookieless_manager,
                 flags_hypercache_reader,
+                flags_with_cohorts_hypercache_reader,
+                team_hypercache_reader,
                 config,
             );
 

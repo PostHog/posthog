@@ -28,7 +28,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     return (
         <div className="px-3 py-2 border rounded bg-bg-light flex items-center gap-3">
             <div className="metric-cell-header font-semibold flex items-center gap-1">
-                Velocity (last 30d)
+                Velocity
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
                     <IconInfo className="text-muted-alt" fontSize="16" />
                 </Tooltip>
@@ -36,7 +36,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
             <div className="h-4 w-px bg-border" />
             <div className="flex items-baseline gap-1">
                 <span className="text-base font-semibold ">{launched_last_30d}</span>
-                <span>launched</span>
+                <span>launched (30d)</span>
                 {percent_change !== 0 && (
                     <span className={`metric-cell font-bold ${changeColor}`}>
                         {arrow} {Math.abs(percent_change)}%
@@ -46,7 +46,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
             <div>•</div>
             <div className="flex items-baseline gap-1">
                 <span className="text-base font-semibold">{active_experiments}</span>
-                <span className="">active</span>
+                <span className="">running</span>
             </div>
             <div>•</div>
             <div className="flex items-baseline gap-1">

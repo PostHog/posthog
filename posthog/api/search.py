@@ -11,8 +11,20 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, Dashboard, EventDefinition, Experiment, FeatureFlag, Insight, Survey
+from posthog.models import (
+    Action,
+    Cohort,
+    Dashboard,
+    EventDefinition,
+    Experiment,
+    FeatureFlag,
+    Insight,
+    PropertyDefinition,
+    Survey,
+)
+from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.early_access_features.backend.models import EarlyAccessFeature
 from products.notebooks.backend.models import Notebook
 
 LIMIT = 25
@@ -62,8 +74,23 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A"},
         "extra_fields": ["name"],
     },
+    "property_definition": {
+        "klass": PropertyDefinition,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+    },
     "survey": {
         "klass": Survey,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "early_access_feature": {
+        "klass": EarlyAccessFeature,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "hog_flow": {
+        "klass": HogFlow,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
@@ -114,7 +141,7 @@ def search_entities(
     entity_map: dict[str, EntityConfig],
 ) -> tuple[list[dict[str, Any]], dict[str, int | None]]:
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = {key: None for key in entity_map}
+    counts: dict[str, int | None] = dict.fromkeys(entity_map)
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)

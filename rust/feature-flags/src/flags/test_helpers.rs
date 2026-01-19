@@ -181,7 +181,7 @@ pub async fn update_flags_in_hypercache(
         .await
         .map_err(|e| {
             tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
-            FlagError::CacheUpdateError
+            FlagError::Internal(format!("Failed to update cache: {e}"))
         })?;
 
     Ok(())

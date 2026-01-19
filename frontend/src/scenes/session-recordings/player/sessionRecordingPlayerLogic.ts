@@ -58,6 +58,7 @@ import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionReco
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
+export const ONE_SECOND_MS = 1000
 
 export interface ResourceErrorDetails {
     resourceType: string
@@ -106,6 +107,7 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
     Screenshot = 'screenshot',
     Video = 'video',
+    Kiosk = 'kiosk',
 }
 
 export const ModesWithInteractions = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
@@ -983,6 +985,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
+        isKioskMode: [
+            (s) => [s.logicProps],
+            (logicProps): boolean => logicProps.mode === SessionRecordingPlayerMode.Kiosk,
+        ],
         hoverModeIsEnabled: [
             (s) => [s.logicProps, s.isCommenting, s.showingClipParams],
             (logicProps, isCommenting, showingClipParams): boolean => {
@@ -995,8 +1001,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         showPlayerChrome: [
-            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
-            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+            (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (isKioskMode, hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                // Kiosk mode never shows player controls
+                if (isKioskMode) {
+                    return false
+                }
+
                 if (!hoverModeIsEnabled) {
                     // we always show the UI in non-hover mode
                     return true

@@ -5,9 +5,11 @@ import { common, createLowlight } from 'lowlight'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 const lowlight = createLowlight(common)
+lowlight.register('plaintext', () => ({ contains: [] }))
 
 const LANGUAGES = [
-    { value: '', label: 'Plain text' },
+    { value: '', label: 'Auto' },
+    { value: 'plaintext', label: 'Plain text' },
     { value: 'javascript', label: 'JavaScript' },
     { value: 'typescript', label: 'TypeScript' },
     { value: 'python', label: 'Python' },

@@ -546,7 +546,7 @@ class FunnelCorrelation:
                 f"""
                 arrayJoin(arrayZip(
                         %(property_names)s,
-                        [{','.join(person_property_expressions)}]
+                        [{",".join(person_property_expressions)}]
                     )) as prop
             """,
                 person_property_params,

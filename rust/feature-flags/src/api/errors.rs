@@ -65,8 +65,6 @@ pub enum FlagError {
     RedisDataParsingError,
     #[error("failed to deserialize filters")]
     DeserializeFiltersError,
-    #[error("failed to update redis cache")]
-    CacheUpdateError,
     #[error("redis unavailable")]
     RedisUnavailable,
     #[error("database unavailable")]
@@ -149,7 +147,6 @@ impl FlagError {
 
             // Internal server errors (500)
             FlagError::Internal(_) => ("internal_error", 500),
-            FlagError::CacheUpdateError => ("cache_update_error", 500),
             FlagError::DeserializeFiltersError => ("deserialize_filters_error", 500),
             FlagError::DatabaseError(_, _) => ("database_error", 500),
             FlagError::NoGroupTypeMappings => ("no_group_type_mappings", 500),
@@ -193,7 +190,6 @@ impl FlagError {
             }
             FlagError::ClientFacing(_) => return false, // All other ClientFacing are 4XX
             FlagError::Internal(_)
-            | FlagError::CacheUpdateError
             | FlagError::DeserializeFiltersError
             | FlagError::DatabaseError(_, _)
             | FlagError::NoGroupTypeMappings
@@ -297,13 +293,6 @@ impl IntoResponse for FlagError {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Failed to parse internal data. This is likely a temporary issue. Please try again later.".to_string(),
-                )
-            }
-            FlagError::CacheUpdateError => {
-                tracing::error!("Cache update error: {:?}", self);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to update internal cache. This is likely a temporary issue. Please try again later.".to_string(),
                 )
             }
             FlagError::DeserializeFiltersError => {
@@ -493,7 +482,6 @@ mod tests {
     fn test_is_5xx() {
         // Test 5XX errors
         assert!(FlagError::Internal("test".to_string()).is_5xx());
-        assert!(FlagError::CacheUpdateError.is_5xx());
         assert!(FlagError::DatabaseUnavailable.is_5xx());
         assert!(FlagError::RedisUnavailable.is_5xx());
         assert!(FlagError::TimeoutError(None).is_5xx());
@@ -602,7 +590,6 @@ mod tests {
             FlagError::RowNotFound,
             FlagError::RedisDataParsingError,
             FlagError::DeserializeFiltersError,
-            FlagError::CacheUpdateError,
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
@@ -665,7 +652,6 @@ mod tests {
             FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).status_code(),
             503
         );
-        assert_eq!(FlagError::CacheUpdateError.status_code(), 500);
         assert_eq!(FlagError::RowNotFound.status_code(), 500);
     }
 
@@ -689,7 +675,6 @@ mod tests {
         // Server errors should be 5xx
         let server_errors = vec![
             FlagError::Internal("".into()),
-            FlagError::CacheUpdateError,
             FlagError::DeserializeFiltersError,
             FlagError::NoGroupTypeMappings,
             FlagError::RowNotFound,
@@ -707,7 +692,6 @@ mod tests {
         // Verify that status_code() >= 500 matches is_5xx() for ALL 5xx errors
         let errors_5xx = vec![
             FlagError::Internal("test".to_string()),
-            FlagError::CacheUpdateError,
             FlagError::DeserializeFiltersError,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, None),
             FlagError::NoGroupTypeMappings,
@@ -795,7 +779,6 @@ mod tests {
             FlagError::RowNotFound,
             FlagError::RedisDataParsingError,
             FlagError::DeserializeFiltersError,
-            FlagError::CacheUpdateError,
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
             FlagError::DatabaseError(sqlx::Error::RowNotFound, Some("test context".to_string())),
