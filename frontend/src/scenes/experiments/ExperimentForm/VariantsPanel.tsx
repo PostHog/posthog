@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { match } from 'ts-pattern'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -41,10 +42,10 @@ export function VariantsPanel({
     disabled = false,
     showNewExperimentFormLayout = false,
 }: VariantsPanelProps): JSX.Element {
-    const { mode, linkedFeatureFlag, featureFlagKeyForAutocomplete } = useValues(
+    const { mode, linkedFeatureFlag, featureFlagKeyForAutocomplete, featureFlagKeyValidation } = useValues(
         variantsPanelLogic({ experiment, disabled })
     )
-    const { setMode, setLinkedFeatureFlag, setFeatureFlagKeyForAutocomplete } = useActions(
+    const { setMode, setLinkedFeatureFlag, setFeatureFlagKeyForAutocomplete, validateFeatureFlagKey } = useActions(
         variantsPanelLogic({ experiment, disabled })
     )
 
@@ -54,6 +55,12 @@ export function VariantsPanel({
     const { reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
     const { featureFlags, featureFlagsLoading } = useValues(selectExistingFeatureFlagModalLogic)
     const { loadFeatureFlagsForAutocomplete } = useActions(selectExistingFeatureFlagModalLogic)
+
+    const debouncedValidateFeatureFlagKey = useDebouncedCallback((key: string) => {
+        if (key) {
+            validateFeatureFlagKey(key)
+        }
+    }, 100)
 
     // Load feature flags on mount for the autocomplete
     useEffect(() => {
@@ -103,6 +110,7 @@ export function VariantsPanel({
             updateFeatureFlag({
                 feature_flag_key: selected,
             })
+            debouncedValidateFeatureFlagKey(selected)
         } else {
             // User selected an existing flag - link mode
             setMode('link')
@@ -143,6 +151,9 @@ export function VariantsPanel({
                             disabled={disabled}
                             fullWidth
                         />
+                        {featureFlagKeyValidation?.error && (
+                            <div className="text-xs text-danger mt-1">{featureFlagKeyValidation.error}</div>
+                        )}
                     </>
                 </LemonField.Pure>
 
