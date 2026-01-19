@@ -1,5 +1,7 @@
-#include "string.h"
+#include <cctype>
+
 #include "error.h"
+#include "string.h"
 
 using namespace std;
 
@@ -75,6 +77,7 @@ string parse_string_text_ctx(antlr4::tree::TerminalNode* node, bool escape_quote
 }
 
 string join(const vector<string>& tokens, const string& sep) {
+  if (tokens.empty()) return "";
   string result;
   for (size_t i = 0; i < tokens.size(); ++i) {
     if (i > 0) result += sep;
@@ -85,7 +88,7 @@ string join(const vector<string>& tokens, const string& sep) {
 
 void to_lower(string& s) {
   for (char& c : s) {
-    c = tolower(static_cast<unsigned char>(c));
+    c = std::tolower(static_cast<unsigned char>(c));
   }
 }
 
@@ -96,6 +99,7 @@ string to_lower_copy(const string& s) {
 }
 
 void replace_all(string& str, const string& from, const string& to) {
+  if (from.empty()) return;
   size_t pos = 0;
   while ((pos = str.find(from, pos)) != string::npos) {
     str.replace(pos, from.length(), to);
