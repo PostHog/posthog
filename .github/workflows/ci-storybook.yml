@@ -66,6 +66,14 @@ jobs:
                   node-version: 22.22.0
                   cache: pnpm
 
+            - name: Install WASM build dependencies
+              run: apt-get update && sudo apt-get install -y ninja-build unzip
+
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
+              with:
+                  version: '3.1.51'
+
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
@@ -75,14 +83,6 @@ jobs:
                   path: common/storybook/node_modules/.cache/
                   key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-webpack-storybook-
-
-            - name: Install WASM build dependencies
-              run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
-
-            - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
-              with:
-                  version: '3.1.51'
 
             - name: Build Storybook
               env:
@@ -213,7 +213,7 @@ jobs:
                   cache: pnpm
 
             - name: Install WASM build dependencies
-              run: sudo apt-get update && sudo apt-get install -y ninja-build unzip
+              run: apt-get update && apt-get install -y ninja-build unzip
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
