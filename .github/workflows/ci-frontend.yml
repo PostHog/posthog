@@ -121,14 +121,11 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Build products
-              run: pnpm --filter=@posthog/frontend build:products
-
             - name: Check toolbar bundle size
               uses: preactjs/compressed-size-action@8518045ed95e94e971b83333085e1cb99aa18aa8 # 2.9.0
               if: github.event_name != 'merge_group'
               with:
-                  build-script: '--filter=@posthog/frontend build'
+                  build-script: '--filter=@posthog/frontend build:toolbar'
                   install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
