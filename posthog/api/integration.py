@@ -45,6 +45,7 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
     email = serializers.EmailField()
     name = serializers.CharField()
     provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
+    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
 
 
 class IntegrationSerializer(serializers.ModelSerializer):
