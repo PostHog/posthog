@@ -21,6 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
 import { OnboardingAIConsent } from './OnboardingAIConsent'
+import { OnboardingChat } from './OnboardingChat'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { OnboardingProjectData } from './OnboardingProjectData'
@@ -430,6 +431,7 @@ export const onboardingViews = {
 
 export function Onboarding(): JSX.Element | null {
     const { product, productKey } = useValues(onboardingLogic)
+    const isAIChatOnboardingEnabled = useFeatureFlag('AI_CHAT_ONBOARDING')
 
     // Show product selection when no product is selected
     if (!productKey) {
@@ -438,6 +440,11 @@ export function Onboarding(): JSX.Element | null {
 
     if (!product) {
         return <></>
+    }
+
+    // Show AI chat onboarding if feature flag is enabled
+    if (isAIChatOnboardingEnabled) {
+        return <OnboardingChat />
     }
 
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
