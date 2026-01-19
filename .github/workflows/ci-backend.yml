@@ -207,6 +207,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |
@@ -451,7 +453,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: 22.22.0
+                  node-version: 24.13.0
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -757,6 +759,8 @@ jobs:
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -777,7 +781,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
-                  node-version: 22.22.0
+                  node-version: 24.13.0
                   cache: pnpm
 
             # tests would intermittently fail in GH actions
@@ -1141,6 +1145,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |

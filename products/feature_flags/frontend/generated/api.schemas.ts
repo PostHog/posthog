@@ -406,7 +406,7 @@ export type FeatureFlagsListParams = {
      */
     excluded_properties?: string
     /**
-     * Filter feature flags by presence of evaluation environment tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
      */
     has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
     /**
