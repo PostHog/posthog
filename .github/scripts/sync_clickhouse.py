@@ -264,9 +264,9 @@ def cmd_sync_versions(args: argparse.Namespace) -> int:
 
     def get_version(name: str, content: str) -> str | None:
         patterns = [
-            r"clickhouse/clickhouse-server:(\d+\.\d+\.\d+\.\d+)",  # Docker image
-            r"clickhouse_version:\s*['\"]?(\d+\.\d+\.\d+\.\d+)",  # Ansible variable
-            r"clickhouse_version\s*=\s*['\"]?(\d+\.\d+\.\d+\.\d+)",  # Terraform variable
+            r"clickhouse/clickhouse-server:(\d+\.\d+\.\d+(?:\.\d+)?)",  # Docker image (3 or 4 parts)
+            r"clickhouse_version:\s*['\"]?(\d+\.\d+\.\d+(?:\.\d+)?)",  # Ansible variable
+            r"clickhouse_version\s*=\s*['\"]?(\d+\.\d+\.\d+(?:\.\d+)?)",  # Terraform variable
         ]
         for pattern in patterns:
             match = re.search(pattern, content)
