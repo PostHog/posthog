@@ -166,7 +166,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         <div className="flex items-center gap-2">
                             <IconPerson className="w-4 h-4 text-muted" />
                             <span className="text-sm">
-                                <strong>{pluralize(task.distinct_user_count, 'user')}</strong> affected
+                                <strong>{pluralize(task.relevant_user_count, 'user')}</strong> affected
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
