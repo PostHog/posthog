@@ -414,7 +414,7 @@ def calculate_video_segment_specs(
                 segment_index=i,
                 # Start either after the rendering delay, or at the next chunk boundary
                 start_time=max(rendering_delay, i * chunk_duration),
-                # The final segment extends to the end to avoid tiny leftover segments (28s chunk is preferable to a 2s one)
+                # The final segment extends to the end to avoid tiny leftover segments (1m 7s chunk is preferable to a 7s one)
                 end_time=(min((i + 1) * chunk_duration, video_duration) if i < num_segments - 1 else video_duration),
             )
             for i in range(num_segments)
@@ -427,15 +427,16 @@ def calculate_video_segment_specs(
     if not active_periods:
         # No active periods to check
         return []
+    # TODO: Add more logic to avoid splitting right after jumping to the new page
     for period in active_periods:
         # End period can have no end time, so default to video duration
         period_end = period.ts_to_s if period.ts_to_s is not None else video_duration
-        # Start either after the rendering delay, or at the next chunk boundary
+        # Start either after the rendering delay, or at the previous chunk end
         effective_start = max(period.ts_from_s, rendering_delay)
         # Skip this period entirely if it falls completely within the rendering delay
         if effective_start >= period_end:
             continue
-        # Check if the segment is <= chunk_duration and return it,
+        # Check if the segment is small enough (<= chunk_duration) and return it,
         if period_end - effective_start <= chunk_duration:
             segments.append(
                 VideoSegmentSpec(
@@ -449,8 +450,14 @@ def calculate_video_segment_specs(
         # If the period is larger than chunk_duration, split it into chunks small enough for efficient LLM processing
         current_start = effective_start
         while current_start < period_end:
-            # Chunk either matches the end of the period or needs more splitting
-            current_end = min(current_start + chunk_duration, period_end)
+            current_end = current_start + chunk_duration
+            remaining_after_chunk = period_end - current_end
+            # If the remaining portion after this chunk would be smaller than a new chunk, extend the current chunk
+            if remaining_after_chunk > 0 and remaining_after_chunk < chunk_duration:
+                current_end = period_end
+            # Continue creating new chunks if there are plenty of activity left in the period
+            else:
+                current_end = min(current_end, period_end)
             segments.append(
                 VideoSegmentSpec(
                     segment_index=segment_index,
@@ -459,7 +466,6 @@ def calculate_video_segment_specs(
                 )
             )
             segment_index += 1
-            # Move to the next chunk, if period is not processed fully yet
             current_start = current_end
     return segments
 
