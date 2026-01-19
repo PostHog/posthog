@@ -86,13 +86,7 @@ export class HogInputsService {
             }
         }
 
-        // Only load push_subscriptions globals if function uses push subscriptions
-        // Check if function has push subscription inputs or uses push_subscriptions in templates
-        const usesPushSubscriptionsInTemplates = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
-        )
-
-        if ((hasPushSubscriptionInputs || usesPushSubscriptionsInTemplates) && globals.event?.distinct_id) {
+        if (globals.event?.distinct_id) {
             try {
                 const pushSubscriptions = await this.pushSubscriptionsManager.get({
                     teamId: hogFunction.team_id,
