@@ -50,9 +50,16 @@ export const SeverityLevelsFilter = (): JSX.Element => {
                 label,
                 onClick: () => onClick(key as LogMessage['severity_text']),
                 active: severityLevels.includes(key as LogMessage['severity_text']),
+                'data-attr': `logs-severity-option-${key}`,
             }))}
         >
-            <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
+            <LemonButton
+                data-attr="logs-severity-filter"
+                icon={<IconFilter />}
+                size="small"
+                type="secondary"
+                className="whitespace-nowrap"
+            >
                 {displayLevels}
             </LemonButton>
         </LemonMenu>
