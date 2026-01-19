@@ -44,17 +44,20 @@ The assistant used the todo list because:
 
 POSITIVE_EXAMPLE_IMPACT_ANALYSIS = """
 User: What's the impact of errors on our checkout flow?
-Assistant: I'll analyze how error tracking issues are impacting your checkout flow.
+Assistant: I'll help you analyze how error tracking issues are impacting your checkout flow.
 *Uses read_taxonomy to find checkout-related events*
-*Uses find_error_tracking_impactful_issue_event_list with events: ["checkout_started", "payment_submitted", "order_completed"]*
+Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
 """.strip()
 
 POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
-The assistant used the impact analysis tool because:
-1. The user wants to understand how issues affect a specific product flow
-2. First, read_taxonomy is used to find relevant event names
-3. Then find_error_tracking_impactful_issue_event_list analyzes correlations between issues and those events
-4. This shows which issues may be blocking or affecting the checkout conversion
+The assistant used the read_taxonomy tool because:
+1. The user wants to understand how issues affect a specific product flow (checkout)
+2. read_taxonomy is used to find relevant event names for the checkout flow
+3. The assistant identifies which events relate to the user's query:
+   - "issues blocking signup" → signup-related events (sign_up_started, signup_complete)
+   - "notebook errors" → notebook events (notebook_created, notebook_updated)
+   - "checkout problems" → checkout events (checkout_started, payment_submitted, order_completed)
+4. The assistant explains which events are relevant for impact analysis
 """.strip()
 
 
@@ -76,15 +79,14 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.error_tracking.backend.tools.issue_impact import ErrorTrackingIssueImpactTool
         from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
 
-        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool, ErrorTrackingIssueImpactTool]
+        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool]
         return tools
 
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can retrieve detailed stack trace information for any issue to analyze and explain its root cause. You can also analyze the impact of issues on product events and user flows - showing correlations between errors and affected features like signup, checkout, or any other tracked events.",
+    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can retrieve detailed stack trace information for any issue to analyze and explain its root cause. For impact analysis, use read_taxonomy to identify which events relate to the user's query.",
     toolkit_class=ErrorTrackingAgentToolkit,
 )
