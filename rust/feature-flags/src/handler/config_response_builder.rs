@@ -255,6 +255,9 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
     };
 
     response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
+    response.config.product_tours = Some(serde_json::json!(team
+        .product_tours_opt_in
+        .unwrap_or(false)));
     response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
@@ -311,6 +314,7 @@ mod tests {
             session_recording_opt_in: false,
             inject_web_apps: None,
             surveys_opt_in: None,
+            product_tours_opt_in: None,
             heatmaps_opt_in: None,
             conversations_enabled: None,
             conversations_settings: None,
@@ -595,6 +599,32 @@ mod tests {
     }
 
     #[test]
+    fn test_product_tours_enabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.product_tours_opt_in = Some(true);
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(response.config.product_tours, Some(json!(true)));
+    }
+
+    #[test]
+    fn test_product_tours_disabled() {
+        let mut response = create_base_response();
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+
+        team.product_tours_opt_in = Some(false);
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert_eq!(response.config.product_tours, Some(json!(false)));
+    }
+
+    #[test]
     fn test_heatmaps_enabled() {
         let mut response = create_base_response();
         let config = Config::default_test_config();
@@ -710,6 +740,7 @@ mod tests {
 
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
+        assert_eq!(response.config.product_tours, Some(json!(false)));
         assert_eq!(response.config.heatmaps, Some(false));
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));

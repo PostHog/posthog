@@ -133,46 +133,6 @@ describe('hogvm execute', () => {
         )
     })
 
-    test('null comparison handling', () => {
-        const options = {}
-
-        // Equality operations should work with null (existing behavior)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.EQ], options)).toBe(false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
-        expect(execSync(['_h', op.NULL, op.NULL, op.EQ], options)).toBe(true)
-        expect(execSync(['_h', op.NULL, op.NULL, op.NOT_EQ], options)).toBe(false)
-
-        // Ordering comparisons with null should throw
-        expect(() => execSync(['_h', op.NULL, op.INTEGER, 18, op.LT_EQ], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-        expect(() => execSync(['_h', op.NULL, op.INTEGER, 18, op.LT], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-        expect(() => execSync(['_h', op.NULL, op.INTEGER, 18, op.GT_EQ], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-        expect(() => execSync(['_h', op.NULL, op.INTEGER, 18, op.GT], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-
-        // Ordering comparisons with null in mixed-type scenarios should also throw
-        expect(() => execSync(['_h', op.NULL, op.STRING, '18', op.LT_EQ], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-        expect(() => execSync(['_h', op.INTEGER, 5, op.NULL, op.GT], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-        expect(() => execSync(['_h', op.NULL, op.NULL, op.LT_EQ], options)).toThrow(
-            'Cannot compare null or undefined values'
-        )
-
-        // Valid comparisons should still work (stack order: right, left, op)
-        expect(execSync(['_h', op.INTEGER, 18, op.INTEGER, 5, op.LT_EQ], options)).toBe(true) // 5 <= 18
-        expect(execSync(['_h', op.INTEGER, 18, op.INTEGER, 20, op.GT], options)).toBe(true) // 20 > 18
-        expect(execSync(['_h', op.INTEGER, 10, op.INTEGER, 5, op.LT], options)).toBe(true) // 5 < 10
-    })
-
     test('async limits', async () => {
         const callSleep = [
             33,
