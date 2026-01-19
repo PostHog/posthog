@@ -16,7 +16,7 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
         invocation,
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
-        const nextTime = getWaitUntilTime(action, invocation.globals.person)
+        const nextTime = getWaitUntilTime(action, invocation.person)
         return {
             nextAction: findContinueAction(invocation),
             scheduledAt: nextTime ?? undefined,
