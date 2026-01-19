@@ -479,7 +479,7 @@ jobs:
                   fi
 
     django:
-        needs: [changes, detect-snapshot-mode, get-clickhouse-versions]
+        needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
         timeout-minutes: 30
@@ -491,7 +491,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.12']
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest-supported) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -672,7 +672,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get-clickhouse-versions.outputs.oldest-supported-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
@@ -924,7 +924,7 @@ jobs:
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get-clickhouse-versions.outputs.oldest-supported-image }}
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -972,16 +972,16 @@ jobs:
                   path: posthog/tasks/test/__emails__
                   retention-days: 1
 
-    get-clickhouse-versions:
+    get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         outputs:
             # Oldest supported version for main Django tests (JSON array for matrix)
-            oldest-supported: ${{ steps.read-versions.outputs.oldest-supported }}
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             # Oldest supported version as plain string (for comparisons)
-            oldest-supported-image: ${{ steps.read-versions.outputs.oldest-supported-image }}
+            oldest_supported_image: ${{ steps.read-versions.outputs.oldest_supported_image }}
             # All unique versions for compat tests
             all: ${{ steps.read-versions.outputs.all }}
         steps:
@@ -998,8 +998,8 @@ jobs:
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
-                  echo "oldest-supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
-                  echo "oldest-supported-image=$oldest_supported" >> $GITHUB_OUTPUT
+                  echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
+                  echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
                   # All unique versions for compat tests
@@ -1013,13 +1013,13 @@ jobs:
 
     clickhouse-compat:
         name: ClickHouse compat tests - ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get-clickhouse-versions]
+        needs: [changes, get_clickhouse_versions]
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.all) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.all) }}
         steps:
             - uses: actions/checkout@v6
               with:
@@ -1040,7 +1040,7 @@ jobs:
                   group: 1
                   person-on-events: false
                   pytest-targets: 'posthog/clickhouse ee/clickhouse'
-                  oldest-supported-clickhouse-image: ${{ needs.get-clickhouse-versions.outputs.oldest-supported-image }}
+                  oldest_supported_clickhouse_image: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
 
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
@@ -1155,11 +1155,11 @@ jobs:
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
-        needs: [changes, get-clickhouse-versions]
+        needs: [changes, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest-supported) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
         if: needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-latest
         steps:
@@ -1176,7 +1176,7 @@ jobs:
 
             - name: Start stack with Docker Compose
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get-clickhouse-versions.outputs.oldest-supported-image }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d &
 

@@ -88,7 +88,7 @@ def get_all_settings_from_default_profile(xml_content: str) -> dict[str, str]:
         default_profile = root.find(".//profiles/default")
         if default_profile is not None:
             for elem in default_profile:
-                if elem.tag not in SKIP_SETTINGS:
+                if elem.tag not in SKIP_SETTINGS and elem.text:
                     settings[elem.tag] = elem.text.strip()
     except ET.ParseError:
         pass
