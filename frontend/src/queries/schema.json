@@ -22295,6 +22295,11 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "data_pipeline_created",
+                "notebook_created",
+                "product_tour_created",
+                "task_created",
+                "toolbar_launched",
                 "vercel_integration"
             ],
             "type": "string"
@@ -22353,17 +22358,21 @@
                 "marketing_analytics",
                 "max",
                 "mobile_replay",
+                "notebooks",
                 "persons",
                 "pipeline_transformations",
                 "pipeline_destinations",
                 "platform_and_support",
                 "product_analytics",
+                "product_tours",
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
                 "surveys",
-                "user_interviews",
+                "tasks",
                 "teams",
+                "toolbar",
+                "user_interviews",
                 "web_analytics",
                 "workflows"
             ],
@@ -29649,6 +29658,9 @@
                 "retention_period_days": {
                     "description": "retention period for this recording",
                     "type": "number"
+                },
+                "snapshot_library": {
+                    "type": "string"
                 },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],

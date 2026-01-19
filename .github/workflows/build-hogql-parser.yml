@@ -66,14 +66,14 @@ jobs:
                 # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
                 # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
                 # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-13, macos-14]
+                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-14, macos-15-intel]
                 include:
-                    - os: macos-13
-                      cibw_archs_macos: x86_64
-                      MACOSX_DEPLOYMENT_TARGET: 13
                     - os: macos-14
                       cibw_archs_macos: arm64
                       MACOSX_DEPLOYMENT_TARGET: 14
+                    - os: macos-15-intel
+                      cibw_archs_macos: x86_64
+                      MACOSX_DEPLOYMENT_TARGET: 15
                     - os: ubuntu-22.04
                       cibw_archs_linux: x86_64
                       MACOSX_DEPLOYMENT_TARGET: ''
@@ -133,16 +133,16 @@ jobs:
                   name: wheels-buildjet-2vcpu-ubuntu-2204-arm
                   path: dist
 
-            - name: Download wheels from macos-13
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: wheels-macos-13
-                  path: dist
-
             - name: Download wheels from macos-14
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: wheels-macos-14
+                  path: dist
+
+            - name: Download wheels from macos-15-intel
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: wheels-macos-15-intel
                   path: dist
 
             - name: Publish package to PyPI

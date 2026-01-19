@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -15,13 +15,17 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const { openShareModal } = useActions(notebookLogic({ shortId }))
-    const { exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
+    const { notebook, showHistory, isLocalOnly, isTemplate } = useValues(notebookLogic({ shortId }))
+    const { openShareModal, duplicateNotebook, exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
 
     return (
         <LemonMenu
             items={[
+                !isTemplate && {
+                    label: 'Duplicate',
+                    icon: <IconCopy />,
+                    onClick: () => duplicateNotebook(),
+                },
                 {
                     label: 'Export JSON',
                     icon: <IconDownload />,

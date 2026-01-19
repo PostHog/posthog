@@ -262,7 +262,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_EXPOSURE_CRITERIA_COLLAPSABLE: 'experiments-exposure-criteria-collapsable', // owner: #team-experiments
     EXPERIMENTS_RELOAD_ACTION: 'experiments-reload-action', // owner: @rodrigoi #team-experiments
-    EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FLAG_BUCKETING_IDENTIFIER: 'flag-bucketing-identifier', // owner: @andehen #team-experiments
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
@@ -346,9 +345,6 @@ export const FEATURE_FLAGS = {
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     SURVEY_RESULTS_V2: 'survey-results-v2', // owner: #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
-    SURVEYS_EXPERIMENTS_CROSS_SELL: 'surveys-experiments-cross-sell', // owner: @adboio #team-surveys
-    SURVEYS_FF_CROSS_SELL: 'surveys-ff-cross-sell', // owner: @adboio #team-surveys
-    SURVEYS_FUNNELS_CROSS_SELL: 'survey-funnels-cross-sell', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true
     SURVEYS_WEB_ANALYTICS_CROSS_SELL: 'surveys-in-web-analytics', // owner: @adboio #team-surveys
@@ -375,6 +371,7 @@ export const FEATURE_FLAGS = {
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     EXPERIMENTS_SAMPLE_RATIO_MISMATCH: 'experiments-sample-ratio-mismatch', // owner: @jurajmajerik #team-experiments
+    NEW_SEARCH_UX: 'new-search-ux', // owner: @adamleithp #team-platform-ux
     // PLEASE KEEP THIS ALPHABETICALLY ORDERED
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
