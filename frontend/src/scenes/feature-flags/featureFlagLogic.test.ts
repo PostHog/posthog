@@ -296,10 +296,10 @@ describe('featureFlagLogic', () => {
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
-                },
-                post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
-                        () => [200, { has_active_dependents: true, dependent_flags: MOCK_DEPENDENT_FLAGS }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        MOCK_DEPENDENT_FLAGS,
+                    ],
                 },
             })
 
@@ -328,10 +328,10 @@ describe('featureFlagLogic', () => {
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
-                },
-                post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
-                        () => [200, { has_active_dependents: true, dependent_flags: MOCK_DEPENDENT_FLAGS }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        MOCK_DEPENDENT_FLAGS,
+                    ],
                 },
             })
 
@@ -357,10 +357,10 @@ describe('featureFlagLogic', () => {
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
-                },
-                post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
-                        () => [200, { has_active_dependents: false, dependent_flags: [] }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        200,
+                        [],
+                    ],
                 },
             })
 
@@ -386,10 +386,10 @@ describe('featureFlagLogic', () => {
                         200,
                         MOCK_FEATURE_FLAG_STATUS,
                     ],
-                },
-                post: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/has_active_dependents/`]:
-                        () => [500, { error: 'Internal server error' }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flag.id}/dependent_flags/`]: () => [
+                        500,
+                        { error: 'Internal server error' },
+                    ],
                 },
             })
 

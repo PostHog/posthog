@@ -64,6 +64,7 @@ class RecordingMetadata(TypedDict):
     duration: int
     active_seconds: int
     snapshot_source: Literal["web", "mobile"]
+    snapshot_library: Optional[str]
     block_first_timestamps: list[datetime]
     block_last_timestamps: list[datetime]
     block_urls: list[str]

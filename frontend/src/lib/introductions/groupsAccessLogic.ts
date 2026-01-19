@@ -52,5 +52,12 @@ export const groupsAccessLogic = kea<groupsAccessLogicType>([
             (s) => [s.groupsAccessStatus],
             (groupsAccessStatus) => groupsAccessStatus === GroupsAccessStatus.HasAccess,
         ],
+        shouldShowGroupsIntroduction: [
+            (s) => [s.groupsAccessStatus],
+            (groupsAccessStatus) =>
+                [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
+                    groupsAccessStatus
+                ),
+        ],
     }),
 ])

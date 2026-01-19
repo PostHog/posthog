@@ -383,12 +383,6 @@ export const productTourLogic = kea<productTourLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        submitProductTourFormSuccess: () => {
-            // don't navigate away if we're on steps page, it's a weird UX
-            if (values.editTab !== ProductTourEditTab.Steps) {
-                actions.editingProductTour(false)
-            }
-        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {
@@ -444,8 +438,8 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         editingProductTour: ({ editing }) => {
-            if (editing && values.productTour) {
-                // Reset form to current tour values when entering edit mode
+            // Only reset form when transitioning from not-editing to editing
+            if (editing && !values.isEditingProductTour && values.productTour) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(actions.setProductTourFormValues as any)({
                     name: values.productTour.name,

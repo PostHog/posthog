@@ -29,6 +29,7 @@ import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
+import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
 import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
@@ -212,6 +213,7 @@ export function DataTable({
         showPropertyFilter,
         showHogQLEditor,
         showReload,
+        showCount,
         showExport,
         showElapsedTime,
         showColumnConfigurator,
@@ -761,6 +763,7 @@ export function DataTable({
 
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
+        showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 

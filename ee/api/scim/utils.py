@@ -133,3 +133,24 @@ def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityPr
         return SCIMProvisionedUser.IdentityProvider.ONELOGIN
 
     return SCIMProvisionedUser.IdentityProvider.OTHER
+
+
+def normalize_scim_operations(operations: list[dict]) -> list[dict]:
+    """
+    Normalize SCIM PATCH operations to handle string booleans for 'active' field
+    """
+    normalized = []
+    for op in operations:
+        op = op.copy()
+        path = op.get("path")
+        value = op.get("value")
+
+        if path == "active" and isinstance(value, str):
+            op["value"] = value.lower() == "true"
+        elif isinstance(value, dict) and "active" in value and isinstance(value["active"], str):
+            value = value.copy()
+            value["active"] = value["active"].lower() == "true"
+            op["value"] = value
+
+        normalized.append(op)
+    return normalized
