@@ -6,7 +6,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsLogic } from '../logsLogic'
+import { logsLogic } from '../../../logsLogic'
 
 export const ServiceFilter = (): JSX.Element => {
     const { serviceNames, dateRange } = useValues(logsLogic)

@@ -38,7 +38,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { zoomDateRange } from './filters/zoom-utils'
+import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
 import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
 
