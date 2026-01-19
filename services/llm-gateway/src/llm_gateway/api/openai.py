@@ -1,7 +1,7 @@
 from typing import Any
 
 import litellm
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import OPENAI_CONFIG, OPENAI_RESPONSES_CONFIG, handle_llm_request
@@ -22,7 +22,6 @@ def _normalize_model_name(model: str) -> str:
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
-    http_request: Request,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
@@ -35,14 +34,12 @@ async def _handle_chat_completions(
         provider_config=OPENAI_CONFIG,
         llm_call=litellm.acompletion,
         product=product,
-        http_request=http_request,
     )
 
 
 async def _handle_responses(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    http_request: Request,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     """Handle OpenAI Responses API request.
@@ -65,7 +62,6 @@ async def _handle_responses(
             provider_config=OPENAI_RESPONSES_CONFIG,
             llm_call=litellm.aresponses,
             product=product,
-            http_request=http_request,
         )
         return result
     except Exception:
@@ -76,57 +72,51 @@ async def _handle_responses(
 async def chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
-    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_chat_completions(body, user, request)
+    return await _handle_chat_completions(body, user)
 
 
 @openai_router.post("/{product}/v1/chat/completions", response_model=None)
 async def chat_completions_with_product(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
-    request: Request,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_chat_completions(body, user, request, product=product)
+    return await _handle_chat_completions(body, user, product=product)
 
 
 @openai_router.post("/v1/responses", response_model=None)
 async def responses_v1(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_responses(body, user, request)
+    return await _handle_responses(body, user)
 
 
 @openai_router.post("/{product}/v1/responses", response_model=None)
 async def responses_v1_with_product(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    request: Request,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_responses(body, user, request, product=product)
+    return await _handle_responses(body, user, product=product)
 
 
 @openai_router.post("/responses", response_model=None)
 async def responses(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
-    return await _handle_responses(body, user, request)
+    return await _handle_responses(body, user)
 
 
 @openai_router.post("/{product}/responses", response_model=None)
 async def responses_with_product(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    request: Request,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
-    return await _handle_responses(body, user, request, product=product)
+    return await _handle_responses(body, user, product=product)

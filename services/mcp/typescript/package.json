@@ -30,7 +30,7 @@
     "scripts": {
         "build": "tsup",
         "dev": "wrangler dev",
-        "dev:local-resources": "wrangler dev --var POSTHOG_MCP_LOCAL_EXAMPLES_URL:http://localhost:8765/examples-mcp-resources.zip",
+        "dev:local-resources": "wrangler dev --var POSTHOG_MCP_LOCAL_EXAMPLES_URL:http://localhost:8765/examples-mcp-resources.zip --var POSTHOG_MCP_LOCAL_SKILLS_URL:http://localhost:8765/skills-mcp-resources.zip",
         "deploy": "wrangler deploy",
         "cf-typegen": "wrangler types",
         "inspector": "npx @modelcontextprotocol/inspector@0.15.0 npx -y mcp-remote@latest http://localhost:8787/mcp",

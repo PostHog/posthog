@@ -33,6 +33,10 @@ class TokenBucketLimiter:
                 return True
             return False
 
+    def would_allow(self, key: str, tokens: float = 1.0) -> bool:
+        """Check if tokens would be allowed WITHOUT consuming them."""
+        return self.get_remaining(key) >= tokens
+
     def get_remaining(self, key: str) -> float:
         """Get remaining tokens in bucket for a key."""
         now = time.monotonic()
