@@ -131,9 +131,8 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
-                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()
-                    actions.loadUser()
 
                     /* Notify user the update was successful  */
                     const updatedAttribute =
