@@ -25,15 +25,15 @@ class HogQLErrorListener : public antlr4::BaseErrorListener {
  public:
   string input;
 
-  HogQLErrorListener(string input) : input(input) {}
+  explicit HogQLErrorListener(string input) : input(std::move(input)) {}
 
   void syntaxError(
-      antlr4::Recognizer* recognizer,
-      antlr4::Token* offendingSymbol,
+      antlr4::Recognizer* /* recognizer */,
+      antlr4::Token* /* offendingSymbol */,
       size_t line,
       size_t charPositionInLine,
       const string& msg,
-      exception_ptr e
+      exception_ptr /* e */
   ) override {
     size_t start = getPosition(line, charPositionInLine);
     if (start == string::npos) {
@@ -79,13 +79,14 @@ string buildWASMError(const char* error_type, const string& message, size_t star
 }
 
 struct ParserContext {
+  // Note: Declaration order matters for destruction - parser must be destroyed before stream, stream before lexer etc.
   unique_ptr<antlr4::ANTLRInputStream> input_stream;
   unique_ptr<HogQLLexer> lexer;
   unique_ptr<antlr4::CommonTokenStream> stream;
   unique_ptr<HogQLErrorListener> error_listener;
   unique_ptr<HogQLParser> parser;
 
-  ParserContext(const string& input) {
+  explicit ParserContext(const string& input) {
     input_stream = std::make_unique<antlr4::ANTLRInputStream>(input.c_str(), input.length());
     lexer = std::make_unique<HogQLLexer>(input_stream.get());
     stream = std::make_unique<antlr4::CommonTokenStream>(lexer.get());
@@ -94,6 +95,10 @@ struct ParserContext {
     error_listener = std::make_unique<HogQLErrorListener>(input);
     parser->addErrorListener(error_listener.get());
   }
+
+  // Prevent copying (would cause double-free)
+  ParserContext(const ParserContext&) = delete;
+  ParserContext& operator=(const ParserContext&) = delete;
 };
 
 // WASM EXPORTED FUNCTIONS
@@ -162,7 +167,7 @@ string parse_select(const string& input, bool is_internal = false) {
     HogQLParser::SelectContext* parse_tree;
     try {
       parse_tree = ctx.parser->select();
-    } catch (const antlr4::EmptyStackException& e) {
+    } catch (const antlr4::EmptyStackException& /* e */) {
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
@@ -185,7 +190,7 @@ string parse_full_template_string(const string& input, bool is_internal = false)
     HogQLParser::FullTemplateStringContext* parse_tree;
     try {
       parse_tree = ctx.parser->fullTemplateString();
-    } catch (const antlr4::EmptyStackException& e) {
+    } catch (const antlr4::EmptyStackException& /* e */) {
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
@@ -208,7 +213,7 @@ string parse_program(const string& input, bool is_internal = false) {
     HogQLParser::ProgramContext* parse_tree;
     try {
       parse_tree = ctx.parser->program();
-    } catch (const antlr4::EmptyStackException& e) {
+    } catch (const antlr4::EmptyStackException& /* e */) {
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
