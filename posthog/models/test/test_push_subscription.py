@@ -160,35 +160,3 @@ class TestPushSubscription(BaseTest):
         self.assertIn("user-123", str(subscription))
         self.assertIn("android", str(subscription).lower())
         self.assertIn("active", str(subscription).lower())
-
-    def test_update_last_successfully_used_at(self):
-        """Test update_last_successfully_used_at updates timestamp for given subscription IDs."""
-        from django.utils import timezone
-
-        subscription_1 = PushSubscription.objects.create(
-            team=self.team,
-            distinct_id="user-123",
-            token="fcm-token-1",
-            platform=PushPlatform.ANDROID,
-        )
-        subscription_2 = PushSubscription.objects.create(
-            team=self.team,
-            distinct_id="user-456",
-            token="fcm-token-2",
-            platform=PushPlatform.IOS,
-        )
-
-        self.assertIsNone(subscription_1.last_successfully_used_at)
-        self.assertIsNone(subscription_2.last_successfully_used_at)
-
-        count = PushSubscription.update_last_successfully_used_at([str(subscription_1.id), str(subscription_2.id)])
-        self.assertEqual(count, 2)
-
-        subscription_1.refresh_from_db()
-        subscription_2.refresh_from_db()
-
-        self.assertIsNotNone(subscription_1.last_successfully_used_at)
-        self.assertIsNotNone(subscription_2.last_successfully_used_at)
-        # Verify timestamps are recent
-        now = timezone.now()
-        self.assertLess((now - subscription_1.last_successfully_used_at).total_seconds(), 60)

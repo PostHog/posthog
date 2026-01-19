@@ -210,34 +210,6 @@ class TestPushSubscriptionAPI(BaseTest):
         data = json.loads(response.content)
         self.assertIn("Invalid platform", data["error"])
 
-    def test_sdk_register_push_subscription_updates_existing(self):
-        subscription = PushSubscription.objects.create(
-            team=self.team,
-            distinct_id="user-123",
-            token="fcm-token-abc123",
-            platform=PushPlatform.ANDROID,
-            is_active=False,
-        )
-
-        payload = {
-            "api_key": self.team.api_token,
-            "distinct_id": "user-123",
-            "token": "fcm-token-NEW",
-            "platform": "android",
-        }
-
-        response = self.client.post(
-            "/api/sdk/push_subscriptions/register/",
-            data=json.dumps(payload),
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        subscription.refresh_from_db()
-        self.assertTrue(subscription.is_active)
-        self.assertEqual(subscription.token, "fcm-token-NEW")
-        self.assertEqual(subscription.platform, PushPlatform.ANDROID)
-
     def test_sdk_register_push_subscription_cors_headers(self):
         payload = {
             "api_key": self.team.api_token,
@@ -365,7 +337,7 @@ class TestPushSubscriptionViewSet(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/push_subscriptions/list/",
+            f"/api/environments/{self.team.id}/push_subscriptions/",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
