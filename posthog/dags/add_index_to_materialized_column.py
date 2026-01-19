@@ -52,25 +52,25 @@ class AddIndexTask:
         actions = []
 
         if self.add_minmax:
-            index = MinMaxIndex(self.column_name)
-            if check_index_exists(client, self.table, index.name):
-                self.logger.info(f"Skipping minmax index {index.name}, already exists")
+            minmax_index = MinMaxIndex(self.column_name)
+            if check_index_exists(client, self.table, minmax_index.name):
+                self.logger.info(f"Skipping minmax index {minmax_index.name}, already exists")
             else:
-                actions.append(index.as_add_sql())
+                actions.append(minmax_index.as_add_sql())
 
         if self.add_bloom_filter:
-            index = BloomFilterIndex(self.column_name)
-            if check_index_exists(client, self.table, index.name):
-                self.logger.info(f"Skipping bloom_filter index {index.name}, already exists")
+            bloom_index = BloomFilterIndex(self.column_name)
+            if check_index_exists(client, self.table, bloom_index.name):
+                self.logger.info(f"Skipping bloom_filter index {bloom_index.name}, already exists")
             else:
-                actions.append(index.as_add_sql())
+                actions.append(bloom_index.as_add_sql())
 
         if self.add_ngram_lower:
-            index = NgramLowerIndex(self.column_name, self.is_nullable)
-            if check_index_exists(client, self.table, index.name):
-                self.logger.info(f"Skipping ngram_bf_lower index {index.name}, already exists")
+            ngram_index = NgramLowerIndex(self.column_name, self.is_nullable)
+            if check_index_exists(client, self.table, ngram_index.name):
+                self.logger.info(f"Skipping ngram_bf_lower index {ngram_index.name}, already exists")
             else:
-                actions.append(index.as_add_sql())
+                actions.append(ngram_index.as_add_sql())
 
         if not actions:
             self.logger.info(f"No indexes to add for column {self.column_name}")
