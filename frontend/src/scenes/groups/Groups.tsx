@@ -13,6 +13,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -48,6 +49,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
     if (groupTypeIndex === undefined) {
@@ -133,6 +135,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ),
                     columns,
                     groupTypeLabel: groupTypeNamePlural,
+                    baseCurrency,
                 }}
                 dataAttr="groups-table"
             />
