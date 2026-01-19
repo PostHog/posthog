@@ -259,19 +259,18 @@ export class HogExecutorService {
                     return
                 }
 
-                await Promise.all(
+                const mappingInvocations = await Promise.all(
                     hogFunction.mappings.map(async (mapping) => {
                         if (!(await _filterHogFunction(hogFunction, mapping.filters, filterGlobals))) {
-                            return
+                            return null
                         }
 
                         const invocation = await _buildInvocation(hogFunction, mapping.inputs ?? {})
-                        if (!invocation) {
-                            return
-                        }
-
-                        invocations.push(invocation)
+                        return invocation
                     })
+                )
+                invocations.push(
+                    ...mappingInvocations.filter((inv): inv is CyclotronJobInvocationHogFunction => inv !== null)
                 )
             })
         )
