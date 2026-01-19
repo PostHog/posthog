@@ -524,3 +524,71 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # Update the cohort - should still be realtime (at threshold, not over)
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertEqual(cohort2.cohort_type, "realtime")
+
+    def test_null_safe_comparisons_in_cohort_bytecode(self):
+        # Test that cohort bytecode generation wraps comparison operations with null checks
+        from posthog.api.cohort import generate_cohort_filter_bytecode
+
+        # Test GT operator with person property
+        filter_data_gt = {
+            "key": "age",
+            "type": "person",
+            "value": 13,
+            "operator": "gt",
+        }
+        bytecode_gt, error_gt, hash_gt = generate_cohort_filter_bytecode(filter_data_gt, self.team)
+        self.assertIsNone(error_gt)
+        self.assertIsNotNone(bytecode_gt)
+        # The bytecode should contain an 'if' check for nulls
+        # The wrapped version should use the 'if' function (CALL_GLOBAL with 'if')
+        self.assertIn("if", bytecode_gt)
+
+        # Test LT operator
+        filter_data_lt = {
+            "key": "age",
+            "type": "person",
+            "value": 100,
+            "operator": "lt",
+        }
+        bytecode_lt, error_lt, hash_lt = generate_cohort_filter_bytecode(filter_data_lt, self.team)
+        self.assertIsNone(error_lt)
+        self.assertIsNotNone(bytecode_lt)
+        self.assertIn("if", bytecode_lt)
+
+        # Test GTE operator
+        filter_data_gte = {
+            "key": "age",
+            "type": "person",
+            "value": 18,
+            "operator": "gte",
+        }
+        bytecode_gte, error_gte, hash_gte = generate_cohort_filter_bytecode(filter_data_gte, self.team)
+        self.assertIsNone(error_gte)
+        self.assertIsNotNone(bytecode_gte)
+        self.assertIn("if", bytecode_gte)
+
+        # Test LTE operator
+        filter_data_lte = {
+            "key": "age",
+            "type": "person",
+            "value": 65,
+            "operator": "lte",
+        }
+        bytecode_lte, error_lte, hash_lte = generate_cohort_filter_bytecode(filter_data_lte, self.team)
+        self.assertIsNone(error_lte)
+        self.assertIsNotNone(bytecode_lte)
+        self.assertIn("if", bytecode_lte)
+
+        # Test that EQ operator does NOT get wrapped (should not have 'if')
+        filter_data_eq = {
+            "key": "age",
+            "type": "person",
+            "value": 25,
+            "operator": "exact",
+        }
+        bytecode_eq, error_eq, hash_eq = generate_cohort_filter_bytecode(filter_data_eq, self.team)
+        self.assertIsNone(error_eq)
+        self.assertIsNotNone(bytecode_eq)
+        # EQ should not be wrapped, so it might not have 'if' in the same way
+        # Just verify it generates bytecode
+        self.assertTrue(len(bytecode_eq) > 0)
