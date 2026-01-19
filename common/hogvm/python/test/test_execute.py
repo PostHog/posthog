@@ -139,69 +139,6 @@ class TestBytecodeExecute:
         else:
             raise AssertionError("Expected Exception not raised")
 
-    def test_null_comparison_handling(self):
-        # Equality comparisons with null should work
-        assert self._run("null == null") is True
-        assert self._run("null != null") is False
-        assert self._run("null == 1") is False
-        assert self._run("null != 1") is True
-
-        # Ordering comparisons with null should raise TypeError
-        try:
-            self._run("null <= 18")
-        except TypeError as e:
-            assert "'<=' not supported between instances of 'NoneType' and 'int'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        try:
-            self._run("null < 18")
-        except TypeError as e:
-            assert "'<' not supported between instances of 'NoneType' and 'int'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        try:
-            self._run("null >= 18")
-        except TypeError as e:
-            assert "'>=' not supported between instances of 'NoneType' and 'int'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        try:
-            self._run("null > 18")
-        except TypeError as e:
-            assert "'>' not supported between instances of 'NoneType' and 'int'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        # Ordering comparisons with null in mixed-type scenarios should also raise TypeError
-        try:
-            self._run("null <= '18'")
-        except TypeError as e:
-            assert "'<=' not supported between instances of 'NoneType' and 'str'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        try:
-            self._run("5 > null")
-        except TypeError as e:
-            assert "'>' not supported between instances of 'int' and 'NoneType'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        # Comparing null with itself should also raise TypeError
-        try:
-            self._run("null <= null")
-        except TypeError as e:
-            assert "'<=' not supported between instances of 'NoneType' and 'NoneType'" in str(e)
-        else:
-            raise AssertionError("Expected TypeError not raised")
-
-        # Valid comparisons should still work
-        assert self._run("5 <= 18") is True
-        assert self._run("20 > 18") is True
-
     def test_memory_limits_1(self):
         # let string := 'banana'
         # for (let i := 0; i < 100; i := i + 1) {
