@@ -270,6 +270,17 @@ jobs:
                   touch frontend/dist/exporter.html
                   ./bin/download-mmdb
 
+            - name: Setup Emscripten for WASM build
+              uses: mymindstorm/setup-emsdk@v14
+              with:
+                  version: '3.1.51'
+
+            - name: Install Ninja
+              run: sudo apt-get install -y ninja-build
+
+            - name: Build hogql-parser WASM
+              run: pnpm --filter=@posthog/hogql-parser build:ninja
+
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
