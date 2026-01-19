@@ -8,6 +8,14 @@ export interface SessionKey {
     deletedAt?: number
 }
 
+export interface SerializedSessionKey {
+    plaintextKey: string
+    encryptedKey: string
+    nonce: string
+    sessionState: SessionState
+    deletedAt?: number
+}
+
 export abstract class BaseKeyStore {
     abstract start(): Promise<void>
     abstract generateKey(sessionId: string, teamId: number): Promise<SessionKey>

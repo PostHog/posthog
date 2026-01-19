@@ -1,7 +1,7 @@
 import { LRUCache } from 'lru-cache'
 
 import { RedisPool } from '../types'
-import { parseJSON } from '../utils/json-parse'
+import { deserializeSessionKey, serializeSessionKey } from './session-key'
 import { BaseKeyStore, SessionKey } from './types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
@@ -51,12 +51,7 @@ export class MemoryCachedKeyStore extends BaseKeyStore {
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
         const result = await this.delegate.deleteKey(sessionId, teamId)
         if (result) {
-            const deletedKey: SessionKey = {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
-                sessionState: 'deleted',
-            }
+            const deletedKey = await this.delegate.getKey(sessionId, teamId)
             this.cache.set(this.cacheKey(sessionId, teamId), deletedKey)
         }
         return result
@@ -88,16 +83,7 @@ export class RedisCachedKeyStore extends BaseKeyStore {
         const client = await this.redisPool.acquire()
         try {
             const cached = await client.get(this.cacheKey(sessionId, teamId))
-            if (cached) {
-                const parsed = parseJSON(cached)
-                return {
-                    plaintextKey: Buffer.from(parsed.plaintextKey, 'base64'),
-                    encryptedKey: Buffer.from(parsed.encryptedKey, 'base64'),
-                    nonce: Buffer.from(parsed.nonce, 'base64'),
-                    sessionState: parsed.sessionState,
-                }
-            }
-            return null
+            return cached ? deserializeSessionKey(cached) : null
         } finally {
             await this.redisPool.release(client)
         }
@@ -106,13 +92,7 @@ export class RedisCachedKeyStore extends BaseKeyStore {
     private async setCached(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
         const client = await this.redisPool.acquire()
         try {
-            const value = JSON.stringify({
-                plaintextKey: key.plaintextKey.toString('base64'),
-                encryptedKey: key.encryptedKey.toString('base64'),
-                nonce: key.nonce.toString('base64'),
-                sessionState: key.sessionState,
-            })
-            await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, value)
+            await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
         } finally {
             await this.redisPool.release(client)
         }
@@ -138,12 +118,7 @@ export class RedisCachedKeyStore extends BaseKeyStore {
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
         const result = await this.delegate.deleteKey(sessionId, teamId)
         if (result) {
-            const deletedKey: SessionKey = {
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
-                sessionState: 'deleted',
-            }
+            const deletedKey = await this.delegate.getKey(sessionId, teamId)
             await this.setCached(sessionId, teamId, deletedKey)
         }
         return result
