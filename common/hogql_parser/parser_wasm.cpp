@@ -78,6 +78,24 @@ string buildWASMError(const char* error_type, const string& message, size_t star
   return json.dump();
 }
 
+struct ParserContext {
+  unique_ptr<antlr4::ANTLRInputStream> input_stream;
+  unique_ptr<HogQLLexer> lexer;
+  unique_ptr<antlr4::CommonTokenStream> stream;
+  unique_ptr<HogQLErrorListener> error_listener;
+  unique_ptr<HogQLParser> parser;
+
+  ParserContext(const string& input) {
+    input_stream = std::make_unique<antlr4::ANTLRInputStream>(input.c_str(), input.length());
+    lexer = std::make_unique<HogQLLexer>(input_stream.get());
+    stream = std::make_unique<antlr4::CommonTokenStream>(lexer.get());
+    parser = std::make_unique<HogQLParser>(stream.get());
+    parser->removeErrorListeners();
+    error_listener = std::make_unique<HogQLErrorListener>(input);
+    parser->addErrorListener(error_listener.get());
+  }
+};
+
 // WASM EXPORTED FUNCTIONS
 
 /**
@@ -89,36 +107,17 @@ string buildWASMError(const char* error_type, const string& message, size_t star
  */
 string parse_expr(const string& input, bool is_internal = false) {
   try {
-    auto input_stream = new antlr4::ANTLRInputStream(input.c_str(), input.length());
-    auto lexer = new HogQLLexer(input_stream);
-    auto stream = new antlr4::CommonTokenStream(lexer);
-    auto parser = new HogQLParser(stream);
-    parser->removeErrorListeners();
-    auto error_listener = new HogQLErrorListener(input);
-    parser->addErrorListener(error_listener);
+    ParserContext ctx(input);
 
     HogQLParser::ExprContext* parse_tree;
     try {
-      parse_tree = parser->expr();
+      parse_tree = ctx.parser->expr();
     } catch (const antlr4::EmptyStackException& e) {
-      delete error_listener;
-      delete parser;
-      delete stream;
-      delete lexer;
-      delete input_stream;
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
     HogQLParseTreeJSONConverter converter(is_internal);
-    string result_json = converter.visitAsJSONFinal(parse_tree);
-
-    delete error_listener;
-    delete parser;
-    delete stream;
-    delete lexer;
-    delete input_stream;
-
-    return result_json;
+    return converter.visitAsJSONFinal(parse_tree);
   } catch (const SyntaxError& e) {
     return buildWASMError("SyntaxError", e.what(), e.start, e.end);
   } catch (const NotImplementedError& e) {
@@ -135,36 +134,17 @@ string parse_expr(const string& input, bool is_internal = false) {
  */
 string parse_order_expr(const string& input, bool is_internal = false) {
   try {
-    auto input_stream = new antlr4::ANTLRInputStream(input.c_str(), input.length());
-    auto lexer = new HogQLLexer(input_stream);
-    auto stream = new antlr4::CommonTokenStream(lexer);
-    auto parser = new HogQLParser(stream);
-    parser->removeErrorListeners();
-    auto error_listener = new HogQLErrorListener(input);
-    parser->addErrorListener(error_listener);
+    ParserContext ctx(input);
 
     HogQLParser::OrderExprContext* parse_tree;
     try {
-      parse_tree = parser->orderExpr();
+      parse_tree = ctx.parser->orderExpr();
     } catch (const antlr4::EmptyStackException& e) {
-      delete error_listener;
-      delete parser;
-      delete stream;
-      delete lexer;
-      delete input_stream;
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
     HogQLParseTreeJSONConverter converter(is_internal);
-    string result_json = converter.visitAsJSONFinal(parse_tree);
-
-    delete error_listener;
-    delete parser;
-    delete stream;
-    delete lexer;
-    delete input_stream;
-
-    return result_json;
+    return converter.visitAsJSONFinal(parse_tree);
   } catch (const SyntaxError& e) {
     return buildWASMError("SyntaxError", e.what(), e.start, e.end);
   } catch (...) {
@@ -177,36 +157,17 @@ string parse_order_expr(const string& input, bool is_internal = false) {
  */
 string parse_select(const string& input, bool is_internal = false) {
   try {
-    auto input_stream = new antlr4::ANTLRInputStream(input.c_str(), input.length());
-    auto lexer = new HogQLLexer(input_stream);
-    auto stream = new antlr4::CommonTokenStream(lexer);
-    auto parser = new HogQLParser(stream);
-    parser->removeErrorListeners();
-    auto error_listener = new HogQLErrorListener(input);
-    parser->addErrorListener(error_listener);
+    ParserContext ctx(input);
 
     HogQLParser::SelectContext* parse_tree;
     try {
-      parse_tree = parser->select();
+      parse_tree = ctx.parser->select();
     } catch (const antlr4::EmptyStackException& e) {
-      delete error_listener;
-      delete parser;
-      delete stream;
-      delete lexer;
-      delete input_stream;
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
     HogQLParseTreeJSONConverter converter(is_internal);
-    string result_json = converter.visitAsJSONFinal(parse_tree);
-
-    delete error_listener;
-    delete parser;
-    delete stream;
-    delete lexer;
-    delete input_stream;
-
-    return result_json;
+    return converter.visitAsJSONFinal(parse_tree);
   } catch (const SyntaxError& e) {
     return buildWASMError("SyntaxError", e.what(), e.start, e.end);
   } catch (...) {
@@ -219,36 +180,17 @@ string parse_select(const string& input, bool is_internal = false) {
  */
 string parse_full_template_string(const string& input, bool is_internal = false) {
   try {
-    auto input_stream = new antlr4::ANTLRInputStream(input.c_str(), input.length());
-    auto lexer = new HogQLLexer(input_stream);
-    auto stream = new antlr4::CommonTokenStream(lexer);
-    auto parser = new HogQLParser(stream);
-    parser->removeErrorListeners();
-    auto error_listener = new HogQLErrorListener(input);
-    parser->addErrorListener(error_listener);
+    ParserContext ctx(input);
 
     HogQLParser::FullTemplateStringContext* parse_tree;
     try {
-      parse_tree = parser->fullTemplateString();
+      parse_tree = ctx.parser->fullTemplateString();
     } catch (const antlr4::EmptyStackException& e) {
-      delete error_listener;
-      delete parser;
-      delete stream;
-      delete lexer;
-      delete input_stream;
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
     HogQLParseTreeJSONConverter converter(is_internal);
-    string result_json = converter.visitAsJSONFinal(parse_tree);
-
-    delete error_listener;
-    delete parser;
-    delete stream;
-    delete lexer;
-    delete input_stream;
-
-    return result_json;
+    return converter.visitAsJSONFinal(parse_tree);
   } catch (const SyntaxError& e) {
     return buildWASMError("SyntaxError", e.what(), e.start, e.end);
   } catch (...) {
@@ -261,36 +203,17 @@ string parse_full_template_string(const string& input, bool is_internal = false)
  */
 string parse_program(const string& input, bool is_internal = false) {
   try {
-    auto input_stream = new antlr4::ANTLRInputStream(input.c_str(), input.length());
-    auto lexer = new HogQLLexer(input_stream);
-    auto stream = new antlr4::CommonTokenStream(lexer);
-    auto parser = new HogQLParser(stream);
-    parser->removeErrorListeners();
-    auto error_listener = new HogQLErrorListener(input);
-    parser->addErrorListener(error_listener);
+    ParserContext ctx(input);
 
     HogQLParser::ProgramContext* parse_tree;
     try {
-      parse_tree = parser->program();
+      parse_tree = ctx.parser->program();
     } catch (const antlr4::EmptyStackException& e) {
-      delete error_listener;
-      delete parser;
-      delete stream;
-      delete lexer;
-      delete input_stream;
       return buildWASMError("SyntaxError", "Unmatched curly bracket", 0, input.size());
     }
 
     HogQLParseTreeJSONConverter converter(is_internal);
-    string result_json = converter.visitAsJSONFinal(parse_tree);
-
-    delete error_listener;
-    delete parser;
-    delete stream;
-    delete lexer;
-    delete input_stream;
-
-    return result_json;
+    return converter.visitAsJSONFinal(parse_tree);
   } catch (const SyntaxError& e) {
     return buildWASMError("SyntaxError", e.what(), e.start, e.end);
   } catch (...) {
@@ -314,10 +237,10 @@ string parse_string_literal_text_wasm(const string& input) {
 // EMSCRIPTEN BINDINGS
 
 EMSCRIPTEN_BINDINGS(hogql_parser) {
-  emscripten::function("parseExpr", &parse_expr, emscripten::allow_raw_pointers());
-  emscripten::function("parseOrderExpr", &parse_order_expr, emscripten::allow_raw_pointers());
-  emscripten::function("parseSelect", &parse_select, emscripten::allow_raw_pointers());
-  emscripten::function("parseFullTemplateString", &parse_full_template_string, emscripten::allow_raw_pointers());
-  emscripten::function("parseProgram", &parse_program, emscripten::allow_raw_pointers());
-  emscripten::function("parseStringLiteralText", &parse_string_literal_text_wasm, emscripten::allow_raw_pointers());
+  emscripten::function("parseExpr", &parse_expr);
+  emscripten::function("parseOrderExpr", &parse_order_expr);
+  emscripten::function("parseSelect", &parse_select);
+  emscripten::function("parseFullTemplateString", &parse_full_template_string);
+  emscripten::function("parseProgram", &parse_program);
+  emscripten::function("parseStringLiteralText", &parse_string_literal_text_wasm);
 }
