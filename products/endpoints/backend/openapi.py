@@ -9,12 +9,14 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
     """Generate OpenAPI 3.0 spec for a single endpoint."""
     base_url = settings.SITE_URL
     run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
+    current_version = endpoint.get_version()
+    description = current_version.description if current_version else ""
 
     return {
         "openapi": "3.0.3",
         "info": {
             "title": endpoint.name,
-            "description": endpoint.description or f"PostHog Endpoint: {endpoint.name}",
+            "description": description or f"PostHog Endpoint: {endpoint.name}",
             "version": str(endpoint.current_version),
         },
         "servers": [{"url": base_url}],
@@ -23,7 +25,7 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                 "post": {
                     "operationId": f"run_{endpoint.name.replace('-', '_')}",
                     "summary": f"Execute {endpoint.name}",
-                    "description": endpoint.description or f"Execute the {endpoint.name} endpoint",
+                    "description": description or f"Execute the {endpoint.name} endpoint",
                     "security": [{"PersonalAPIKey": []}],
                     "requestBody": {
                         "required": False,
@@ -76,14 +78,15 @@ def generate_openapi_spec(endpoint: Endpoint, team_id: int, request: Request) ->
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
             },
-            "schemas": _build_component_schemas(endpoint),
+            "schemas": _build_component_schemas(endpoint, current_version),
         },
     }
 
 
-def _build_component_schemas(endpoint: Endpoint) -> dict:
+def _build_component_schemas(endpoint: Endpoint, version) -> dict:
     """Build the components/schemas section with reusable schema definitions."""
-    query_kind = endpoint.query.get("kind")
+    query = version.query if version else {}
+    query_kind = query.get("kind")
 
     schemas: dict = {
         "EndpointRunRequest": {
@@ -184,7 +187,7 @@ def _build_component_schemas(endpoint: Endpoint) -> dict:
 
     # Add variables schema for HogQL queries
     if query_kind == "HogQLQuery":
-        variables = endpoint.query.get("variables")
+        variables = query.get("variables")
         if variables:
             schemas["EndpointRunRequest"]["properties"]["variables"] = {
                 "$ref": "#/components/schemas/Variables",
