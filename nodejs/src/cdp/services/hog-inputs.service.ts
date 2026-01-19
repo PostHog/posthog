@@ -225,7 +225,7 @@ export class HogInputsService {
             }
 
             const subscription = subscriptions[subscriptionId]
-            if (subscription && subscription.is_active) {
+            if (subscription && subscription.is_active && subscription.team_id === hogFunction.team_id) {
                 returnInputs[key] = {
                     value: subscription.token,
                 }
