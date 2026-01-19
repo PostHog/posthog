@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 
 import structlog
-from posthoganalytics import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
