@@ -25,17 +25,19 @@ export type NotebookNodeDuckSQLAttributes = {
 
 const OutputBlock = ({
     title,
+    className,
     toneClassName,
     value,
 }: {
     title: string
+    className: string
     toneClassName: string
     value: string
 }): JSX.Element => {
     const content = useMemo(() => renderAnsiText(value), [value])
 
     return (
-        <div>
+        <div className={className}>
             <div className="text-[10px] uppercase tracking-wide text-muted">{title}</div>
             <pre
                 className={clsx('text-xs font-mono whitespace-pre-wrap mt-1 select-text cursor-text', toneClassName)}
@@ -187,6 +189,7 @@ const Component = ({
                             {duckExecution?.stdout ? (
                                 <OutputBlock
                                     title="Output"
+                                    className="p-2"
                                     toneClassName="text-default"
                                     value={duckExecution.stdout ?? ''}
                                 />
@@ -194,6 +197,7 @@ const Component = ({
                             {duckExecution?.stderr ? (
                                 <OutputBlock
                                     title="stderr"
+                                    className="p-2"
                                     toneClassName="text-danger"
                                     value={duckExecution.stderr ?? ''}
                                 />
@@ -201,6 +205,7 @@ const Component = ({
                             {hasResult && !showDataframeTable ? (
                                 <OutputBlock
                                     title="Result"
+                                    className="p-2"
                                     toneClassName="text-default"
                                     value={duckExecution.result ?? ''}
                                 />
@@ -222,6 +227,7 @@ const Component = ({
                             {duckExecution?.status === 'error' && duckExecution.traceback?.length ? (
                                 <OutputBlock
                                     title="Error"
+                                    className="p-2"
                                     toneClassName="text-danger"
                                     value={duckExecution.traceback.join('\n')}
                                 />

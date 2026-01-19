@@ -10,7 +10,7 @@ export const keyBinds: Record<string, string[]> = {
     toggleShortcutMenuFallback: ['command', 'shift', 'k'],
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
-    edit: [...baseModifier, 'e'],
+    edit: ['e'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],

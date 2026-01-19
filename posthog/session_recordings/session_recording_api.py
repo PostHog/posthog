@@ -247,8 +247,11 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             SessionRecordingExternalReferenceSerializer,
         )
 
-        references = obj.external_references.select_related("integration").all()
-        return list(SessionRecordingExternalReferenceSerializer(references, many=True, context=self.context).data)
+        return list(
+            SessionRecordingExternalReferenceSerializer(
+                obj.external_references.select_related("integration").all(), many=True, context=self.context
+            ).data
+        )
 
     class Meta:
         model = SessionRecording
@@ -274,6 +277,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
             "external_references",
@@ -299,6 +303,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
         ]
@@ -698,6 +703,7 @@ class SessionRecordingViewSet(
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
+            "snapshot_library": player_metadata.get("snapshot_library"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 
