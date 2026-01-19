@@ -1813,13 +1813,13 @@ async fn it_only_includes_config_fields_when_requested() -> Result<()> {
     Ok(())
 }
 
-/// Test comprehensive config passthrough from HyperCache.
-/// This verifies that the response shape matches what SDKs expect when
-/// config is populated by Python and passed through by Rust.
+/// Test config passthrough for an enterprise team with all features enabled.
+/// This verifies the response shape matches what SDKs expect when
+/// config is populated by Python's RemoteConfig.build_config() and passed through by Rust.
 #[tokio::test]
-async fn test_config_passthrough_comprehensive() -> Result<()> {
+async fn test_config_passthrough_enterprise_team() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "user_distinct_id".to_string();
+    let distinct_id = "enterprise_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -1846,7 +1846,8 @@ async fn test_config_passthrough_comprehensive() -> Result<()> {
     }]);
     insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
-    // Insert realistic config that Python would generate
+    // Insert realistic enterprise config that Python's RemoteConfig.build_config() would generate
+    // This represents a team with all enterprise features enabled
     let remote_config = json!({
         "supportedCompression": ["gzip", "gzip-js"],
         "autocapture_opt_out": false,
@@ -1859,25 +1860,33 @@ async fn test_config_passthrough_comprehensive() -> Result<()> {
         "sessionRecording": {
             "endpoint": "/s/",
             "recorderVersion": "v2",
-            "sampleRate": "1.0"
+            "sampleRate": "1.0",
+            "consoleLogRecordingEnabled": true,
+            "networkPayloadCapture": {"recordBody": true, "recordHeaders": true}
         },
         "surveys": true,
-        "heatmaps": false,
+        "heatmaps": true,
         "siteApps": [
-            {"url": "/site_app/abc123/token/", "type": "site_app"}
+            {"id": 1, "url": "/site_app/enterprise_token/"}
         ],
         "analytics": {
-            "endpoint": "/i/v0/e/"
+            "endpoint": "https://analytics.posthog.com"
         },
         "elementsChainAsString": true,
         "capturePerformance": {
             "network_timing": true,
-            "web_vitals": true
+            "web_vitals": true,
+            "web_vitals_allowed_metrics": ["CLS", "FCP", "LCP", "FID", "TTFB"]
         },
         "autocaptureExceptions": {
             "endpoint": "/e/"
         },
-        "customField": "passthrough preserves unknown fields"
+        "flagsPersistenceDefault": true,
+        "captureDeadClicks": true,
+        "errorTracking": {
+            "autocaptureExceptions": true,
+            "suppressionRules": []
+        }
     });
     insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
 
@@ -1896,7 +1905,7 @@ async fn test_config_passthrough_comprehensive() -> Result<()> {
 
     let json_data = res.json::<Value>().await?;
 
-    // Verify flag evaluation still works
+    // Verify flag evaluation still works alongside config
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -1910,25 +1919,224 @@ async fn test_config_passthrough_comprehensive() -> Result<()> {
         })
     );
 
-    // Verify config fields are passed through correctly
+    // Verify all enterprise config fields are passed through correctly
+    // These assertions ensure the response shape matches SDK expectations
+
+    // Basic config fields
     assert_eq!(
         json_data["supportedCompression"],
         json!(["gzip", "gzip-js"])
     );
     assert_eq!(json_data["autocapture_opt_out"], json!(false));
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
     assert_eq!(
-        json_data["config"]["enable_collect_everything"],
+        json_data["config"],
+        json!({"enable_collect_everything": true})
+    );
+    assert_eq!(json_data["toolbarParams"], json!({}));
+
+    // Analytics endpoint
+    assert!(json_data["analytics"].is_object());
+    assert_eq!(
+        json_data["analytics"]["endpoint"],
+        json!("https://analytics.posthog.com")
+    );
+
+    // Elements chain as string
+    assert_eq!(json_data["elementsChainAsString"], json!(true));
+
+    // Performance capture with web vitals
+    let capture_performance = &json_data["capturePerformance"];
+    assert!(capture_performance.is_object());
+    assert_eq!(capture_performance["network_timing"], json!(true));
+    assert_eq!(capture_performance["web_vitals"], json!(true));
+    assert_eq!(
+        capture_performance["web_vitals_allowed_metrics"],
+        json!(["CLS", "FCP", "LCP", "FID", "TTFB"])
+    );
+
+    // Autocapture exceptions
+    assert_eq!(
+        json_data["autocaptureExceptions"],
+        json!({"endpoint": "/e/"})
+    );
+
+    // Optional team features (all enabled for enterprise)
+    assert_eq!(json_data["surveys"], json!(true));
+    assert_eq!(json_data["heatmaps"], json!(true));
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(true));
+    assert_eq!(json_data["captureDeadClicks"], json!(true));
+
+    // Session recording config
+    assert!(json_data["sessionRecording"].is_object());
+    let session_recording = &json_data["sessionRecording"];
+    assert_eq!(session_recording["endpoint"], json!("/s/"));
+    assert_eq!(session_recording["recorderVersion"], json!("v2"));
+    assert_eq!(session_recording["consoleLogRecordingEnabled"], json!(true));
+
+    // Site apps
+    assert!(json_data["siteApps"].is_array());
+    let site_apps = json_data["siteApps"].as_array().unwrap();
+    assert_eq!(site_apps.len(), 1);
+    assert!(site_apps[0]["url"]
+        .as_str()
+        .unwrap()
+        .contains("enterprise_token"));
+
+    // Error tracking
+    assert!(json_data["errorTracking"].is_object());
+    assert_eq!(
+        json_data["errorTracking"]["autocaptureExceptions"],
         json!(true)
     );
-    assert_eq!(json_data["sessionRecording"]["endpoint"], json!("/s/"));
-    assert_eq!(json_data["surveys"], json!(true));
-    assert_eq!(json_data["siteApps"].as_array().unwrap().len(), 1);
-    assert_eq!(json_data["analytics"]["endpoint"], json!("/i/v0/e/"));
 
-    // Verify unknown fields are preserved (passthrough behavior)
+    Ok(())
+}
+
+/// Test config passthrough for a minimal team (all features disabled).
+/// This ensures the response shape is correct even with minimal configuration.
+#[tokio::test]
+async fn test_config_passthrough_minimal_team() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "minimal_user".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert minimal config that Python would generate for a basic team
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "autocapture_opt_out": true,
+        "config": {
+            "enable_collect_everything": true
+        },
+        "toolbarParams": {},
+        "isAuthenticated": false,
+        "defaultIdentifiedOnly": true,
+        "surveys": false,
+        "heatmaps": false,
+        "siteApps": [],
+        "elementsChainAsString": false,
+        "capturePerformance": false,
+        "autocaptureExceptions": false,
+        "flagsPersistenceDefault": false
+    });
+    insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify minimal config fields
     assert_eq!(
-        json_data["customField"],
-        json!("passthrough preserves unknown fields")
+        json_data["supportedCompression"],
+        json!(["gzip", "gzip-js"])
+    );
+    assert_eq!(json_data["autocapture_opt_out"], json!(true));
+    assert_eq!(json_data["defaultIdentifiedOnly"], json!(true));
+    assert_eq!(json_data["isAuthenticated"], json!(false));
+    assert_eq!(
+        json_data["config"],
+        json!({"enable_collect_everything": true})
+    );
+    assert_eq!(json_data["toolbarParams"], json!({}));
+
+    // All optional features should be disabled
+    assert_eq!(json_data["surveys"], json!(false));
+    assert_eq!(json_data["heatmaps"], json!(false));
+    assert_eq!(json_data["elementsChainAsString"], json!(false));
+    assert_eq!(json_data["capturePerformance"], json!(false));
+    assert_eq!(json_data["autocaptureExceptions"], json!(false));
+    assert_eq!(json_data["flagsPersistenceDefault"], json!(false));
+
+    // Site apps should be empty
+    assert_eq!(json_data["siteApps"], json!([]));
+
+    // Analytics and sessionRecording should not be present (not in minimal config)
+    assert!(json_data.get("analytics").is_none() || json_data["analytics"].is_null());
+    assert!(json_data.get("sessionRecording").is_none() || json_data["sessionRecording"].is_null());
+
+    Ok(())
+}
+
+/// Test that unknown fields in config are preserved during passthrough.
+/// This ensures forward compatibility when Python adds new config fields.
+#[tokio::test]
+async fn test_config_passthrough_preserves_unknown_fields() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    // Insert config with unknown fields that Rust doesn't know about
+    // This simulates Python adding new config fields before Rust is updated
+    let remote_config = json!({
+        "supportedCompression": ["gzip", "gzip-js"],
+        "config": {},
+        "futureFeature": {
+            "enabled": true,
+            "setting": "some_value"
+        },
+        "anotherNewField": ["item1", "item2"],
+        "nestedUnknown": {
+            "level1": {
+                "level2": "deep_value"
+            }
+        }
+    });
+    insert_config_in_hypercache(client.clone(), &token, remote_config).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify unknown fields are preserved exactly
+    assert_eq!(
+        json_data["futureFeature"],
+        json!({"enabled": true, "setting": "some_value"})
+    );
+    assert_eq!(json_data["anotherNewField"], json!(["item1", "item2"]));
+    assert_eq!(
+        json_data["nestedUnknown"]["level1"]["level2"],
+        json!("deep_value")
     );
 
     Ok(())
