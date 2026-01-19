@@ -65,6 +65,7 @@ if(EMSCRIPTEN)
     target_link_libraries(hogql_parser_wasm PRIVATE hogql_parser antlr4_static)
 
     set(CMAKE_EXECUTABLE_SUFFIX ".js")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fwasm-exceptions") # Native WASM exceptions for better exception handling
     set_target_properties(hogql_parser_wasm PROPERTIES
         LINK_FLAGS "\
             -lembind \
