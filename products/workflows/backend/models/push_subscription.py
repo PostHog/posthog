@@ -113,16 +113,3 @@ class PushSubscription(UUIDModel):
         return cls.objects.filter(team_id=team_id, token_hash=token_hash, is_active=True).update(
             is_active=False, disabled_reason=reason or "unregistered"
         )
-
-    @classmethod
-    def update_last_successfully_used_at(cls, subscription_ids: list[str]) -> int:
-        """
-        Update last_successfully_used_at timestamp for the given subscription IDs.
-        Returns the number of subscriptions updated.
-        """
-        from django.utils import timezone
-
-        if not subscription_ids:
-            return 0
-
-        return cls.objects.filter(id__in=subscription_ids).update(last_successfully_used_at=timezone.now())
