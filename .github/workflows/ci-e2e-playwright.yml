@@ -100,7 +100,7 @@ jobs:
                         - Dockerfile
                         - playwright/**
 
-    get-clickhouse-versions:
+    get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.shouldRun == 'true'
@@ -150,7 +150,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        needs: [changes, detect-snapshot-mode, get-clickhouse-versions]
+        needs: [changes, detect-snapshot-mode, get_clickhouse_versions]
         if: needs.changes.outputs.shouldRun == 'true'
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
@@ -169,7 +169,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get-clickhouse-versions.outputs.oldest_supported }}
+                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 

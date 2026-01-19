@@ -69,7 +69,7 @@ jobs:
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
-    get-clickhouse-versions:
+    get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.dagster == 'true'
@@ -93,11 +93,11 @@ jobs:
 
     dagster:
         name: Dagster tests
-        needs: [changes, get-clickhouse-versions]
+        needs: [changes, get_clickhouse_versions]
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.get-clickhouse-versions.outputs.oldest_supported) }}
+                clickhouse-server-image: ${{ fromJson(needs.get_clickhouse_versions.outputs.oldest_supported) }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
