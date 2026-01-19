@@ -4,11 +4,9 @@ use crate::{
         types::{ConfigResponse, FlagsResponse},
     },
     config_cache::get_cached_config,
-    metrics::consts::TOMBSTONE_COUNTER,
     team::team_models::Team,
 };
 use limiters::redis::QuotaResource;
-use metrics::counter;
 use serde_json::{json, Value};
 
 use super::types::RequestContext;
@@ -29,19 +27,11 @@ pub async fn build_response_from_cache(
     }
 
     let cached_config =
-        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await? {
+        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
             Some(config) => config,
             None => {
                 // Cache miss - Python hasn't populated the cache yet.
-                // Return minimal fallback config and increment tombstone metric for alerting.
-                counter!(
-                    TOMBSTONE_COUNTER,
-                    "namespace" => "array",
-                    "operation" => "config_hypercache_miss",
-                    "component" => "config_response_builder",
-                )
-                .increment(1);
-
+                // Return minimal fallback config
                 tracing::warn!(
                     team_id = team.id,
                     api_token = %team.api_token,
