@@ -126,7 +126,11 @@ async def upload_video_to_gemini_activity(
                 uploaded_video=uploaded_video,
                 team_name=team_name,
                 # Converting to use proper types in calculations
-                inactivity_periods=[ReplayInactivityPeriod.model_validate_json(p) for p in inactivity_periods],
+                inactivity_periods=(
+                    None
+                    if not inactivity_periods
+                    else [ReplayInactivityPeriod.model_validate(p) for p in inactivity_periods]
+                ),
             )
 
     except Exception as e:
