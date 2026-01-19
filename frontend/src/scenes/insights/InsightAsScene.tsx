@@ -111,7 +111,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
                     attachTo={attachTo}
                     query={isInsightVizNode(query) ? { ...query, full: true } : query}
                     setQuery={setQuery}
-                    cachedResults={insight}
                     readOnly={insightMode !== ItemMode.Edit}
                     editMode={insightMode === ItemMode.Edit}
                     context={{

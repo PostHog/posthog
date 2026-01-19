@@ -403,7 +403,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedXAxis: [
-            null as string | null,
+            props.query.chartSettings?.xAxis?.column ?? null,
             {
                 _setQuery: (_, { node }) => node.chartSettings?.xAxis?.column ?? null,
                 clearAxis: () => null,
@@ -411,7 +411,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedYAxis: [
-            null as (SelectedYAxis | null)[] | null,
+            props.query.chartSettings?.yAxis?.map((axis) => ({
+                name: axis.column,
+                settings: axis.settings ?? DefaultAxisSettings(),
+            })) ?? null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
