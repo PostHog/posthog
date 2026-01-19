@@ -10,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
+    cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
@@ -19,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
+    write_chunk_for_cdp_producer,
 )
 from posthog.temporal.data_imports.pipelines.common.load import supports_partial_data_loading
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -108,8 +110,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         try:
             reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
-            if self._cdp_producer.should_produce_table:
-                self._cdp_producer.clear_s3_chunks()
+            cdp_producer_clear_chunks(self._cdp_producer)
 
             validate_incremental_sync(self._is_incremental, self._resource)
 
@@ -214,8 +215,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
-        if self._cdp_producer.should_produce_table:
-            self._cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+        write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
 
         self._last_incremental_field_value, self._earliest_incremental_field_value = update_incremental_field_values(
             self._schema,
