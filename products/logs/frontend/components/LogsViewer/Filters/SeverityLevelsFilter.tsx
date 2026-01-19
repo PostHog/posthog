@@ -7,7 +7,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { logsLogic } from '../logsLogic'
+import { logsLogic } from '../../../logsLogic'
 
 const options: Record<LogMessage['severity_text'], string> = {
     trace: 'Trace',

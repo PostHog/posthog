@@ -5,7 +5,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { logsLogic } from '../logsLogic'
+import { logsLogic } from '../../../logsLogic'
 
 export const AttributesFilter = (): JSX.Element => {
     const { filterGroup } = useValues(logsLogic)

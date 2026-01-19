@@ -7,7 +7,7 @@ import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
-import { logsLogic } from '../logsLogic'
+import { logsLogic } from '../../../logsLogic'
 
 const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },

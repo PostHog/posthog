@@ -8,8 +8,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { AnyPropertyFilter } from '~/types'
 
-import { logsLogic } from '../logsLogic'
-import { LogsFiltersHistoryEntry } from '../types'
+import { logsLogic } from '../../../logsLogic'
+import { LogsFiltersHistoryEntry } from '../../../types'
 
 const formatDateRange = (dateRange: LogsFiltersHistoryEntry['filters']['dateRange']): string => {
     const from = dateRange.date_from || 'any'
