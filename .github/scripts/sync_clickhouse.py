@@ -263,11 +263,17 @@ def cmd_sync_versions(args: argparse.Namespace) -> int:
     errors = []
 
     def get_version(name: str, content: str) -> str | None:
-        match = re.search(r"\d+\.\d+\.\d+\.\d+", content)
-        version = match.group(0) if match else None
-        if not version:
-            errors.append(f"- **{name}**: Failed to extract version")
-        return version
+        patterns = [
+            r"clickhouse/clickhouse-server:(\d+\.\d+\.\d+\.\d+)",  # Docker image
+            r"clickhouse_version:\s*['\"]?(\d+\.\d+\.\d+\.\d+)",  # Ansible variable
+            r"clickhouse_version\s*=\s*['\"]?(\d+\.\d+\.\d+\.\d+)",  # Terraform variable
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, content)
+            if match:
+                return match.group(1)
+        errors.append(f"- **{name}**: Failed to extract ClickHouse version")
+        return None
 
     prod_eu = get_version("Production EU", args.prod_eu_content)
     prod_us = get_version("Production US", args.prod_us_content)

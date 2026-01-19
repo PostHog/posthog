@@ -185,6 +185,27 @@ def test_cmd_sync_versions_writes_json_output(tmp_path, sample_docker_compose):
     assert output["oldest_supported"] == "clickhouse/clickhouse-server:25.4.1.1"
 
 
+def test_cmd_sync_versions_ignores_ips_and_cidrs(tmp_path, sample_docker_compose):
+    docker_file = tmp_path / "docker-compose.yml"
+    docker_file.write_text(sample_docker_compose)
+    output_file = tmp_path / "versions.json"
+
+    # Content with IPs before the actual ClickHouse version
+    args = argparse.Namespace(
+        prod_eu_content="network: 10.0.0.1/24\nclickhouse_version: 25.4.2.1",
+        prod_us_content="host: 192.168.1.100\nclickhouse/clickhouse-server:25.4.1.1",
+        local_file=str(docker_file),
+        output_file=str(output_file),
+    )
+
+    result = cmd_sync_versions(args)
+
+    assert result == 0
+    output = json.loads(output_file.read_text())
+    assert output["production_eu"] == "clickhouse/clickhouse-server:25.4.2.1"
+    assert output["production_us"] == "clickhouse/clickhouse-server:25.4.1.1"
+
+
 def test_cmd_sync_versions_returns_error_on_missing_version(tmp_path, sample_docker_compose):
     docker_file = tmp_path / "docker-compose.yml"
     docker_file.write_text(sample_docker_compose)
