@@ -65,6 +65,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     disableEditing?: boolean
     /** Format the label for custom values, e.g. appending " (new)". Receives the input string and returns the formatted label. */
     formatCreateLabel?: (input: string) => string
+    /** Transform input value as user types, e.g. normalization like replacing spaces with dashes. */
+    inputTransform?: (input: string) => string
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -101,6 +103,7 @@ export function LemonInputSelect<T = string>({
     disabled,
     disableFiltering = false,
     formatCreateLabel,
+    inputTransform,
     disablePrompting = false,
     allowCustomValues = false,
     disableEditing = false,
@@ -280,6 +283,11 @@ export function LemonInputSelect<T = string>({
     }, [visibleOptions.map((option) => option.key).join(':::')])
 
     const setInputValue = (newValue: string): void => {
+        // Apply input transformation if provided
+        if (inputTransform) {
+            newValue = inputTransform(newValue)
+        }
+
         // Special case for multiple mode with custom values
         if (separateOnComma && newValue.match(NON_ESCAPED_COMMA_REGEX)) {
             const newValues = [...values]
