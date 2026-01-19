@@ -1,65 +1,47 @@
 import { useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 
+import { ReplayInactivityPeriod } from '~/queries/schema/schema-general'
+
+import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-
-interface InactivityPeriod {
-    ts_from_s: number
-    ts_to_s?: number
-    active: boolean
-}
 
 declare global {
     // Track active/inactive periods to consume from backend later
     interface Window {
-        __POSTHOG_INACTIVITY_PERIODS__?: InactivityPeriod[]
+        __POSTHOG_INACTIVITY_PERIODS__?: ReplayInactivityPeriod[]
     }
 }
 
 export function PlayerFrameMetaOverlay(): JSX.Element | null {
-    const { currentURL, currentPlayerTime, currentSegment } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, currentURL, currentPlayerTime, currentSegment } = useValues(sessionRecordingPlayerLogic)
 
-    const [inactivityPeriods, setInactivityPeriods] = useState<InactivityPeriod[]>([])
-    const prevIsActiveRef = useRef<boolean | undefined>(undefined)
-    const initializedRef = useRef(false)
+    // Load pre-processed segments
+    const { segments: recordingSegments } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    const currentTimeSeconds = currentPlayerTime !== undefined ? Math.floor(currentPlayerTime / 1000) : undefined
-    const currentIsActive = currentSegment?.isActive
-
+    // Process all segments at once when available
     useEffect(() => {
-        // Nothing to track yet
-        if (currentTimeSeconds === undefined || currentIsActive === undefined) {
+        // If no segments available - no periods to track
+        if (!recordingSegments || recordingSegments.length === 0) {
+            window.__POSTHOG_INACTIVITY_PERIODS__ = []
             return
         }
-        // Initialize first entry
-        if (!initializedRef.current) {
-            initializedRef.current = true
-            prevIsActiveRef.current = currentIsActive
-            setInactivityPeriods([{ ts_from_s: currentTimeSeconds, active: currentIsActive }])
-            return
-        }
-        // Detect status change
-        if (prevIsActiveRef.current !== currentIsActive) {
-            setInactivityPeriods((prev) => {
-                const updated = [...prev]
-                // Finish the previous period
-                if (updated.length > 0) {
-                    updated[updated.length - 1].ts_to_s = currentTimeSeconds
-                }
-                // Start a new period
-                updated.push({ ts_from_s: currentTimeSeconds, active: currentIsActive })
-                return updated
-            })
-            prevIsActiveRef.current = currentIsActive
-        }
-    }, [currentTimeSeconds, currentIsActive])
+        // Segments use Unix timestamps, so we need to use them also (instead of 0 as a start)
+        const recordingStartTimestamp = recordingSegments[0].startTimestamp
+        // Convert segments into inactivity periods metadata
+        const periods: ReplayInactivityPeriod[] = recordingSegments
+            // Skipping buffers, keeping windows and gaps
+            .filter((segment) => segment.kind !== 'buffer')
+            .map((segment) => ({
+                ts_from_s: Math.floor((segment.startTimestamp - recordingStartTimestamp) / 1000),
+                ts_to_s: Math.floor((segment.endTimestamp - recordingStartTimestamp) / 1000),
+                active: segment.isActive ?? true,
+            }))
+            // Ensure to keep only periods with >0 duration
+            .filter((p) => p.ts_to_s > p.ts_from_s)
 
-    // Expose to global variable for video exporter, filtering out zero-duration periods
-    useEffect(() => {
-        window.__POSTHOG_INACTIVITY_PERIODS__ = inactivityPeriods.filter(
-            (p) => p.ts_to_s === undefined || p.ts_to_s > p.ts_from_s
-        )
-    }, [inactivityPeriods])
+        window.__POSTHOG_INACTIVITY_PERIODS__ = periods
+    }, [recordingSegments])
 
     if (!currentURL || currentPlayerTime === undefined) {
         return null
