@@ -529,6 +529,8 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # Test that cohort bytecode generation wraps comparison operations with null checks
         from posthog.api.cohort import generate_cohort_filter_bytecode
 
+        from common.hogvm.python.operation import Operation
+
         # Test GT operator with person property
         filter_data_gt = {
             "key": "age",
@@ -539,10 +541,13 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         bytecode_gt, error_gt, hash_gt = generate_cohort_filter_bytecode(filter_data_gt, self.team)
         self.assertIsNone(error_gt)
         self.assertIsNotNone(bytecode_gt)
-        # The bytecode should contain an 'if' check for nulls
-        # The wrapped version should use the 'if' function (CALL_GLOBAL with 'if')
+        # The bytecode should contain null-safe wrapping operations
         assert bytecode_gt is not None  # Type narrowing for mypy
-        self.assertIn("if", bytecode_gt)
+        self.assertIn("isNull", bytecode_gt)  # isNull function calls
+        self.assertIn(Operation.OR, bytecode_gt)  # OR operation for combining null checks
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gt)  # Conditional jump
+        self.assertIn(Operation.FALSE, bytecode_gt)  # Return false if null
+        self.assertIn(Operation.GT, bytecode_gt)  # The actual GT comparison
 
         # Test LT operator
         filter_data_lt = {
@@ -555,7 +560,10 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertIsNone(error_lt)
         self.assertIsNotNone(bytecode_lt)
         assert bytecode_lt is not None  # Type narrowing for mypy
-        self.assertIn("if", bytecode_lt)
+        self.assertIn("isNull", bytecode_lt)
+        self.assertIn(Operation.OR, bytecode_lt)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lt)
+        self.assertIn(Operation.LT, bytecode_lt)
 
         # Test GTE operator
         filter_data_gte = {
@@ -568,7 +576,10 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertIsNone(error_gte)
         self.assertIsNotNone(bytecode_gte)
         assert bytecode_gte is not None  # Type narrowing for mypy
-        self.assertIn("if", bytecode_gte)
+        self.assertIn("isNull", bytecode_gte)
+        self.assertIn(Operation.OR, bytecode_gte)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_gte)
+        self.assertIn(Operation.GT_EQ, bytecode_gte)
 
         # Test LTE operator
         filter_data_lte = {
@@ -581,9 +592,12 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertIsNone(error_lte)
         self.assertIsNotNone(bytecode_lte)
         assert bytecode_lte is not None  # Type narrowing for mypy
-        self.assertIn("if", bytecode_lte)
+        self.assertIn("isNull", bytecode_lte)
+        self.assertIn(Operation.OR, bytecode_lte)
+        self.assertIn(Operation.JUMP_IF_FALSE, bytecode_lte)
+        self.assertIn(Operation.LT_EQ, bytecode_lte)
 
-        # Test that EQ operator does NOT get wrapped (should not have 'if')
+        # Test that EQ operator does NOT get wrapped (should not have null-safe wrapping)
         filter_data_eq = {
             "key": "age",
             "type": "person",
@@ -593,7 +607,9 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         bytecode_eq, error_eq, hash_eq = generate_cohort_filter_bytecode(filter_data_eq, self.team)
         self.assertIsNone(error_eq)
         self.assertIsNotNone(bytecode_eq)
-        # EQ should not be wrapped, so it might not have 'if' in the same way
-        # Just verify it generates bytecode
         assert bytecode_eq is not None  # Type narrowing for mypy
-        self.assertTrue(len(bytecode_eq) > 0)
+        # EQ should not have the null-safe wrapping
+        self.assertIn(Operation.EQ, bytecode_eq)
+        # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
+        bytecode_str = str(bytecode_eq)
+        self.assertNotIn("isNull", bytecode_str)
