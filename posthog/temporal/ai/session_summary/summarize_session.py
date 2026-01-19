@@ -18,6 +18,8 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.schema import ReplayInactivityPeriod
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -392,6 +394,76 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         await ensure_llm_single_session_summary(inputs)
 
 
+def calculate_video_segment_specs(
+    video_duration: float,
+    chunk_duration: float,
+    rendering_delay: float,
+    inactivity_periods: list[ReplayInactivityPeriod] | None = None,
+) -> list[VideoSegmentSpec]:
+    """
+    Calculate video segment specifications for analysis.
+    """
+    # If no inactivity data - splits the entire video uniformly into chunks of the same duration
+    if not inactivity_periods:
+        # Should analyze at least 1 segment even if it's shorter than the chunk duration
+        num_segments = (
+            int((video_duration - rendering_delay) / chunk_duration) or 1
+        )  # Exclude the rendering delay at the start
+        return [
+            VideoSegmentSpec(
+                segment_index=i,
+                # Start either after the rendering delay, or at the next chunk boundary
+                start_time=max(rendering_delay, i * chunk_duration),
+                # The final segment extends to the end to avoid tiny leftover segments (28s chunk is preferable to a 2s one)
+                end_time=(min((i + 1) * chunk_duration, video_duration) if i < num_segments - 1 else video_duration),
+            )
+            for i in range(num_segments)
+        ]
+    # If inactivity data is present - only analyze "active" periods (when user was interacting)
+    segments: list[VideoSegmentSpec] = []
+    segment_index = 0
+    # Filter to only active periods (skip gaps and idle time)
+    active_periods = [p for p in inactivity_periods if p.active]
+    if not active_periods:
+        # No active periods to check
+        return []
+    for period in active_periods:
+        # End period can have no end time, so default to video duration
+        period_end = period.ts_to_s if period.ts_to_s is not None else video_duration
+        # Start either after the rendering delay, or at the next chunk boundary
+        effective_start = max(period.ts_from_s, rendering_delay)
+        # Skip this period entirely if it falls completely within the rendering delay
+        if effective_start >= period_end:
+            continue
+        # Check if the segment is <= chunk_duration and return it,
+        if period_end - effective_start <= chunk_duration:
+            segments.append(
+                VideoSegmentSpec(
+                    segment_index=segment_index,
+                    start_time=effective_start,
+                    end_time=period_end,
+                )
+            )
+            segment_index += 1
+            continue
+        # If the period is larger than chunk_duration, split it into chunks small enough for efficient LLM processing
+        current_start = effective_start
+        while current_start < period_end:
+            # Chunk either matches the end of the period or needs more splitting
+            current_end = min(current_start + chunk_duration, period_end)
+            segments.append(
+                VideoSegmentSpec(
+                    segment_index=segment_index,
+                    start_time=current_start,
+                    end_time=current_end,
+                )
+            )
+            segment_index += 1
+            # Move to the next chunk, if period is not processed fully yet
+            current_start = current_end
+    return segments
+
+
 async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     retry_policy = RetryPolicy(maximum_attempts=3)
     trace_id = temporalio.workflow.info().workflow_id
@@ -446,26 +518,15 @@ async def ensure_llm_single_session_summary(inputs: SingleSessionSummaryInputs):
     )
     uploaded_video = upload_result["uploaded_video"]
     team_name = upload_result["team_name"]
+    inactivity_periods = upload_result["inactivity_periods"]
 
-    # Calculate segment specs based on video duration
-    # (We ignore the first couple of seconds, as they often include malformed frames)
-    analysis_duration = uploaded_video.duration - SESSION_VIDEO_RENDERING_DELAY
-    num_segments = (
-        int(analysis_duration / SESSION_VIDEO_CHUNK_DURATION_S) or 1
-    )  # Number of segments is floored, but can't be 0
-    segment_specs = [
-        VideoSegmentSpec(
-            segment_index=i,
-            start_time=SESSION_VIDEO_RENDERING_DELAY + i * SESSION_VIDEO_CHUNK_DURATION_S,
-            end_time=SESSION_VIDEO_RENDERING_DELAY
-            + (
-                min((i + 1) * SESSION_VIDEO_CHUNK_DURATION_S, analysis_duration)
-                if i < num_segments - 1
-                else analysis_duration  # Final segment always reaches the end - a 28s chunk is preferable to a 2s one!
-            ),
-        )
-        for i in range(num_segments)
-    ]
+    # Calculate segment specs based on video duration and activity periods
+    segment_specs = calculate_video_segment_specs(
+        video_duration=uploaded_video.duration,
+        chunk_duration=SESSION_VIDEO_CHUNK_DURATION_S,
+        rendering_delay=SESSION_VIDEO_RENDERING_DELAY,
+        inactivity_periods=inactivity_periods,
+    )
 
     # Activity 3: Analyze all segments in parallel (max 100 concurrent to limit blast radius)
     semaphore = asyncio.Semaphore(100)
