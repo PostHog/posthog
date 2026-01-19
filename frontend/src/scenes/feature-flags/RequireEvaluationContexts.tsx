@@ -39,7 +39,7 @@ export function RequireEvaluationContexts(): JSX.Element | null {
                         evaluation context
                     </Link>{' '}
                     before they can be created. This helps prevent folks from creating flags that are not properly
-                    scoped to specific environments.
+                    scoped to specific contexts.
                 </p>
 
                 <LemonSwitch
