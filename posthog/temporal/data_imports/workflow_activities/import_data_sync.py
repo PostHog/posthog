@@ -229,10 +229,8 @@ def _run(
         )
         if is_non_retryable_error:
             handle_non_retryable_error(job_inputs, error_msg, logger, e)
-
-            return {"should_trigger_cdp_producer": False}
         else:
-            logger.exception(e)
+            logger.exception(error_msg)
             logger.debug(
                 "Error encountered during import_data_activity_sync - re-raising",
             )
