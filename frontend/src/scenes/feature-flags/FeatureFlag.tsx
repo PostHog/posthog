@@ -461,26 +461,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }}
                             </LemonField>
-                            {isNewFeatureFlag && (
-                                <LemonField name="_should_create_usage_dashboard">
-                                    {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
-                                            <LemonCheckbox
-                                                id="create-usage-dashboard-checkbox"
-                                                label="Create usage dashboard"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                                data-attr="create-usage-dashboard-checkbox"
-                                            />
-                                            <div className="text-secondary text-sm pl-7">
-                                                Automatically track how often this flag is called and what values are
-                                                returned. Creates a dashboard with call volume trends and variant
-                                                distribution insights.
-                                            </div>
-                                        </div>
-                                    )}
-                                </LemonField>
-                            )}
                             {!featureFlag.is_remote_configuration && (
                                 <LemonField name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
