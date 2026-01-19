@@ -4,8 +4,10 @@ import json
 import datetime
 import tempfile
 from collections import OrderedDict
-from collections.abc import Generator
-from typing import Any, Optional
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Any, Optional, Protocol
 from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 from django.http import QueryDict
@@ -37,9 +39,99 @@ from ..exporter import EXPORT_TIMER
 
 logger = structlog.get_logger(__name__)
 
-
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
+QUERY_PAGE_SIZE = 10000
+
+# Query kinds that support offset/limit pagination via schema parameters.
+# HogQLQuery doesn't support these yet
+PAGINATED_QUERY_KINDS = {"EventsQuery", "ActorsQuery", "GroupsQuery"}
+
+
+class TabularWriter(Protocol):
+    def write_header(self, columns: list[str]) -> None: ...
+    def write_row(self, row: dict) -> None: ...
+    def finish(self) -> str: ...  # returns path to temp file
+
+
+class CsvWriter(TabularWriter):
+    def __init__(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="")
+        self._writer: csv.DictWriter | None = None
+
+    def write_header(self, columns: list[str]) -> None:
+        self._writer = csv.DictWriter(self._tmp, fieldnames=columns, extrasaction="ignore")
+        self._writer.writeheader()
+
+    def write_row(self, row: dict) -> None:
+        assert self._writer is not None
+        self._writer.writerow(row)
+
+    def finish(self) -> str:
+        self._tmp.close()
+        return self._tmp.name
+
+
+class ExcelWriter(TabularWriter):
+    def __init__(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        self._path = self._tmp.name
+        self._tmp.close()  # openpyxl manages file writing
+        self._workbook = Workbook(write_only=True)
+        self._worksheet = self._workbook.create_sheet()
+        self._columns: list[str] = []
+
+    def write_header(self, columns: list[str]) -> None:
+        self._columns = columns
+        self._worksheet.append(columns)
+
+    def write_row(self, row: dict) -> None:
+        values = []
+        for col in self._columns:
+            value = row.get(col)
+            if value is not None and not isinstance(value, str | int | float | bool):
+                value = str(value)
+            values.append(value)
+        self._worksheet.append(values)
+
+    def finish(self) -> str:
+        self._workbook.save(self._path)
+        return self._path
+
+
+@dataclass
+class RowBuffer:
+    file: Any
+    columns: list[str]
+    seen_keys: set[str]
+    row_count: int
+
+    def __iter__(self) -> Iterator[dict]:
+        for line in self.file:
+            if line.strip():
+                yield json.loads(line)
+
+
+@contextmanager
+def _buffer_rows(exported_asset: ExportedAsset, limit: int) -> Iterator[RowBuffer]:
+    """Buffer rows to a temp file, discovering columns along the way.
+
+    Yields a RowBuffer that exposes:
+    - columns: list of column names (grouped by prefix)
+    - seen_keys: set of all seen keys
+    - row_count: number of rows
+    - __iter__: yields rows as dicts
+    """
+    with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
+        row_count, columns, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
+        jsonl_file.seek(0)
+
+        yield RowBuffer(
+            file=jsonl_file,
+            columns=columns,
+            seen_keys=seen_keys,
+            row_count=row_count,
+        )
 
 
 def _group_columns_by_prefix(all_keys: list[str]) -> list[str]:
@@ -319,13 +411,6 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         next_url = data.get("next")
 
 
-QUERY_PAGE_SIZE = 10000
-
-# Query kinds that support offset/limit pagination via schema parameters.
-# HogQLQuery doesn't support these yet
-PAGINATED_QUERY_KINDS = {"EventsQuery", "ActorsQuery", "GroupsQuery"}
-
-
 def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
@@ -437,107 +522,29 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
     return columns
 
 
-def _export_to_csv(exported_asset: ExportedAsset, limit: int) -> None:
-    """Export data to CSV using a two-pass approach for memory efficiency.
+def _export_tabular(exported_asset: ExportedAsset, limit: int, writer: TabularWriter) -> None:
+    """Export data using the provided writer."""
+    user_columns = (exported_asset.export_context or {}).get("columns", [])
 
-    Pass 1: Stream rows to a JSON lines temp file to discover all columns as we go.
-    Pass 2: Write the final CSV with the discovered columns, reading from the JSON lines file.
-    """
-    resource = exported_asset.export_context or {}
-    user_columns = resource.get("columns", [])
-
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
-        # Pass 1: write rows, collect columns
-        row_count, all_keys, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
-
-        # Pass 2: read back and write CSV
-        jsonl_file.seek(0)
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as csv_tmp:
-            csv_path = csv_tmp.name
-
-            if row_count == 0:
-                if user_columns:
-                    # Have columns but no data - write header with empty row
-                    dict_writer = csv.DictWriter(csv_tmp, fieldnames=user_columns, extrasaction="ignore")
-                    dict_writer.writeheader()
-                    dict_writer.writerow({})  # Empty row with empty values
-                else:
-                    # No columns and no data - show error
-                    error_writer = csv.writer(csv_tmp)
-                    error_writer.writerow(["error"])
-                    error_writer.writerow(["No data available or unable to format for export."])
-            else:
-                columns = _determine_columns(user_columns, all_keys, seen_keys)
-                dict_writer = csv.DictWriter(csv_tmp, fieldnames=columns, extrasaction="ignore")
-                dict_writer.writeheader()
-
-                for line in jsonl_file:
-                    if line.strip():
-                        row = json.loads(line)
-                        dict_writer.writerow(row)
-
-    try:
-        save_content_from_file(exported_asset, csv_path)
-    finally:
-        os.unlink(csv_path)
-
-
-def _export_to_excel(exported_asset: ExportedAsset, limit: int) -> None:
-    """Export data to Excel using a two-pass approach for memory efficiency.
-
-    Pass 1: Stream rows to a JSON lines temp file to discover all columns as we go.
-    Pass 2: Write the final Excel file with the discovered columns, reading from the JSON lines file.
-    """
-    resource = exported_asset.export_context or {}
-    user_columns = resource.get("columns", [])
-
-    with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
-        # Pass 1: write rows, collect columns
-        row_count, all_keys, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
-
-        # Pass 2: read back and write Excel
-        jsonl_file.seek(0)
-
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as xlsx_tmp:
-            xlsx_path = xlsx_tmp.name
-
-        if row_count == 0:
-            workbook = Workbook(write_only=True)
-            worksheet = workbook.create_sheet()
+    with _buffer_rows(exported_asset, limit) as buffer:
+        if buffer.row_count == 0:
+            columns = user_columns if user_columns else ["error"]
+            writer.write_header(columns)
             if user_columns:
-                # Have columns but no data - write header with empty row
-                worksheet.append(user_columns)
-                worksheet.append([""] * len(user_columns))  # Empty row
+                writer.write_row({})  # empty row
             else:
-                # No columns and no data - show error
-                worksheet.append(["error"])
-                worksheet.append(["No data available or unable to format for export."])
-            workbook.save(xlsx_path)
+                writer.write_row({"error": "No data available or unable to format for export."})
         else:
-            columns = _determine_columns(user_columns, all_keys, seen_keys)
+            columns = _determine_columns(user_columns, buffer.columns, buffer.seen_keys)
+            writer.write_header(columns)
+            for row in buffer:
+                writer.write_row(row)
 
-            workbook = Workbook(write_only=True)
-            worksheet = workbook.create_sheet()
-            worksheet.append(columns)
-
-            for line in jsonl_file:
-                if line.strip():
-                    row_dict = json.loads(line)
-                    row_values = []
-                    for col in columns:
-                        value = row_dict.get(col)
-                        if value is not None and not isinstance(value, str | int | float | bool):
-                            value = str(value)
-                        row_values.append(value)
-                    worksheet.append(row_values)
-
-            workbook.save(xlsx_path)
-
+    path = writer.finish()
     try:
-        save_content_from_file(exported_asset, xlsx_path)
+        save_content_from_file(exported_asset, path)
     finally:
-        os.unlink(xlsx_path)
+        os.unlink(path)
 
 
 def get_limit_param_key(path: str) -> str:
@@ -577,9 +584,9 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
     try:
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-                _export_to_csv(exported_asset, limit)
+                _export_tabular(exported_asset, limit, CsvWriter())
             elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-                _export_to_excel(exported_asset, limit)
+                _export_tabular(exported_asset, limit, ExcelWriter())
             else:
                 raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:
