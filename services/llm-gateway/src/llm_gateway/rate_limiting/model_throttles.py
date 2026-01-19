@@ -3,12 +3,14 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Literal
 
-from cachetools import TTLCache
+import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.rate_limiting.model_cost_service import get_model_limits
 from llm_gateway.rate_limiting.redis_limiter import TokenRateLimiter
-from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
+from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult, get_team_multiplier
+
+logger = structlog.get_logger(__name__)
 
 LimitKey = Literal["input_tph", "output_tph"]
 
@@ -19,21 +21,42 @@ class TokenThrottle(Throttle):
     scope: str
     limit_key: LimitKey
     limit_multiplier: int = 1  # Override in subclass for global throttles (e.g., 10)
+    token_type: str = "Token"  # Override: "Input" or "Output"
+    window_seconds: int = 3600
 
     def __init__(self, redis: Redis[bytes] | None):
         self._redis = redis
         self._limiters: dict[str, TokenRateLimiter] = {}
 
-    def _get_limiter(self, model: str) -> TokenRateLimiter:
-        if model not in self._limiters:
+    def _get_limiter_key(self, model: str, team_multiplier: int) -> str:
+        if team_multiplier == 1:
+            return model
+        return f"{model}:tm{team_multiplier}"
+
+    def _get_limiter(self, model: str, team_multiplier: int = 1) -> TokenRateLimiter:
+        limiter_key = self._get_limiter_key(model, team_multiplier)
+        if limiter_key not in self._limiters:
             limits = get_model_limits(model)
-            limit = limits[self.limit_key] * self.limit_multiplier
-            self._limiters[model] = TokenRateLimiter(
+            base_limit = limits[self.limit_key] * self.limit_multiplier
+            limit = base_limit * team_multiplier
+            if team_multiplier > 1:
+                logger.info(
+                    "team_rate_limit_multiplier_applied",
+                    model=model,
+                    throttle_scope=self.scope,
+                    base_limit=base_limit,
+                    team_multiplier=team_multiplier,
+                    effective_limit=limit,
+                )
+            self._limiters[limiter_key] = TokenRateLimiter(
                 redis=self._redis,
                 limit=limit,
-                window_seconds=3600,
+                window_seconds=self.window_seconds,
             )
-        return self._limiters[model]
+        return self._limiters[limiter_key]
+
+    def _get_team_multiplier(self, context: ThrottleContext) -> int:
+        return get_team_multiplier(context.user.team_id)
 
     @abstractmethod
     def _get_cache_key(self, context: ThrottleContext) -> str:
@@ -45,102 +68,119 @@ class TokenThrottle(Throttle):
         """Return the number of tokens to consume."""
         ...
 
+    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        tokens = self._get_tokens(context)
+        if context.model is None or tokens is None:
+            return ThrottleResult.allow()
+
+        team_multiplier = self._get_team_multiplier(context)
+        limiter = self._get_limiter(context.model, team_multiplier)
+        key = self._get_cache_key(context)
+
+        if await limiter.consume(key, tokens):
+            return ThrottleResult.allow()
+
+        return ThrottleResult.deny(
+            detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
+            scope=self.scope,
+            retry_after=self.window_seconds,
+        )
+
 
 class InputTokenThrottle(TokenThrottle):
     """Base for input token throttles."""
 
     limit_key = "input_tph"
+    token_type = "Input"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.input_tokens
 
-    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
-        tokens = self._get_tokens(context)
-        if context.model is None or tokens is None:
-            return ThrottleResult.allow()
-
-        limiter = self._get_limiter(context.model)
-        key = self._get_cache_key(context)
-
-        if await limiter.consume(key, tokens):
-            return ThrottleResult.allow()
-
-        return ThrottleResult.deny(
-            detail=f"Input token rate limit exceeded for model {context.model}",
-            scope=self.scope,
-        )
-
 
 class OutputTokenThrottle(TokenThrottle):
-    """Base for output token throttles with reservation support."""
+    """Base for output token throttles.
+
+    Pre-request: Checks if max_output_tokens would exceed limit (without consuming).
+    Post-response: Actual output tokens are consumed via record_output_tokens().
+    """
 
     limit_key = "output_tph"
-    RESERVATION_TTL_SECONDS = 300  # 5 minutes - reservations expire if response never completes
-    RESERVATION_MAX_SIZE = 10_000  # Max concurrent requests tracked
-
-    def __init__(self, redis: Redis[bytes] | None):
-        super().__init__(redis)
-        # TTLCache auto-expires entries after TTL, preventing memory leaks from abandoned requests
-        self._reservations: TTLCache[str, tuple[str, int, str]] = TTLCache(
-            maxsize=self.RESERVATION_MAX_SIZE, ttl=self.RESERVATION_TTL_SECONDS
-        )
+    token_type = "Output"
 
     def _get_tokens(self, context: ThrottleContext) -> int | None:
         return context.max_output_tokens
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        """Check if max_output_tokens would be allowed (without consuming)."""
         tokens = self._get_tokens(context)
         if context.model is None or tokens is None:
             return ThrottleResult.allow()
 
-        limiter = self._get_limiter(context.model)
+        team_multiplier = self._get_team_multiplier(context)
+        limiter = self._get_limiter(context.model, team_multiplier)
         key = self._get_cache_key(context)
 
-        if await limiter.consume(key, tokens):
-            if context.request_id:
-                self._reservations[context.request_id] = (context.model, tokens, key)
+        if await limiter.would_allow(key, tokens):
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(
-            detail=f"Output token rate limit exceeded for model {context.model}",
+            detail=f"{self.token_type} token rate limit exceeded for model {context.model}",
             scope=self.scope,
+            retry_after=self.window_seconds,
         )
 
-    async def adjust_after_response(self, request_id: str, actual_output_tokens: int) -> None:
-        if request_id not in self._reservations:
+    async def record_output_tokens(self, context: ThrottleContext, actual_tokens: int) -> None:
+        """Record actual output tokens after response completes."""
+        if context.model is None:
             return
-        model, reserved, cache_key = self._reservations.pop(request_id)
-        unused = reserved - actual_output_tokens
-        if unused > 0:
-            limiter = self._get_limiter(model)
-            await limiter.release(cache_key, unused)
+
+        team_multiplier = self._get_team_multiplier(context)
+        limiter = self._get_limiter(context.model, team_multiplier)
+        key = self._get_cache_key(context)
+        await limiter.consume(key, actual_tokens)
 
 
-class GlobalModelInputTokenThrottle(InputTokenThrottle):
-    scope = "global_model_input_tokens"
+class ProductModelInputTokenThrottle(InputTokenThrottle):
+    scope = "product_model_input_tokens"
     limit_multiplier = 10
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"global:model:{context.model}:input"
+        team_mult = self._get_team_multiplier(context)
+        base = f"product:{context.product}:model:{context.model}:input"
+        if team_mult == 1:
+            return base
+        return f"{base}:tm{team_mult}"
 
 
 class UserModelInputTokenThrottle(InputTokenThrottle):
     scope = "user_model_input_tokens"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"user:{context.user.user_id}:model:{context.model}:input"
+        team_mult = self._get_team_multiplier(context)
+        base = f"user:{context.user.user_id}:model:{context.model}:input"
+        if team_mult == 1:
+            return base
+        return f"{base}:tm{team_mult}"
 
 
-class GlobalModelOutputTokenThrottle(OutputTokenThrottle):
-    scope = "global_model_output_tokens"
+class ProductModelOutputTokenThrottle(OutputTokenThrottle):
+    scope = "product_model_output_tokens"
     limit_multiplier = 10
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"global:model:{context.model}:output"
+        team_mult = self._get_team_multiplier(context)
+        base = f"product:{context.product}:model:{context.model}:output"
+        if team_mult == 1:
+            return base
+        return f"{base}:tm{team_mult}"
 
 
 class UserModelOutputTokenThrottle(OutputTokenThrottle):
     scope = "user_model_output_tokens"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:
-        return f"user:{context.user.user_id}:model:{context.model}:output"
+        team_mult = self._get_team_multiplier(context)
+        base = f"user:{context.user.user_id}:model:{context.model}:output"
+        if team_mult == 1:
+            return base
+        return f"{base}:tm{team_mult}"

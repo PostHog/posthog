@@ -293,21 +293,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL]) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>User feedback</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        {' '}
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.FEEDBACK,
-            content: <FeedbackTab featureFlag={featureFlag} />,
-        })
-    }
+    tabs.push({
+        label: 'User feedback',
+        key: FeatureFlagsTab.FEEDBACK,
+        content: <FeedbackTab featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -1539,7 +1529,7 @@ function FeatureFlagRollout({
                                             />
                                         </SceneSection>
 
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
+                                        {onGetFeedback && (
                                             <>
                                                 <SceneDivider className="md:hidden" />
                                                 <UserFeedbackSection

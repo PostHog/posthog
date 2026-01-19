@@ -15,8 +15,8 @@ class TokenCounter:
         """Count input tokens for messages."""
         try:
             return litellm.token_counter(model=model, messages=messages)
-        except Exception:
-            logger.warning("token_counter_fallback", model=model)
+        except Exception as e:
+            logger.warning("token_counter_fallback", model=model, error=str(e))
             text = self._messages_to_text(messages)
             return len(text) // 4
 

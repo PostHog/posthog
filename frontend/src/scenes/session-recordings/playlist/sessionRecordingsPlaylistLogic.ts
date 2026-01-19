@@ -35,7 +35,6 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
-    EntityTypes,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
@@ -280,19 +279,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
                 if (f.key === 'visited_page') {
-                    events.push({
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: EntityTypes.EVENTS,
-                        properties: [
-                            {
-                                type: PropertyFilterType.Event,
-                                key: '$current_url',
-                                value: f.value,
-                                operator: f.operator,
-                            },
-                        ],
-                    })
+                    // Pass visited_page as a recording property to use all_urls array in backend
+                    // This filters by URLs that actually appear in the recording, not just events during the session
+                    properties.push(f)
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
                 } else if (f.key === 'comment_text') {

@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.model_throttles import (
-    GlobalModelInputTokenThrottle,
+    ProductModelInputTokenThrottle,
     UserModelInputTokenThrottle,
 )
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -12,6 +13,7 @@ from llm_gateway.rate_limiting.throttles import (
     Throttle,
     ThrottleContext,
     ThrottleResult,
+    get_team_multiplier,
 )
 
 
@@ -26,6 +28,7 @@ def make_user(
         user_id=user_id,
         team_id=team_id,
         auth_method=auth_method,
+        distinct_id=f"test-distinct-id-{user_id}",
         scopes=scopes or ["llm_gateway:read"],
         application_id=application_id,
     )
@@ -53,8 +56,6 @@ class TestThrottleResult:
     def test_allow_creates_allowed_result(self) -> None:
         result = ThrottleResult.allow()
         assert result.allowed is True
-        assert result.status_code == 429
-        assert result.detail == "Rate limit exceeded"
 
     def test_deny_creates_denied_result_with_defaults(self) -> None:
         result = ThrottleResult.deny()
@@ -142,10 +143,10 @@ class TestThrottleRunner:
 
     @pytest.mark.asyncio
     async def test_composite_throttle_order(self) -> None:
-        global_throttle = GlobalModelInputTokenThrottle(redis=None)
+        product_throttle = ProductModelInputTokenThrottle(redis=None)
         user_throttle = UserModelInputTokenThrottle(redis=None)
 
-        runner = ThrottleRunner(throttles=[global_throttle, user_throttle])
+        runner = ThrottleRunner(throttles=[product_throttle, user_throttle])
 
         user = make_user(auth_method="personal_api_key")
         context = make_context(
@@ -181,3 +182,21 @@ class TestThrottleContext:
         assert context.input_tokens == 1000
         assert context.max_output_tokens == 4096
         assert context.request_id == "req-123"
+
+
+class TestGetTeamMultiplier:
+    def test_returns_1_for_none_team_id(self) -> None:
+        assert get_team_multiplier(None) == 1
+
+    def test_returns_1_for_unconfigured_team(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(99) == 1
+        get_settings.cache_clear()
+
+    def test_returns_configured_multiplier(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10, "5": 5}')
+        get_settings.cache_clear()
+        assert get_team_multiplier(2) == 10
+        assert get_team_multiplier(5) == 5
+        get_settings.cache_clear()

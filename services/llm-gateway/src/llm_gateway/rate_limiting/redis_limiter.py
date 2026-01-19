@@ -115,6 +115,20 @@ class TokenRateLimiter:
             capacity=fallback_limit,
         )
 
+    async def would_allow(self, key: str, tokens: int = 1) -> bool:
+        """Check if tokens would be allowed WITHOUT consuming them."""
+        if self.redis is None:
+            return self._fallback.would_allow(key, float(tokens))
+
+        try:
+            redis_key = f"ratelimit:{key}"
+            current = await self.redis.get(redis_key)
+            current_count = int(current or 0)
+            return (current_count + tokens) <= self.limit
+        except Exception:
+            logger.exception("redis_rate_limit_check_failed", key=key)
+            return self._fallback.would_allow(key, float(tokens))
+
     async def consume(self, key: str, tokens: int = 1) -> bool:
         """Consume tokens. Returns True if allowed."""
         if self.redis is None:
@@ -151,7 +165,10 @@ class TokenRateLimiter:
         try:
             redis_key = f"ratelimit:{key}"
             # Use Lua script to atomically decrement without going below 0
+            # Only update if key exists and has a TTL (avoid creating stale keys)
             script = """
+            local ttl = redis.call('TTL', KEYS[1])
+            if ttl <= 0 then return 0 end
             local current = redis.call('GET', KEYS[1])
             if not current then return 0 end
             local new_val = math.max(0, tonumber(current) - tonumber(ARGV[1]))
