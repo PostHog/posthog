@@ -189,7 +189,9 @@ const allBundles = [
         },
 ]
 
-const bundlesToBuild = allBundles.filter(bundle => shouldBuild(bundle.bundleKey))
+const bundlesToBuild = allBundles
+    .filter(bundle => shouldBuild(bundle.bundleKey))
+    .map(({ bundleKey, ...bundle }) => bundle) // Remove bundleKey before passing to esbuild
 
 if (bundlesToBuild.length === 0) {
     console.error('No bundles to build. Available bundles: app, decompression-worker, exporter, render-query, toolbar')
