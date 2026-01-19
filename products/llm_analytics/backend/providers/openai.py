@@ -21,6 +21,9 @@ class OpenAIConfig:
     # these are hardcoded for now, we might experiment with different values
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
+    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models like GPT-5/o3.
+    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-4.1",
@@ -57,7 +60,10 @@ class OpenAIProvider:
             raise ValueError("PostHog client not found")
 
         self.client = OpenAI(
-            api_key=self.get_api_key(), posthog_client=posthog_client, base_url=settings.OPENAI_BASE_URL
+            api_key=self.get_api_key(),
+            posthog_client=posthog_client,
+            base_url=settings.OPENAI_BASE_URL,
+            timeout=OpenAIConfig.TIMEOUT,
         )
         self.validate_model(model_id)
         self.model_id = model_id

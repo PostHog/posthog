@@ -5,15 +5,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import {
-    IconArchive,
-    IconInfo,
-    IconPieChart,
-    IconPlus,
-    IconPlusSmall,
-    IconPlusSquare,
-    IconWarning,
-} from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconPieChart, IconPlusSmall, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -72,7 +64,7 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
+            className="flex flex-col flex-1 rounded px-4 py-6 w-full items-center justify-center text-center text-balance"
         >
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
@@ -334,7 +326,7 @@ export function StatelessInsightLoadingState({
     return (
         <div
             data-attr="insight-empty-state"
-            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
+            className={clsx('flex flex-col gap-1 rounded px-4 py-6 w-full h-full', {
                 'justify-center items-center': !renderEmptyStateAsSkeleton,
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
@@ -431,7 +423,7 @@ export function SlowQuerySuggestions({
     }
 
     return (
-        <div className="flex items-center p-4 rounded bg-primary gap-x-3">
+        <div className="flex items-center px-4 py-6 rounded bg-primary gap-x-3">
             <IconInfo className="text-xl shrink-0" />
             <div className="text-xs">
                 <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
@@ -488,7 +480,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
+        <div data-attr="insight-empty-state" className="rounded px-4 py-6 h-full w-full">
             <h2 className="text-xl leading-tight mb-6 text-center text-balance">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
@@ -515,20 +507,22 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 export function InsightValidationError({
     detail,
     query,
+    onRetry,
 }: {
     detail: string
     query?: Record<string, any> | null
+    onRetry?: () => void
 }): JSX.Element {
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
+            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted" />
+            <IconWarning className="text-4xl shrink-0 text-muted mb-2" />
 
             <h2
                 data-attr="insight-loading-too-long"
-                className="text-xl font-bold leading-tight"
+                className="text-xl leading-tight font-bold mb-0"
                 // TODO: Use an actual `text-warning` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'var(--warning)' }}
@@ -538,8 +532,9 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120">{detail}</p>
-            <QueryDebuggerButton query={query} />
+            <p className="text-sm text-muted max-w-120 mb-2">{detail}</p>
+
+            {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">
@@ -586,7 +581,7 @@ export function InsightErrorState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded p-4 h-full w-full"
+            className="flex flex-col items-center gap-2 justify-center rounded px-4 py-6 h-full w-full"
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
@@ -647,13 +642,12 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 items-center justify-center text-center text-balance"
+            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
         >
-            <div className="text-5xl text-muted mb-2">
-                <IconPlusSquare />
-            </div>
-            <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-muted">
+            <IconFunnels className="text-4xl shrink-0 text-muted mb-2" />
+
+            <h2 className="text-xl leading-tight font-medium mb-0">Add another step!</h2>
+            <p className="text-sm text-muted mb-1">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>
@@ -663,19 +657,19 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                 )}
             </p>
             {actionable && (
-                <div className="flex justify-center mt-4">
+                <div className="flex justify-center">
                     <LemonButton
-                        size="large"
-                        type="secondary"
-                        onClick={() => addFilter()}
+                        type="primary"
+                        size="small"
+                        onClick={addFilter}
                         data-attr="add-action-event-button-empty-state"
-                        icon={<IconPlus />}
+                        icon={<IconPlusSmall />}
                     >
                         Add funnel step
                     </LemonButton>
                 </div>
             )}
-            <div className="mt-4">
+            <div className="mt-3">
                 <Link
                     data-attr="funnels-single-step-help"
                     to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"

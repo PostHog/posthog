@@ -9,6 +9,7 @@ from django.test import override_settings
 
 from anthropic.types import MessageParam
 from google.genai.errors import APIError
+from google.genai.types import HttpOptions
 from parameterized import parameterized
 
 from products.llm_analytics.backend.providers.gemini import GeminiConfig, GeminiProvider
@@ -43,7 +44,12 @@ class TestGeminiProvider(BaseTest):
         provider = GeminiProvider("gemini-2.0-flash")
 
         assert provider.model_id == "gemini-2.0-flash"
-        mock_genai_client.assert_called_once_with(api_key="test-api-key", posthog_client=mock_posthog_client)
+        mock_genai_client.assert_called_once()
+        call_kwargs = mock_genai_client.call_args[1]
+        assert call_kwargs["api_key"] == "test-api-key"
+        assert call_kwargs["posthog_client"] == mock_posthog_client
+        assert isinstance(call_kwargs["http_options"], HttpOptions)
+        assert call_kwargs["http_options"].timeout == GeminiConfig.TIMEOUT
 
     @override_settings(GEMINI_API_KEY=None)
     def test_missing_api_key_raises_error(self):
