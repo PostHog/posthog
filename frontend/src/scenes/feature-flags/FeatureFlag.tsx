@@ -109,7 +109,7 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -293,21 +293,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL]) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>User feedback</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        {' '}
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.FEEDBACK,
-            content: <FeedbackTab featureFlag={featureFlag} />,
-        })
-    }
+    tabs.push({
+        label: 'User feedback',
+        key: FeatureFlagsTab.FEEDBACK,
+        content: <FeedbackTab featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -1035,6 +1025,7 @@ function FeatureFlagRollout({
         variantErrors,
         experiment,
         experimentLoading,
+        dependentFlags,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -1224,6 +1215,27 @@ function FeatureFlagRollout({
                                     </div>
                                 </div>
                             </>
+                        )}
+
+                        {dependentFlags.length > 0 && (
+                            <div className="mt-4">
+                                <span className="card-secondary mt-4">Dependent flags</span>
+                                <div className="flex flex-col gap-1">
+                                    {dependentFlags.map((flag: DependentFlag) => (
+                                        <div key={flag.id} className="flex gap-1 items-center">
+                                            <span className="font-normal text-sm">{flag.key}</span>
+                                            <Link
+                                                target="_blank"
+                                                className="font-semibold"
+                                                to={urls.featureFlag(flag.id)}
+                                                aria-label={`Open ${flag.key}`}
+                                            >
+                                                <IconOpenInNew fontSize="18" />
+                                            </Link>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
                     </div>
                     <SceneDivider />
@@ -1517,7 +1529,7 @@ function FeatureFlagRollout({
                                             />
                                         </SceneSection>
 
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_FF_CROSS_SELL] && onGetFeedback && (
+                                        {onGetFeedback && (
                                             <>
                                                 <SceneDivider className="md:hidden" />
                                                 <UserFeedbackSection

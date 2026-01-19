@@ -2,9 +2,8 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 
 import { PropertyFilterType } from '~/types'
 
+import { LogAttributes } from 'products/logs/frontend/components/LogsViewer/LogAttributes'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
-
-import { LogAttributes } from './LogAttributes'
 
 export interface LogDetailsTabContentProps {
     log: ParsedLogMessage

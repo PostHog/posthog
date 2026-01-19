@@ -17,7 +17,7 @@ export const SyncMoreNotice = (): JSX.Element | null => {
     const { hasNonPosthogSources, syncMoreNoticeDismissed, databaseLoading } = useValues(queryDatabaseLogic)
     const { setSyncMoreNoticeDismissed } = useActions(queryDatabaseLogic)
     const { addProductIntent } = useActions(teamLogic)
-    const { showLayoutPanel, toggleLayoutPanelPinned, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
 
     if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading) {
         return null
@@ -54,7 +54,6 @@ export const SyncMoreNotice = (): JSX.Element | null => {
                             product_type: ProductKey.DATA_WAREHOUSE,
                             intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
                         })
-                        toggleLayoutPanelPinned(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                         router.actions.push(urls.dataWarehouseSourceNew())

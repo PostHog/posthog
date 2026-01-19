@@ -677,6 +677,55 @@ def team_api_test_factory():
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
 
+        def test_delete_team_with_already_deleted_batch_export(self):
+            """Team deletion should succeed even if batch exports were already soft-deleted."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.organization.save()
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            destination_data = {
+                "type": "S3",
+                "config": {
+                    "bucket_name": "my-production-s3-bucket",
+                    "region": "us-east-1",
+                    "prefix": "posthog-events/",
+                    "aws_access_key_id": "abc123",
+                    "aws_secret_access_key": "secret",
+                },
+            }
+
+            batch_export_data = {
+                "name": "my-production-s3-bucket-destination",
+                "destination": destination_data,
+                "interval": "hour",
+            }
+
+            temporal = sync_connect()
+
+            with start_test_worker(temporal):
+                response = self.client.post(
+                    f"/api/environments/{team.id}/batch_exports",
+                    json.dumps(batch_export_data),
+                    content_type="application/json",
+                )
+                assert response.status_code == 201, response.json()
+
+                batch_export = response.json()
+                batch_export_id = batch_export["id"]
+
+                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
+                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
+                assert response.status_code == 204
+
+                # Verify the schedule is gone
+                with self.assertRaises(RPCError):
+                    describe_schedule(temporal, batch_export_id)
+
+                # Now delete the team - this should succeed
+                response = self.client.delete(f"/api/environments/{team.id}")
+                assert response.status_code == 204
+
         @freeze_time("2022-02-08")
         def test_reset_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

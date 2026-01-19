@@ -10,7 +10,7 @@ export const keyBinds: Record<string, string[]> = {
     toggleShortcutMenuFallback: ['command', 'shift', 'k'],
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
-    edit: [...baseModifier, 'e'],
+    edit: ['e'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],
@@ -28,4 +28,7 @@ export const keyBinds: Record<string, string[]> = {
     tab8: [...baseModifier, '8'],
     tab9: [...baseModifier, '9'],
     zenMode: [...baseModifier, 'z'],
+    newChat: ['g', 'then', 'n'],
+    allChats: ['g', 'then', 'c'],
+    allApps: ['g', 'then', 'a'],
 }

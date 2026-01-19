@@ -1,15 +1,18 @@
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
 import { LogRowFAB } from 'products/logs/frontend/components/LogsViewer/LogRowFAB/LogRowFAB'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import {
     CHECKBOX_WIDTH,
+    EXPAND_WIDTH,
     RESIZER_HANDLE_WIDTH,
     ROW_GAP,
     SEVERITY_WIDTH,
@@ -33,12 +36,14 @@ export interface LogRowProps {
     log: ParsedLogMessage
     logIndex: number
     isAtCursor: boolean
+    isExpanded: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     onTogglePin: (log: ParsedLogMessage) => void
+    onToggleExpand: () => void
     onClick?: () => void
     rowWidth?: number
     attributeColumns?: string[]
@@ -57,12 +62,14 @@ export function LogRow({
     log,
     logIndex,
     isAtCursor,
+    isExpanded,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
+    onToggleExpand,
     onClick,
     rowWidth,
     attributeColumns = [],
@@ -135,6 +142,22 @@ export function LogRow({
                             size="small"
                         />
                     </div>
+                    <div
+                        className="flex items-stretch self-stretch justify-center"
+                        style={{ width: EXPAND_WIDTH, flexShrink: 0 }}
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            icon={
+                                <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
+                            }
+                            onMouseDown={(e) => {
+                                e.stopPropagation()
+                                onToggleExpand()
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </div>
                 </div>
 
                 {/* Timestamp */}
@@ -176,6 +199,7 @@ export function LogRow({
                     showScrollButtons={!wrapBody}
                 />
             </div>
+            {isExpanded && <ExpandedLogContent log={log} />}
         </div>
     )
 }

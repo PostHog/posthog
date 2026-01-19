@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
@@ -80,6 +80,8 @@ export function LegacyExperimentInfo(): JSX.Element | null {
         secondaryMetricsResultsLoading,
         statsMethod,
         usesNewQueryRunner,
+        isSingleVariantShipped,
+        shippedVariantKey,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults } = useActions(experimentLogic)
     const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openStatsEngineModal } =
@@ -114,7 +116,16 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                 <div className="inline-flex deprecated-space-x-8">
                     <div className="flex flex-col" data-attr="experiment-status">
                         <Label intent="menu">Status</Label>
-                        <StatusTag status={status} />
+                        <div className="flex gap-1">
+                            <StatusTag status={status} />
+                            {isSingleVariantShipped && (
+                                <Tooltip title={`Variant "${shippedVariantKey}" has been rolled out to 100% of users`}>
+                                    <LemonTag type="completion" className="cursor-default">
+                                        <b className="uppercase">100% rollout</b>
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
                     </div>
                     {experiment.feature_flag && (
                         <div className="flex flex-col">

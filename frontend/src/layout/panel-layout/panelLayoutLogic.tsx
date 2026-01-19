@@ -22,7 +22,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         closePanel: true,
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
-        toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
@@ -36,6 +35,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
+        setSidePanelWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -57,7 +57,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             true,
             {
                 showLayoutPanel: () => true,
-                toggleLayoutPanelPinned: () => false,
             },
         ],
         isLayoutNavbarVisible: [
@@ -72,13 +71,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true, prefix: '2', separator: '.' },
             {
                 showLayoutPanel: (_, { visible }) => visible,
-            },
-        ],
-        isLayoutPanelPinned: [
-            false,
-            { persist: true, prefix: '2', separator: '.' },
-            {
-                toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
         activePanelIdentifier: [
@@ -140,6 +132,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setMainContentRect: (_, { rect }) => rect,
             },
         ],
+        sidePanelWidth: [
+            0,
+            {
+                setSidePanelWidth: (_, { width }) => width,
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         closePanel: () => {
@@ -155,11 +153,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             }
         },
         resetPanelLayout: ({ keyboardAction = false }) => {
-            // Hide the panel if it's not pinned and clear active panel identifier
-            if (!values.isLayoutPanelPinned) {
-                actions.clearActivePanelIdentifier()
-                actions.showLayoutPanel(false)
-            }
+            // Hide the panel and clear active panel identifier
+            actions.clearActivePanelIdentifier()
+            actions.showLayoutPanel(false)
             // Hide the navbar if it's mobile and navbar is visible (which is an overlay on mobile)
             if (values.mobileLayout && values.isLayoutNavbarVisible) {
                 actions.showLayoutNavBar(false)

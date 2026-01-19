@@ -70,6 +70,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         moveCursorUp: (shiftSelect?: boolean) => ({ shiftSelect: shiftSelect ?? false }),
         requestScrollToCursor: true, // Signals React to scroll to current cursor position
 
+        // Expansion
+        toggleExpandLog: (logId: string) => ({ logId }),
+
         // Deep linking - position cursor at a specific log by ID
         setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
         setCursorToLogId: (logId: string) => ({ logId }),
@@ -147,6 +150,21 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setCursorIndex: (_, { index }) => index,
                 userSetCursorIndex: (_, { index }) => index,
                 resetCursor: () => null,
+            },
+        ],
+
+        expandedLogIds: [
+            {} as Record<string, boolean>,
+            { persist: true },
+            {
+                toggleExpandLog: (state, { logId }) => {
+                    if (state[logId]) {
+                        const { [logId]: _, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [logId]: true }
+                },
+                clearLogs: () => ({}),
             },
         ],
 
@@ -386,6 +404,11 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         },
         clearSelection: () => {
             posthog.capture('logs clear selection', { count: values.selectedCount })
+        },
+        toggleExpandLog: ({ logId }) => {
+            const isNowExpanded = values.expandedLogIds[logId]
+            posthog.capture(isNowExpanded ? 'logs log expanded' : 'logs log collapsed')
+            actions.recomputeRowHeights([logId])
         },
         closeLogDetails: () => {
             // Restore focus to logs viewer when modal closes

@@ -1953,7 +1953,9 @@
                 "create_form",
                 "task",
                 "upsert_dashboard",
-                "manage_memories"
+                "manage_memories",
+                "create_notebook",
+                "list_data"
             ],
             "type": "string"
         },
@@ -10435,6 +10437,10 @@
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -15535,7 +15541,8 @@
                 "search",
                 "folder",
                 "folder_open",
-                "conversations"
+                "conversations",
+                "toolbar"
             ],
             "type": "string"
         },
@@ -17211,6 +17218,13 @@
                 "debug": {
                     "type": "boolean"
                 },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
@@ -18328,7 +18342,9 @@
                 "databricks",
                 "tiktok-ads",
                 "bing-ads",
-                "vercel"
+                "vercel",
+                "azure-blob",
+                "firebase"
             ],
             "type": "string"
         },
@@ -20603,6 +20619,122 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "MaxErrorTrackingIssuePreview": {
+            "additionalProperties": false,
+            "description": "Preview of an error tracking issue for display in Max AI chat",
+            "properties": {
+                "description": {
+                    "description": "Issue description or exception message",
+                    "type": ["string", "null"]
+                },
+                "first_seen": {
+                    "description": "When the issue was first seen",
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "description": "Issue ID",
+                    "type": "string"
+                },
+                "last_seen": {
+                    "description": "When the issue was last seen",
+                    "type": ["string", "null"]
+                },
+                "library": {
+                    "description": "Library/runtime that generated the error",
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "description": "Issue name/title",
+                    "type": ["string", "null"]
+                },
+                "occurrences": {
+                    "description": "Total number of occurrences",
+                    "type": "number"
+                },
+                "sessions": {
+                    "description": "Number of affected sessions",
+                    "type": "number"
+                },
+                "status": {
+                    "description": "Issue status (active, resolved, etc.)",
+                    "type": "string"
+                },
+                "users": {
+                    "description": "Number of affected users",
+                    "type": "number"
+                }
+            },
+            "required": [
+                "id",
+                "name",
+                "description",
+                "status",
+                "library",
+                "first_seen",
+                "last_seen",
+                "occurrences",
+                "users",
+                "sessions"
+            ],
+            "type": "object"
+        },
+        "MaxErrorTrackingSearchResponse": {
+            "additionalProperties": false,
+            "description": "Response from error tracking search tool containing filters, pagination, and results",
+            "properties": {
+                "date_from": {
+                    "description": "Start of date range",
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "description": "End of date range",
+                    "type": ["string", "null"]
+                },
+                "has_more": {
+                    "description": "Whether there are more results available",
+                    "type": ["boolean", "null"]
+                },
+                "issues": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MaxErrorTrackingIssuePreview"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Preview of issues found matching the filters"
+                },
+                "limit": {
+                    "description": "Number of results to return",
+                    "type": ["number", "null"]
+                },
+                "next_cursor": {
+                    "description": "Cursor for pagination",
+                    "type": ["string", "null"]
+                },
+                "order_by": {
+                    "description": "Field to order by",
+                    "type": ["string", "null"]
+                },
+                "order_direction": {
+                    "description": "Order direction (ASC or DESC)",
+                    "type": ["string", "null"]
+                },
+                "search_query": {
+                    "description": "Free text search query",
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "description": "Issue status filter (active, resolved, etc.)",
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
@@ -20626,6 +20758,10 @@
         "MaxExperimentMetricResult": {
             "additionalProperties": false,
             "properties": {
+                "goal": {
+                    "enum": ["increase", "decrease", null],
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": "string"
                 },
@@ -20643,7 +20779,7 @@
                     "type": "array"
                 }
             },
-            "required": ["name", "variant_results"],
+            "required": ["name", "goal", "variant_results"],
             "type": "object"
         },
         "MaxExperimentSummaryContext": {
@@ -20724,6 +20860,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20731,7 +20870,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "required": ["key", "chance_to_win", "credible_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxExperimentVariantResultFrequentist": {
@@ -20750,6 +20889,9 @@
                         }
                     ]
                 },
+                "delta": {
+                    "type": ["number", "null"]
+                },
                 "key": {
                     "type": "string"
                 },
@@ -20760,7 +20902,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "required": ["key", "p_value", "confidence_interval", "delta", "significant"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -22175,6 +22317,11 @@
                 "nav_panel_advertisement_clicked",
                 "feature_preview_enabled",
                 "workflow_created",
+                "data_pipeline_created",
+                "notebook_created",
+                "product_tour_created",
+                "task_created",
+                "toolbar_launched",
                 "vercel_integration"
             ],
             "type": "string"
@@ -22233,17 +22380,21 @@
                 "marketing_analytics",
                 "max",
                 "mobile_replay",
+                "notebooks",
                 "persons",
                 "pipeline_transformations",
                 "pipeline_destinations",
                 "platform_and_support",
                 "product_analytics",
+                "product_tours",
                 "revenue_analytics",
                 "session_replay",
                 "site_apps",
                 "surveys",
-                "user_interviews",
+                "tasks",
                 "teams",
+                "toolbar",
+                "user_interviews",
                 "web_analytics",
                 "workflows"
             ],
@@ -22390,7 +22541,16 @@
                 "in",
                 "not_in",
                 "is_cleaned_path_exact",
-                "flag_evaluates_to"
+                "flag_evaluates_to",
+                "semver_eq",
+                "semver_neq",
+                "semver_gt",
+                "semver_gte",
+                "semver_lt",
+                "semver_lte",
+                "semver_tilde",
+                "semver_caret",
+                "semver_wildcard"
             ],
             "type": "string"
         },
@@ -28906,6 +29066,10 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -29520,6 +29684,9 @@
                 "retention_period_days": {
                     "description": "retention period for this recording",
                     "type": "number"
+                },
+                "snapshot_library": {
+                    "type": "string"
                 },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
