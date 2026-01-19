@@ -12,7 +12,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0953_create_core_event"),
+        ("posthog", "0974_alter_scheduledchange_recurrence_interval"),
     ]
 
     operations = [
