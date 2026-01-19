@@ -10,7 +10,7 @@ test.describe('Logs', () => {
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    path: path.resolve(__dirname, '../mocks/logs/logs_query_response.json'),
+                    path: path.resolve(__dirname, '../../mocks/logs/logs_query_response.json'),
                 })
             )
 
@@ -18,7 +18,7 @@ test.describe('Logs', () => {
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    path: path.resolve(__dirname, '../mocks/logs/logs_sparkline_response.json'),
+                    path: path.resolve(__dirname, '../../mocks/logs/logs_sparkline_response.json'),
                 })
             )
 
@@ -26,7 +26,7 @@ test.describe('Logs', () => {
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',
-                    path: path.resolve(__dirname, '../mocks/logs/logs_values_response.json'),
+                    path: path.resolve(__dirname, '../../mocks/logs/logs_values_response.json'),
                 })
             )
 
