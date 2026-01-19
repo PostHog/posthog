@@ -586,7 +586,7 @@
       condition String,
       uuid UUID,
       source String
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_precalculated_events', kafka_format = 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
@@ -1996,7 +1996,7 @@
       condition String,
       uuid UUID,
       source String
-  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_precalculated_events', kafka_format = 'JSONEachRow')
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_prefiltered_events', kafka_group_name = 'clickhouse_prefiltered_events', kafka_format = 'JSONEachRow')
   SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
