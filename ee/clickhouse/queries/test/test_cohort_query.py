@@ -955,48 +955,52 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert [p2.uuid] == [r[0] for r in res]
 
     def test_performed_event_regularly(self):
-        p1 = _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p1"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
+        # Use freeze_time to ensure consistent timestamps between test data creation and query execution
+        # This prevents race conditions where datetime.now() varies between data creation and query
+        now = datetime.now()
+        with freeze_time(now.replace(hour=0, minute=0, second=0, microsecond=0)):
+            p1 = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"name": "test", "email": "test@posthog.com"},
+            )
 
-        _make_event_sequence(self.team, "p1", 3, [1, 1, 1, 1])
-        flush_persons_and_events()
+            _make_event_sequence(self.team, "p1", 3, [1, 1, 1, 1])
+            flush_persons_and_events()
 
-        # Ensure ClickHouse tables are fully synced before querying
-        # This prevents race conditions where the query executes before data is available
-        sync_execute("OPTIMIZE TABLE person FINAL")
-        sync_execute("OPTIMIZE TABLE events FINAL")
+            # Ensure ClickHouse tables are fully synced before querying
+            # This prevents race conditions where the query executes before data is available
+            sync_execute("OPTIMIZE TABLE person FINAL")
+            sync_execute("OPTIMIZE TABLE events FINAL")
 
-        # Filter for:
-        # Regularly completed [$pageview] [at least] [1] times per
-        # [3][day] period for at least [3] of the last [3] periods
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_interval": "day",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 3,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
+            # Filter for:
+            # Regularly completed [$pageview] [at least] [1] times per
+            # [3][day] period for at least [3] of the last [3] periods
+            filter = Filter(
+                data={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "operator": "gte",
+                                "operator_value": 1,
+                                "time_interval": "day",
+                                "time_value": 3,
+                                "total_periods": 3,
+                                "min_periods": 3,
+                                "value": "performed_event_regularly",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
                 }
-            }
-        )
+            )
 
-        res, q, params = execute(filter, self.team)
+            res, q, params = execute(filter, self.team)
 
-        assert [p1.uuid] == [r[0] for r in res]
+            assert [p1.uuid] == [r[0] for r in res]
 
     def test_performed_event_regularly_month(self):
         p1 = _create_person(
