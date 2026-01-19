@@ -100,10 +100,6 @@ class HogQLCursorPaginator:
     Cursor-based paginator for timestamp-based pagination.
     Uses a cursor containing the ordering value and a secondary field from the last record.
     This is more efficient than offset-based pagination for large datasets.
-
-    The secondary_field parameter is required and specifies the tie-breaker field when
-    multiple records have the same order_field value, ensuring deterministic ordering.
-    For session recordings, use "session_id". For events, use "uuid".
     """
 
     def __init__(
