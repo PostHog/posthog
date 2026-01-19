@@ -930,6 +930,9 @@ class KernelRuntimeService:
         user_expressions: dict[str, str] | None,
         timeout_seconds: int,
     ) -> tuple[datetime, dict[str, Any]]:
+        if handle.sandbox_id is None:
+            raise RuntimeError("Sandbox not available for kernel execution.")
+
         payload = {
             "connection_file": handle.runtime.connection_file,
             "timeout": timeout_seconds,

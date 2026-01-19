@@ -225,6 +225,8 @@ class TestKernelRuntimeService(BaseTest):
         with patch.object(service, "_get_sandbox_class", return_value=_FakeSandboxClass):
             execution_result = service._execute_in_sandbox(
                 handle,
+                notebook,
+                self.user,
                 "print('hi')",
                 capture_variables=True,
                 variable_names=["answer"],
