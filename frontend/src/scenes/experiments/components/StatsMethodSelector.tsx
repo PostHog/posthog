@@ -17,7 +17,7 @@ export function StatsMethodSelector({
 }: StatsMethodSelectorProps): JSX.Element {
     const isDisabled = disabled ?? false
     const reason = disabledReason ?? ''
-    const disabledProps = isDisabled && reason ? { disabled: isDisabled, disabledReason: reason } : {}
+    const disabledProps = isDisabled ? { disabled: true, disabledReason: reason || 'Disabled' } : {}
 
     return (
         <div className="flex gap-4 max-w-[800px]">
