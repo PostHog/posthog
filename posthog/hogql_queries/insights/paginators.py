@@ -98,8 +98,12 @@ class HogQLHasMorePaginator:
 class HogQLCursorPaginator:
     """
     Cursor-based paginator for timestamp-based pagination.
-    Uses a cursor containing the ordering value and session_id from the last record.
+    Uses a cursor containing the ordering value and a secondary field from the last record.
     This is more efficient than offset-based pagination for large datasets.
+
+    The secondary_field parameter is required and specifies the tie-breaker field when
+    multiple records have the same order_field value, ensuring deterministic ordering.
+    For session recordings, use "session_id". For events, use "uuid".
     """
 
     def __init__(
@@ -109,6 +113,7 @@ class HogQLCursorPaginator:
         after: str | None = None,
         order_field: str = "start_time",
         order_direction: str = "DESC",
+        secondary_field: str,
         limit_context: LimitContext | None = None,
         field_indices: dict[str, int] | None = None,
         use_having_clause: bool = False,
@@ -119,6 +124,7 @@ class HogQLCursorPaginator:
         self.after = after
         self.order_field = order_field
         self.order_direction = order_direction
+        self.secondary_field = secondary_field
         self.limit_context = limit_context
         self.field_indices = field_indices or {}
         self.use_having_clause = use_having_clause
@@ -148,6 +154,7 @@ class HogQLCursorPaginator:
         after: str | None = None,
         order_field: str = "start_time",
         order_direction: str = "DESC",
+        secondary_field: str,
         field_indices: dict[str, int] | None = None,
         use_having_clause: bool = False,
     ) -> "HogQLCursorPaginator":
@@ -159,6 +166,7 @@ class HogQLCursorPaginator:
             after=after,
             order_field=order_field,
             order_direction=order_direction,
+            secondary_field=secondary_field,
             limit_context=limit_context,
             field_indices=field_indices,
             use_having_clause=use_having_clause,
@@ -170,25 +178,25 @@ class HogQLCursorPaginator:
 
             if self.cursor_data:
                 order_value = self.cursor_data.get("order_value")
-                session_id = self.cursor_data.get("session_id")
+                secondary_value = self.cursor_data.get("secondary_value")
 
-                if order_value is not None and session_id is not None:
+                if order_value is not None and secondary_value is not None:
                     # Build WHERE clause for cursor-based pagination
-                    # For DESC: WHERE (order_field, session_id) < (cursor_value, cursor_session_id)
-                    # For ASC: WHERE (order_field, session_id) > (cursor_value, cursor_session_id)
+                    # For DESC: WHERE (order_field, secondary_field) < (cursor_value, cursor_secondary_value)
+                    # For ASC: WHERE (order_field, secondary_field) > (cursor_value, cursor_secondary_value)
 
                     # Create tuple comparison expression
                     left_tuple = ast.Tuple(
                         exprs=[
                             ast.Field(chain=[self.order_field]),
-                            ast.Field(chain=["session_id"]),
+                            ast.Field(chain=[self.secondary_field]),
                         ]
                     )
 
                     right_tuple = ast.Tuple(
                         exprs=[
                             ast.Constant(value=order_value),
-                            ast.Constant(value=session_id),
+                            ast.Constant(value=secondary_value),
                         ]
                     )
 
@@ -247,21 +255,21 @@ class HogQLCursorPaginator:
         # Get the last result
         last_result = self.results[-1]
 
-        # Extract the ordering value and session_id
+        # Extract the ordering value and secondary field value
         # Handle different result types: dict (from HogQL), tuple, or object
         if isinstance(last_result, dict):
             order_value = last_result.get(self.order_field)
-            session_id = last_result.get("session_id")
+            secondary_value = last_result.get(self.secondary_field)
         elif isinstance(last_result, list | tuple) and self.field_indices:
             # For tuples, use field_indices to find the correct position
             order_idx = self.field_indices.get(self.order_field)
-            session_id_idx = self.field_indices.get("session_id", 0)
+            secondary_idx = self.field_indices.get(self.secondary_field, 0)
             order_value = last_result[order_idx] if order_idx is not None else None
-            session_id = last_result[session_id_idx]
+            secondary_value = last_result[secondary_idx]
         else:
             # For objects, use getattr
             order_value = getattr(last_result, self.order_field, None)
-            session_id = getattr(last_result, "session_id", None)
+            secondary_value = getattr(last_result, self.secondary_field, None)
 
         # Serialize datetime objects to ISO format strings
         if isinstance(order_value, datetime):
@@ -269,7 +277,7 @@ class HogQLCursorPaginator:
 
         cursor_data = {
             "order_value": order_value,
-            "session_id": session_id,
+            "secondary_value": secondary_value,
         }
 
         # Encode as base64
