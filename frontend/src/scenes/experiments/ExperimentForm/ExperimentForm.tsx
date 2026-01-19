@@ -45,8 +45,15 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
     const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
     useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
 
-    const { experiment, experimentErrors, canSubmitExperiment, sharedMetrics, isExperimentSubmitting, isEditMode } =
-        useValues(logic)
+    const {
+        experiment,
+        experimentErrors,
+        canSubmitExperiment,
+        experimentValidationErrors,
+        sharedMetrics,
+        isExperimentSubmitting,
+        isEditMode,
+    } = useValues(logic)
     const {
         setExperimentValue,
         setExperiment,
@@ -107,7 +114,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                             >
                                 <LemonButton
                                     loading={isExperimentSubmitting}
-                                    disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                                    disabledReason={!canSubmitExperiment ? experimentValidationErrors : undefined}
                                     data-attr="save-experiment"
                                     type="primary"
                                     size="small"
@@ -153,7 +160,7 @@ export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps):
                     >
                         <LemonButton
                             loading={isExperimentSubmitting}
-                            disabledReason={!canSubmitExperiment ? 'Experiment is not valid' : undefined}
+                            disabledReason={!canSubmitExperiment ? experimentValidationErrors : undefined}
                             data-attr="save-experiment"
                             type="primary"
                             size="small"
