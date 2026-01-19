@@ -107,7 +107,7 @@ def _compare_with_cpp_json(
     except Exception as err:
         logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
 
-    if parsed_ast != cpp_json_ast:
+    if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
         logger.warning(
             "hogql_cpp_json_mismatch",
             rule=rule,
