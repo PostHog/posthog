@@ -86,13 +86,9 @@ export function extractDisplayLabel(query: string): string {
     if (!query || typeof query !== 'string') {
         return query
     }
-    // Try AS alias first (standard SQL)
-    const alias = extractAsAlias(query)
-    if (alias) {
-        return alias
-    }
-    // Fall back to comment syntax (PostHog-specific)
-    return extractExpressionComment(query)
+    // Parse `expr AS column` first, fallback to `expr -- column`
+    return extractAsAlias(query) ?? extractExpressionComment(query)
+    
 }
 
 export function removeExpressionComment(query: string): string {
