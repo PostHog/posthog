@@ -12,7 +12,7 @@ from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
-from posthog.schema import ProductKey
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
@@ -450,6 +450,20 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         instance.save()
         if should_team_be_saved_too:
             team.save()
+
+        if (
+            "autocapture_exceptions_opt_in" in validated_data
+            and validated_data["autocapture_exceptions_opt_in"]
+            and not team_before_update.get("autocapture_exceptions_opt_in")
+        ):
+            user = self.context["request"].user
+            if isinstance(user, User):
+                ProductIntent.register(
+                    team=team,
+                    product_type=ProductKey.ERROR_TRACKING,
+                    context=ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
+                    user=user,
+                )
 
         team_after_update = team.__dict__.copy()
         project_after_update = instance.__dict__.copy()

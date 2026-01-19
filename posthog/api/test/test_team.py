@@ -1140,6 +1140,32 @@ def team_api_test_factory():
             response = self.client.get("/api/environments/@current/")
             assert response.json()["autocapture_exceptions_opt_in"] is True
 
+        def test_turn_on_exception_autocapture_registers_product_intent(self):
+            assert not ProductIntent.objects.filter(team=self.team, product_type="error_tracking").exists()
+
+            response = self.client.patch("/api/environments/@current/", {"autocapture_exceptions_opt_in": True})
+            assert response.status_code == status.HTTP_200_OK
+
+            intent = ProductIntent.objects.get(team=self.team, product_type="error_tracking")
+            assert intent is not None
+            assert intent.contexts.get("error_tracking_exception_autocapture_enabled") == 1
+
+        def test_turn_on_exception_autocapture_does_not_duplicate_product_intent(self):
+            response = self.client.patch("/api/environments/@current/", {"autocapture_exceptions_opt_in": True})
+            assert response.status_code == status.HTTP_200_OK
+
+            intent = ProductIntent.objects.get(team=self.team, product_type="error_tracking")
+            assert intent.contexts.get("error_tracking_exception_autocapture_enabled") == 1
+
+            response = self.client.patch("/api/environments/@current/", {"autocapture_exceptions_opt_in": False})
+            assert response.status_code == status.HTTP_200_OK
+
+            response = self.client.patch("/api/environments/@current/", {"autocapture_exceptions_opt_in": True})
+            assert response.status_code == status.HTTP_200_OK
+
+            intent.refresh_from_db()
+            assert intent.contexts.get("error_tracking_exception_autocapture_enabled") == 2
+
         def test_configure_exception_autocapture_event_dropping(self):
             response = self.client.get("/api/environments/@current/")
             assert response.json()["autocapture_exceptions_errors_to_ignore"] is None
