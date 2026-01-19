@@ -17,6 +17,8 @@ from google.genai import (
     types,
 )
 
+from posthog.schema import ReplayInactivityPeriod
+
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
@@ -118,7 +120,14 @@ async def upload_video_to_gemini_activity(
                 mime_type=uploaded_file.mime_type or DEFAULT_VIDEO_EXPORT_MIME_TYPE,
                 duration=duration,
             )
-            return UploadVideoToGeminiOutput(uploaded_video=uploaded_video, team_name=team_name)
+            # Extract inactivity periods from export_context if available to avoid analyzing inactive segments
+            inactivity_periods = asset.export_context.get("inactivity_periods") if asset.export_context else None
+            return UploadVideoToGeminiOutput(
+                uploaded_video=uploaded_video,
+                team_name=team_name,
+                # Converting to use proper types in calculations
+                inactivity_periods=[ReplayInactivityPeriod.model_validate_json(p) for p in inactivity_periods],
+            )
 
     except Exception as e:
         logger.exception(
