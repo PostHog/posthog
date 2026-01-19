@@ -447,11 +447,11 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
             query_response = query_response.model_dump(by_alias=True)
 
         rows = list(_convert_response_to_csv_data(query_response, breakdown_filter=breakdown_filter))
+        rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
         yield from rows
 
-        # Only paginate for supported query types
-        if not supports_pagination:
+        if total >= CSV_EXPORT_LIMIT or not supports_pagination:
             break
 
         # Check if there are more results
