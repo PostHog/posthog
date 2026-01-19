@@ -38,8 +38,8 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { zoomDateRange } from './filters/zoom-utils'
-import type { logsLogicType } from './logsLogicType'
+import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
+import type { logsSceneLogicType } from './logsSceneLogicType'
 import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
@@ -72,9 +72,9 @@ export interface LogsLogicProps {
     tabId: string
 }
 
-export const logsLogic = kea<logsLogicType>([
+export const logsSceneLogic = kea<logsSceneLogicType>([
     props({} as LogsLogicProps),
-    path(['products', 'logs', 'frontend', 'logsLogic']),
+    path(['products', 'logs', 'frontend', 'logsSceneLogic']),
     tabAwareScene(),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],

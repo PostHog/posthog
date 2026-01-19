@@ -7,7 +7,7 @@ import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
-import { logsLogic } from '../logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
@@ -54,8 +54,8 @@ const dateMapping: DateMappingOption[] = [
 ]
 
 export const DateRangeFilter = (): JSX.Element => {
-    const { dateRange } = useValues(logsLogic)
-    const { setDateRange } = useActions(logsLogic)
+    const { dateRange } = useValues(logsSceneLogic)
+    const { setDateRange } = useActions(logsSceneLogic)
 
     return (
         <DateFilter

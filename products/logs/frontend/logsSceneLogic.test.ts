@@ -8,7 +8,7 @@ import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
-import { logsLogic } from './logsLogic'
+import { logsSceneLogic } from './logsSceneLogic'
 import { LogsFilters } from './types'
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -34,8 +34,8 @@ const createMockLog = (uuid: string): LogMessage => ({
     event_name: 'log',
 })
 
-describe('logsLogic', () => {
-    let logic: ReturnType<typeof logsLogic.build>
+describe('logsSceneLogic', () => {
+    let logic: ReturnType<typeof logsSceneLogic.build>
 
     beforeEach(async () => {
         useMocks({
@@ -45,7 +45,7 @@ describe('logsLogic', () => {
             },
         })
         initKeaTests()
-        logic = logsLogic({ tabId: 'test-tab' })
+        logic = logsSceneLogic({ tabId: 'test-tab' })
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()

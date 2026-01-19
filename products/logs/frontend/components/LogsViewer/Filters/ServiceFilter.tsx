@@ -6,12 +6,12 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { logsLogic } from '../logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 export const ServiceFilter = (): JSX.Element => {
-    const { serviceNames, dateRange } = useValues(logsLogic)
+    const { serviceNames, dateRange } = useValues(logsSceneLogic)
     const { currentProjectId } = useValues(projectLogic)
-    const { setServiceNames } = useActions(logsLogic)
+    const { setServiceNames } = useActions(logsSceneLogic)
 
     const endpoint = combineUrl(`api/environments/${currentProjectId}/logs/values`, {
         key: 'service.name',
@@ -20,7 +20,7 @@ export const ServiceFilter = (): JSX.Element => {
     }).url
 
     return (
-        <span className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
+        <span data-attr="logs-service-filter" className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
             <PropertyValue
                 size="small"
                 endpoint={endpoint}

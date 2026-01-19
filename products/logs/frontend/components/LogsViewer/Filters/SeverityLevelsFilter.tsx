@@ -7,7 +7,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { logsLogic } from '../logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 const options: Record<LogMessage['severity_text'], string> = {
     trace: 'Trace',
@@ -21,8 +21,8 @@ const options: Record<LogMessage['severity_text'], string> = {
 const ALL_LOG_LEVELS = Object.values(options) as LogMessage['severity_text'][]
 
 export const SeverityLevelsFilter = (): JSX.Element => {
-    const { severityLevels } = useValues(logsLogic)
-    const { setSeverityLevels } = useActions(logsLogic)
+    const { severityLevels } = useValues(logsSceneLogic)
+    const { setSeverityLevels } = useActions(logsSceneLogic)
 
     const onClick = (level: LogMessage['severity_text']): void => {
         const levels = [...severityLevels]
@@ -50,9 +50,16 @@ export const SeverityLevelsFilter = (): JSX.Element => {
                 label,
                 onClick: () => onClick(key as LogMessage['severity_text']),
                 active: severityLevels.includes(key as LogMessage['severity_text']),
+                'data-attr': `logs-severity-option-${key}`,
             }))}
         >
-            <LemonButton icon={<IconFilter />} size="small" type="secondary" className="whitespace-nowrap">
+            <LemonButton
+                data-attr="logs-severity-filter"
+                icon={<IconFilter />}
+                size="small"
+                type="secondary"
+                className="whitespace-nowrap"
+            >
                 {displayLevels}
             </LemonButton>
         </LemonMenu>
