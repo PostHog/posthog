@@ -51,7 +51,7 @@ class TestIsSessionIdStringExpr(ClickhouseTestMixin, APIBaseTest):
 
         # Create a field with FieldType where table_type is SelectQueryAliasType
         select_query_type = ast.SelectQueryType(
-            columns={"session_id": ast.FieldType(name="session_id", table_type=None)},
+            columns={"session_id": ast.StringType()},
         )
         select_query_alias_type = ast.SelectQueryAliasType(
             alias="subquery",
