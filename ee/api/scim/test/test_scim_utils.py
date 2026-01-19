@@ -197,6 +197,6 @@ class TestNormalizeScimOperations:
         assert normalize_scim_operations(input_ops) == expected_ops
 
     def test_does_not_mutate_original_operations(self):
-        original = [{"op": "replace", "value": {"active": "True"}}]
+        original: list[dict] = [{"op": "replace", "value": {"active": "True"}}]
         normalize_scim_operations(original)
         assert original[0]["value"]["active"] == "True"
