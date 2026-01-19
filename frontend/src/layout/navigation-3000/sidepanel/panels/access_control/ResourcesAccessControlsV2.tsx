@@ -856,7 +856,7 @@ function MultiSelectFilterDropdown(props: {
     setValues: (values: string[]) => void
 }): JSX.Element {
     return (
-        <div className="w-96 p-3 space-y-3">
+        <div className="w-96 p-1 space-y-3">
             <div className="flex justify-between items-center">
                 <h5 className="mb-0">{props.title}</h5>
                 {props.values.length ? (
