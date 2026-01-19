@@ -497,11 +497,7 @@ class EventViewSet(
         values = []
         for value in result.results:
             if isinstance(value[0], float | int | bool | uuid.UUID):
-                val = value[0]
-                # Convert whole number floats to integers (fixes #45273)
-                if isinstance(val, float) and val.is_integer():
-                    val = int(val)
-                values.append(val)
+                values.append(value[0])
             else:
                 try:
                     values.append(json.loads(value[0]))
