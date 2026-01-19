@@ -1041,6 +1041,65 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertIn(bytes_to_base64url(credential2.credential_id), credential_ids)
         self.assertNotIn(bytes_to_base64url(b"credential-3"), credential_ids)
 
+    def test_passkey_2fa_rejects_credential_from_different_user(self):
+        """Test that passkey 2FA fails when using a credential belonging to another user"""
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        # Create a passkey for the test user
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"user1-credential",
+            label="User 1 Passkey",
+            public_key=b"user1-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+
+        # Create another user with their own passkey
+        other_user = User.objects.create_and_join(self.organization, "other_user@posthog.com", self.CONFIG_PASSWORD)
+        other_credential = WebauthnCredential.objects.create(
+            user=other_user,
+            credential_id=b"other-user-credential",
+            label="Other User Passkey",
+            public_key=b"other-user-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        # First authenticate with username/password to create session
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
+
+        # Begin passkey 2FA to get challenge
+        begin_response = self.client.post("/api/login/2fa/passkey/begin/")
+        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+
+        # Try to complete with the other user's credential ID
+        response = self.client.post(
+            "/api/login/token",
+            {
+                "credential_id": bytes_to_base64url(other_credential.credential_id),
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "2fa_invalid_passkey")
+
 
 class TestPasswordResetAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False

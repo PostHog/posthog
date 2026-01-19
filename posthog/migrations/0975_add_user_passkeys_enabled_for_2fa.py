@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0974_alter_schedulechange_recurrence_interval"),
+        ("posthog", "0974_alter_scheduledchange_recurrence_interval"),
     ]
 
     operations = [
