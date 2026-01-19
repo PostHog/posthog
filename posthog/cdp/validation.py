@@ -161,6 +161,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+        elif item_type == "push_subscription":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": f"Value must be a push subscription ID (string)."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
