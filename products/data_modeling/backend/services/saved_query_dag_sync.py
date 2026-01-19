@@ -4,11 +4,12 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 
 import structlog
-from posthog.exceptions_capture import capture_exception
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
+
+from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.node import Node, NodeType
