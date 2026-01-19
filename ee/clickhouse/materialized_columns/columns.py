@@ -17,7 +17,7 @@ from clickhouse_driver import Client
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import (
     MATERIALIZATION_VALID_TABLES,
@@ -257,7 +257,7 @@ class ShardedTableInfo(TableInfo):
     def read_table(self) -> str:
         return self.dist_table
 
-    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_data_nodes(self, cluster: ClickhouseCluster, fn: Callable[[Client], T]) -> Future[T]:
         return cluster.map_one_host_per_shard(fn)
 
 
