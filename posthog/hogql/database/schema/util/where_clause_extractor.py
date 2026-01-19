@@ -421,11 +421,15 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             table_type = node.type.resolve_table_type(self.context)
             if isinstance(table_type, ast.TableAliasType):
                 table_type = table_type.table_type
-            # SelectQueryAliasType and other types without .table don't represent actual database tables
-            if isinstance(table_type, ast.SelectQueryAliasType) or not hasattr(table_type, "table"):
-                pass  # Fall through to field name check below
-            elif resolved_field and isinstance(resolved_field, DatabaseField):
+            # Get the underlying table based on the table_type
+            table = None
+            if isinstance(table_type, ast.LazyJoinType):
+                table = table_type.lazy_join.join_table
+            elif isinstance(table_type, ast.SelectQueryAliasType):
+                pass  # Subquery aliases don't represent actual database tables
+            elif hasattr(table_type, "table"):
                 table = table_type.table
+            if table is not None and resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
                     or (
