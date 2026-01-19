@@ -35,8 +35,8 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.feature_flag_patcher.stop()
         super().tearDown()
 
-    def test_create_flag_without_default_environments(self):
-        """Test creating a flag when default environments are disabled"""
+    def test_create_flag_without_default_contexts(self):
+        """Test creating a flag when default contexts are disabled"""
         self.team.default_evaluation_contexts_enabled = False
         self.team.save()
 
@@ -60,8 +60,8 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.assertEqual(flag.tagged_items.count(), 0)
         self.assertEqual(flag.evaluation_tags.count(), 0)
 
-    def test_create_flag_with_default_environments_enabled(self):
-        """Test creating a flag when default environments are enabled but not explicitly requested"""
+    def test_create_flag_with_default_contexts_enabled(self):
+        """Test creating a flag when default contexts are enabled but not explicitly requested"""
         self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
@@ -177,7 +177,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Create a flag first without defaults
         flag = FeatureFlag.objects.create(
-            key="existing-flag", name="Existing Flag", team=self.team, created_by=self.user
+            key="existing-flag",
+            name="Existing Flag",
+            team=self.team,
+            created_by=self.user,
         )
 
         # Now add default evaluation tags
