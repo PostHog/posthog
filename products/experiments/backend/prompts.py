@@ -292,8 +292,8 @@ Your task:
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
 - **CRITICAL: When coming to a conclusion for a metric consider the GOAL field:
-  * For "increase" goals: Higher chances to win and positive delta are better (e.g., conversion rate, revenue)
-  * For "decrease" goals: Higher chances to win and negative delta are better (e.g., bounce rate, churn rate, load time)
+  * For "increase" goals: positive delta and statistical significance indicate improvement (e.g., conversion rate, revenue)
+  * For "decrease" goals: negative delta and statistical significance indicate improvement (e.g., bounce rate, churn rate, load time)
 - Include chance to win, delta (effect size), credible intervals when available
 - Include p-values, delta (effect size), confidence intervals when available
 - Mention statistical significance (typically p < 0.05)
