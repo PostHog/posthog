@@ -153,8 +153,9 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 </div>
                             </div>
                             <div className="text-xs text-muted mt-1">
-                                The smallest delta to be seen as significant. Lower values require more data and longer
-                                run times.
+                                The smallest delta (change) you want to be able to measure with statistical
+                                significance. Changing this setting does not impact the statistical analysis, only the
+                                estimated runtime. Lower values require more data and longer run times.
                             </div>
                         </div>
 
@@ -261,8 +262,9 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 </div>
                             </div>
                             <div className="text-xs text-muted mt-1">
-                                The smallest delta to be seen as significant. Lower values require more data and longer
-                                run times.
+                                The smallest delta (change) you want to be able to measure with statistical
+                                significance. Changing this setting does not impact the statistical analysis, only the
+                                estimated runtime. Lower values require more data and longer run times.
                             </div>
                         </div>
                     </>
