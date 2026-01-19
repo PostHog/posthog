@@ -385,8 +385,7 @@ class TestClayWebhookResource:
             # First two calls fail with 503, third succeeds
             fail_response = MagicMock()
             fail_response.status_code = 503
-            error = requests.exceptions.HTTPError("503 Service Unavailable")
-            error.response = fail_response
+            error = requests.exceptions.HTTPError("503 Service Unavailable", response=fail_response)
             fail_response.raise_for_status.side_effect = error
 
             success_response = MagicMock()
@@ -415,8 +414,7 @@ class TestClayWebhookResource:
             # Always fail with 503
             fail_response = MagicMock()
             fail_response.status_code = 503
-            error = requests.exceptions.HTTPError("503 Service Unavailable")
-            error.response = fail_response
+            error = requests.exceptions.HTTPError("503 Service Unavailable", response=fail_response)
             fail_response.raise_for_status.side_effect = error
             mock_session.post.return_value = fail_response
 
@@ -440,8 +438,7 @@ class TestClayWebhookResource:
 
             fail_response = MagicMock()
             fail_response.status_code = 400
-            error = requests.exceptions.HTTPError("400 Bad Request")
-            error.response = fail_response
+            error = requests.exceptions.HTTPError("400 Bad Request", response=fail_response)
             fail_response.raise_for_status.side_effect = error
             mock_session.post.return_value = fail_response
 
