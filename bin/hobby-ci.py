@@ -139,10 +139,13 @@ runcmd:
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
             'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
-            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
-            "chmod +x hobby-installer",
+            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer-bin",
+            "chmod +x hobby-installer-bin",
+            'echo "$LOG_PREFIX Downloading pre-migrated database schema..."',
+            "mkdir -p .postgres-backups",
+            "curl -L https://github.com/PostHog/posthog/releases/download/migrated-schema-latest/schema.sql.gz -o .postgres-backups/schema-latest.sql.gz || echo 'Warning: Could not download pre-migrated schema, will run migrations'",
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
-            f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
+            f"./hobby-installer-bin --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
             'echo "$LOG_PREFIX Hobby installer exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
@@ -669,6 +672,11 @@ runcmd:
                         cloud_init_finished = True
                         print("\n📋 Cloud-init completed successfully", flush=True)
 
+                        # Update PR comment to let users know instance is accessible
+                        pr_ctx = PRCommentContext.from_env()
+                        if pr_ctx:
+                            update_containers_started_comment(pr_ctx, self.hostname)
+
                 if cloud_init_finished:
                     print("\n🐳 Container status:", flush=True)
                     _, stopped, containers = self.check_container_health()
@@ -1006,6 +1014,73 @@ class PRCommentContext:
             run_id=os.environ.get("RUN_ID"),
             run_attempt=os.environ.get("RUN_ATTEMPT"),
         )
+
+
+def update_containers_started_comment(ctx: PRCommentContext, hostname: str) -> None:
+    """Update PR comment when containers start but before health checks pass."""
+    headers = {
+        "Authorization": f"token {ctx.gh_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    repo = "PostHog/posthog"
+
+    # Find existing comment
+    existing_comment = None
+    try:
+        resp = requests.get(
+            f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
+            headers=headers,
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            for comment in resp.json():
+                body = comment.get("body", "")
+                if COMMENT_MARKER in body:
+                    existing_comment = comment
+                    break
+    except Exception as e:
+        print(f"⚠️  Could not fetch existing comments: {e}", flush=True)
+        return
+
+    if not existing_comment:
+        return  # No comment to update
+
+    # Build run link
+    run_link = ""
+    if ctx.run_id:
+        attempt_suffix = f"/attempts/{ctx.run_attempt}" if ctx.run_attempt and ctx.run_attempt != "1" else ""
+        run_link = f"https://github.com/{repo}/actions/runs/{ctx.run_id}{attempt_suffix}"
+
+    instance_url = f"https://{hostname}" if hostname else ""
+
+    comment_body = f"""{COMMENT_MARKER}
+## 🦔 Hobby deploy smoke test: IN PROGRESS
+
+✅ **Instance is accessible!** Containers are running and the instance is available at the URL below.
+
+⚠️  **Still setting up:** Health checks are still running. The instance may not be fully functional yet.
+
+### 🌐 Access the instance
+**URL:** {instance_url}
+
+---
+<sub>[Run {ctx.run_id}]({run_link})</sub>
+"""
+
+    # Update comment
+    try:
+        resp = requests.patch(
+            existing_comment["url"],
+            headers=headers,
+            json={"body": comment_body},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            print(f"✅ Updated PR comment - instance accessible", flush=True)
+        else:
+            print(f"⚠️  Failed to update comment: {resp.status_code}", flush=True)
+    except Exception as e:
+        print(f"⚠️  Could not update PR comment: {e}", flush=True)
 
 
 def update_smoke_test_comment(
