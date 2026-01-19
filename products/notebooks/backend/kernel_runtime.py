@@ -1008,7 +1008,7 @@ class KernelRuntimeService:
                 return execution
 
             if status_callback:
-                status_callback("Running notebook query")
+                status_callback("Running SQL query")
             hogql_response = self._execute_hogql_query(notebook, user, request["query"])
             self._set_hogql_cache(
                 handle,
