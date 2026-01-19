@@ -3,12 +3,14 @@ import hashlib
 from datetime import timedelta
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
 
 import structlog
+from asgiref.sync import sync_to_async
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view
@@ -570,8 +572,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer = NotebookKernelExecuteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
-
+        current_user = self._current_user()
+        execution_code = serializer.validated_data["code"]
+        execution_timeout = serializer.validated_data.get("timeout")
         execution_type = serializer.validated_data.get("execution_type")
+
         execution_label = "DuckDB" if execution_type == "duckdb" else "Python"
         renderer = SafeJSONRenderer()
 
@@ -579,19 +584,40 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             payload_json = renderer.render(payload).decode()
             return f"data: {payload_json}\n\n".encode()
 
-        def stream_execution():
+        def run_execution():
+            analysis = analyze_python_globals(execution_code)
+            variable_names = [entry["name"] for entry in analysis.exported_with_types]
+            return get_kernel_runtime(notebook, current_user).execute(
+                execution_code,
+                capture_variables=serializer.validated_data.get("return_variables", True),
+                variable_names=variable_names,
+                timeout=execution_timeout,
+            )
+
+        def stream_execution_sync():
             yield build_event({"type": "status", "message": "Starting kernel"})
             yield build_event({"type": "status", "message": f"Executing {execution_label}"})
 
             try:
-                analysis = analyze_python_globals(serializer.validated_data["code"])
-                variable_names = [entry["name"] for entry in analysis.exported_with_types]
-                execution = get_kernel_runtime(notebook, self._current_user()).execute(
-                    serializer.validated_data["code"],
-                    capture_variables=serializer.validated_data.get("return_variables", True),
-                    variable_names=variable_names,
-                    timeout=serializer.validated_data.get("timeout"),
-                )
+                execution = run_execution()
+            except SandboxProvisionError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
+                return
+            except RuntimeError:
+                logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
+                yield build_event({"type": "error", "message": "Failed to execute notebook code."})
+                return
+
+            yield build_event({"type": "result", "execution": execution.as_dict()})
+            yield build_event({"type": "complete"})
+
+        async def stream_execution_async():
+            yield build_event({"type": "status", "message": "Starting kernel"})
+            yield build_event({"type": "status", "message": f"Executing {execution_label}"})
+
+            try:
+                execution = await sync_to_async(run_execution, thread_sensitive=True)()
             except SandboxProvisionError:
                 logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
                 yield build_event({"type": "error", "message": "Failed to execute notebook code."})
@@ -605,7 +631,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             yield build_event({"type": "complete"})
 
         return StreamingHttpResponse(
-            streaming_content=stream_execution(),
+            streaming_content=(
+                stream_execution_async() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else stream_execution_sync()
+            ),
             content_type=ServerSentEventRenderer.media_type,
             headers={
                 "Cache-Control": "no-cache",
