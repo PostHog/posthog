@@ -137,6 +137,7 @@ export function VariantsPanel({
                             value={currentAutocompleteValue}
                             onChange={handleFeatureFlagSelection}
                             allowCustomValues
+                            formatCreateLabel={(input) => `${input} (new entry)`}
                             loading={featureFlagsLoading}
                             disabled={disabled}
                             fullWidth

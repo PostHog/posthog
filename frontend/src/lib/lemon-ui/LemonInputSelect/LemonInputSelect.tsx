@@ -63,6 +63,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     allowCustomValues?: boolean
     /** Disable editing functionality (hides edit icons) while still allowing custom values */
     disableEditing?: boolean
+    /** Format the label for custom values, e.g. appending " (new)". Receives the input string and returns the formatted label. */
+    formatCreateLabel?: (input: string) => string
     emptyStateComponent?: React.ReactNode
     onChange?: (newValue: T[]) => void
     onBlur?: () => void
@@ -98,6 +100,7 @@ export function LemonInputSelect<T = string>({
     mode,
     disabled,
     disableFiltering = false,
+    formatCreateLabel,
     disablePrompting = false,
     allowCustomValues = false,
     disableEditing = false,
@@ -578,6 +581,13 @@ export function LemonInputSelect<T = string>({
 
     const wasLimitReached = values.length >= limit
 
+    const getInputLabel = (option: LemonInputSelectOption<T>): React.ReactNode => {
+        if (formatCreateLabel) {
+            return formatCreateLabel(option.key)
+        }
+        return mode === 'multiple' ? `Add "${option.key}"` : option.key
+    }
+
     return (
         <LemonDropdown
             matchWidth
@@ -727,11 +737,11 @@ export function LemonInputSelect<T = string>({
                                                         }
                                                     >
                                                         <span className="whitespace-nowrap ph-no-capture truncate">
-                                                            {!option.__isInput
-                                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                                : mode === 'multiple'
-                                                                  ? `Add "${option.key}"` // Input-based option
-                                                                  : option.key}
+                                                            {
+                                                                !option.__isInput
+                                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                                    : getInputLabel(option) // Input-based option
+                                                            }
                                                         </span>
                                                     </LemonButton>
                                                 )
@@ -787,11 +797,11 @@ export function LemonInputSelect<T = string>({
                                         }
                                     >
                                         <span className="whitespace-nowrap ph-no-capture truncate">
-                                            {!option.__isInput
-                                                ? (option.labelComponent ?? option.label) // Regular option
-                                                : mode === 'multiple'
-                                                  ? `Add "${option.key}"` // Input-based option
-                                                  : option.key}
+                                            {
+                                                !option.__isInput
+                                                    ? (option.labelComponent ?? option.label) // Regular option
+                                                    : getInputLabel(option) // Input-based option
+                                            }
                                         </span>
                                     </LemonButton>
                                 )
