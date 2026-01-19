@@ -292,9 +292,8 @@ Your task:
 - NEVER give an overall experiment winner or recommendation
 - NEVER confuse metric names with variant names
 - **CRITICAL: When coming to a conclusion for a metric consider the GOAL field:
-  * For "increase" goals: positive delta and statistical significance indicate improvement (e.g., conversion rate, revenue)
-  * For "decrease" goals: negative delta and statistical significance indicate improvement (e.g., bounce rate, churn rate, load time)
-- Include p-values, delta (effect size), confidence intervals when available
+  * For "increase" goals: Lower p-values and positive delta are better (e.g., conversion rate, revenue)
+  * For "decrease" goals: Lower p-values and negative delta are better (e.g., bounce rate, churn rate, load time)
 - Include p-values, delta (effect size), confidence intervals when available
 - Mention statistical significance (typically p < 0.05)
 - Use Frequentist language: "p-value", "confidence interval", "statistical significance"
