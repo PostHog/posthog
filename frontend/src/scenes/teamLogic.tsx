@@ -320,6 +320,8 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam && !payload?.onboarding_tasks) {
                 activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
             }
+            // Reload user after team update to keep user object in sync
+            actions.loadUser()
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
