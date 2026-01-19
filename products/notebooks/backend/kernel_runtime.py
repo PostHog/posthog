@@ -960,13 +960,36 @@ class KernelRuntimeService:
 
         attempt = 0
         wrapped_code = self._wrap_code_with_hogql_exec_id(code, exec_id)
+        should_dedupe_output = output_callback is not None and "hogql_execute" in code
+        emitted_lines: list[str] = []
         while True:
+            attempt_output_callback = output_callback
+            if should_dedupe_output and output_callback:
+                attempt_state = {"index": 0, "skipping": True}
+
+                def deduping_callback(line: str, *, attempt_state: dict[str, int | bool] = attempt_state) -> None:
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if isinstance(payload, dict) and payload.get("marker") == self._HOGQL_BRIDGE_MARKER:
+                        return
+                    if attempt_state["skipping"]:
+                        index = attempt_state["index"]
+                        if index < len(emitted_lines) and line == emitted_lines[index]:
+                            attempt_state["index"] = index + 1
+                            return
+                        attempt_state["skipping"] = False
+                    output_callback(line)
+                    emitted_lines.append(line)
+
+                attempt_output_callback = deduping_callback
             started_at, payload_out = self._execute_kernel_code(
                 handle,
                 wrapped_code,
                 user_expressions,
                 timeout_seconds,
-                output_callback=output_callback,
+                output_callback=attempt_output_callback,
             )
             execution = self._build_execution_result(handle, payload_out, user_expressions, started_at)
 
