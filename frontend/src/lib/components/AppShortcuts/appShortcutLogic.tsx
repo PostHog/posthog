@@ -31,6 +31,10 @@ function isSequenceKeybind(keybind: string[]): boolean {
     return keybind.includes('then')
 }
 
+function isSingleKeyKeybind(keybind: string[]): boolean {
+    return keybind.length === 1 && !['command', 'option', 'shift', 'ctrl'].includes(keybind[0])
+}
+
 function getSequenceKeys(keybind: string[]): string[] {
     return keybind.filter((key) => key !== 'then')
 }
@@ -138,13 +142,27 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 return
             }
 
-            // Handle sequence shortcuts (no modifier keys, not in editable elements)
+            // Handle sequence shortcuts and single-key shortcuts (no modifier keys, not in editable elements)
             if (isEditableElement(event.target) || event.altKey) {
                 return
             }
 
             const now = Date.now()
             const key = event.key.toLowerCase()
+
+            // Check for single-key shortcuts first (immediate trigger, no sequence)
+            const singleKeyMatch = values.registeredAppShortcuts.find((shortcut) =>
+                shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
+            )
+
+            if (singleKeyMatch) {
+                event.preventDefault()
+                event.stopPropagation()
+                cache.sequenceKeys = []
+                cache.sequenceShortcut = null
+                triggerShortcut(singleKeyMatch)
+                return
+            }
 
             // Reset if too much time has passed (1.5s)
             if (now - cache.sequenceLastKeyTime > 1500) {
