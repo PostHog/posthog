@@ -782,6 +782,38 @@
   
   '''
 # ---
+# name: test_create_table_query[distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.distinct_id_usage', '{replica}-{shard}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
+  
+  
+  '''
+# ---
+# name: test_create_table_query[distinct_id_usage_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS distinct_id_usage_mv
+  TO posthog_test.writable_distinct_id_usage
+  AS SELECT
+      team_id,
+      distinct_id,
+      toStartOfMinute(timestamp) AS minute,
+      1 AS event_count
+  FROM posthog_test.sharded_events
+  WHERE timestamp >= now() - INTERVAL 7 DAY
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_events_recent]
   '''
   
@@ -4958,6 +4990,19 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'distinct_id_usage')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -5790,6 +5835,23 @@
       version UInt64
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
+  
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.distinct_id_usage', '{replica}-{shard}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
   
   
   '''

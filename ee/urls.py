@@ -12,7 +12,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
-from ee.admin.loginas_views import loginas_user
+from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
 from ee.api.vercel import vercel_sso, vercel_webhooks
@@ -144,6 +144,7 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="loginas-logout",
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
+        path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]

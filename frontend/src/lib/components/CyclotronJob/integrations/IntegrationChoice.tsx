@@ -93,12 +93,15 @@ export function IntegrationChoice({
                           ],
                       }
                     : null,
-                ['google-pubsub', 'google-cloud-storage'].includes(kind)
+                ['google-pubsub', 'google-cloud-storage', 'firebase'].includes(kind)
                     ? {
                           items: [
                               {
                                   onClick: () => uploadKey(kind),
-                                  label: 'Upload Google Cloud .json key file',
+                                  label:
+                                      kind === 'firebase'
+                                          ? 'Upload Firebase service account .json key file'
+                                          : 'Upload Google Cloud .json key file',
                               },
                           ],
                       }
