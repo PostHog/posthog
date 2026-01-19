@@ -39,9 +39,22 @@ func UpdatePostHog() error {
 		return err
 	}
 
-	logger.WriteString("Pulling updates...\n")
-	_, err = RunCommandWithDir("posthog", "git", "pull")
-	return err
+	// Check if we're on a branch before pulling
+	branch, err := RunCommandWithDir("posthog", "git", "branch", "--show-current")
+	if err != nil {
+		return err
+	}
+	branch = strings.TrimSpace(branch)
+
+	// Only pull if we're on a branch (not in detached HEAD state)
+	if branch != "" {
+		logger.WriteString("Pulling updates...\n")
+		_, err = RunCommandWithDir("posthog", "git", "pull")
+		return err
+	}
+
+	logger.WriteString("In detached HEAD state, skipping pull\n")
+	return nil
 }
 
 func CheckoutVersion(version string) error {
