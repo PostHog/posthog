@@ -116,6 +116,17 @@ export class SessionBatchRecorder {
 
         if (isNewSession) {
             await this.keyStore.generateKey(sessionId, teamId)
+        } else {
+            const key = await this.keyStore.getKey(sessionId, teamId)
+            if (key.sessionState === 'deleted') {
+                logger.debug('🔁', 'session_batch_recorder_deleted_session_dropped', {
+                    partition,
+                    sessionId,
+                    teamId,
+                    batchId: this.batchId,
+                })
+                return this.ignoreMessage(message)
+            }
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)

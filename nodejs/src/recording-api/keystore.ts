@@ -1,4 +1,4 @@
-import { DeleteItemCommand, DynamoDBClient, GetItemCommand, PutItemCommand } from '@aws-sdk/client-dynamodb'
+import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb'
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 import { LRUCache } from 'lru-cache'
@@ -8,18 +8,21 @@ import { TeamService } from '../session-recording/teams/team-service'
 import { RedisPool } from '../types'
 import { isCloud } from '../utils/env-utils'
 import { parseJSON } from '../utils/json-parse'
+import { logger } from '../utils/logger'
 
 const KEYS_TABLE_NAME = 'session-recording-keys'
-const CACHE_KEY_PREFIX = 'recording-key'
+const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
 const REDIS_CACHE_TTL_SECONDS = 60 * 60 * 24 // 24 hours
 const MEMORY_CACHE_MAX_SIZE = 1_000_000
 const MEMORY_CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+export type SessionState = 'ciphertext' | 'cleartext' | 'deleted'
 
 export interface SessionKey {
     plaintextKey: Buffer
     encryptedKey: Buffer
     nonce: Buffer
-    encryptedSession: boolean
+    sessionState: SessionState
 }
 
 export abstract class BaseKeyStore {
@@ -40,7 +43,7 @@ export class PassthroughKeyStore extends BaseKeyStore {
             plaintextKey: Buffer.alloc(0),
             encryptedKey: Buffer.alloc(0),
             nonce: Buffer.alloc(0),
-            encryptedSession: false,
+            sessionState: 'cleartext',
         })
     }
 
@@ -49,7 +52,7 @@ export class PassthroughKeyStore extends BaseKeyStore {
             plaintextKey: Buffer.alloc(0),
             encryptedKey: Buffer.alloc(0),
             nonce: Buffer.alloc(0),
-            encryptedSession: false,
+            sessionState: 'cleartext',
         })
     }
 
@@ -97,10 +100,6 @@ export class KeyStore extends BaseKeyStore {
         this.memoryCache.set(this.cacheKey(sessionId, teamId), key)
     }
 
-    private deleteMemoryCachedKey(sessionId: string, teamId: number): void {
-        this.memoryCache.delete(this.cacheKey(sessionId, teamId))
-    }
-
     private async getRedisCachedKey(sessionId: string, teamId: number): Promise<SessionKey | null> {
         if (!this.redisCacheEnabled || !this.redisPool) {
             return null
@@ -115,7 +114,7 @@ export class KeyStore extends BaseKeyStore {
                     plaintextKey: Buffer.from(parsed.plaintextKey, 'base64'),
                     encryptedKey: Buffer.from(parsed.encryptedKey, 'base64'),
                     nonce: Buffer.from(parsed.nonce, 'base64'),
-                    encryptedSession: parsed.encryptedSession ?? true,
+                    sessionState: parsed.sessionState,
                 }
             }
             return null
@@ -135,22 +134,9 @@ export class KeyStore extends BaseKeyStore {
                 plaintextKey: key.plaintextKey.toString('base64'),
                 encryptedKey: key.encryptedKey.toString('base64'),
                 nonce: key.nonce.toString('base64'),
-                encryptedSession: key.encryptedSession,
+                sessionState: key.sessionState,
             })
             await client.setex(this.cacheKey(sessionId, teamId), REDIS_CACHE_TTL_SECONDS, value)
-        } finally {
-            await this.redisPool.release(client)
-        }
-    }
-
-    private async deleteRedisCachedKey(sessionId: string, teamId: number): Promise<void> {
-        if (!this.redisCacheEnabled || !this.redisPool) {
-            return
-        }
-
-        const client = await this.redisPool.acquire()
-        try {
-            await client.del(this.cacheKey(sessionId, teamId))
         } finally {
             await this.redisPool.release(client)
         }
@@ -196,7 +182,7 @@ export class KeyStore extends BaseKeyStore {
                         team_id: { N: String(teamId) },
                         encrypted_key: { B: CiphertextBlob },
                         nonce: { B: nonce },
-                        encrypted_session: { BOOL: true },
+                        session_state: { S: 'ciphertext' },
                         created_at: { N: String(createdAt) },
                         expires_at: { N: String(expiresAt) },
                     },
@@ -207,7 +193,7 @@ export class KeyStore extends BaseKeyStore {
                 plaintextKey: Buffer.from(Plaintext),
                 encryptedKey: Buffer.from(CiphertextBlob),
                 nonce: Buffer.from(nonce),
-                encryptedSession: true,
+                sessionState: 'ciphertext',
             }
         } else {
             await this.dynamoDBClient.send(
@@ -216,9 +202,7 @@ export class KeyStore extends BaseKeyStore {
                     Item: {
                         session_id: { S: sessionId },
                         team_id: { N: String(teamId) },
-                        encrypted_key: { B: Buffer.alloc(0) },
-                        nonce: { B: Buffer.alloc(0) },
-                        encrypted_session: { BOOL: false },
+                        session_state: { S: 'cleartext' },
                         created_at: { N: String(createdAt) },
                         expires_at: { N: String(expiresAt) },
                     },
@@ -229,7 +213,7 @@ export class KeyStore extends BaseKeyStore {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
-                encryptedSession: false,
+                sessionState: 'cleartext',
             }
         }
 
@@ -268,8 +252,10 @@ export class KeyStore extends BaseKeyStore {
 
         let sessionKey: SessionKey
 
-        if (result.Item && result.Item.encrypted_session?.BOOL) {
-            if (!result.Item.encrypted_key?.B || !result.Item.nonce?.B) {
+        const sessionState = this.parseSessionState(result.Item)
+
+        if (sessionState === 'ciphertext') {
+            if (!result.Item?.encrypted_key?.B || !result.Item?.nonce?.B) {
                 throw new Error(`Missing key data for session ${sessionId} team ${teamId}`)
             }
 
@@ -296,15 +282,23 @@ export class KeyStore extends BaseKeyStore {
                 plaintextKey: Buffer.from(decryptResult.Plaintext),
                 encryptedKey,
                 nonce,
-                encryptedSession: true,
+                sessionState: 'ciphertext',
             }
-        } else {
-            // Return empty key if session is not encrypted or no key found
+        } else if (sessionState === 'deleted') {
+            // Key was explicitly deleted - return deleted state with empty buffers
             sessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
-                encryptedSession: false,
+                sessionState: 'deleted',
+            }
+        } else {
+            // Cleartext or no record found
+            sessionKey = {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'cleartext',
             }
         }
 
@@ -315,24 +309,45 @@ export class KeyStore extends BaseKeyStore {
         return sessionKey
     }
 
+    private parseSessionState(item: Record<string, any> | undefined): SessionState {
+        if (!item?.session_state?.S) {
+            return 'cleartext'
+        }
+        return item.session_state.S as SessionState
+    }
+
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
-        // Delete from DynamoDB
+        // Mark the key as deleted in DynamoDB (don't actually delete the record)
+        // This clears the encrypted_key and nonce, and sets session_state to 'deleted'
+        const deletedAt = Math.floor(Date.now() / 1000)
         const result = await this.dynamoDBClient.send(
-            new DeleteItemCommand({
+            new UpdateItemCommand({
                 TableName: KEYS_TABLE_NAME,
                 Key: {
                     session_id: { S: sessionId },
                     team_id: { N: String(teamId) },
                 },
-                ReturnValues: 'ALL_OLD',
+                UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key, nonce',
+                ExpressionAttributeValues: {
+                    ':deleted': { S: 'deleted' },
+                    ':deleted_at': { N: String(deletedAt) },
+                },
+                ConditionExpression: 'attribute_exists(session_id)',
+                ReturnValues: 'ALL_NEW',
             })
         )
 
-        // Delete from memory cache and optionally from Redis cache
-        this.deleteMemoryCachedKey(sessionId, teamId)
-        await this.deleteRedisCachedKey(sessionId, teamId)
+        // Update caches with the deleted state
+        const deletedKey: SessionKey = {
+            plaintextKey: Buffer.alloc(0),
+            encryptedKey: Buffer.alloc(0),
+            nonce: Buffer.alloc(0),
+            sessionState: 'deleted',
+        }
+        this.setMemoryCachedKey(sessionId, teamId, deletedKey)
+        await this.setRedisCachedKey(sessionId, teamId, deletedKey)
 
-        // Return true if an item was deleted
+        // Return true if the item was updated
         return !!result.Attributes
     }
 
@@ -345,6 +360,8 @@ export class KeyStore extends BaseKeyStore {
 export interface KeyStoreConfig {
     redisPool?: RedisPool
     redisCacheEnabled?: boolean
+    kmsEndpoint?: string
+    dynamoDBEndpoint?: string
 }
 
 export function getKeyStore(
@@ -354,13 +371,27 @@ export function getKeyStore(
     config?: KeyStoreConfig
 ): BaseKeyStore {
     if (isCloud()) {
-        const kmsClient = new KMSClient({ region })
-        const dynamoDBClient = new DynamoDBClient({ region })
+        logger.info('[KeyStore] Creating KeyStore with AWS clients', {
+            region,
+            kmsEndpoint: config?.kmsEndpoint ?? 'default',
+            dynamoDBEndpoint: config?.dynamoDBEndpoint ?? 'default',
+            redisCacheEnabled: config?.redisCacheEnabled ?? false,
+        })
+
+        const kmsClient = new KMSClient({
+            region,
+            endpoint: config?.kmsEndpoint,
+        })
+        const dynamoDBClient = new DynamoDBClient({
+            region,
+            endpoint: config?.dynamoDBEndpoint,
+        })
 
         // Only pass the Redis pool if caching is explicitly enabled
         const redisPool = config?.redisCacheEnabled ? config?.redisPool : undefined
 
         return new KeyStore(dynamoDBClient, kmsClient, retentionService, teamService, redisPool)
     }
+    logger.info('[KeyStore] Creating PassthroughKeyStore (not running on cloud)')
     return new PassthroughKeyStore()
 }

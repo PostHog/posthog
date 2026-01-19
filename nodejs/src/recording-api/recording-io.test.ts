@@ -36,7 +36,7 @@ describe('recording-io', () => {
         plaintextKey: mockPlaintextKey,
         encryptedKey: mockEncryptedKey,
         nonce: mockNonce,
-        encryptedSession: true,
+        sessionState: 'ciphertext',
     }
 
     describe('PassthroughRecordingEncryptor', () => {
@@ -48,7 +48,7 @@ describe('recording-io', () => {
                 getKey: jest.fn(),
                 generateKey: jest.fn(),
                 deleteKey: jest.fn(),
-                destroy: jest.fn(),
+                stop: jest.fn(),
             } as unknown as jest.Mocked<BaseKeyStore>
         })
 
@@ -81,7 +81,7 @@ describe('recording-io', () => {
                 getKey: jest.fn(),
                 generateKey: jest.fn(),
                 deleteKey: jest.fn(),
-                destroy: jest.fn(),
+                stop: jest.fn(),
             } as unknown as jest.Mocked<BaseKeyStore>
         })
 
@@ -242,7 +242,7 @@ describe('recording-io', () => {
                 ]),
                 encryptedKey: mockEncryptedKey,
                 nonce: mockNonce,
-                encryptedSession: true,
+                sessionState: 'ciphertext',
             }
             mockKeyStore.getKey.mockResolvedValue(wrongKey)
 

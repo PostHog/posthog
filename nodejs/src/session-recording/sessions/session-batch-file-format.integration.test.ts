@@ -116,16 +116,16 @@ describe('session recording integration', () => {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
-                encryptedSession: false,
+                sessionState: 'cleartext',
             }),
             getKey: jest.fn().mockResolvedValue({
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
                 nonce: Buffer.alloc(0),
-                encryptedSession: false,
+                sessionState: 'cleartext',
             }),
             deleteKey: jest.fn().mockResolvedValue(true),
-            destroy: jest.fn().mockResolvedValue(undefined),
+            stop: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<BaseKeyStore>
 
         mockEncryptor = {

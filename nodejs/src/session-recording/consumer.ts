@@ -226,7 +226,10 @@ export class SessionRecordingIngester {
         })
 
         const region = hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        this.keyStore = getKeyStore(teamService, retentionService, region)
+        this.keyStore = getKeyStore(teamService, retentionService, region, {
+            kmsEndpoint: hub.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        })
         this.encryptor = getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({
