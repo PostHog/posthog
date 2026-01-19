@@ -271,7 +271,7 @@ jobs:
                   ./bin/download-mmdb
 
             - name: Setup Emscripten for WASM build
-              uses: mymindstorm/setup-emsdk@v14
+              uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
               with:
                   version: '3.1.51'
 
