@@ -5,11 +5,11 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
-import { logsLogic } from '../logsLogic'
+import { logsSceneLogic } from '../../../logsSceneLogic'
 
 export const AttributesFilter = (): JSX.Element => {
-    const { filterGroup } = useValues(logsLogic)
-    const { setFilterGroup } = useActions(logsLogic)
+    const { filterGroup } = useValues(logsSceneLogic)
+    const { setFilterGroup } = useActions(logsSceneLogic)
 
     const rootKey = 'logs'
 
@@ -30,7 +30,7 @@ export const AttributesFilter = (): JSX.Element => {
 }
 
 const NestedFilterGroup = (): JSX.Element => {
-    const { openFilterOnInsert } = useValues(logsLogic)
+    const { openFilterOnInsert } = useValues(logsSceneLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 

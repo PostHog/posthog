@@ -306,20 +306,22 @@ class SecretAlert(APIView):
                         r["label"] = "true_positive"
                         eu_found_hashes.add(r["token_hash"])
 
-        # Capture events with correct key_found_region
-        for event_data in pending_events:
-            token_hash = event_data.pop("token_hash")
+        # Capture events with correct key_found_region.
+        # Don't capture events from the EU, otherwise we'll double count events (US and EU)
+        if get_instance_region() != "EU":
+            for event_data in pending_events:
+                token_hash = event_data.pop("token_hash")
 
-            if token_hash in eu_found_hashes:
-                event_data["key_found_region"] = "EU"
-                event_data["found"] = True
-            elif event_data["found"]:
-                event_data["key_found_region"] = get_instance_region()
+                if token_hash in eu_found_hashes:
+                    event_data["key_found_region"] = "EU"
+                    event_data["found"] = True
+                elif event_data["found"]:
+                    event_data["key_found_region"] = get_instance_region()
 
-            posthoganalytics.capture(
-                distinct_id=None,
-                event="github_secret_alert",
-                properties=event_data,
-            )
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties=event_data,
+                )
 
         return Response(results)
