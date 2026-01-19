@@ -550,6 +550,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 })
             },
         ],
+        hasNoConfiguredSources: [
+            (s) => [s.validExternalTables, s.validNativeSources, s.loading],
+            (validExternalTables, validNativeSources, loading): boolean => {
+                if (loading) {
+                    return false
+                }
+                return validExternalTables.length === 0 && validNativeSources.length === 0
+            },
+        ],
         allExternalTablesWithStatus: [
             (s) => [s.externalTables, s.nativeSources],
             (externalTables, nativeSources) => {
