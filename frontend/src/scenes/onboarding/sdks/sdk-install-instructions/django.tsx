@@ -1,8 +1,13 @@
 import { useValues } from 'kea'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import SetupWizardBanner from './components/SetupWizardBanner'
 
 function DjangoInstallSnippet(): JSX.Element {
     return <CodeSnippet language={Language.Bash}>pip install posthog</CodeSnippet>
@@ -37,8 +42,18 @@ function DjangoSettingsSnippet(): JSX.Element {
 }
 
 export function SDKInstallDjangoInstructions(): JSX.Element {
+    const { isCloudOrDev } = useValues(preflightLogic)
+
     return (
         <>
+            {isCloudOrDev && (
+                <>
+                    <h2>Automated installation</h2>
+                    <SetupWizardBanner integrationName="Django" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual installation</h2>
+                </>
+            )}
             <h3>Install</h3>
             <DjangoInstallSnippet />
             <h3>Configure</h3>
