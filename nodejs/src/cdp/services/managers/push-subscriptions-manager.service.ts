@@ -274,7 +274,7 @@ export class PushSubscriptionsManagerService {
                 WHERE ${conditions}
                 ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
 
-            const response = await this.postgres.query<PushSubscription>(
+            const response = await this.postgres.query<PushSubscriptionRow>(
                 PostgresUse.COMMON_READ,
                 queryString,
                 params,
