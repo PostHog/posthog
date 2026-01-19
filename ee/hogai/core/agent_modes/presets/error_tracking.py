@@ -42,6 +42,21 @@ The assistant used the todo list because:
 4. Breaking this into steps ensures the assistant gets all necessary data before explaining
 """.strip()
 
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS = """
+User: What's the impact of errors on our checkout flow?
+Assistant: I'll analyze how error tracking issues are impacting your checkout flow.
+*Uses read_taxonomy to find checkout-related events*
+*Uses find_error_tracking_impactful_issue_event_list with events: ["checkout_started", "payment_submitted", "order_completed"]*
+""".strip()
+
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
+The assistant used the impact analysis tool because:
+1. The user wants to understand how issues affect a specific product flow
+2. First, read_taxonomy is used to find relevant event names
+3. Then find_error_tracking_impactful_issue_event_list analyzes correlations between issues and those events
+4. This shows which issues may be blocking or affecting the checkout conversion
+""".strip()
+
 
 class ErrorTrackingAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -53,18 +68,23 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
             example=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN,
             reasoning=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING,
         ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_IMPACT_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING,
+        ),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
+        from products.error_tracking.backend.tools.issue_impact import ErrorTrackingIssueImpactTool
         from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
 
-        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool]
+        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool, ErrorTrackingIssueImpactTool]
         return tools
 
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause.",
+    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can retrieve detailed stack trace information for any issue to analyze and explain its root cause. You can also analyze the impact of issues on product events and user flows - showing correlations between errors and affected features like signup, checkout, or any other tracked events.",
     toolkit_class=ErrorTrackingAgentToolkit,
 )
