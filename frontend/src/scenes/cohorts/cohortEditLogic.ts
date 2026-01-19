@@ -536,7 +536,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
-            if (cohort.is_calculating) {
+            const isPendingCalculation =
+                cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
+            const isCalculatingOrPending = cohort.is_calculating || isPendingCalculation
+
+            if (isCalculatingOrPending) {
                 actions.setPollTimeout(
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
