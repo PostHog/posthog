@@ -406,7 +406,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     loaders(() => ({
-        hasSentAiGenerationEvent: {
+        hasSentAiEvent: {
             __default: undefined as boolean | undefined,
             loadAIEventDefinition: async (): Promise<boolean> => {
                 return hasRecentAIEvents()
