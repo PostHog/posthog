@@ -16,6 +16,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     error_tracking_issue_assigned: true,
     discussions_mentioned: true,
     all_weekly_digest_disabled: false,
+    project_api_key_exposed: true,
 }
 
 export function UpdateEmailPreferences(): JSX.Element {
@@ -34,6 +35,21 @@ export function UpdateEmailPreferences(): JSX.Element {
             <div className="deprecated-space-y-4">
                 <div className="deprecated-space-y-4">
                     <h4>Notification types</h4>
+
+                    <div className="border rounded p-4">
+                        <div className="space-y-2">
+                            <LemonSwitch
+                                data-attr="security_alerts_enabled"
+                                checked={true}
+                                disabled={true}
+                                label="Security alerts"
+                            />
+                            <span className="text-muted">
+                                Account security notifications including password changes, 2FA, login activity, and
+                                personal API key exposure. These notifications cannot be disabled.
+                            </span>
+                        </div>
+                    </div>
 
                     {/* Weekly Digest Section */}
                     <div className="border rounded p-4 deprecated-space-y-3">
@@ -139,6 +155,15 @@ export function UpdateEmailPreferences(): JSX.Element {
                             label="Comment mentions"
                             description="Get notified when someone mentions you in a discussion on any project"
                             dataAttr="discussions_mentioned_enabled"
+                        />
+                    </div>
+
+                    <div className="border rounded p-4">
+                        <SimpleSwitch
+                            setting="project_api_key_exposed"
+                            label="Project API key exposure"
+                            description="Get notified when project API keys are publicly exposed"
+                            dataAttr="project_api_key_exposure_enabled"
                         />
                     </div>
                 </div>

@@ -1,6 +1,10 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_INGESTION_WARNINGS,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 
@@ -42,7 +46,7 @@ ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
 def KAFKA_INGESTION_WARNINGS_TABLE_SQL():
     return INGESTION_WARNINGS_TABLE_BASE_SQL().format(
         table_name="kafka_ingestion_warnings",
-        engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS),
+        engine=kafka_engine(topic=KAFKA_INGESTION_WARNINGS, group=CONSUMER_GROUP_INGESTION_WARNINGS),
         materialized_columns="",
         extra_fields="",
     )
