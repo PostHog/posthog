@@ -541,6 +541,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertIsNotNone(bytecode_gt)
         # The bytecode should contain an 'if' check for nulls
         # The wrapped version should use the 'if' function (CALL_GLOBAL with 'if')
+        assert bytecode_gt is not None  # Type narrowing for mypy
         self.assertIn("if", bytecode_gt)
 
         # Test LT operator
@@ -553,6 +554,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         bytecode_lt, error_lt, hash_lt = generate_cohort_filter_bytecode(filter_data_lt, self.team)
         self.assertIsNone(error_lt)
         self.assertIsNotNone(bytecode_lt)
+        assert bytecode_lt is not None  # Type narrowing for mypy
         self.assertIn("if", bytecode_lt)
 
         # Test GTE operator
@@ -565,6 +567,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         bytecode_gte, error_gte, hash_gte = generate_cohort_filter_bytecode(filter_data_gte, self.team)
         self.assertIsNone(error_gte)
         self.assertIsNotNone(bytecode_gte)
+        assert bytecode_gte is not None  # Type narrowing for mypy
         self.assertIn("if", bytecode_gte)
 
         # Test LTE operator
@@ -577,6 +580,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         bytecode_lte, error_lte, hash_lte = generate_cohort_filter_bytecode(filter_data_lte, self.team)
         self.assertIsNone(error_lte)
         self.assertIsNotNone(bytecode_lte)
+        assert bytecode_lte is not None  # Type narrowing for mypy
         self.assertIn("if", bytecode_lte)
 
         # Test that EQ operator does NOT get wrapped (should not have 'if')
@@ -591,4 +595,5 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertIsNotNone(bytecode_eq)
         # EQ should not be wrapped, so it might not have 'if' in the same way
         # Just verify it generates bytecode
+        assert bytecode_eq is not None  # Type narrowing for mypy
         self.assertTrue(len(bytecode_eq) > 0)
