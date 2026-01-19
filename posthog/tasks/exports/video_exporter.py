@@ -1,4 +1,3 @@
-import json
 import os
 import time
 import uuid
@@ -18,8 +17,9 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from posthog.exceptions_capture import capture_exception
 from posthog.schema import ReplayInactivityPeriod
+
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -269,13 +269,17 @@ def detect_recording_resolution(
         logger.info("video_exporter.resolution_detection_complete")
 
 
-def detect_inactivity_periods(
+def _update_exported_asset_with_inactivity_periods(
     page: Page,
-) -> list[ReplayInactivityPeriod]:
-    """Detect inactivity periods when recording session videos."""
+    exported_asset_id: int,
+) -> None:
+    """Detect inactivity periods when recording session videos and store in the exported asset's export_context."""
+    from posthog.models.exported_asset import ExportedAsset
+
     try:
+        # Get data from the global variable using browser
         logger.info("video_exporter.waiting_for_inactivity_periods_global")
-        inactivity_periods = page.wait_for_function(
+        inactivity_periods_raw = page.wait_for_function(
             """
             () => {
                 const r = (window).__POSTHOG_INACTIVITY_PERIODS__;
@@ -289,10 +293,17 @@ def detect_inactivity_periods(
             """,
             timeout=15000,
         ).json_value()
-        return [ReplayInactivityPeriod(**period) for period in inactivity_periods]
+        # Update export asset with the inactivity periods to skip them during analysis
+        inactivity_periods = [ReplayInactivityPeriod(**period) for period in inactivity_periods_raw]
+        asset = ExportedAsset.objects.get(pk=exported_asset_id)
+        if asset.export_context is None:
+            asset.export_context = {}
+        asset.export_context["inactivity_periods"] = [p.model_dump() for p in inactivity_periods]
+        asset.save(update_fields=["export_context"])
+        return None
     except Exception as e:
         logger.warning("video_exporter.inactivity_periods_detection_failed", error=str(e))
-        return []
+        return None
 
 
 def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
@@ -310,6 +321,7 @@ def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
 
 def record_replay_to_file(
     opts: RecordReplayToFileOptions,
+    exported_asset_id: Optional[int] = None,
 ) -> None:
     # Check if ffmpeg is available for video conversion
     ext = os.path.splitext(opts.image_path)[1].lower()
@@ -416,13 +428,12 @@ def record_replay_to_file(
             page.wait_for_timeout(int(actual_duration * 1000))
             video = page.video
 
-            # Collect data on inactivity periods
-            inactivity_periods = detect_inactivity_periods(
-                page=page,
-            )
-            # TODO: Remove after testing, store in the exported asset metadata instead
-            with open("timietimie.json", "w") as f:
-                json.dump([x.model_dump() for x in inactivity_periods], f)
+            # Collect data on inactivity periods and store in the exported asset
+            if exported_asset_id is not None:
+                _update_exported_asset_with_inactivity_periods(
+                    page=page,
+                    exported_asset_id=exported_asset_id,
+                )
 
             # Stop the recording
             page.close()

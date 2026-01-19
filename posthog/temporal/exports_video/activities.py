@@ -80,6 +80,7 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
     return {
+        "exported_asset_id": exported_asset_id,
         "url_to_render": url,
         "css_selector": css,
         "width": width,
@@ -107,7 +108,8 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 screenshot_height=build.get("height"),  # None if not provided
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
-            )
+            ),
+            exported_asset_id=build.get("exported_asset_id"),
         )
         return {"tmp_path": tmp_path}
     except Exception:
