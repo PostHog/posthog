@@ -66,9 +66,6 @@ jobs:
                   node-version: 22.22.0
                   cache: pnpm
 
-            - name: Install WASM build dependencies
-              run: apt-get update && sudo apt-get install -y ninja-build unzip
-
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
               with:
@@ -211,9 +208,6 @@ jobs:
               with:
                   node-version: 22.22.0
                   cache: pnpm
-
-            - name: Install WASM build dependencies
-              run: apt-get update && apt-get install -y ninja-build unzip
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
