@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
+import { rest } from 'msw'
 
 import { compareVersion } from 'lib/utils/semver'
 
-import { useMocks } from '~/mocks/jest'
+import { mswServer } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { versionCheckerLogic } from './versionCheckerLogic'
@@ -14,50 +15,49 @@ const daysAgo = (days: number): string => {
     return date.toISOString()
 }
 
-const useMockedSdkDoctor = (
+// Helper to build the mock response data for SDK doctor API
+const buildSdkDoctorResponse = (
     latestVersion: string,
     usedVersions: { version: string; count: number; releaseDate?: string }[]
-): void => {
+): { web: { latest_version: string; usage: object[] } } => {
     // Sort by semver descending to match backend behavior (see products/growth/dags/team_sdk_versions.py:43)
     const sortedVersions = [...usedVersions].sort((a, b) => compareVersion(b.version, a.version))
 
-    useMocks({
-        get: {
-            'api/sdk_doctor/': () => [
-                200,
-                {
-                    web: {
-                        latest_version: latestVersion,
-                        usage: sortedVersions.map((v) => ({
-                            lib_version: v.version,
-                            count: v.count,
-                            is_latest: v.version === latestVersion,
-                            max_timestamp: '2023-01-01T12:00:00Z',
-                            // Default to 60 days ago to pass the 30-day single version grace period
-                            release_date: v.releaseDate ?? daysAgo(60),
-                        })),
-                    },
-                },
-            ],
+    return {
+        web: {
+            latest_version: latestVersion,
+            usage: sortedVersions.map((v) => ({
+                lib_version: v.version,
+                count: v.count,
+                is_latest: v.version === latestVersion,
+                max_timestamp: '2023-01-01T12:00:00Z',
+                // Default to 60 days ago to pass the 30-day single version grace period
+                release_date: v.releaseDate ?? daysAgo(60),
+            })),
         },
-    })
+    }
 }
 
 describe('versionCheckerLogic', () => {
     let logic: ReturnType<typeof versionCheckerLogic.build>
 
-    beforeEach(() => {
-        useMockedSdkDoctor('1.0.0', [{ version: '1.0.0', count: 100 }])
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    const setupTest = (
+        latestVersion: string,
+        usedVersions: { version: string; count: number; releaseDate?: string }[]
+    ): void => {
+        const mockResponse = buildSdkDoctorResponse(latestVersion, usedVersions)
+        mswServer.use(rest.get('/api/sdk_doctor', (_req, res, ctx) => res(ctx.json(mockResponse))))
         initKeaTests()
         localStorage.clear()
         logic = versionCheckerLogic({ teamId: 1 })
-    })
-
-    afterEach(() => {
-        logic.unmount()
-    })
+    }
 
     it('should not show warning when on latest version', async () => {
+        setupTest('1.0.0', [{ version: '1.0.0', count: 100 }])
         logic.mount()
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             versionWarning: null,
@@ -94,7 +94,7 @@ describe('versionCheckerLogic', () => {
             },
         },
     ])('return a version warning if diff is great enough', async (options) => {
-        useMockedSdkDoctor(options.latestVersion, [{ version: options.usedVersion, count: 100 }])
+        setupTest(options.latestVersion, [{ version: options.usedVersion, count: 100 }])
 
         logic.mount()
 
@@ -124,7 +124,7 @@ describe('versionCheckerLogic', () => {
             },
         },
     ])('when having multiple versions used, should match with the highest one', async (options) => {
-        useMockedSdkDoctor(options.latestVersion, options.usedVersions)
+        setupTest(options.latestVersion, options.usedVersions)
 
         logic.mount()
 
