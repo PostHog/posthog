@@ -62,7 +62,6 @@ jobs:
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
-                  
                   # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
                   # Filter to runs created in the past 14 days to avoid expired artifacts
                   run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&per_page=100&created=>=$cutoff_date" \
