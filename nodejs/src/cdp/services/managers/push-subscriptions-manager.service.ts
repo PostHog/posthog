@@ -24,6 +24,8 @@ const fromKey = (key: string): PushSubscriptionGetArgs => {
     }
 }
 
+const MAX_SUBSCRIPTION_IDS_PER_QUERY = 10_000
+
 // Type for the query result from the database
 type PushSubscriptionRow = {
     id: string
@@ -128,7 +130,17 @@ export class PushSubscriptionsManagerService {
             return {}
         }
 
-        const placeholders = subscriptionIds.map((_, idx) => `$${idx + 2}`).join(', ')
+        let idsToQuery = subscriptionIds
+        if (subscriptionIds.length > MAX_SUBSCRIPTION_IDS_PER_QUERY) {
+            logger.warn('[PushSubscriptionsManager]', 'getManyById exceeded max limit', {
+                requested: subscriptionIds.length,
+                limit: MAX_SUBSCRIPTION_IDS_PER_QUERY,
+                teamId,
+            })
+            idsToQuery = subscriptionIds.slice(0, MAX_SUBSCRIPTION_IDS_PER_QUERY)
+        }
+
+        const placeholders = idsToQuery.map((_, idx) => `$${idx + 2}`).join(', ')
         const queryString = `SELECT
                 id,
                 team_id,
@@ -140,9 +152,10 @@ export class PushSubscriptionsManagerService {
                 created_at,
                 updated_at
             FROM workflows_pushsubscription
-            WHERE team_id = $1 AND id IN (${placeholders}) AND is_active = true`
+            WHERE team_id = $1 AND id IN (${placeholders}) AND is_active = true
+            LIMIT ${MAX_SUBSCRIPTION_IDS_PER_QUERY}`
 
-        const params = [teamId, ...subscriptionIds]
+        const params = [teamId, ...idsToQuery]
         const rows = (
             await this.postgres.query<PushSubscriptionRow>(
                 PostgresUse.COMMON_READ,
