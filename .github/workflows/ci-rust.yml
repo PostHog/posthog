@@ -60,7 +60,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -254,7 +256,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -314,7 +318,9 @@ jobs:
             # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@v6
               with:
-                  sparse-checkout: 'rust/'
+                  sparse-checkout: |
+                      rust/
+                      proto/
                   sparse-checkout-cone-mode: false
                   clean: false
 
