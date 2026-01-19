@@ -258,8 +258,6 @@ class KernelRuntimeService:
         status_callback: Callable[[str], None] | None = None,
         execution_label: str = "Python",
     ) -> KernelExecutionResult:
-        if status_callback:
-            status_callback("Starting kernel")
         valid_variable_names = [name for name in (variable_names or []) if name.isidentifier()]
         user_expressions: dict[str, str] | None = None
         if capture_variables and valid_variable_names:
@@ -525,6 +523,8 @@ class KernelRuntimeService:
         kernel_id = f"kernel-{runtime.id}"
         sandbox_config = build_notebook_sandbox_config(notebook)
         sandbox_class = self._get_sandbox_class(backend)
+        if status_callback:
+            status_callback("Starting kernel")
         if status_callback:
             status_callback("Provisioning sandbox")
         sandbox = sandbox_class.create(sandbox_config)
