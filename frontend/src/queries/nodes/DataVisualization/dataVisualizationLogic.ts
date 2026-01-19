@@ -411,10 +411,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         selectedYAxis: [
-            props.query.chartSettings?.yAxis?.map((axis) => ({
+            (props.query.chartSettings?.yAxis?.map((axis) => ({
                 name: axis.column,
                 settings: axis.settings ?? DefaultAxisSettings(),
-            })) ?? null,
+            })) ?? null) as (SelectedYAxis | null)[] | null,
             {
                 _setQuery: (state, { node }) => {
                     if (node.chartSettings?.yAxis) {
