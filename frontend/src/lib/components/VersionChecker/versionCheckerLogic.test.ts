@@ -1,14 +1,26 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { compareVersion } from 'lib/utils/semver'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { versionCheckerLogic } from './versionCheckerLogic'
 
+// Helper to generate dates relative to now
+const daysAgo = (days: number): string => {
+    const date = new Date()
+    date.setDate(date.getDate() - days)
+    return date.toISOString()
+}
+
 const useMockedSdkDoctor = (
     latestVersion: string,
     usedVersions: { version: string; count: number; releaseDate?: string }[]
 ): void => {
+    // Sort by semver descending to match backend behavior (see products/growth/dags/team_sdk_versions.py:43)
+    const sortedVersions = [...usedVersions].sort((a, b) => compareVersion(b.version, a.version))
+
     useMocks({
         get: {
             'api/sdk_doctor/': () => [
@@ -16,12 +28,13 @@ const useMockedSdkDoctor = (
                 {
                     web: {
                         latest_version: latestVersion,
-                        usage: usedVersions.map((v) => ({
+                        usage: sortedVersions.map((v) => ({
                             lib_version: v.version,
                             count: v.count,
                             is_latest: v.version === latestVersion,
                             max_timestamp: '2023-01-01T12:00:00Z',
-                            release_date: v.releaseDate ?? '2023-01-01T00:00:00Z',
+                            // Default to 60 days ago to pass the 30-day single version grace period
+                            release_date: v.releaseDate ?? daysAgo(60),
                         })),
                     },
                 },
