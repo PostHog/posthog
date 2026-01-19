@@ -39,7 +39,7 @@ import {
 } from '~/types'
 
 import { zoomDateRange } from './components/LogsViewer/Filters/zoom-utils'
-import type { logsLogicType } from './logsLogicType'
+import type { logsSceneLogicType } from './logsSceneLogicType'
 import { LogsFilters, LogsFiltersHistoryEntry, LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
