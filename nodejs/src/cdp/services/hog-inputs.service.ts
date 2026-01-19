@@ -34,9 +34,9 @@ export class HogInputsService {
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
 
-        // Check if function has push subscription inputs
+        // Check if function has push subscription inputs (type='push_subscription' or integration_field='push_subscription')
         const hasPushSubscriptionInputs = hogFunction.inputs_schema?.some(
-            (schema) => schema.type === 'push_subscription'
+            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
         )
 
         const inputs: HogFunctionType['inputs'] = {
@@ -86,7 +86,13 @@ export class HogInputsService {
             }
         }
 
-        if (globals.event?.distinct_id) {
+        // Only load push_subscriptions globals if function uses push subscriptions
+        // Check if function has push subscription inputs (type='push_subscription') or integration fields
+        const usesPushSubscriptions = hogFunction.inputs_schema?.some(
+            (schema) => schema.type === 'push_subscription' || schema.integration_field === 'push_subscription'
+        )
+
+        if (usesPushSubscriptions && globals.event?.distinct_id) {
             try {
                 const pushSubscriptions = await this.pushSubscriptionsManager.get({
                     teamId: hogFunction.team_id,
@@ -194,7 +200,7 @@ export class HogInputsService {
         const inputsToLoad: Record<string, string> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
-            if (schema.type === 'push_subscription') {
+            if (schema.type === 'push_subscription' || schema.integration_field === 'push_subscription') {
                 const input = hogFunction.inputs?.[schema.key]
                 const value = input?.value
                 if (value && typeof value === 'string') {

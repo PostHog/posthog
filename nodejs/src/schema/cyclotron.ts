@@ -43,6 +43,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
     integration_field: z.string().optional(),
     requires_field: z.string().optional(),
     requiredScopes: z.string().optional(),
+    platform: z.enum(['android', 'ios', 'web']).optional(),
 })
 
 export const CyclotronInputMappingSchema = z.object({
