@@ -5,20 +5,20 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { defaultEvaluationEnvironmentsLogicType } from './defaultEvaluationEnvironmentsLogicType'
+import type { defaultEvaluationContextsLogicType } from './defaultEvaluationContextsLogicType'
 
 export interface DefaultEvaluationTag {
     id: number
     name: string
 }
 
-export interface DefaultEvaluationEnvironmentsResponse {
+export interface DefaultEvaluationContextsResponse {
     default_evaluation_tags: DefaultEvaluationTag[]
     enabled: boolean
 }
 
-export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironmentsLogicType>([
-    path(['scenes', 'feature-flags', 'defaultEvaluationEnvironmentsLogic']),
+export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogicType>([
+    path(['scenes', 'feature-flags', 'defaultEvaluationContextsLogic']),
 
     connect({
         values: [teamLogic, ['currentTeam']],
@@ -26,7 +26,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
     }),
 
     actions({
-        loadDefaultEvaluationEnvironments: true,
+        loadDefaultEvaluationContexts: true,
         addTag: (tagName: string) => ({ tagName }),
         removeTag: (tagName: string) => ({ tagName }),
         toggleEnabled: (enabled: boolean) => ({ enabled }),
@@ -52,17 +52,17 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
     }),
 
     loaders(({ values }) => ({
-        defaultEvaluationEnvironments: [
-            null as DefaultEvaluationEnvironmentsResponse | null,
+        defaultEvaluationContexts: [
+            null as DefaultEvaluationContextsResponse | null,
             {
-                loadDefaultEvaluationEnvironments: async () => {
+                loadDefaultEvaluationContexts: async () => {
                     const teamId = values.currentTeam?.id
                     if (!teamId) {
                         return null
                     }
 
                     const response = await api.get(`/api/environments/${teamId}/default_evaluation_tags/`)
-                    return response as DefaultEvaluationEnvironmentsResponse
+                    return response as DefaultEvaluationContextsResponse
                 },
 
                 addTag: async ({ tagName }) => {
@@ -76,7 +76,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
                             tag_name: tagName,
                         })
 
-                        const currentData = values.defaultEvaluationEnvironments
+                        const currentData = values.defaultEvaluationContexts
                         if (!currentData) {
                             return null
                         }
@@ -110,7 +110,7 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
                             `/api/environments/${teamId}/default_evaluation_tags/?tag_name=${encodeURIComponent(tagName)}`
                         )
 
-                        const currentData = values.defaultEvaluationEnvironments
+                        const currentData = values.defaultEvaluationContexts
                         if (!currentData) {
                             return null
                         }
@@ -133,31 +133,31 @@ export const defaultEvaluationEnvironmentsLogic = kea<defaultEvaluationEnvironme
     listeners(({ actions }) => ({
         toggleEnabled: async ({ enabled }) => {
             actions.updateCurrentTeam({
-                default_evaluation_environments_enabled: enabled,
+                default_evaluation_contexts_enabled: enabled,
             })
         },
 
         addTagSuccess: () => {
-            lemonToast.success('Tag added to default evaluation environments')
+            lemonToast.success('Tag added to default evaluation contexts')
         },
 
         removeTagSuccess: () => {
-            lemonToast.success('Tag removed from default evaluation environments')
+            lemonToast.success('Tag removed from default evaluation contexts')
         },
     })),
 
     selectors({
         tags: [
-            (s) => [s.defaultEvaluationEnvironments],
+            (s) => [s.defaultEvaluationContexts],
             (data): DefaultEvaluationTag[] => data?.default_evaluation_tags || [],
         ],
 
-        isEnabled: [(s) => [s.currentTeam], (team): boolean => team?.default_evaluation_environments_enabled || false],
+        isEnabled: [(s) => [s.currentTeam], (team): boolean => team?.default_evaluation_contexts_enabled || false],
 
         canAddMoreTags: [(s) => [s.tags], (tags): boolean => tags.length < 10],
     }),
 
     afterMount(({ actions }) => {
-        actions.loadDefaultEvaluationEnvironments()
+        actions.loadDefaultEvaluationContexts()
     }),
 ])
