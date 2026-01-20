@@ -1172,5 +1172,231 @@ describe('Hog Executor', () => {
                 ]
             `)
         })
+
+        describe('updateFcmTokenLifecycle', () => {
+            const fcmUrl = 'https://fcm.googleapis.com/v1/projects/test-project/messages:send'
+            let pushSubscriptionsManager: any
+
+            beforeEach(() => {
+                pushSubscriptionsManager = executor['pushSubscriptionsManager']
+                jest.spyOn(pushSubscriptionsManager, 'updateLastSuccessfullyUsedAtByToken').mockResolvedValue(undefined)
+                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockResolvedValue(undefined)
+            })
+
+            const createFcmInvocation = (
+                token: string | null | undefined,
+                status: number,
+                responseBody: unknown = {}
+            ): CyclotronJobInvocationHogFunction => {
+                const hogFunction = createHogFunction({
+                    name: 'Test FCM function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                    inputs_schema: [
+                        {
+                            type: 'push_subscription',
+                            key: 'device_token',
+                            label: 'Device Token',
+                        },
+                    ],
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    inputs: token !== undefined ? { device_token: token } : {},
+                })
+
+                invocation.queueParameters = {
+                    type: 'fetch',
+                    url: fcmUrl,
+                    method: 'POST',
+                } as any
+
+                jest.mocked(fetch).mockResolvedValueOnce({
+                    status,
+                    text: () => Promise.resolve(JSON.stringify(responseBody)),
+                    json: () => Promise.resolve(responseBody),
+                    headers: {},
+                    dump: () => Promise.resolve(),
+                } as any)
+
+                return invocation
+            }
+
+            it('logs warning when token is not found in inputs', async () => {
+                const invocation = createFcmInvocation(null, 200)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'FCM token not found in inputs, skipping FCM response handling'
+                )
+                expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).not.toHaveBeenCalled()
+            })
+
+            it('handles successful response (200-299) and updates token', async () => {
+                const token = 'test-fcm-token-123'
+                const invocation = createFcmInvocation(token, 200)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).toHaveBeenCalledWith(1, token)
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Updated last_successfully_used_at for FCM token'
+                )
+            })
+
+            it('handles error when updating token fails', async () => {
+                const token = 'test-fcm-token-123'
+                const invocation = createFcmInvocation(token, 200)
+
+                const error = new Error('Database error')
+                jest.spyOn(pushSubscriptionsManager, 'updateLastSuccessfullyUsedAtByToken').mockRejectedValueOnce(error)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Failed to update last_successfully_used_at for FCM token: Error: Database error'
+                )
+            })
+
+            it('handles 404 response and deactivates token', async () => {
+                const token = 'test-fcm-token-123'
+                const invocation = createFcmInvocation(token, 404)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'unregistered token')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Deactivated push subscription token due to 404 (unregistered token)'
+                )
+            })
+
+            it('handles error when deactivating token fails on 404', async () => {
+                const token = 'test-fcm-token-123'
+                const invocation = createFcmInvocation(token, 404)
+
+                const error = new Error('Database error')
+                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Failed to deactivate push subscription token: Error: Database error'
+                )
+            })
+
+            it('handles 400 with INVALID_ARGUMENT and deactivates token', async () => {
+                const token = 'test-fcm-token-123'
+                const responseBody = {
+                    error: {
+                        code: 400,
+                        details: [
+                            {
+                                '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError',
+                                errorCode: 'INVALID_ARGUMENT',
+                            },
+                        ],
+                    },
+                }
+                const invocation = createFcmInvocation(token, 400, responseBody)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.deactivateToken).toHaveBeenCalledWith(1, token, 'invalid token')
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Deactivated push subscription token due to 400 INVALID_ARGUMENT (invalid token)'
+                )
+            })
+
+            it('handles 400 with empty error details and does not deactivate token', async () => {
+                const token = 'test-fcm-token-123'
+                const responseBody = {
+                    error: {
+                        code: 400,
+                        details: [],
+                    },
+                }
+                const invocation = createFcmInvocation(token, 400, responseBody)
+
+                await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.deactivateToken).not.toHaveBeenCalled()
+            })
+
+            it('handles error when deactivating token fails on 400', async () => {
+                const token = 'test-fcm-token-123'
+                const responseBody = {
+                    error: {
+                        code: 400,
+                        details: [
+                            {
+                                '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError',
+                                errorCode: 'INVALID_ARGUMENT',
+                            },
+                        ],
+                    },
+                }
+                const invocation = createFcmInvocation(token, 400, responseBody)
+
+                const error = new Error('Database error')
+                jest.spyOn(pushSubscriptionsManager, 'deactivateToken').mockRejectedValueOnce(error)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.logs.map((log) => log.message)).toContain(
+                    'Failed to deactivate push subscription token: Error: Database error'
+                )
+            })
+
+            it('handles other status codes without action', async () => {
+                const token = 'test-fcm-token-123'
+                const invocation = createFcmInvocation(token, 500)
+
+                await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).not.toHaveBeenCalled()
+                expect(pushSubscriptionsManager.deactivateToken).not.toHaveBeenCalled()
+            })
+
+            it('only processes FCM URLs', async () => {
+                const token = 'test-fcm-token-123'
+                const hogFunction = createHogFunction({
+                    name: 'Test function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                    inputs_schema: [
+                        {
+                            type: 'push_subscription',
+                            key: 'device_token',
+                            label: 'Device Token',
+                        },
+                    ],
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    inputs: { device_token: token },
+                })
+
+                invocation.queueParameters = {
+                    type: 'fetch',
+                    url: 'https://example.com/api',
+                    method: 'POST',
+                } as any
+
+                jest.mocked(fetch).mockResolvedValueOnce({
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    json: () => Promise.resolve({}),
+                    headers: {},
+                    dump: () => Promise.resolve(),
+                } as any)
+
+                await executor.executeFetch(invocation)
+
+                expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).not.toHaveBeenCalled()
+            })
+        })
     })
 })

@@ -732,9 +732,8 @@ export class HogExecutorService {
             body = undefined
         }
 
-        // Handle FCM push notification responses
         if (params.url.includes('fcm.googleapis.com/v1/projects/') && params.url.includes('/messages:send')) {
-            await this.handleFcmResponse(params.url, params.body, fetchResponse?.status, body, invocation, addLog)
+            await this.updateFcmTokenLifecycle(fetchResponse?.status, body, invocation, addLog)
         }
 
         const hogVmResponse: {
@@ -760,19 +759,14 @@ export class HogExecutorService {
         return result
     }
 
-    private async handleFcmResponse(
-        url: string,
-        requestBody: string | null | undefined,
+    private async updateFcmTokenLifecycle(
         status: number | undefined,
         responseBody: unknown,
         invocation: CyclotronJobInvocationHogFunction,
         addLog: (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => void
     ): Promise<void> {
-        // Extract token from inputs if available, otherwise parse from request body
         let fcmToken: string | null = null
-
         if (invocation.state.globals?.inputs) {
-            // Find push_subscription input key from schema
             const pushSubscriptionKey = invocation.hogFunction.inputs_schema?.find(
                 (schema) => schema.type === 'push_subscription'
             )?.key
@@ -781,20 +775,8 @@ export class HogExecutorService {
             }
         }
 
-        if (!fcmToken && requestBody) {
-            try {
-                if (typeof requestBody === 'string') {
-                    const parsedBody = parseJSON(requestBody) as any
-                    fcmToken = parsedBody?.message?.token || null
-                } else if (typeof requestBody === 'object') {
-                    fcmToken = (requestBody as any)?.message?.token || null
-                }
-            } catch (e) {
-                // Failed to parse request body, will skip FCM handling if no token found
-            }
-        }
-
         if (!fcmToken) {
+            addLog('warn', 'FCM token not found in inputs, skipping FCM response handling')
             return
         }
 
