@@ -9,7 +9,7 @@ import type { pushSubscriptionLogicType } from './pushSubscriptionLogicType'
 export interface PushSubscriptionType {
     id: string
     distinct_id: string
-    platform: 'android' | 'ios' | 'web'
+    platform: 'android' | 'ios'
     created_at: string
     updated_at: string
     person_email: string | null
@@ -17,7 +17,7 @@ export interface PushSubscriptionType {
 }
 
 export interface PushSubscriptionLogicProps {
-    platform?: 'android' | 'ios' | 'web'
+    platform?: 'android' | 'ios'
 }
 
 export const pushSubscriptionLogic = kea<pushSubscriptionLogicType>([

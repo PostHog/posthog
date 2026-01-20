@@ -109,7 +109,7 @@ export type HogFunctionInvocationGlobals = {
     push_subscriptions?: Array<{
         id: string
         token: string
-        platform: 'android' | 'ios' | 'web'
+        platform: 'android' | 'ios'
         is_active: boolean
         last_successfully_used_at: string | null
     }> // Push notification subscriptions for the event's distinct_id
@@ -356,7 +356,7 @@ export type HogFunctionInputSchemaType = {
     integration_key?: string
     requires_field?: string
     integration_field?: string
-    platform?: 'android' | 'ios' | 'web'
+    platform?: 'android' | 'ios'
     requiredScopes?: string
     /**
      * templating: true indicates the field supports templating. Alternatively
