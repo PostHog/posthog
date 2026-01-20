@@ -121,6 +121,7 @@ export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tr
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
+export const MAX_FETCH_TIMEOUT_MS = 20000
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -562,13 +563,18 @@ export class HogExecutorService {
                                     : JSON.stringify(fetchOptions.body)
                                 : fetchOptions?.body
 
+                            const timeoutMs =
+                                fetchOptions?.timeoutMs !== undefined
+                                    ? Math.min(fetchOptions.timeoutMs, MAX_FETCH_TIMEOUT_MS)
+                                    : undefined
+
                             const fetchQueueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
                                 type: 'fetch',
                                 url,
                                 method,
                                 body,
                                 headers: pickBy(headers, (v) => typeof v == 'string'),
-                                ...(fetchOptions?.timeoutMs ? { timeoutMs: fetchOptions.timeoutMs } : {}),
+                                ...(timeoutMs !== undefined ? { timeoutMs } : {}),
                             })
 
                             result.invocation.queueParameters = fetchQueueParameters
@@ -682,8 +688,8 @@ export class HogExecutorService {
             fetchParams.body = params.body
         }
 
-        if (params.timeoutMs) {
-            fetchParams.timeoutMs = params.timeoutMs
+        if (params.timeoutMs !== undefined) {
+            fetchParams.timeoutMs = Math.min(params.timeoutMs, MAX_FETCH_TIMEOUT_MS)
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
