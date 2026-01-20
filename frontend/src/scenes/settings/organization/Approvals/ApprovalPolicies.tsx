@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconInfo, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -26,6 +26,37 @@ import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/roles
 import { ApprovalPolicy } from '~/types'
 
 import { approvalPoliciesLogic } from './approvalPoliciesLogic'
+
+// Available fields that can be gated
+const GATEABLE_FIELDS: Record<string, { label: string; type: 'number' | 'boolean' | 'string' }> = {
+    rollout_percentage: { label: 'Rollout percentage', type: 'number' },
+}
+
+const CONDITION_TYPES = [
+    { value: 'any_change', label: 'changes' },
+    { value: 'before_after', label: 'new value is' },
+    { value: 'change_amount', label: 'changes by' },
+]
+
+const CONDITION_TYPES_TOOLTIP = `• changes – require approval whenever this field is modified
+• new value is – require approval when the new value meets a threshold (e.g., rollout > 50%)
+• changes by – require approval when the change amount meets a threshold (e.g., increased by more than 10%)`
+
+const OPERATORS = [
+    { value: '>', label: '>' },
+    { value: '>=', label: '>=' },
+    { value: '<', label: '<' },
+    { value: '<=', label: '<=' },
+    { value: '==', label: '=' },
+    { value: '!=', label: '≠' },
+]
+
+interface ConditionRule {
+    field: string
+    type: string
+    operator?: string
+    value?: number
+}
 
 export function ApprovalPolicies(): JSX.Element {
     const { policies, policiesLoading } = useValues(approvalPoliciesLogic)
@@ -157,19 +188,45 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const [approverUserIds, setApproverUserIds] = useState<number[]>(policy?.approver_config?.users || [])
     const [approverRoleIds, setApproverRoleIds] = useState<string[]>(policy?.approver_config?.roles || [])
 
-    // Conditions for field-level gating (only for feature_flag.update)
-    const existingConditions = policy?.conditions as
-        | { type?: string; field?: string; operator?: string; value?: number }
-        | undefined
-    const [conditionType, setConditionType] = useState<string>(existingConditions?.type || 'any_change')
-    const [conditionField] = useState<string>(existingConditions?.field || 'rollout_percentage')
-    const [conditionOperator, setConditionOperator] = useState<string>(existingConditions?.operator || '>')
-    const [conditionValue, setConditionValue] = useState<number | undefined>(existingConditions?.value)
+    // Parse existing conditions into rules
+    const parseExistingConditions = (): ConditionRule[] => {
+        const conditions = policy?.conditions as ConditionRule | undefined
+        if (conditions?.field) {
+            return [
+                {
+                    field: conditions.field,
+                    type: conditions.type || 'any_change',
+                    operator: conditions.operator,
+                    value: conditions.value,
+                },
+            ]
+        }
+        return []
+    }
+
+    const [rules, setRules] = useState<ConditionRule[]>(parseExistingConditions())
 
     useEffect(() => {
         loadAllMembers()
         loadRoles()
     }, [loadAllMembers, loadRoles])
+
+    const addRule = (field: string): void => {
+        setRules([...rules, { field, type: 'any_change' }])
+    }
+
+    const updateRule = (index: number, updates: Partial<ConditionRule>): void => {
+        const newRules = [...rules]
+        newRules[index] = { ...newRules[index], ...updates }
+        setRules(newRules)
+    }
+
+    const removeRule = (index: number): void => {
+        setRules(rules.filter((_, i) => i !== index))
+    }
+
+    const usedFields = new Set(rules.map((r) => r.field))
+    const availableFields = Object.entries(GATEABLE_FIELDS).filter(([key]) => !usedFields.has(key))
 
     const handleSave = (): void => {
         if (approverUserIds.length === 0 && approverRoleIds.length === 0) {
@@ -177,16 +234,17 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             return
         }
 
-        // Build conditions for feature_flag.update action
+        // Build conditions from rules (for now, just take the first rule)
         let conditions: Record<string, unknown> = {}
-        if (actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE) {
+        if (actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && rules.length > 0) {
+            const rule = rules[0]
             conditions = {
-                type: conditionType,
-                field: conditionField,
+                type: rule.type,
+                field: rule.field,
             }
-            if (conditionType !== 'any_change') {
-                conditions.operator = conditionOperator
-                conditions.value = conditionValue
+            if (rule.type !== 'any_change') {
+                conditions.operator = rule.operator
+                conditions.value = rule.value
             }
         }
 
@@ -211,7 +269,6 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
         onClose()
     }
 
-    // Prepare user options for dropdown
     const userOptions =
         members?.map((member) => ({
             key: member.user.id.toString(),
@@ -224,7 +281,6 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             ),
         })) || []
 
-    // Prepare role options for dropdown
     const roleOptions =
         roles?.map((role) => ({
             key: role.id,
@@ -235,7 +291,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
         <LemonModal
             isOpen
             onClose={onClose}
-            width={520}
+            width={600}
             title={policy ? 'Edit approval policy' : 'Create approval policy'}
             footer={
                 <>
@@ -254,7 +310,12 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                     <LemonSelect
                         fullWidth
                         value={actionKey}
-                        onChange={setActionKey}
+                        onChange={(value) => {
+                            setActionKey(value)
+                            if (value !== ApprovalActionKey.FEATURE_FLAG_UPDATE) {
+                                setRules([])
+                            }
+                        }}
                         options={Object.entries(APPROVAL_ACTIONS).map(([value, action]) => ({
                             label: action.label,
                             value,
@@ -263,74 +324,46 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                 </div>
 
                 {actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && (
-                    <div className="p-3 border rounded bg-bg-light space-y-3">
-                        <div>
-                            <label className="block text-sm font-medium mb-1">Condition type</label>
-                            <LemonSelect
-                                fullWidth
-                                value={conditionType}
-                                onChange={setConditionType}
-                                options={[
-                                    {
-                                        label: 'Any change',
-                                        value: 'any_change',
-                                    },
-                                    {
-                                        label: 'Value threshold',
-                                        value: 'before_after',
-                                    },
-                                    {
-                                        label: 'Change amount',
-                                        value: 'change_amount',
-                                    },
-                                ]}
-                            />
-                            <p className="text-xs text-secondary mt-1">
-                                {conditionType === 'any_change' &&
-                                    'Require approval for any change to rollout percentage'}
-                                {conditionType === 'before_after' &&
-                                    'Require approval when the new value crosses a threshold'}
-                                {conditionType === 'change_amount' &&
-                                    'Require approval when the change exceeds a threshold'}
-                            </p>
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                            <label className="block text-sm font-medium">Require approval when</label>
+                            <Tooltip title={CONDITION_TYPES_TOOLTIP}>
+                                <IconInfo className="text-muted-alt w-4 h-4" />
+                            </Tooltip>
                         </div>
 
-                        {conditionType !== 'any_change' && (
-                            <div className="flex gap-2 items-end">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium mb-1">Operator</label>
-                                    <LemonSelect
-                                        fullWidth
-                                        value={conditionOperator}
-                                        onChange={setConditionOperator}
-                                        options={[
-                                            { label: '> (greater than)', value: '>' },
-                                            { label: '>= (greater than or equal)', value: '>=' },
-                                            { label: '< (less than)', value: '<' },
-                                            { label: '<= (less than or equal)', value: '<=' },
-                                            { label: '== (equal to)', value: '==' },
-                                            { label: '!= (not equal to)', value: '!=' },
-                                        ]}
+                        {rules.length === 0 ? (
+                            <div className="p-4 border border-dashed rounded text-center text-muted">
+                                No conditions configured. Add a field to require approval for specific changes.
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {rules.map((rule, index) => (
+                                    <RuleRow
+                                        key={rule.field}
+                                        rule={rule}
+                                        onChange={(updates) => updateRule(index, updates)}
+                                        onRemove={() => removeRule(index)}
                                     />
-                                </div>
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium mb-1">
-                                        {conditionType === 'before_after' ? 'Threshold (%)' : 'Change amount (%)'}
-                                    </label>
-                                    <LemonInput
-                                        type="number"
-                                        min={conditionType === 'before_after' ? 0 : -100}
-                                        max={100}
-                                        value={conditionValue ?? ''}
-                                        onChange={(val) => setConditionValue(val !== '' ? Number(val) : undefined)}
-                                        placeholder={conditionType === 'before_after' ? 'e.g. 50' : 'e.g. 10 or -10'}
-                                    />
-                                </div>
+                                ))}
                             </div>
                         )}
 
+                        {availableFields.length > 0 && (
+                            <LemonSelect
+                                placeholder="+ Add field"
+                                value={null}
+                                onChange={(value) => value && addRule(value)}
+                                options={availableFields.map(([key, config]) => ({
+                                    value: key,
+                                    label: config.label,
+                                }))}
+                                size="small"
+                            />
+                        )}
+
                         <p className="text-xs text-secondary">
-                            <strong>Field:</strong> Rollout percentage (checked across all release conditions)
+                            If no conditions are set, all changes to this action type will require approval.
                         </p>
                     </div>
                 )}
@@ -391,5 +424,57 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                 </div>
             </div>
         </LemonModal>
+    )
+}
+
+function RuleRow({
+    rule,
+    onChange,
+    onRemove,
+}: {
+    rule: ConditionRule
+    onChange: (updates: Partial<ConditionRule>) => void
+    onRemove: () => void
+}): JSX.Element {
+    const fieldConfig = GATEABLE_FIELDS[rule.field]
+    const isNumeric = fieldConfig?.type === 'number'
+
+    return (
+        <div className="flex items-center gap-2 p-2 bg-bg-light border rounded">
+            <span className="font-medium text-sm whitespace-nowrap">{fieldConfig?.label || rule.field}</span>
+
+            <LemonSelect
+                size="small"
+                value={rule.type}
+                onChange={(value) => onChange({ type: value })}
+                options={CONDITION_TYPES}
+            />
+
+            {rule.type !== 'any_change' && isNumeric && (
+                <>
+                    <LemonSelect
+                        size="small"
+                        value={rule.operator || '>'}
+                        onChange={(value) => onChange({ operator: value })}
+                        options={OPERATORS}
+                    />
+                    <LemonInput
+                        size="small"
+                        type="number"
+                        min={rule.type === 'change_amount' ? -100 : 0}
+                        max={100}
+                        value={rule.value ?? ''}
+                        onChange={(val) => onChange({ value: val !== '' ? Number(val) : undefined })}
+                        placeholder="%"
+                        className="w-20"
+                    />
+                    <span className="text-sm text-muted">%</span>
+                </>
+            )}
+
+            <div className="flex-1" />
+
+            <LemonButton size="small" icon={<IconX />} onClick={onRemove} tooltip="Remove rule" />
+        </div>
     )
 }
