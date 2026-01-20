@@ -474,10 +474,7 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        site_url = settings.SITE_URL
-        if not settings.DEBUG:
-            site_url = site_url.replace("http://", "https://")
-        return f"{site_url}/integrations/{kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next="") -> str:
@@ -594,11 +591,17 @@ class OauthIntegration:
                 data = token_info_res.json()
 
                 # Jira returns an array of accessible resources, extract the first one
-                if kind == "jira" and isinstance(data, list) and len(data) > 0:
-                    site = data[0]
-                    config["cloud_id"] = site.get("id")
-                    config["site_name"] = site.get("name")
-                    config["site_url"] = site.get("url")
+                if kind == "jira" and isinstance(data, list):
+                    if len(data) > 0:
+                        site = data[0]
+                        config["cloud_id"] = site.get("id")
+                        config["site_name"] = site.get("name")
+                        config["site_url"] = site.get("url")
+                    else:
+                        logger.warning(
+                            "Jira OAuth returned empty accessible resources array - user may not have access to any Jira sites",
+                            kind=kind,
+                        )
                 elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
                         config[field] = dot_get(data, field)
@@ -1517,9 +1520,9 @@ class JiraIntegration:
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
         cloud_id = self.cloud_id()
-        title = config.pop("title")
-        description = config.pop("description")
-        project_key = config.pop("project_key")
+        title = config.get("title")
+        description = config.get("description")
+        project_key = config.get("project_key")
 
         # Jira uses Atlassian Document Format (ADF) for description
         payload = {
