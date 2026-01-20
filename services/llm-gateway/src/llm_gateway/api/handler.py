@@ -13,6 +13,7 @@ from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
     CONCURRENT_REQUESTS,
+    LLM_TIME_TO_FIRST_TOKEN,
     PROVIDER_ERRORS,
     REQUEST_COUNT,
     REQUEST_LATENCY,
@@ -125,11 +126,19 @@ async def _handle_streaming_request(
         ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).inc()
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
         status_code = "200"
+        provider_start = time.monotonic()
+        first_chunk_received = False
 
         try:
             response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
 
             async for chunk in format_sse_stream(response):
+                if not first_chunk_received:
+                    first_chunk_received = True
+                    time_to_first = time.monotonic() - provider_start
+                    LLM_TIME_TO_FIRST_TOKEN.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
                 yield chunk
 
         except asyncio.CancelledError:
