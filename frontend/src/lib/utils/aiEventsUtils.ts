@@ -6,7 +6,7 @@ import { EventDefinitionType } from '~/types'
 
 import { isDefinitionStale } from './definitions'
 
-export const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'] as const
+export const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
 
 /**
  * Checks if the team has sent any AI events.
@@ -23,7 +23,7 @@ export async function hasRecentAIEvents(): Promise<boolean> {
     })
 
     const validDefinition = aiEventDefinitions.results.find(
-        (r) => AI_EVENT_NAMES.includes(r.name as (typeof AI_EVENT_NAMES)[number]) && !isDefinitionStale(r)
+        (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
     )
 
     if (validDefinition) {
@@ -32,7 +32,9 @@ export async function hasRecentAIEvents(): Promise<boolean> {
 
     // Fallback: query ClickHouse directly for recent events (new users)
     const response = await hogqlQuery(
-        hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 1 DAY LIMIT 1`
+        hogql`SELECT 1 FROM events WHERE event IN ${[...AI_EVENT_NAMES]} AND timestamp > now() - INTERVAL 3 HOUR LIMIT 1`,
+        undefined,
+        'force_blocking'
     )
 
     return (response.results?.length ?? 0) > 0
