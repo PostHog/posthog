@@ -211,7 +211,7 @@ export class KeyStore extends BaseKeyStore {
         }
 
         if (existingItem.Item.session_state?.S === 'deleted') {
-            const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : 0
+            const deletedAt = existingItem.Item.deleted_at?.N ? parseInt(existingItem.Item.deleted_at.N, 10) : undefined
             throw new SessionKeyDeletedError(sessionId, teamId, deletedAt)
         }
 
