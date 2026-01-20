@@ -125,7 +125,7 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
-    inactivity_periods = inputs["inactivity_periods"]
+    inactivity_periods = inputs.get("inactivity_periods")
 
     if inactivity_periods:
         asset.export_context["inactivity_periods"] = inactivity_periods
