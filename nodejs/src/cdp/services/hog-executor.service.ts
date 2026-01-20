@@ -380,6 +380,33 @@ export class HogExecutorService {
                         invocation.state.globals
                     )
                 }
+
+                // Populate full push_subscriptions data from IDs if needed (IDs are stored to avoid bloating cyclotron DB)
+                if (
+                    globals.push_subscriptions &&
+                    globals.push_subscriptions.length > 0 &&
+                    globals.push_subscriptions[0].id &&
+                    !globals.push_subscriptions[0].token
+                ) {
+                    const subscriptionIds = globals.push_subscriptions.map((sub: any) => sub.id)
+                    const subscriptions = await this.pushSubscriptionsManager.getManyById(
+                        invocation.teamId,
+                        subscriptionIds
+                    )
+                    globals.push_subscriptions = subscriptionIds.map((id: string) => {
+                        const sub = subscriptions[id]
+                        if (sub && sub.is_active) {
+                            return {
+                                id: sub.id,
+                                token: sub.token,
+                                platform: sub.platform,
+                                is_active: sub.is_active,
+                                last_successfully_used_at: sub.last_successfully_used_at,
+                            }
+                        }
+                        return { id }
+                    })
+                }
             } catch (e) {
                 addLog('error', `Error building inputs: ${e}`)
 
