@@ -29,7 +29,7 @@ def estimate_cost_from_tokens(
     input_cost_per_token = model_info.get("input_cost_per_token")
     output_cost_per_token = model_info.get("output_cost_per_token")
 
-    if not input_cost_per_token or not output_cost_per_token:
+    if input_cost_per_token is None or output_cost_per_token is None:
         return None
 
     return input_tokens * input_cost_per_token + output_tokens * output_cost_per_token

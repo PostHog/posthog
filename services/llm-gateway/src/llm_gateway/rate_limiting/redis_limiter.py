@@ -255,10 +255,11 @@ class CostRateLimiter:
             script = """
             local current = redis.call('GET', KEYS[1])
             local new_val = tonumber(current or 0) + tonumber(ARGV[1])
-            redis.call('SET', KEYS[1], new_val)
             local ttl = redis.call('TTL', KEYS[1])
             if ttl < 0 then
-                redis.call('EXPIRE', KEYS[1], ARGV[2])
+                redis.call('SET', KEYS[1], new_val, 'EX', ARGV[2])
+            else
+                redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
             end
             return new_val
             """
