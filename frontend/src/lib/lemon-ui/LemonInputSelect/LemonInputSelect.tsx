@@ -431,6 +431,15 @@ export function LemonInputSelect<T = string>({
         popoverFocusRef.current = true
     }
 
+    const _onClick = (): void => {
+        // Open dropdown on click even if input already has focus
+        // This handles the case where user clicked outside to close dropdown but input stayed focused
+        if (!showPopover) {
+            setShowPopover(true)
+            popoverFocusRef.current = true
+        }
+    }
+
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
@@ -907,6 +916,7 @@ export function LemonInputSelect<T = string>({
                 onBlur={_onBlur}
                 value={inputValue}
                 onChange={setInputValue}
+                onClick={_onClick}
                 onKeyDown={_onKeyDown}
                 disabled={disabled}
                 autoFocus={autoFocus}
