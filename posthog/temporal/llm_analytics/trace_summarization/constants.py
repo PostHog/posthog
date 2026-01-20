@@ -61,3 +61,4 @@ ALLOWED_TEAM_IDS: list[int] = [
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"
