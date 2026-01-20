@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -44,6 +45,10 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
     const isBlank = template === 'blank'
 
     const handleClick = (): void => {
+        posthog.capture('llm evaluation template selected', {
+            template_key: isBlank ? 'blank' : template.key,
+        })
+
         if (isBlank) {
             router.actions.push(urls.llmAnalyticsEvaluation('new'))
         } else {
