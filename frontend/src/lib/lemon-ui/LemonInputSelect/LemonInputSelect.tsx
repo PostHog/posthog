@@ -532,15 +532,15 @@ export function LemonInputSelect<T = string>({
         handleDragEnd,
     ])
 
-    const valuesAndEditButtonSuffix = useMemo(() => {
-        // The edit button only applies to single-select mode with custom values allowed, when in no-input state
-        const isEditButtonVisible =
+    const valuesAndClearButtonSuffix = useMemo(() => {
+        // In single-select mode with custom values, show a clear button when a value is selected and not in edit mode
+        const isClearButtonVisible =
             mode !== 'multiple' && allowCustomValues && !disableEditing && values.length && !inputValue
 
         const postInputValues =
             displayMode === 'snacks' && itemBeingEditedIndex !== null ? values.slice(itemBeingEditedIndex) : []
 
-        if (!isEditButtonVisible && postInputValues.length === 0) {
+        if (!isClearButtonVisible && postInputValues.length === 0) {
             return null
         }
 
@@ -556,7 +556,7 @@ export function LemonInputSelect<T = string>({
                     sortable={sortable}
                     onDragEnd={handleDragEnd}
                 />
-                {isEditButtonVisible && (
+                {isClearButtonVisible && (
                     <div
                         className={clsx(
                             'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
@@ -564,13 +564,14 @@ export function LemonInputSelect<T = string>({
                         )}
                     >
                         <LemonButton
-                            icon={<IconPencil />}
-                            onClick={() => {
-                                setInputValue(getStringKey(values[0]))
-                                inputRef.current?.focus()
-                                _onFocus()
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setInputValue('')
+                                onChange?.([])
                             }}
-                            tooltip="Edit current value"
+                            tooltip="Clear selection"
                             noPadding
                         />
                     </div>
@@ -898,7 +899,7 @@ export function LemonInputSelect<T = string>({
                 suffix={
                     <>
                         {countPlaceholder}
-                        {valuesAndEditButtonSuffix}
+                        {valuesAndClearButtonSuffix}
                     </>
                 }
                 onFocus={_onFocus}
