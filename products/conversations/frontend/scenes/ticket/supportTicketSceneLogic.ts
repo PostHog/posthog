@@ -1,14 +1,85 @@
 import { actions, afterMount, beforeUnmount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from '~/lib/api'
-import type { CommentType } from '~/types'
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import type { CommentType, PersonType } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+
+function createEventsQuery(personId: string, sessionId?: string, ticketCreatedAt?: string): DataTableNode {
+    // Show events around ticket creation time (5 min before/after) or last 24h if no timestamp
+    const after = ticketCreatedAt ? new Date(new Date(ticketCreatedAt).getTime() - 5 * 60 * 1000).toISOString() : '-24h'
+    const before = ticketCreatedAt
+        ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
+        : undefined
+
+    return {
+        kind: NodeKind.DataTableNode,
+        full: false,
+        showEventsFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            after,
+            before,
+            // Filter by session_id if available (shows events from the exact session)
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
+        },
+    }
+}
+
+function createExceptionsQuery(sessionId?: string, ticketCreatedAt?: string): DataTableNode {
+    // Show exceptions from the session or around ticket creation time
+    const after = ticketCreatedAt ? new Date(new Date(ticketCreatedAt).getTime() - 5 * 60 * 1000).toISOString() : '-24h'
+    const before = ticketCreatedAt
+        ? new Date(new Date(ticketCreatedAt).getTime() + 5 * 60 * 1000).toISOString()
+        : undefined
+
+    return {
+        kind: NodeKind.DataTableNode,
+        full: false,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            event: '$exception',
+            after,
+            before,
+            // Filter by session_id if available
+            ...(sessionId && {
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$session_id',
+                        value: sessionId,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            }),
+        },
+    }
+}
 
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
@@ -35,7 +106,74 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setStatus: (status: TicketStatus) => ({ status }),
         setPriority: (priority: TicketPriority) => ({ priority }),
         setAssignedTo: (assignedTo: number | string) => ({ assignedTo }),
+
+        // Session context actions
+        loadPerson: true,
+        loadPreviousTickets: true,
     }),
+    loaders(({ values, props }) => ({
+        person: [
+            null as PersonType | null,
+            {
+                loadPerson: async (): Promise<PersonType | null> => {
+                    const ticket = values.ticket
+                    if (!ticket?.distinct_id) {
+                        return null
+                    }
+
+                    try {
+                        // First try to load by distinct_id
+                        const response = await api.persons.list({ distinct_id: ticket.distinct_id })
+                        if (response.results.length > 0) {
+                            return response.results[0]
+                        }
+
+                        // If not found, return null
+                        return null
+                    } catch (error) {
+                        console.error('Failed to load person:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+        previousTickets: [
+            [] as Ticket[],
+            {
+                loadPreviousTickets: async (): Promise<Ticket[]> => {
+                    const person = values.person
+                    const currentTicketId = props.id
+
+                    if (!person?.distinct_ids || person.distinct_ids.length === 0) {
+                        return []
+                    }
+
+                    try {
+                        // Load all tickets for any of this person's distinct_ids (in parallel)
+                        const responses = await Promise.all(
+                            person.distinct_ids.map((distinctId: string) =>
+                                api.conversationsTickets.list({ distinct_id: distinctId })
+                            )
+                        )
+                        const allTickets = responses.flatMap((r) => r.results || [])
+
+                        // Deduplicate by ID and exclude current ticket
+                        const uniqueTickets = Array.from(
+                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
+                        ).filter((ticket) => ticket.id !== currentTicketId)
+
+                        // Sort by created_at descending (most recent first)
+                        return uniqueTickets.sort(
+                            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                        )
+                    } catch (error) {
+                        console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+    })),
     reducers({
         ticket: [
             null as Ticket | null,
@@ -136,6 +274,24 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }),
         ],
+        eventsQuery: [
+            (s) => [s.person, s.ticket],
+            (person: PersonType | null, ticket: Ticket | null): DataTableNode | null => {
+                if (!person?.id) {
+                    return null
+                }
+                return createEventsQuery(person.id, ticket?.session_id, ticket?.created_at)
+            },
+        ],
+        exceptionsQuery: [
+            (s) => [s.ticket],
+            (ticket: Ticket | null): DataTableNode | null => {
+                if (!ticket) {
+                    return null
+                }
+                return createExceptionsQuery(ticket.session_id, ticket.created_at)
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadTicket: async () => {
@@ -148,6 +304,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
+                // Load session context data
+                actions.loadPerson()
+
                 // Clear any existing interval
                 if (cache.pollingInterval) {
                     clearInterval(cache.pollingInterval)
@@ -157,10 +316,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 cache.pollingInterval = setInterval(() => {
                     actions.loadMessages()
                 }, MESSAGE_POLL_INTERVAL)
-            } catch {
+            } catch (error) {
+                console.error('Failed to load ticket:', error)
                 lemonToast.error('Failed to load ticket')
                 actions.setTicketLoading(false)
             }
+        },
+        loadPersonSuccess: async () => {
+            // Load previous tickets after person is loaded
+            actions.loadPreviousTickets()
         },
         updateTicket: async () => {
             if (props.id === 'new') {
