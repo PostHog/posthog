@@ -13,7 +13,7 @@ def get_bin_scripts() -> set[str]:
         return set()
 
     # Exclude these from the manifest check (entry points, config files, etc)
-    excluded = {"hogli", "mprocs.yaml", "mprocs-test.yaml"}
+    excluded = {"hogli", "mprocs.yaml", "mprocs-full.yaml", "mprocs-test.yaml"}
 
     scripts = set()
     for f in bin_dir.iterdir():

@@ -272,8 +272,8 @@ Now start all of PostHog (backend, worker, nodejs services, and frontend – sim
 ```bash
 ./bin/start
 
-# only services strictly required to run posthog
-./bin/start --minimal
+# all services including telemetry (Jaeger, OpenTelemetry)
+./bin/start --full
 
 # if you want to log additionally each process to a /tmp/posthog-<process-name>.log file for AI code editors to be able to grep
 ./bin/start --custom bin/mprocs-with-logging.yaml

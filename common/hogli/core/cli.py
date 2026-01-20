@@ -124,7 +124,7 @@ def quickstart() -> None:
     click.echo("  Opens http://localhost:8010 when ready.")
     click.echo("")
     click.echo("Optional:")
-    click.echo("  hogli start --minimal         fewer services, faster")
+    click.echo("  hogli start --full            all services including telemetry")
     click.echo("  hogli dev:demo-data           generate test data")
     click.echo("  hogli dev:reset               full reset & reload")
     click.echo("")
