@@ -10,8 +10,6 @@ from posthog.models import Action, Cohort, Dashboard, Experiment, FeatureFlag, I
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
-
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.tool import MaxSubtool
 
@@ -65,11 +63,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description"],
         "filters": {"archived": False},
     },
-    "error_tracking_issue": {
-        "klass": ErrorTrackingIssue,
-        "search_fields": {"name": "A", "description": "B"},
-        "extra_fields": ["name", "description"],
-    },
 }
 """
 Map of entity names to their class, search_fields and extra_fields.
@@ -87,7 +80,6 @@ class FTSKind(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     NOTEBOOKS = "notebooks"
     SURVEYS = "surveys"
-    ERROR_TRACKING_ISSUES = "error_tracking_issues"
     ALL = "all"
 
 
@@ -100,7 +92,6 @@ SEARCH_KIND_TO_DATABASE_ENTITY_TYPE: dict[FTSKind, str] = {
     FTSKind.ACTIONS: "action",
     FTSKind.COHORTS: "cohort",
     FTSKind.SURVEYS: "survey",
-    FTSKind.ERROR_TRACKING_ISSUES: "error_tracking_issue",
 }
 
 
@@ -160,8 +151,6 @@ class EntitySearchTool(MaxSubtool):
                 return f"{base_url}/cohorts/{result_id}"
             case "survey":
                 return f"{base_url}/surveys/{result_id}"
-            case "error_tracking_issue":
-                return f"{base_url}/error_tracking/{result_id}"
             case _:
                 raise ValueError(f"Unknown entity type: {entity_type}")
 

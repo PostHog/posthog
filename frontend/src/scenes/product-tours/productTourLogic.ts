@@ -87,6 +87,7 @@ export interface ProductTourLogicProps {
 
 export enum ProductTourEditTab {
     Configuration = 'configuration',
+    Steps = 'steps',
     Customization = 'customization',
 }
 
@@ -282,7 +283,6 @@ export const productTourLogic = kea<productTourLogicType>([
                 if (props.id && props.id !== 'new') {
                     await api.productTours.update(props.id, payload)
                     lemonToast.success('Product tour updated')
-                    actions.editingProductTour(false)
                     actions.loadProductTour()
                     actions.loadProductTours()
                 }
@@ -317,6 +317,12 @@ export const productTourLogic = kea<productTourLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        submitProductTourFormSuccess: () => {
+            // don't navigate away if we're on steps page, it's a weird UX
+            if (values.editTab !== ProductTourEditTab.Steps) {
+                actions.editingProductTour(false)
+            }
+        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {
@@ -431,19 +437,22 @@ export const productTourLogic = kea<productTourLogicType>([
     })),
     actionToUrl(({ values }) => ({
         editingProductTour: ({ editing }) => {
-            const searchParams = router.values.searchParams
+            const searchParams = { ...router.values.searchParams }
             if (editing) {
-                searchParams['edit'] = true
+                searchParams['edit'] = 'true'
             } else {
                 delete searchParams['edit']
+                delete searchParams['tab']
             }
             return [router.values.location.pathname, searchParams, router.values.hashParams]
         },
         setEditTab: () => {
+            // Replace history instead of pushing for tab changes
             return [
                 router.values.location.pathname,
                 { ...router.values.searchParams, tab: values.editTab },
                 router.values.hashParams,
+                { replace: true },
             ]
         },
     })),

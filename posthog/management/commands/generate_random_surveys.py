@@ -92,7 +92,8 @@ FEATURES = [
 ]
 
 # Sample responses for generating realistic survey response data
-OPEN_RESPONSES = {
+# Short responses (1-2 sentences)
+OPEN_RESPONSES_SHORT = {
     "feedback": [
         "Love the new dashboard! The analytics are much clearer now.",
         "The interface could be more intuitive. Sometimes I get lost in the navigation.",
@@ -139,7 +140,61 @@ OPEN_RESPONSES = {
         "Love the clean, modern interface",
         "Sometimes slow but generally reliable",
     ],
+    "open_choice": [
+        "Custom workflow automation",
+        "Integration with Slack",
+        "Better mobile experience",
+        "Real-time notifications",
+        "Advanced filtering options",
+        "Custom reporting templates",
+        "API access for our use case",
+        "Team permissions management",
+        "White-label options",
+        "Offline mode support",
+        "Data export in different formats",
+        "Custom branding options",
+        "SSO integration",
+        "Webhook support",
+        "Audit logging",
+    ],
 }
+
+# Long responses (3-6 sentences) for more detailed feedback
+OPEN_RESPONSES_LONG = {
+    "feedback": [
+        "I've been using your product for about six months now and I have to say it's completely transformed how our team approaches analytics. The dashboard customization options are fantastic and the real-time updates make it easy to stay on top of our key metrics. My only complaint would be that the initial setup took a bit longer than expected, but once everything was configured, it's been smooth sailing. Would definitely recommend to other teams looking for a comprehensive solution.",
+        "The product has great potential but there are some serious UX issues that need addressing. First, the navigation is confusing - I often find myself clicking through multiple menus just to find a feature I use daily. Second, the loading times on larger datasets are frustrating and have caused me to lose work when the page times out. Finally, the mobile experience feels like an afterthought. I really want this product to succeed because when it works, it's excellent, but these issues need attention.",
+        "We switched from a competitor about three months ago and the difference is night and day. The reporting capabilities are far more advanced and the ability to create custom metrics has been invaluable for our specific use case. Our data team has cut their report generation time by nearly half. The customer success team was also incredibly helpful during our migration - they even hopped on a call to walk us through some of the more complex configurations. Definitely worth the investment.",
+        "Overall I'm satisfied with the product but I think there's room for growth in several areas. The core functionality is solid and reliable, which is the most important thing. However, I'd love to see more templates and pre-built configurations for common use cases. Additionally, the learning curve for new team members is steeper than it needs to be - better onboarding materials would help a lot. The pricing is fair for what you get, though the jump between tiers feels a bit steep.",
+        "This has become an essential tool for our daily operations. What I appreciate most is how it brings together data from multiple sources into a single unified view - no more switching between different tools and trying to manually correlate information. The API is also well-documented and our developers were able to build custom integrations without much trouble. One area for improvement would be the export functionality - more format options would be helpful for sharing reports with stakeholders who don't have access to the platform.",
+        "I want to provide some detailed feedback after using the platform extensively for our Q4 planning. The collaboration features are excellent - being able to share dashboards and insights with specific team members has improved our alignment significantly. The annotation feature is particularly useful for marking important events and explaining data anomalies to stakeholders. However, we've noticed some performance degradation when working with very large date ranges, and the undo functionality is limited. These are minor issues in the grand scheme of things.",
+        "As someone who has evaluated dozens of analytics tools over the years, I can confidently say this is one of the better options on the market. The balance between ease of use and powerful features is well-calibrated. New users can get value immediately while power users have access to advanced functionality when needed. The documentation is comprehensive and the community forums are active and helpful. My main suggestion would be to add more video tutorials - some people learn better that way than from written documentation.",
+    ],
+    "improvement": [
+        "The biggest improvement I'd like to see is better bulk editing capabilities. Currently, when I need to update multiple items, I have to do it one by one which is incredibly time-consuming. A multi-select feature with batch actions would save me hours every week. I've seen this in competitor products and it's a game-changer for efficiency. Even just being able to export, edit in a spreadsheet, and re-import would be helpful.",
+        "I think the notification system needs a complete overhaul. Right now I get too many notifications for things I don't care about and not enough for things that actually matter. What I'd really like is the ability to set up custom notification rules based on specific conditions and thresholds. For example, I want to be notified immediately when a key metric drops below a certain value, but I only need a daily digest for routine updates. Granular control here would be very valuable.",
+        "Please invest more in the mobile app. I frequently need to check on metrics while away from my desk and the current mobile experience is frustrating. The app is slow to load, the charts don't render well on smaller screens, and some features are simply missing. I understand that not everything can be mobile-friendly, but the core viewing and monitoring functionality should work seamlessly. This is becoming a blocker for me when evaluating whether to renew our subscription.",
+        "The integration ecosystem needs expansion. We use several tools that don't have native integrations, which means we have to build custom solutions using the API. While the API is good, having native integrations would save us development time and ensure more reliable data syncing. Specifically, I'd love to see integrations with Notion for documentation, Linear for issue tracking, and Figma for design handoffs. These are tools that many teams use together.",
+        "I'd like to see more advanced filtering and segmentation options. The current filters are basic and don't allow for complex logical conditions. For instance, I want to filter by users who did action A but not action B within a specific time window - this kind of behavioral segmentation is essential for our analysis but currently requires workarounds or custom queries. Having this built into the UI would make the product much more powerful for our use case.",
+    ],
+    "experience": [
+        "My overall experience has been positive but with some notable friction points along the way. The initial setup was more complex than anticipated - what was promised as a 30-minute setup took our team nearly half a day to complete properly. However, once we got over that hurdle, the day-to-day experience has been smooth. The interface is clean and responsive, and I particularly appreciate the keyboard shortcuts for power users. The recent performance improvements have also been noticeable. We're now processing queries that used to time out without any issues.",
+        "I've had a mixed experience that I want to share honestly. The product's strengths are clear - the analytics capabilities are impressive and the visualizations are beautiful. Our executives love the dashboards we've created. However, we've encountered several bugs over the past few months that impacted our workflows. To the team's credit, support has been responsive and most issues were resolved within a day or two. I just wish the QA process caught these issues before they reached production.",
+        "Using this product has been a journey of discovery. Every week I seem to find a new feature or capability that I didn't know existed. The depth of functionality is impressive, though it does mean there's a significant learning curve. What's helped is the excellent documentation and the active user community - whenever I'm stuck, I can usually find an answer in the forums or help docs. The team also releases helpful update notes that highlight new features, which is appreciated.",
+        "After a year of use, I can say the experience has exceeded our initial expectations. We started with basic analytics needs but have gradually expanded our usage as we discovered more capabilities. The product has scaled well with our growth - we're now processing significantly more data than when we started, and performance has remained consistent. The team has also been receptive to feedback - several features we requested have actually been implemented, which shows they listen to their users.",
+        "The experience has been transformative for how our team makes decisions. Before adopting this tool, we relied heavily on intuition and incomplete data. Now we have a single source of truth that everyone can access and understand. The democratization of data across our organization has led to better-informed discussions and more evidence-based strategy. There's still room for improvement in terms of onboarding new team members, but overall I'm very satisfied with what we've been able to accomplish.",
+    ],
+    "open_choice": [
+        "A proper workflow automation system where I can set up triggers and actions. For example, automatically sending a Slack notification when a metric exceeds a threshold, or automatically generating a weekly report and emailing it to stakeholders. Right now I have to either do these things manually or build custom integrations. Native automation would be a huge time-saver and would help ensure important events don't get missed.",
+        "Advanced cohort analysis with the ability to track cohorts over time and compare their behaviors. I want to see how users who signed up in January behave differently from those who signed up in March, not just at a point in time but over their entire lifecycle. This longitudinal view is crucial for understanding retention and user development, but currently requires significant manual effort to achieve.",
+        "A commenting and discussion feature directly on charts and dashboards. When I share insights with my team, I want to be able to have conversations in context rather than having to jump to Slack or email. Think of it like Google Docs comments but for analytics. This would make collaboration much more efficient and would help preserve the context of discussions for future reference.",
+        "Better support for experimentation and A/B testing analysis. I want to be able to easily set up experiments, track results with statistical significance calculations, and get clear recommendations on when tests have reached conclusive results. Currently we have to use a separate tool for experiments and then try to correlate the data, which is cumbersome and error-prone.",
+        "A comprehensive audit log that tracks all changes made to dashboards, metrics, and configurations. This is important for compliance reasons but also just for understanding who changed what and when. When something breaks or looks different than expected, I need to be able to trace back the history and understand what happened. This kind of accountability and transparency is essential for any team tool.",
+    ],
+}
+
+# Backward compatibility: keep OPEN_RESPONSES pointing to short responses
+OPEN_RESPONSES = OPEN_RESPONSES_SHORT
 
 
 class PersonData:
@@ -185,13 +240,19 @@ class Command(BaseCommand):
         return persons_data
 
     def add_arguments(self, parser):
-        parser.add_argument("count", type=int, help="Number of surveys to generate")
+        parser.add_argument(
+            "count",
+            type=int,
+            nargs="?",
+            default=1,
+            help="Number of surveys to generate (default: 1)",
+        )
         parser.add_argument("--team-id", type=int, help="Team ID to create surveys for")
         parser.add_argument(
             "--responses",
             type=int,
-            default=0,
-            help="Number of responses to generate per survey (default: 0, no responses)",
+            default=50,
+            help="Number of responses to generate per survey (default: 50)",
         )
         parser.add_argument(
             "--days-back",
@@ -199,6 +260,82 @@ class Command(BaseCommand):
             default=30,
             help="Generate responses over the last N days (default: 30)",
         )
+
+    def generate_question_of_type(
+        self, question_type: QuestionType, choice_type: Literal["single_choice", "multiple_choice"] | None = None
+    ) -> dict[str, Any]:
+        """Generate a question of a specific type."""
+        feature = random.choice(FEATURES)
+
+        if question_type == "open":
+            open_templates: list[str] = QUESTION_TEMPLATES["open"]
+            open_template = random.choice(open_templates)
+            question_text = open_template.format(feature=feature)
+            return {
+                "type": "open",
+                "question": question_text,
+                "description": f"Help us improve {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+            }
+
+        elif question_type == "rating":
+            rating_templates: list[str] = QUESTION_TEMPLATES["rating"]
+            rating_template = random.choice(rating_templates)
+            question_text = rating_template.format(feature=feature)
+            return {
+                "type": "rating",
+                "question": question_text,
+                "description": f"Rate your experience with {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+                "display": random.choice(["number", "emoji"]),
+                "scale": random.choice([5, 7, 10]),
+                "lowerBoundLabel": "Not at all",
+                "upperBoundLabel": "Extremely",
+            }
+
+        elif question_type == "multiple_choice":
+            mc_templates: list[MultipleChoiceTemplate] = QUESTION_TEMPLATES["multiple_choice"]
+            mc_template = random.choice(mc_templates)
+            question_text = mc_template["question"].format(feature=feature)
+            actual_type = choice_type if choice_type else random.choice(["single_choice", "multiple_choice"])
+            return {
+                "type": actual_type,
+                "question": question_text,
+                "description": f"Select all that apply for {feature}",
+                "descriptionContentType": "text",
+                "optional": random.choice([True, False]),
+                "buttonText": random.choice(["Submit", "Next", "Continue"]),
+                "choices": mc_template["choices"],
+                "shuffleOptions": random.choice([True, False]),
+                "hasOpenChoice": True,  # Always include open-ended option for actionable surveys
+            }
+
+        else:  # link
+            link_templates: list[LinkTemplate] = QUESTION_TEMPLATES["link"]
+            link_template = random.choice(link_templates)
+            question_text = link_template["question"].format(feature=feature)
+            return {
+                "type": "link",
+                "question": question_text,
+                "description": f"Learn more about {feature}",
+                "descriptionContentType": "text",
+                "optional": True,
+                "buttonText": "Check it out",
+                "link": link_template["link"],
+            }
+
+    def generate_required_questions(self) -> list[dict[str, Any]]:
+        """Generate one question of each actionable type."""
+        return [
+            self.generate_question_of_type("open"),
+            self.generate_question_of_type("rating"),
+            self.generate_question_of_type("multiple_choice", choice_type="single_choice"),
+            self.generate_question_of_type("multiple_choice", choice_type="multiple_choice"),
+        ]
 
     def generate_random_question(self) -> dict[str, Any]:
         question_type: QuestionType = random.choice(["open", "rating", "multiple_choice", "link"])
@@ -273,8 +410,10 @@ class Command(BaseCommand):
             }
 
     def generate_random_survey(self, team_id: int, user_id: int) -> dict[str, Any]:
-        num_questions = random.randint(1, 5)
-        questions = [self.generate_random_question() for _ in range(num_questions)]
+        # Always include the 4 required actionable question types
+        questions = self.generate_required_questions()
+        # Shuffle to vary the order
+        random.shuffle(questions)
 
         # Generate a name based on the questions
         question_types = [q["type"] for q in questions]
@@ -337,11 +476,15 @@ class Command(BaseCommand):
         question_text = question.get("question", "").lower()
 
         if question_type == "open":
+            # 35% chance of a long response, 65% chance of a short response
+            use_long = random.random() < 0.35
+            responses = OPEN_RESPONSES_LONG if use_long else OPEN_RESPONSES_SHORT
+
             if "improve" in question_text or "better" in question_text:
-                return random.choice(OPEN_RESPONSES["improvement"])
+                return random.choice(responses["improvement"])
             elif "experience" in question_text or "feel" in question_text:
-                return random.choice(OPEN_RESPONSES["experience"])
-            return random.choice(OPEN_RESPONSES["feedback"])
+                return random.choice(responses["experience"])
+            return random.choice(responses["feedback"])
 
         elif question_type == "rating":
             scale = question.get("scale", 5)
@@ -359,7 +502,13 @@ class Command(BaseCommand):
 
         elif question_type == "single_choice":
             choices = question.get("choices", [])
+            has_open_choice = question.get("hasOpenChoice", False)
             if choices:
+                # 20% chance of using open-ended response if available
+                if has_open_choice and random.random() < 0.2:
+                    # 35% chance of a long open choice response
+                    responses = OPEN_RESPONSES_LONG if random.random() < 0.35 else OPEN_RESPONSES_SHORT
+                    return random.choice(responses["open_choice"])
                 # Weight first choice higher (common pattern)
                 if random.random() < 0.4:
                     return choices[0]
@@ -368,7 +517,16 @@ class Command(BaseCommand):
 
         elif question_type == "multiple_choice":
             choices = question.get("choices", [])
+            has_open_choice = question.get("hasOpenChoice", False)
             if choices:
+                # 25% chance of including an open-ended response if available
+                if has_open_choice and random.random() < 0.25:
+                    num_selections = random.randint(1, min(2, len(choices)))
+                    selected = random.sample(choices, num_selections)
+                    # 35% chance of a long open choice response
+                    responses = OPEN_RESPONSES_LONG if random.random() < 0.35 else OPEN_RESPONSES_SHORT
+                    selected.append(random.choice(responses["open_choice"]))
+                    return selected
                 num_selections = random.randint(1, min(3, len(choices)))
                 return random.sample(choices, num_selections)
             return None

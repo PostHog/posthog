@@ -40,8 +40,8 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
 from posthog.models import DataWarehouseTable
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -279,6 +279,7 @@ async def _run(
         assert table is not None
         assert table.size_in_s3_mib is not None
         assert table.queryable_folder is not None
+        assert table.credential_id is None
 
         query_folder_pattern = re.compile(r"^.+?\_\_query\_\d+$")
         assert query_folder_pattern.match(table.queryable_folder)

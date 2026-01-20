@@ -11,6 +11,7 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -101,6 +102,7 @@ class RunsCursorPagination(CursorPagination):
     page_size = 100
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExportRun.objects.all()
@@ -684,6 +686,7 @@ def recursive_dict_merge(
     return merged
 
 
+@extend_schema(tags=["batch_exports"])
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
     queryset = BatchExport.objects.exclude(deleted=True).order_by("-created_at").prefetch_related("destination").all()

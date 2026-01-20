@@ -64,6 +64,7 @@ import {
     formatLLMUsage,
     getEventType,
     getSessionID,
+    getSessionStartTimestamp,
     getTraceTimestamp,
     isLLMEvent,
     removeMilliseconds,
@@ -85,9 +86,18 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 }
 
 function TraceSceneWrapper(): JSX.Element {
-    const { eventId, searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, eventMetadata } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const { searchQuery, commentCount } = useValues(llmAnalyticsTraceLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        eventMetadata,
+        effectiveEventId,
+    } = useValues(llmAnalyticsTraceDataLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -139,7 +149,7 @@ function TraceSceneWrapper(): JSX.Element {
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
-                            eventId={eventId}
+                            eventId={effectiveEventId}
                             tree={enrichedTree}
                             showBillingInfo={showBillingInfo}
                         />
@@ -210,7 +220,7 @@ function TraceMetadata({
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
         ) {
-            return urls.llmAnalyticsSession(sessionId)
+            return urls.llmAnalyticsSession(sessionId, { timestamp: getSessionStartTimestamp(trace.createdAt) })
         }
         // Fallback to filtering traces by session when feature flag is off
         const filter = [
@@ -685,6 +695,9 @@ const EventContent = React.memo(
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
+        // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
+        const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
+
         // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
@@ -816,9 +829,22 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {displayOption === DisplayOption.TextView &&
-                                            (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
-                                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
+                                            {isTopLevelTraceWithoutContent ? (
+                                                <InsightEmptyState
+                                                    heading="No top-level trace event"
+                                                    detail={
+                                                        <>
+                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
+                                                            event.
+                                                            <br />
+                                                            Click on individual generations in the tree to view their
+                                                            content.
+                                                        </>
+                                                    }
+                                                />
+                                            ) : displayOption === DisplayOption.TextView &&
+                                              (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+                                                  featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||

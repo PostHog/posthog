@@ -688,4 +688,251 @@ describe('hog flow processing', () => {
             )
         })
     })
+
+    describe('quota limiting for hog flows', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                    },
+                } as any,
+            })
+        })
+
+        it('should not process workflows with email actions when team has email quota limit', async () => {
+            // Mock quota limiting for email
+            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+                .fn()
+                .mockImplementation((_teamId, resource) => {
+                    return resource === 'workflow_emails'
+                })
+
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            sendEmail: {
+                                type: 'function_email',
+                                config: {} as any,
+                            },
+                            sendWebhook: {
+                                type: 'function',
+                                config: {} as any,
+                            },
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'sendEmail', type: 'continue' },
+                            { from: 'sendEmail', to: 'sendWebhook', type: 'continue' },
+                            { from: 'sendWebhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+
+            // Should have no invocations returned due to quota limiting
+            expect(invocations).toHaveLength(0)
+
+            // Should have checked quota limits
+            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+                team.id,
+                'workflow_emails'
+            )
+            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+                team.id,
+                'workflow_destinations_dispatched'
+            )
+
+            // Flush metrics so we can assert them down below
+            await processor['hogFunctionMonitoringService'].flush()
+
+            // Should have queued a quota limited metric
+            const producedMetrics =
+                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(producedMetrics).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        value: expect.objectContaining({
+                            app_source: 'hog_flow',
+                            app_source_id: hogFlow.id,
+                            metric_kind: 'failure',
+                            metric_name: 'quota_limited',
+                        }),
+                    }),
+                ])
+            )
+        })
+
+        it('should not process workflows with destination actions when team has destination quota limit', async () => {
+            // Mock quota limiting for destinations
+            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest
+                .fn()
+                .mockImplementation((_teamId, resource) => {
+                    return resource === 'workflow_destinations_dispatched'
+                })
+
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            delay: {
+                                type: 'delay',
+                                config: {} as any,
+                            },
+                            sendWebhook: {
+                                type: 'function',
+                                config: {} as any,
+                            },
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'sendWebhook', type: 'continue' },
+                            { from: 'sendWebhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+
+            expect(invocations).toHaveLength(0)
+            expect((processor as any).hub.quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
+                team.id,
+                'workflow_destinations_dispatched'
+            )
+        })
+
+        it('should process workflows without limited action types even when quotas exist', async () => {
+            // Mock quota limiting for both
+            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(true)
+
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            delay: {
+                                type: 'delay',
+                                config: {} as any,
+                            },
+                            branch: {
+                                type: 'conditional_branch',
+                                config: {} as any,
+                            },
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'delay', type: 'continue' },
+                            { from: 'delay', to: 'branch', type: 'continue' },
+                            { from: 'branch', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+
+            // Should process the workflow since it doesn't have email or destination actions
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0]).toMatchObject({
+                functionId: hogFlow.id,
+                hogFlow: {
+                    id: hogFlow.id,
+                },
+            })
+        })
+
+        it('should process workflows when team has no quota limits', async () => {
+            // No quota limits
+            ;(processor as any).hub.quotaLimiting.isTeamQuotaLimited = jest.fn().mockResolvedValue(false)
+
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: {
+                                    type: 'event',
+                                    filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                                },
+                            },
+                            sendEmail: {
+                                type: 'function_email',
+                                config: {} as any,
+                            },
+                            sendWebhook: {
+                                type: 'function',
+                                config: {} as any,
+                            },
+                            exit: {
+                                type: 'exit',
+                                config: {},
+                            },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'sendEmail', type: 'continue' },
+                            { from: 'sendEmail', to: 'sendWebhook', type: 'continue' },
+                            { from: 'sendWebhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0]).toMatchObject({
+                functionId: hogFlow.id,
+                hogFlow: {
+                    id: hogFlow.id,
+                },
+            })
+        })
+    })
 })

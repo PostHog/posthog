@@ -1,14 +1,21 @@
+import { useValues } from 'kea'
+
 import { ResponseSummariesDisplay } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
+import { OpenQuestionSummaryV2 } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummaryV2'
 import { ResponseCard, ScrollToSurveyResultsCard } from 'scenes/surveys/components/question-visualizations/ResponseCard'
+import { VirtualizedResponseList } from 'scenes/surveys/components/question-visualizations/VirtualizedResponseList'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { BasicSurveyQuestion, OpenQuestionResponseData } from '~/types'
 
 interface Props {
     question: BasicSurveyQuestion
+    questionIndex: number
     responseData: OpenQuestionResponseData[]
+    totalResponses: number
 }
 
-export function OpenQuestionViz({ question, responseData }: Props): JSX.Element | null {
+function OpenQuestionVizV1({ question, responseData }: Omit<Props, 'questionIndex' | 'totalResponses'>): JSX.Element {
     return (
         <div className="space-y-4">
             <ResponseSummariesDisplay />
@@ -26,4 +33,34 @@ export function OpenQuestionViz({ question, responseData }: Props): JSX.Element 
             </div>
         </div>
     )
+}
+
+function OpenQuestionVizV2({ question, questionIndex, responseData, totalResponses }: Props): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <OpenQuestionSummaryV2
+                questionId={question.id}
+                questionIndex={questionIndex}
+                totalResponses={totalResponses}
+            />
+            <VirtualizedResponseList responses={responseData} />
+        </div>
+    )
+}
+
+export function OpenQuestionViz({ question, questionIndex, responseData, totalResponses }: Props): JSX.Element | null {
+    const { isSurveyResultsV2Enabled } = useValues(surveyLogic)
+
+    if (isSurveyResultsV2Enabled) {
+        return (
+            <OpenQuestionVizV2
+                question={question}
+                questionIndex={questionIndex}
+                responseData={responseData}
+                totalResponses={totalResponses}
+            />
+        )
+    }
+
+    return <OpenQuestionVizV1 question={question} responseData={responseData} />
 }

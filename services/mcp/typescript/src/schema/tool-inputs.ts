@@ -4,6 +4,7 @@ import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
     ListDashboardsSchema,
+    ReorderDashboardTilesSchema,
     UpdateDashboardInputSchema,
 } from './dashboards'
 import { ErrorDetailsSchema, ListErrorsSchema } from './errors'
@@ -43,6 +44,8 @@ export const DashboardUpdateSchema = z.object({
     dashboardId: z.number(),
     data: UpdateDashboardInputSchema,
 })
+
+export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),

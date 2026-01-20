@@ -456,7 +456,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
 
-        if passphrase is not None and "Incorrect password?" in str(e):
+        if passphrase is not None and "Incorrect password" in str(e):
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"

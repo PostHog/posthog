@@ -38,6 +38,7 @@ import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonProperties'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
+import { NotebookNodePython } from '../Nodes/NotebookNodePython'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
@@ -118,6 +119,7 @@ export function Editor(): JSX.Element {
         NotebookNodeLatex,
         NotebookNodeBacklink,
         NotebookNodeQuery,
+        NotebookNodePython,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,

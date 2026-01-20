@@ -2,6 +2,8 @@ import json
 import base64
 import datetime as dt
 
+from django.core.cache import cache
+
 from pydantic import ValidationError
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -15,11 +17,14 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
+
+__all__ = ["LogsViewSet", "LogExplainViewSet"]
 
 
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -210,6 +215,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=query_data.get("filterGroup", None),
+            sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
@@ -328,6 +334,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def has_logs(self, request: Request, *args, **kwargs) -> Response:
+        cache_key = f"team:{self.team.id}:has_logs"
+        cached = cache.get(cache_key)
+        if cached is True:
+            return Response({"hasLogs": True}, status=status.HTTP_200_OK)
+
         runner = HasLogsQueryRunner(self.team)
         has_logs = runner.run()
+
+        # Only cache positive results (once you have logs, you always have logs)
+        if has_logs:
+            cache.set(cache_key, True, int(dt.timedelta(days=7).total_seconds()))
+
         return Response({"hasLogs": has_logs}, status=status.HTTP_200_OK)

@@ -98,7 +98,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'flex flex-col relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
                     {
                         'lg:rounded-tl-lg': !firstTabIsActive,
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':

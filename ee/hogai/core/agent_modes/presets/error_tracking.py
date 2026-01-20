@@ -23,12 +23,35 @@ The assistant used the search tool because:
 3. This is a straightforward search that doesn't require multiple steps
 """.strip()
 
+POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN = """
+User: What's causing our most frequent error?
+Assistant: I'll search for the most frequent error and then explain what's causing it.
+*Creates todo list with the following items:*
+1. Search for the most frequent error tracking issue
+2. Read the issue's stack trace data
+3. Analyze and explain the root cause
+*Uses search_error_tracking_issues with orderBy: "occurrences" and limit: 1*
+After getting the issue, the assistant uses read_data with kind: "error_tracking_issue" and the issue_id to get the stack trace, then analyzes and explains it.
+""".strip()
+
+POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING = """
+The assistant used the todo list because:
+1. The user wants to understand the root cause, not just see a list
+2. This requires multiple steps: first find the issue, then read its stack trace, then analyze it
+3. The read_data tool with error_tracking_issue kind retrieves the stack trace for analysis
+4. Breaking this into steps ensures the assistant gets all necessary data before explaining
+""".strip()
+
 
 class ErrorTrackingAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_SEARCH_ERRORS,
             reasoning=POSITIVE_EXAMPLE_SEARCH_ERRORS_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN,
+            reasoning=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING,
         ),
     ]
 
@@ -42,6 +65,6 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria.",
+    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause.",
     toolkit_class=ErrorTrackingAgentToolkit,
 )

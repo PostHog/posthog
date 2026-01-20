@@ -627,6 +627,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     )}
                                                                     className="mt-2"
                                                                     flagId={featureFlag.id}
+                                                                    context="form"
                                                                 />
                                                             )}
                                                         </LemonField>
@@ -717,7 +718,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <FeatureFlagEvaluationTags
                                                 tags={featureFlag.tags}
                                                 evaluationTags={featureFlag.evaluation_tags || []}
-                                                onChange={(updatedTags, updatedEvaluationTags) => {
+                                                onSave={(updatedTags, updatedEvaluationTags) => {
                                                     const updatedFlag = {
                                                         ...featureFlag,
                                                         tags: updatedTags,
@@ -730,6 +731,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     (tag: string) => !featureFlag.tags?.includes(tag)
                                                 )}
                                                 flagId={featureFlag.id}
+                                                context="sidebar"
                                             />
                                         ) : (
                                             <SceneTags
@@ -1308,8 +1310,8 @@ function FeatureFlagRollout({
                                                         <FeatureFlagEvaluationTags
                                                             tags={featureFlag.tags}
                                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                                            staticOnly
                                                             flagId={featureFlag.id}
+                                                            context="static"
                                                         />
                                                     ) : (
                                                         <ObjectTags tags={featureFlag.tags} staticOnly />
@@ -1695,8 +1697,8 @@ function FeatureFlagRollout({
                                         <FeatureFlagEvaluationTags
                                             tags={featureFlag.tags}
                                             evaluationTags={featureFlag.evaluation_tags || []}
-                                            staticOnly
                                             flagId={featureFlag.id}
+                                            context="static"
                                         />
                                     ) : (
                                         <ObjectTags tags={featureFlag.tags} staticOnly />

@@ -54,11 +54,13 @@ import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriend
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
+import { LinearIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import {
     NetworkCaptureSettings,
     ReplayAuthorizedDomains,
@@ -101,7 +103,7 @@ import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
-import { ChangePassword } from './user/ChangePassword'
+import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
@@ -445,6 +447,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 component: <ReplayDataRetentionSettings />,
             },
+            {
+                id: 'replay-integrations',
+                title: 'Integrations',
+                component: <ReplayIntegrations />,
+                flag: 'REPLAY_LINEAR_INTEGRATION',
+            },
         ],
     },
     {
@@ -577,9 +585,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GithubIntegration />,
             },
             {
+                id: 'integration-linear',
+                title: 'Linear integration',
+                component: <LinearIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <IntegrationsList omitKinds={['slack', 'github']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
             },
             {
                 id: 'integration-ip-allowlist',
@@ -873,7 +886,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'change-password',
-                title: 'Change password',
+                title: <ChangePasswordTitle />,
                 component: <ChangePassword />,
             },
             {

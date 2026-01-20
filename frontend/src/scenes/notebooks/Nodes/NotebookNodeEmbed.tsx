@@ -129,7 +129,6 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
     titlePlaceholder: 'Embed',
     Component,
     Settings,
-    settingsIcon: 'gear',
     serializedText: (attrs) => `(embedded iframe:${attrs.src})`,
     heightEstimate: 400,
     minHeight: 100,

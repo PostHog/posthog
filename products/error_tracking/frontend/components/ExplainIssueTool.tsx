@@ -1,45 +1,23 @@
-import { IconList } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 
-import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { SidePanelTab } from '~/types'
 
-import {
-    ErrorTrackingExplainIssueToolContext,
-    ErrorTrackingRelationalIssue,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+export interface UseErrorTrackingExplainIssueReturn {
+    isMaxOpen: boolean
+    openMax: () => void
+}
 
-import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
+/**
+ * Hook to open Max AI side panel with a prompt to explain an error tracking issue.
+ * The issue context is automatically provided via the maxContext selector in errorTrackingIssueSceneLogic.
+ */
+export function useErrorTrackingExplainIssue(): UseErrorTrackingExplainIssueReturn {
+    const { openSidePanel } = useActions(sidePanelLogic)
+    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id'],
-    issueName: ErrorTrackingRelationalIssue['name']
-): ReturnType<typeof useMaxTool> {
-    const { ready, stacktraceText } = useStacktraceDisplay()
-
-    const context: ErrorTrackingExplainIssueToolContext = {
-        stacktrace: stacktraceText,
-        issue_name: issueName ?? issueId,
+    return {
+        isMaxOpen: sidePanelOpen && selectedTab === SidePanelTab.Max,
+        openMax: () => openSidePanel(SidePanelTab.Max, 'Explain this issue to me'),
     }
-
-    const maxToolResult = useMaxTool({
-        identifier: 'error_tracking_explain_issue',
-        context,
-        contextDescription: {
-            text: 'Issue stacktrace',
-            icon: <IconList />,
-        },
-        active: ready,
-        initialMaxPrompt: `Explain this issue to me`,
-        callback() {
-            addProductIntent({
-                product_type: ProductKey.ERROR_TRACKING,
-                intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_EXPLAINED,
-                metadata: { issue_id: issueId },
-            })
-        },
-    })
-
-    return maxToolResult
 }

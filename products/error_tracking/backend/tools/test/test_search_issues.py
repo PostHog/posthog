@@ -18,6 +18,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssue as ErrorTrackingIssueSchema,
     ErrorTrackingQuery,
+    OrderBy1,
 )
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
@@ -133,7 +134,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         date_to=None,
         status=None,
         search_query=None,
-        order_by="last_seen",
+        order_by=OrderBy1.LAST_SEEN,
         limit=25,
     ) -> ErrorTrackingQuery:
         return ErrorTrackingQuery(
@@ -214,7 +215,6 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Found 1 issue", result_text)
         self.assertIn("TypeError", result_text)
         self.assertIsNone(artifact)
-        # Verify search query was passed
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["searchQuery"], "TypeError")
@@ -249,7 +249,6 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("Found 2 issues", result_text)
         self.assertIsNone(artifact)
-        # Verify limit was passed to the query
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["limit"], 2)
@@ -272,18 +271,16 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        # Should cap at 100, but since we only have 3 issues, should return 3
         self.assertIn("Found 3 issues", result_text)
         self.assertIsNone(artifact)
 
     async def test_defaults_to_25_when_no_limit(self):
         tool = await self._create_tool()
         query = self._create_query(status="all")
-        query.limit = None  # Explicitly set to None
+        query.limit = None
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        # Should default to 25, but since we only have 3 issues, should return 3
         self.assertIn("Found 3 issues", result_text)
         self.assertIsNone(artifact)
 
@@ -306,7 +303,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
         issue = ErrorTrackingIssueSchema.model_validate(
             {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
                 "name": "TypeError: Cannot read 'undefined'",
                 "status": "active",
                 "first_seen": "2025-01-10T10:00:00Z",
@@ -323,6 +320,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         result = tool._format_issue(1, issue)
 
         self.assertIn("1. TypeError: Cannot read 'undefined'", result)
+        self.assertIn("ID: 01234567-89ab-cdef-0123-456789abcdef", result)
         self.assertIn("Status: active", result)
         self.assertIn("Occurrences: 150", result)
         self.assertIn("Users: 25", result)
@@ -334,7 +332,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
         issue = ErrorTrackingIssueSchema.model_validate(
             {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                "id": "abcd1234-5678-90ab-cdef-1234567890ab",
                 "status": "active",
                 "first_seen": "2025-01-10T10:00:00Z",
                 "last_seen": "2025-01-15T11:00:00Z",
@@ -344,6 +342,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         result = tool._format_issue(1, issue)
 
         self.assertIn("1. Unnamed issue", result)
+        self.assertIn("ID: abcd1234-5678-90ab-cdef-1234567890ab", result)
         self.assertIn("Status: active", result)
 
     async def test_format_results_empty(self):

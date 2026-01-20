@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -144,9 +144,11 @@ These permissions are automatically pre-filled in the API key creation form if y
             for endpoint in STRIPE_ENDPOINTS
         ]
 
-    def validate_credentials(self, config: StripeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: StripeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         try:
-            if validate_stripe_credentials(config.stripe_secret_key):
+            if validate_stripe_credentials(config.stripe_secret_key, schema_name):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"

@@ -602,6 +602,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -621,6 +622,7 @@ class FeatureFlagMatcher:
                                 **type_property_annotations,
                                 **{
                                     key: ExpressionWrapper(
+                                        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                                         cast(Expression, expr if expr else RawSQL("true", [])),
                                         output_field=BooleanField(),
                                     ),
@@ -1298,6 +1300,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, team_id: int, p
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
+                    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (literal "true", no user input)
                     cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),

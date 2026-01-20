@@ -170,6 +170,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.GroupNode]: {
+        name: 'Groups',
+        description: 'List and explore grouped events.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.EventsQuery]: {
         name: 'Events Query',
         description: 'List and explore events.',

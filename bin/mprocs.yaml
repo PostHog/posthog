@@ -97,6 +97,10 @@ procs:
         shell: 'bin/check_postgres_up && bin/start-llm-gateway'
         autostart: true
 
+    mcp:
+        shell: 'bin/start-mcp-server'
+        autostart: false
+
     # This takes ~10 s
     migrate-postgres:
         shell: 'bin/check_postgres_up && bin/check_ducklake_up && bin/migrate --scope=postgres'

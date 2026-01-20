@@ -60,6 +60,8 @@ pub struct Team {
     pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    pub conversations_enabled: Option<bool>,
+    pub conversations_settings: Option<Json<JsonValue>>,
 }
 
 fn default_timezone() -> String {
@@ -116,7 +118,9 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE id = $1
                 LIMIT 1
@@ -171,7 +175,9 @@ impl Team {
                     session_recording_trigger_match_type_config,
                     recording_domains,
                     cookieless_server_hash_mode,
-                    timezone
+                    timezone,
+                    conversations_enabled,
+                    conversations_settings as "conversations_settings: _"
                 FROM posthog_team
                 WHERE api_token = $1
                 LIMIT 1

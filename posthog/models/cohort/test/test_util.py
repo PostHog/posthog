@@ -425,6 +425,199 @@ class TestCohortUtils(BaseTest):
         mock_qs.using.assert_not_called()
         self.assertEqual(result, 10)
 
+    def test_print_cohort_hogql_query_raises_error_on_mixed_id_types_in_union(self):
+        """Test that mixed ID types in UNION queries are rejected"""
+        from posthog.hogql import ast
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Mixed UNION Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "source": {
+                    "kind": "FunnelsActorsQuery",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$identify"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                    },
+                    "funnelStep": 2,
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Mock get_query_runner to return a mock runner with our UNION query
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            # Create a UNION with mixed ID types
+            # First SELECT returns person_id, second SELECT returns distinct_id
+            select1 = ast.SelectQuery(
+                select=[ast.Alias(expr=ast.Field(chain=["person_id"]), alias="person_id")],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            )
+            select2 = ast.SelectQuery(
+                select=[ast.Alias(expr=ast.Field(chain=["distinct_id"]), alias="distinct_id")],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
+            )
+            # Properly structured SelectSetQuery with initial and subsequent queries
+            mock_runner.to_query.return_value = ast.SelectSetQuery(
+                initial_select_query=select1,
+                subsequent_select_queries=[ast.SelectSetNode(set_operator="UNION ALL", select_query=select2)],
+            )
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            # Should raise ValueError with clear message about mixed ID types
+            with self.assertRaises(ValueError) as cm:
+                print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("UNION queries with mixed ID types", str(cm.exception))
+        self.assertIn("not currently supported", str(cm.exception))
+
+    def test_print_cohort_hogql_query_with_table_without_id_columns(self):
+        """Test that queries without person_id, actor_id, id, or distinct_id columns raise an error"""
+        from posthog.hogql import ast
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test No ID Columns Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "source": {
+                    "kind": "FunnelsActorsQuery",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$identify"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                    },
+                    "funnelStep": 2,
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Mock get_query_runner to return a query with no recognizable ID columns
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            # SELECT with only non-ID columns
+            select_query = ast.SelectQuery(
+                select=[ast.Alias(expr=ast.Field(chain=["some_column"]), alias="some_column")],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["some_table"])),
+            )
+            mock_runner.to_query.return_value = select_query
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            # Should raise ValueError about missing ID columns
+            with self.assertRaises(ValueError) as cm:
+                print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
+
+    def test_print_cohort_hogql_query_with_distinct_id_column(self):
+        """Test that queries with explicit distinct_id column are wrapped with person_distinct_id2 lookup"""
+        from posthog.hogql import ast
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Distinct ID Column Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "source": {
+                    "kind": "FunnelsActorsQuery",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$identify"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                    },
+                    "funnelStep": 2,
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Mock get_query_runner to return a query with explicit distinct_id column
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            # Query with explicit distinct_id column (not SELECT *)
+            select_query = ast.SelectQuery(
+                select=[ast.Alias(expr=ast.Field(chain=["distinct_id"]), alias="distinct_id")],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["raw_person_distinct_ids"])),
+            )
+            mock_runner.to_query.return_value = select_query
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            result = print_cohort_hogql_query(cohort, context, team=self.team)
+
+        # Should wrap with person_distinct_id2 lookup
+        self.assertIn("person_distinct_id2", result)
+        self.assertIn("argMax(person_id, version) as actor_id", result)
+        self.assertIn("WHERE distinct_id IN", result)
+        # Should include settings
+        self.assertIn("SETTINGS", result)
+
+    def test_print_cohort_hogql_query_with_select_star_raises_error(self):
+        """Test that SELECT * queries without explicit ID columns raise an error"""
+        from posthog.hogql import ast
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test SELECT * Cohort",
+            query={
+                "kind": "ActorsQuery",
+                "source": {
+                    "kind": "FunnelsActorsQuery",
+                    "source": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "$pageview"},
+                            {"kind": "EventsNode", "event": "$identify"},
+                        ],
+                        "interval": "day",
+                        "dateRange": {"date_from": "-30d"},
+                    },
+                    "funnelStep": 2,
+                },
+            },
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # Mock get_query_runner to return a query with SELECT * from a table without known ID handling
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            # SELECT * from a table that's not events or persons should raise an error
+            select_query = ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["some_other_table"])),
+            )
+            mock_runner.to_query.return_value = select_query
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            # Should raise ValueError about missing ID columns
+            with self.assertRaises(ValueError) as cm:
+                print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
+
 
 class TestDependentCohorts(BaseTest):
     def test_dependent_cohorts_for_simple_cohort(self):

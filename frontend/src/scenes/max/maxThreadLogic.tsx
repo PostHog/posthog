@@ -69,6 +69,9 @@ import {
 } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
 
+/** Key for persisting pending AI prompts across page reloads (e.g., OAuth redirects) */
+export const PENDING_AI_PROMPT_KEY = 'posthog_ai_pending_prompt'
+
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
@@ -555,7 +558,28 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             if (!values.dataProcessingAccepted) {
+                // Persist prompt to sessionStorage in case of OAuth redirect during consent flow
+                if (prompt) {
+                    try {
+                        sessionStorage.setItem(
+                            PENDING_AI_PROMPT_KEY,
+                            JSON.stringify({
+                                prompt,
+                                timestamp: Date.now(),
+                            })
+                        )
+                    } catch {
+                        // sessionStorage might be unavailable
+                    }
+                }
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
+
+            // Clear any stored prompt since we're proceeding with submission
+            try {
+                sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)
+            } catch {
+                // sessionStorage might be unavailable
             }
             const agentMode = values.agentMode
 

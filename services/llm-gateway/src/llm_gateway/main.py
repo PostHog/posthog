@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from llm_gateway.analytics import init_analytics_service, shutdown_analytics_service
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
 from llm_gateway.config import get_settings
@@ -135,7 +136,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         sustained_window=settings.rate_limit_sustained_window,
     )
 
+    init_analytics_service()
+
     yield
+
+    shutdown_analytics_service()
 
     if app.state.redis:
         await app.state.redis.aclose()

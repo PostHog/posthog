@@ -1,8 +1,11 @@
 from typing import Literal
 
+from drf_spectacular.utils import extend_schema
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
@@ -44,6 +47,7 @@ class ElementStatsSerializer(serializers.Serializer):
     elements = ElementSerializer(many=True)
 
 
+@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     filter_rewrite_rules = {"team_id": "group__team_id"}

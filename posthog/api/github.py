@@ -5,6 +5,7 @@ from typing import Any
 from django.db.models import Q
 
 import requests
+import posthoganalytics
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -141,6 +142,14 @@ class SecretAlert(APIView):
         try:
             verify_github_signature(raw_body, kid, sig)
         except SignatureVerificationError:
+            posthoganalytics.capture(
+                distinct_id=None,
+                event="github_secret_alert_invalid_signature",
+                properties={
+                    "kid": kid,
+                    "sig": sig,
+                },
+            )
             return Response({"detail": "Invalid signature"}, status=401)
 
         if not isinstance(request.data, list):
@@ -154,14 +163,36 @@ class SecretAlert(APIView):
 
         results = []
         for item in items:
+            # Strip whitespace from token in case GitHub sends it with extra formatting
+            token = item["token"].strip()
+
             result = {
-                "token_hash": sha256(item["token"].encode("utf-8")).hexdigest(),
+                "token_hash": sha256(token.encode("utf-8")).hexdigest(),
                 "token_type": item["type"],
                 "label": "false_positive",
             }
 
+            # Debug info while token lookups continue to fail
+            token_debug = {
+                "token_length": len(token),
+                "token_prefix": token[:10] if len(token) > 10 else "[REDACTED]",
+                "token_suffix": token[-8:] if len(token) > 8 else "[REDACTED]",
+            }
+
             if item["type"] == "posthog_personal_api_key":
-                key_lookup = find_personal_api_key(item["token"])
+                key_lookup = find_personal_api_key(token)
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties={
+                        "type": item["type"],
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": key_lookup is not None,
+                        **token_debug,
+                    },
+                )
+
                 if key_lookup is not None:
                     result["label"] = "true_positive"
                     more_info = f"This key was detected by GitHub at {item['url']}."
@@ -177,8 +208,10 @@ class SecretAlert(APIView):
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
             elif item["type"] == "posthog_feature_flags_secure_api_key":
+                found = False
                 try:
-                    _ = Team.objects.get(Q(secret_api_token=item["token"]) | Q(secret_api_token_backup=item["token"]))
+                    _ = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                    found = True
                     # TODO send email to team members
                     result["label"] = "true_positive"
 
@@ -186,6 +219,18 @@ class SecretAlert(APIView):
 
                 except Team.DoesNotExist:
                     pass
+
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties={
+                        "type": item["type"],
+                        "source": item["source"],
+                        "url": item["url"],
+                        "found": found,
+                        **token_debug,
+                    },
+                )
 
             else:
                 raise ValidationError(detail="Unexpected alert type")

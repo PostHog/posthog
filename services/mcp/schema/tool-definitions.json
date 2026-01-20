@@ -83,6 +83,20 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-reorder-tiles": {
+        "description": "Reorder tiles (insights) on a dashboard. Provide an array of tile IDs in the desired order from top to bottom. First, use dashboard-get to retrieve the dashboard and see the current tile IDs, then provide the tile IDs in your desired order.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Reorder tiles on a dashboard.",
+        "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "docs-search": {
         "description": "Use this tool to search the PostHog documentation for information that can help the user with their request. Use it as a fallback when you cannot answer the user's request using other tools in this MCP. Only use this tool for PostHog related questions.",
         "category": "Documentation",

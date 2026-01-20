@@ -83,6 +83,13 @@ class ReadArtifacts(BaseModel):
     kind: Literal["artifacts"] = "artifacts"
 
 
+class ReadErrorTrackingIssue(BaseModel):
+    """Retrieves error tracking issue details including stack trace for analysis."""
+
+    kind: Literal["error_tracking_issue"] = "error_tracking_issue"
+    issue_id: str = Field(description="The UUID of the error tracking issue.")
+
+
 ReadDataQuery = (
     ReadDataWarehouseSchema
     | ReadDataWarehouseTableSchema
@@ -90,6 +97,7 @@ ReadDataQuery = (
     | ReadDashboard
     | ReadBillingInfo
     | ReadArtifacts
+    | ReadErrorTrackingIssue
 )
 
 
@@ -137,7 +145,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             prompt_vars["billing_prompt"] = READ_DATA_BILLING_PROMPT
             kinds.append(ReadBillingInfo)
 
-        ReadDataKind = Union[ReadDataWarehouseSchema, ReadDataWarehouseTableSchema, ReadInsight, ReadDashboard, *kinds]  # type: ignore
+        base_kinds: tuple[type[BaseModel], ...] = (
+            ReadDataWarehouseSchema,
+            ReadDataWarehouseTableSchema,
+            ReadInsight,
+            ReadDashboard,
+            ReadErrorTrackingIssue,
+        )
+        ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
         ReadDataToolArgs = create_model(
             "ReadDataToolArgs",
@@ -187,6 +202,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 return await self._read_insight(schema.insight_id, schema.execute)
             case ReadDashboard() as schema:
                 return await self._read_dashboard(schema.dashboard_id, schema.execute)
+            case ReadErrorTrackingIssue() as schema:
+                return await self._read_error_tracking_issue(schema.issue_id), None
 
     async def _read_insight(
         self, artifact_or_insight_id: str, execute: bool
@@ -385,3 +402,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             text_result = await dashboard_ctx.format_schema()
 
         return text_result, None
+
+    async def _read_error_tracking_issue(self, issue_id: str) -> str:
+        from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
+
+        context = ErrorTrackingIssueContext(
+            team=self._team,
+            issue_id=issue_id,
+        )
+        return await context.execute_and_format()

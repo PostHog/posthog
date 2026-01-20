@@ -247,13 +247,13 @@ def _get_experiment_regular_metrics_timeseries(
     experiment_metrics = []
 
     # Query experiments that are eligible for timeseries analysis (running experiments only)
-    # Exclude experiments running for longer than 3 months to avoid continuously recalculating
+    # Exclude experiments running for longer than 30 days to avoid continuously recalculating
     # likely stale experiments. Users can still manually backfill those.
     experiments = Experiment.objects.filter(
         deleted=False,
         scheduling_config__timeseries=True,
         start_date__isnull=False,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=90),
+        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
         end_date__isnull=True,
     ).exclude(
         # Exclude if both metrics and metrics_secondary are empty or null

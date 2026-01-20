@@ -871,7 +871,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_organizations", serializer.errors)
         self.assertIn(
-            f"You must be a member of organization '{other_org.id}'", str(serializer.errors["scoped_organizations"][0])
+            "Invalid organization specified or you do not have access",
+            str(serializer.errors["scoped_organizations"][0]),
         )
 
     def test_cannot_scope_to_unauthorized_team(self):
@@ -889,7 +890,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_teams", serializer.errors)
-        self.assertIn(f"You must be a member of team '{other_team.id}'", str(serializer.errors["scoped_teams"][0]))
+        self.assertIn("Invalid team specified or you do not have access", str(serializer.errors["scoped_teams"][0]))
 
     def test_malformed_organization_uuid_rejected(self):
         data = {
@@ -913,7 +914,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn("scoped_teams", serializer.errors)
-        self.assertIn("do not exist", str(serializer.errors["scoped_teams"][0]))
+        self.assertIn("Invalid team specified or you do not have access", str(serializer.errors["scoped_teams"][0]))
 
     def test_authorization_code_reuse_prevented(self):
         response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)

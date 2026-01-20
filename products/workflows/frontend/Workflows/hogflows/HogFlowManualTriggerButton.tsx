@@ -101,12 +101,10 @@ const TriggerPopover = ({
                     type="primary"
                     status="alt"
                     onClick={() => {
-                        const scheduledAt = isScheduleTrigger ? (workflow?.trigger as any)?.scheduled_at : undefined
-
                         if (workflow?.trigger?.type === 'batch') {
-                            triggerBatchWorkflow(variableValues, scheduledAt)
+                            triggerBatchWorkflow(variableValues)
                         } else {
-                            triggerManualWorkflow(variableValues, scheduledAt)
+                            triggerManualWorkflow(variableValues)
                         }
 
                         setPopoverVisible(false)

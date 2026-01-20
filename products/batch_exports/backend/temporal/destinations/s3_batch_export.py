@@ -656,6 +656,10 @@ class ConcurrentS3Consumer(Consumer):
         if not self.upload_id:
             raise NoUploadInProgressError()
 
+        optional_kwargs = {}
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         try:
             self.logger.debug(
                 "Uploading file number %s part %s with upload id %s",
@@ -696,6 +700,7 @@ class ConcurrentS3Consumer(Consumer):
                             PartNumber=part_number,
                             UploadId=self.upload_id,
                             Body=data,
+                            **optional_kwargs,  # type: ignore
                         )
 
                     except botocore.exceptions.ClientError as err:
@@ -725,7 +730,13 @@ class ConcurrentS3Consumer(Consumer):
                         else:
                             raise
 
-            part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
+            part_info: CompletedPartTypeDef = {
+                "ETag": response["ETag"],
+                "PartNumber": part_number,
+            }
+
+            if "ChecksumCRC64NVME" in response:
+                part_info["ChecksumCRC64NVME"] = response["ChecksumCRC64NVME"]
 
             # Store completed part info
             self.completed_parts[part_number] = part_info
@@ -819,6 +830,8 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ServerSideEncryption"] = self.encryption
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
 
         current_key = self._get_current_key()
         client = await self._get_s3_client()
@@ -873,10 +886,15 @@ class ConcurrentS3Consumer(Consumer):
     ):
         client = await self._get_s3_client()
 
+        optional_kwargs = {}
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=self.bucket,
             Key=manifest_key,
             Body=json.dumps({"files": files_uploaded}),
+            **optional_kwargs,  # type: ignore
         )
 
         if self._s3_client is not None and self._s3_client_ctx is not None:

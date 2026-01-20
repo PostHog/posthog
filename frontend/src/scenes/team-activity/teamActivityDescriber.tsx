@@ -720,6 +720,12 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
     core_events_config: coreEventsConfigurationDescriber,
 
+    // Conversations
+    conversations_enabled: createBooleanToggleHandler('conversations'),
+    conversations_settings: () => {
+        return { description: [<>updated conversations settings</>] }
+    },
+
     // should never come from the backend
     created_at: () => null,
     id: () => null,

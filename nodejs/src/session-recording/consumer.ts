@@ -56,6 +56,12 @@ export type SessionRecordingIngesterHub = SessionRecordingConfig &
         | 'REDIS_URL'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
+        // For restriction manager redis pool (must match the ingestion redis that Django writes to)
+        | 'INGESTION_REDIS_HOST'
+        | 'INGESTION_REDIS_PORT'
+        | 'POSTHOG_REDIS_HOST'
+        | 'POSTHOG_REDIS_PORT'
+        | 'POSTHOG_REDIS_PASSWORD'
     >
 
 export class SessionRecordingIngester {
@@ -70,6 +76,7 @@ export class SessionRecordingIngester {
     private readonly sessionBatchManager: SessionBatchManager
     private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
+    private readonly restrictionRedisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
@@ -143,9 +150,29 @@ export class SessionRecordingIngester {
             poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
         })
 
+        // Restriction manager needs to read from the same Redis as Django writes to
+        // This must match the ingestion redis fallback chain from hub.ts
+        this.restrictionRedisPool = createRedisPoolFromConfig({
+            connection: hub.INGESTION_REDIS_HOST
+                ? {
+                      url: hub.INGESTION_REDIS_HOST,
+                      options: { port: hub.INGESTION_REDIS_PORT },
+                      name: 'ingestion-redis',
+                  }
+                : hub.POSTHOG_REDIS_HOST
+                  ? {
+                        url: hub.POSTHOG_REDIS_HOST,
+                        options: { port: hub.POSTHOG_REDIS_PORT, password: hub.POSTHOG_REDIS_PASSWORD },
+                        name: 'ingestion-redis',
+                    }
+                  : { url: hub.REDIS_URL, name: 'ingestion-redis' },
+            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+        })
+
         const teamService = new TeamService(postgres)
 
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.redisPool, {
+        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.restrictionRedisPool, {
             pipeline: 'session_recordings',
         })
 

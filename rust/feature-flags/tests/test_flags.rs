@@ -6153,3 +6153,128 @@ async fn test_cohort_date_matching_with_milliseconds_format() -> Result<()> {
 
     Ok(())
 }
+
+/// Tests that $initial_ properties are populated from overrides only when DB doesn't have them.
+///
+/// When a request sends `$browser: "Chrome"` as an override:
+/// - If DB has `$initial_browser: "Safari"`, that value should be preserved
+/// - If DB has no `$initial_browser`, it should be populated from the override's `$browser`
+#[rstest]
+#[case::db_has_initial_browser_preserves_it(
+    // DB has $initial_browser, override has $browser - DB value should win
+    Some(json!({"$initial_browser": "Safari", "$browser": "Firefox"})),
+    json!({"$browser": "Chrome"}),
+    true       // Flag checking $initial_browser = Safari should match
+)]
+#[case::db_missing_initial_browser_populates_from_override(
+    // DB has no $initial_browser, override has $browser - should populate from override
+    Some(json!({"$browser": "Firefox"})),
+    json!({"$browser": "Chrome"}),
+    false      // Flag checking $initial_browser = Safari should NOT match
+)]
+#[case::db_empty_populates_from_override(
+    // DB has nothing, override has $browser - should populate from override
+    None,
+    json!({"$browser": "Chrome"}),
+    false      // Flag checking $initial_browser = Safari should NOT match
+)]
+#[tokio::test]
+async fn test_initial_property_population_respects_db_values(
+    #[case] db_properties: Option<Value>,
+    #[case] override_properties: Value,
+    #[case] flag_should_match: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = format!("test_initial_props_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    // Insert person with specified DB properties
+    context
+        .insert_person(team.id, distinct_id.clone(), db_properties)
+        .await
+        .unwrap();
+
+    // Create a flag that checks $initial_browser = "Safari"
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "initial-browser-flag",
+            "name": "Flag checking initial browser",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$initial_browser",
+                                "value": "Safari",
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send request with property overrides
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "person_properties": override_properties
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {status}\nBody: {text}");
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    // The flag checks $initial_browser = "Safari"
+    // - If DB had $initial_browser: "Safari", flag should match
+    // - If $initial_browser was populated from override's $browser: "Chrome", flag should NOT match
+    let expected_enabled = flag_should_match;
+    let expected_reason = if flag_should_match {
+        "condition_match"
+    } else {
+        "no_condition_match"
+    };
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "initial-browser-flag": {
+                    "key": "initial-browser-flag",
+                    "enabled": expected_enabled,
+                    "reason": {
+                        "code": expected_reason
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}

@@ -3,12 +3,14 @@ from prometheus_client import generate_latest
 
 from llm_gateway.metrics.prometheus import (
     ACTIVE_STREAMS,
+    CONCURRENT_REQUESTS,
     DB_POOL_SIZE,
     PROVIDER_ERRORS,
     PROVIDER_LATENCY,
     RATE_LIMIT_EXCEEDED,
     REQUEST_COUNT,
     REQUEST_LATENCY,
+    STREAMING_CLIENT_DISCONNECT,
     TOKENS_INPUT,
     TOKENS_OUTPUT,
 )
@@ -26,7 +28,9 @@ class TestMetricsConfiguration:
             pytest.param(TOKENS_OUTPUT, {"provider", "model"}, id="tokens_output"),
             pytest.param(RATE_LIMIT_EXCEEDED, {"scope"}, id="rate_limit_exceeded"),
             pytest.param(PROVIDER_ERRORS, {"provider", "error_type"}, id="provider_errors"),
-            pytest.param(ACTIVE_STREAMS, {"provider"}, id="active_streams"),
+            pytest.param(ACTIVE_STREAMS, {"provider", "model"}, id="active_streams"),
+            pytest.param(CONCURRENT_REQUESTS, {"provider", "model"}, id="concurrent_requests"),
+            pytest.param(STREAMING_CLIENT_DISCONNECT, {"provider", "model"}, id="streaming_client_disconnect"),
             pytest.param(DB_POOL_SIZE, {"state"}, id="db_pool_size"),
             pytest.param(PROVIDER_LATENCY, {"provider", "model"}, id="provider_latency"),
         ],
@@ -54,6 +58,8 @@ class TestMetricsExport:
             pytest.param(b"llm_gateway_rate_limit_exceeded_total", id="rate_limit"),
             pytest.param(b"llm_gateway_provider_errors_total", id="provider_errors"),
             pytest.param(b"llm_gateway_active_streams", id="active_streams"),
+            pytest.param(b"llm_gateway_concurrent_requests", id="concurrent_requests"),
+            pytest.param(b"llm_gateway_streaming_client_disconnect_total", id="streaming_client_disconnect"),
             pytest.param(b"llm_gateway_db_pool_size", id="db_pool_size"),
             pytest.param(b"llm_gateway_provider_latency_seconds", id="provider_latency"),
         ],
@@ -75,11 +81,23 @@ class TestMetricsRecording:
         assert PROVIDER_ERRORS.labels(provider="anthropic", error_type="TimeoutError")._value.get() == initial_value + 1
 
     def test_active_streams_can_increment_and_decrement(self) -> None:
-        ACTIVE_STREAMS.labels(provider="openai").set(0)
-        ACTIVE_STREAMS.labels(provider="openai").inc()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 1
-        ACTIVE_STREAMS.labels(provider="openai").dec()
-        assert ACTIVE_STREAMS.labels(provider="openai")._value.get() == 0
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").set(0)
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").inc()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4")._value.get() == 1
+        ACTIVE_STREAMS.labels(provider="openai", model="gpt-4").dec()
+        assert ACTIVE_STREAMS.labels(provider="openai", model="gpt-4")._value.get() == 0
+
+    def test_concurrent_requests_can_increment_and_decrement(self) -> None:
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3").set(0)
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3").inc()
+        assert CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3")._value.get() == 1
+        CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3").dec()
+        assert CONCURRENT_REQUESTS.labels(provider="anthropic", model="claude-3")._value.get() == 0
+
+    def test_streaming_client_disconnect_increments(self) -> None:
+        initial = STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4")._value.get()
+        STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4").inc()
+        assert STREAMING_CLIENT_DISCONNECT.labels(provider="openai", model="gpt-4")._value.get() == initial + 1
 
     def test_db_pool_size_tracks_connection_states(self) -> None:
         DB_POOL_SIZE.labels(state="idle").set(5)

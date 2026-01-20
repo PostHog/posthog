@@ -1,8 +1,16 @@
-import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconInfo, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonCollapse, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonCollapse,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -13,14 +21,17 @@ import {
     convertArrayToPropertyFilters,
     convertPropertyFiltersToArray,
 } from 'scenes/surveys/SurveyEventTrigger'
+import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionType,
     AnyPropertyFilter,
     ProductTourDisplayConditions,
+    PropertyDefinitionType,
     PropertyType,
     SurveyEventsWithProperties,
+    SurveyMatchType,
 } from '~/types'
 
 type TourTriggerType = 'immediate' | 'event' | 'action'
@@ -167,6 +178,31 @@ function EventTriggerContent({ conditions, onChange }: AutoShowSectionProps): JS
 }
 
 export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps): JSX.Element {
+    // Load recent URLs from property definitions
+    const { options } = useValues(propertyDefinitionsModel)
+    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const urlOptions = options['$current_url']
+
+    useEffect(() => {
+        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
+            loadPropertyValues({
+                endpoint: undefined,
+                type: PropertyDefinitionType.Event,
+                propertyKey: '$current_url',
+                newInput: '',
+                eventNames: [],
+                properties: [],
+            })
+        }
+    }, [urlOptions?.status, loadPropertyValues])
+
+    const urlMatchTypeOptions = useMemo(() => {
+        return Object.entries(SurveyMatchTypeLabels).map(([key, label]) => ({
+            label,
+            value: key as SurveyMatchType,
+        }))
+    }, [])
+
     // Derive initial trigger type from conditions
     // this happens again at runtime, so this trigger type is _not_ persisted
     const getInitialTriggerType = (): TourTriggerType => {
@@ -199,73 +235,136 @@ export function AutoShowSection({ conditions, onChange }: AutoShowSectionProps):
     ]
 
     return (
-        <div>
-            <h5 className="font-semibold mb-2">
-                When to show&nbsp;
-                <Tooltip title="Choose when to show the tour to matching users.">
-                    <IconInfo />
-                </Tooltip>
-            </h5>
-            <LemonSelect
-                value={triggerType}
-                onChange={handleTriggerTypeChange}
-                options={triggerOptions}
-                className="w-full"
-            />
-
-            {triggerType === 'event' && <EventTriggerContent conditions={conditions} onChange={onChange} />}
-
-            {triggerType === 'action' && (
-                <div className="mt-3">
-                    <EventSelect
-                        filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
-                        onItemChange={(items: ActionType[]) => {
+        <div className="space-y-4">
+            <div>
+                <h5 className="font-semibold mb-2">URL targeting</h5>
+                <div className="flex gap-2 items-center">
+                    <span className="text-sm whitespace-nowrap">URL</span>
+                    <LemonSelect
+                        value={conditions.urlMatchType || SurveyMatchType.Contains}
+                        onChange={(value) => {
                             onChange({
                                 ...conditions,
-                                actions:
-                                    items.length > 0
-                                        ? { values: items.map((e) => ({ id: e.id, name: e.name || '' })) }
-                                        : null,
+                                urlMatchType: value,
                             })
                         }}
-                        selectedItems={conditions.actions?.values || []}
-                        selectedEvents={conditions.actions?.values?.map((v) => v.name) ?? []}
-                        addElement={
-                            <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
-                                Add action
-                            </LemonButton>
-                        }
+                        options={urlMatchTypeOptions}
                     />
+                    <LemonInputSelect
+                        className="flex-1"
+                        mode="single"
+                        value={conditions.url ? [conditions.url] : []}
+                        onChange={(val) => {
+                            onChange({
+                                ...conditions,
+                                url: val[0] || undefined,
+                            })
+                        }}
+                        onInputChange={(newInput) => {
+                            loadPropertyValues({
+                                type: PropertyDefinitionType.Event,
+                                endpoint: undefined,
+                                propertyKey: '$current_url',
+                                newInput: newInput.trim(),
+                                eventNames: [],
+                                properties: [],
+                            })
+                        }}
+                        placeholder="e.g. /dashboard"
+                        allowCustomValues
+                        loading={urlOptions?.status === 'loading'}
+                        options={(urlOptions?.values || []).map(({ name }) => ({
+                            key: String(name),
+                            label: String(name),
+                            value: String(name),
+                        }))}
+                        data-attr="product-tour-url-input"
+                    />
+                    {conditions.url && (
+                        <LemonButton
+                            icon={<IconX />}
+                            size="small"
+                            type="tertiary"
+                            onClick={() => {
+                                onChange({
+                                    ...conditions,
+                                    url: undefined,
+                                })
+                            }}
+                            tooltip="Clear URL"
+                        />
+                    )}
                 </div>
-            )}
+            </div>
 
-            <div className="flex flex-row gap-2 items-center mt-4">
-                <LemonCheckbox
-                    checked={!!conditions.autoShowDelaySeconds}
-                    onChange={(checked) => {
-                        onChange({
-                            ...conditions,
-                            autoShowDelaySeconds: checked ? 5 : undefined,
-                        })
-                    }}
+            <div>
+                <h5 className="font-semibold mb-2">
+                    When to show&nbsp;
+                    <Tooltip title="Choose when to show the tour to matching users.">
+                        <IconInfo />
+                    </Tooltip>
+                </h5>
+                <LemonSelect
+                    value={triggerType}
+                    onChange={handleTriggerTypeChange}
+                    options={triggerOptions}
+                    className="w-full"
                 />
-                <span className="text-sm">Wait</span>
-                <LemonInput
-                    type="number"
-                    size="small"
-                    min={1}
-                    max={3600}
-                    value={conditions.autoShowDelaySeconds || NaN}
-                    onChange={(newValue) => {
-                        if (newValue && newValue > 0) {
-                            onChange({ ...conditions, autoShowDelaySeconds: newValue })
-                        } else {
-                            onChange({ ...conditions, autoShowDelaySeconds: undefined })
-                        }
-                    }}
-                    className="w-12"
-                />
-                <span className="text-sm">seconds before showing the tour after the conditions are met</span>
+
+                {triggerType === 'event' && <EventTriggerContent conditions={conditions} onChange={onChange} />}
+
+                {triggerType === 'action' && (
+                    <div className="mt-3">
+                        <EventSelect
+                            filterGroupTypes={[TaxonomicFilterGroupType.Actions]}
+                            onItemChange={(items: ActionType[]) => {
+                                onChange({
+                                    ...conditions,
+                                    actions:
+                                        items.length > 0
+                                            ? { values: items.map((e) => ({ id: e.id, name: e.name || '' })) }
+                                            : null,
+                                })
+                            }}
+                            selectedItems={conditions.actions?.values || []}
+                            selectedEvents={conditions.actions?.values?.map((v) => v.name) ?? []}
+                            addElement={
+                                <LemonButton size="small" type="secondary" icon={<IconPlus />} sideIcon={null}>
+                                    Add action
+                                </LemonButton>
+                            }
+                        />
+                    </div>
+                )}
+
+                <div className="flex flex-row gap-2 items-center mt-4">
+                    <LemonCheckbox
+                        checked={!!conditions.autoShowDelaySeconds}
+                        onChange={(checked) => {
+                            onChange({
+                                ...conditions,
+                                autoShowDelaySeconds: checked ? 5 : undefined,
+                            })
+                        }}
+                    />
+                    <span className="text-sm">Wait</span>
+                    <LemonInput
+                        type="number"
+                        size="small"
+                        min={1}
+                        max={3600}
+                        value={conditions.autoShowDelaySeconds || NaN}
+                        onChange={(newValue) => {
+                            if (newValue && newValue > 0) {
+                                onChange({ ...conditions, autoShowDelaySeconds: newValue })
+                            } else {
+                                onChange({ ...conditions, autoShowDelaySeconds: undefined })
+                            }
+                        }}
+                        className="w-12"
+                    />
+                    <span className="text-sm">seconds before showing the tour after the conditions are met</span>
+                </div>
             </div>
         </div>
     )

@@ -10,6 +10,8 @@ from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import serializers
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -130,6 +132,7 @@ class DatasetFilter(django_filters.FilterSet):
         return super().list(request, *args, **kwargs)
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetSerializer
@@ -231,6 +234,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
         return super().create(validated_data, *args, **kwargs)
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class DatasetItemViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, ModelViewSet):
     scope_object = "dataset"
     serializer_class = DatasetItemSerializer

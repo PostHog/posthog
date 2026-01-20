@@ -74,9 +74,11 @@ export function LogRowFAB({
                         e.preventDefault()
                         onTogglePrettify?.(log)
                     }}
+                    active={isPrettified}
                     tooltip={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
                     aria-label={isPrettified ? 'Collapse JSON' : 'Prettify JSON'}
                     className={cn(isPrettified ? 'text-brand-blue' : 'text-muted')}
+                    disabledReason={log.parsedBody === null ? 'Log body is not valid JSON' : undefined}
                 />
                 <LemonButton
                     size="xsmall"

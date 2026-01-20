@@ -50,7 +50,7 @@ export function PropertyGroupFilters({
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
     const disabledReason = hasDataWarehouseSeries
-        ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
+        ? 'Filter groups cannot be added to insights with a data warehouse series. Please use individual series filters instead.'
         : undefined
     return (
         <div className="deprecated-space-y-2 PropertyGroupFilters">

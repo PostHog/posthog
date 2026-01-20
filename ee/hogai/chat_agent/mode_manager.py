@@ -205,6 +205,9 @@ class ChatAgentModeManager(AgentModeManager):
         mode: AgentMode | None = None,
     ):
         super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, mode=mode)
+        # Validate mode is in registry, fall back to default mode if not
+        if mode and mode not in self.mode_registry:
+            mode = AgentMode.PRODUCT_ANALYTICS
         self._mode = mode or AgentMode.PRODUCT_ANALYTICS
 
     @property

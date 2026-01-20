@@ -30,6 +30,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY
 from posthog.tasks.exports.image_exporter import export_image
 
 TEST_ROOT_BUCKET = "test_exports"
@@ -231,18 +232,18 @@ class TestExports(APIBaseTest):
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
 
-        with patch("posthog.tasks.exports.image_exporter.process_query_dict") as mock_process_query_dict:
+        with patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight") as mock_calculate:
             # Request does not calculate the result and cache is not warmed up
             context = {"is_shared": True}
             InsightSerializer(self.insight, many=False, context=context)
 
-            mock_process_query_dict.assert_not_called()
+            mock_calculate.assert_not_called()
 
             # Should warm up the cache
             export_image(exported_asset)
             mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
 
-            mock_process_query_dict.assert_called_once()
+            mock_calculate.assert_called_once()
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
@@ -830,6 +831,43 @@ class TestExports(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_synchronous_export_records_failure_on_query_error(self, mock_export_direct) -> None:
+        """Test that synchronous exports record failure info when a QueryError occurs."""
+        from posthog.hogql.errors import QueryError
+
+        mock_export_direct.side_effect = QueryError("Unknown table 'nonexistent_table'")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "insight": self.insight.id},
+        )
+
+        # Should return 201 even though the export failed internally
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+
+        # Reload the asset and verify failure info was recorded
+        asset = ExportedAsset.objects.get(pk=data["id"])
+        self.assertEqual(asset.exception, "Unknown table 'nonexistent_table'")
+        self.assertEqual(asset.exception_type, "QueryError")
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_synchronous_export_raises_retriable_errors(self, mock_export_direct) -> None:
+        """Test that retriable errors are re-raised during synchronous export, causing a 500."""
+        from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+
+        e = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+        assert isinstance(e, EXCEPTIONS_TO_RETRY)
+        mock_export_direct.side_effect = e
+
+        # Retriable errors should propagate and cause a 500 (re-raised for retry)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "insight": self.insight.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class TestExportMixin(APIBaseTest):

@@ -24,9 +24,11 @@ import {
     NotebookNodeAttributes,
     NotebookNodeResource,
     NotebookNodeSettings,
+    NotebookNodeSettingsPlacement,
     NotebookNodeType,
 } from '../types'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'
+import { VariableUsage } from './notebookNodeContent'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
 
 export type NotebookNodeLogicProps = {
@@ -38,6 +40,7 @@ export type NotebookNodeLogicProps = {
     messageListeners?: NotebookNodeMessagesListeners
     startExpanded?: boolean
     titlePlaceholder: string
+    settingsPlacement?: NotebookNodeSettingsPlacement
 } & NotebookNodeAttributeProperties<any>
 
 export const notebookNodeLogic = kea<notebookNodeLogicType>([
@@ -65,11 +68,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         toggleEditingTitle: (editing?: boolean) => ({ editing }),
         copyToClipboard: true,
         convertToBacklink: (href: string) => ({ href }),
+        navigateToNode: (nodeId: string) => ({ nodeId }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable', 'comments']],
+        values: [props.notebookLogic, ['editor', 'isEditable', 'comments', 'pythonNodeSummaries']],
     })),
 
     reducers(({ props }) => ({
@@ -136,6 +140,10 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         nodeId: [(_, p) => [p.attributes], (nodeAttributes): string => nodeAttributes.nodeId],
         nodeType: [(_, p) => [p.nodeType], (nodeType) => nodeType],
         Settings: [() => [(_, props) => props], (props): NotebookNodeSettings | null => props.Settings ?? null],
+        settingsPlacement: [
+            () => [(_, props) => props],
+            (props): NotebookNodeSettingsPlacement => props.settingsPlacement ?? 'left',
+        ],
 
         title: [
             (s) => [s.titlePlaceholder, s.nodeAttributes],
@@ -143,6 +151,46 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         ],
         // TODO: Fix the typing of nodeAttributes
         children: [(s) => [s.nodeAttributes], (nodeAttributes): NotebookNodeResource[] => nodeAttributes.children],
+
+        exportedGlobals: [
+            (s) => [s.nodeAttributes],
+            (nodeAttributes): { name: string; type: string }[] => nodeAttributes.globalsExportedWithTypes ?? [],
+        ],
+
+        pythonNodeIndex: [
+            (s) => [s.pythonNodeSummaries, s.nodeId],
+            (pythonNodeSummaries, nodeId) => pythonNodeSummaries.findIndex((node) => node.nodeId === nodeId),
+        ],
+
+        downstreamPythonNodes: [
+            (s) => [s.pythonNodeSummaries, s.pythonNodeIndex],
+            (pythonNodeSummaries, pythonNodeIndex) =>
+                pythonNodeIndex >= 0 ? pythonNodeSummaries.slice(pythonNodeIndex + 1) : [],
+        ],
+
+        usageByVariable: [
+            (s) => [s.downstreamPythonNodes, s.exportedGlobals],
+            (downstreamPythonNodes, exportedGlobals): Record<string, VariableUsage[]> => {
+                const usageMap: Record<string, VariableUsage[]> = {}
+
+                exportedGlobals.forEach(({ name }) => {
+                    const usages = downstreamPythonNodes.flatMap((node) =>
+                        node.globalsUsed.includes(name)
+                            ? [
+                                  {
+                                      nodeId: node.nodeId,
+                                      pythonIndex: node.pythonIndex,
+                                  },
+                              ]
+                            : []
+                    )
+
+                    usageMap[name] = usages
+                })
+
+                return usageMap
+            },
+        ],
 
         sendMessage: [
             (s) => [s.messageListeners],
@@ -219,6 +267,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 editor.setSelection(pos)
                 editor.scrollToSelection()
             }
+        },
+
+        navigateToNode: ({ nodeId }) => {
+            const targetLogic = values.notebookLogic.values.findNodeLogicById(nodeId)
+            targetLogic?.actions.selectNode()
         },
 
         scrollIntoView: () => {

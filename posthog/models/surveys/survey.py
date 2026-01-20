@@ -243,6 +243,10 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     headline_summary = models.TextField(blank=True, null=True)
     headline_response_count = models.PositiveIntegerField(null=True, blank=True)
 
+    # AI-generated per-question summaries
+    # Format: { [questionId]: { summary: string, responseCount: number, generatedAt: string } }
+    question_summaries = models.JSONField(blank=True, null=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(

@@ -724,6 +724,10 @@ export function getTraceTimestamp(timestamp: string): string {
     return dayjs(timestamp).utc().subtract(5, 'minutes').format('YYYY-MM-DDTHH:mm:ss[Z]')
 }
 
+export function getSessionStartTimestamp(timestamp: string): string {
+    return dayjs(timestamp).utc().subtract(24, 'hours').format('YYYY-MM-DDTHH:mm:ss[Z]')
+}
+
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMEvent(event)) {
         if (event.event === '$ai_generation') {

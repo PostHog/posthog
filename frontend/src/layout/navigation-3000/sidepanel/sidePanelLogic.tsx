@@ -111,7 +111,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.SdkDoctor)
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.SdkDoctor)
+                }
                 tabs.push(SidePanelTab.Health)
                 tabs.push(SidePanelTab.Changelog)
 

@@ -183,30 +183,11 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=expr,
-                right=ast.Constant(value=None),
-            )
-        ]
-
-        if is_json_field:
-            if not isinstance(expr, ast.Field):
-                raise Exception(f"Requires a Field expression")
-
-            field = ast.Field(chain=expr.chain[:-1])
-
-            exprs.append(
-                ast.Not(
-                    expr=ast.Call(
-                        name="JSONHas",
-                        args=[field, ast.Constant(value=property.key)],
-                    )
-                )
-            )
-
-        return ast.Or(exprs=exprs)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=expr,
+            right=ast.Constant(value=None),
+        )
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,

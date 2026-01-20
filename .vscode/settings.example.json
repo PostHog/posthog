@@ -14,7 +14,8 @@
     "tailwindCSS.emmetCompletions": true,
     "tailwindCSS.rootFontSize": 16,
     "files.associations": {
-        "*.css": "tailwindcss"
+        "*.css": "tailwindcss",
+        "CODEOWNERS-soft": "CODEOWNERS"
     },
     "mypy-type-checker.importStrategy": "fromEnvironment",
     "mypy-type-checker.preferDaemon": true,

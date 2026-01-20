@@ -25,4 +25,5 @@ export const keyBinds: Record<string, string[]> = {
     tab7: [...baseModifier, '7'],
     tab8: [...baseModifier, '8'],
     tab9: [...baseModifier, '9'],
+    zenMode: [...baseModifier, 'z'],
 }

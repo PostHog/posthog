@@ -11,6 +11,7 @@ import createDashboard from './dashboards/create'
 import deleteDashboard from './dashboards/delete'
 import getDashboard from './dashboards/get'
 import getAllDashboards from './dashboards/getAll'
+import reorderDashboardTiles from './dashboards/reorderTiles'
 import updateDashboard from './dashboards/update'
 // Documentation
 import searchDocs from './documentation/searchDocs'
@@ -125,6 +126,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': createDashboard,
     'dashboard-update': updateDashboard,
     'dashboard-delete': deleteDashboard,
+    'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
 
     // LLM Observability

@@ -5,8 +5,12 @@ use crate::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{decoding, process_request, RequestContext},
+    handler::{
+        decoding, process_request, run_with_canonical_log, with_canonical_log,
+        FlagsCanonicalLogLine, RequestContext,
+    },
     router,
+    utils::user_agent::UserAgentInfo,
 };
 // TODO: stream this instead
 use axum::extract::{MatchedPath, Query, State};
@@ -20,18 +24,6 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use tracing::Instrument;
 use uuid::Uuid;
-
-struct LogContext<'a> {
-    headers: &'a HeaderMap,
-    query_params: &'a FlagsQueryParams,
-    method: &'a Method,
-    path: &'a MatchedPath,
-    ip: &'a str,
-    request_id: Uuid,
-    is_from_decide: bool,
-    query_version: Option<i32>,
-    response_format: &'a str,
-}
 
 /// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
 /// Good for tracing logs from the Contour layer all the way to the property evaluation
@@ -96,6 +88,15 @@ fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
 
     // Fall back to the direct client IP
     fallback_ip
+}
+
+/// Updates the canonical log with rate limit info and returns the error for early return.
+fn rate_limit_error(error: FlagError) -> FlagError {
+    with_canonical_log(|l| {
+        l.rate_limited = true;
+        l.set_error(&error);
+    });
+    error
 }
 
 fn get_minimal_flags_response(
@@ -206,7 +207,7 @@ pub async fn flags(
     // Extract client IP, checking X-Forwarded-For header first
     let ip = extract_client_ip(&headers, direct_ip);
 
-    // Handle different HTTP methods
+    // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
             // GET requests return minimal flags response
@@ -248,6 +249,26 @@ pub async fn flags(
         }
     }
 
+    // Convert IP to string once and reuse throughout the request
+    let ip_string = ip.to_string();
+
+    // Parse User-Agent and extract SDK info for logging
+    let user_agent = headers.get("user-agent").and_then(|v| v.to_str().ok());
+    let ua_info = UserAgentInfo::parse(user_agent);
+
+    // Initialize canonical log with all upfront request metadata.
+    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
+    let canonical_log = FlagsCanonicalLogLine {
+        request_id,
+        ip: ip_string.clone(),
+        user_agent: user_agent.map(|s| s.to_string()),
+        lib: ua_info.lib_for_logging(),
+        // Browser SDK sends ver= query param, server SDKs send version in User-Agent
+        lib_version: query_params.lib_version.clone().or(ua_info.sdk_version),
+        api_version: query_params.version.clone(),
+        ..Default::default()
+    };
+
     // Check if this request came through the decide proxy
     let is_from_decide = headers
         .get("X-Original-Endpoint")
@@ -268,6 +289,12 @@ pub async fn flags(
         modified_query_params.config = Some(true);
     }
 
+    // Parse version from query params (needed for response formatting)
+    let query_version = modified_query_params
+        .version
+        .as_deref()
+        .map(|v| v.parse::<i32>().unwrap_or(1));
+
     let context = RequestContext {
         request_id,
         state: state.clone(),
@@ -277,99 +304,68 @@ pub async fn flags(
         body,
     };
 
-    // Rate limiting strategy (order matters for security):
-    // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
-    // 2. Token-based rate limiting second - enforces per-project limits
-    //
-    // This order ensures that an attacker cannot bypass rate limiting by
-    // simply rotating through fake tokens from the same IP address.
-
-    // Check IP-based rate limit first
-    if !state.ip_rate_limiter.allow_request(&ip.to_string()) {
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
-    }
-
-    // Check token-based rate limit
-    // Extract token from body, use IP as fallback if extraction fails
-    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
-    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
-        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
-    }
-
-    // Parse version from query params
-    let query_version = context
-        .meta
-        .version
-        .clone()
-        .as_deref()
-        .map(|v| v.parse::<i32>().unwrap_or(1));
-
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
         &headers,
         &query_params,
         &method,
         &path,
-        &ip.to_string(),
+        &ip_string,
         request_id,
     );
 
-    let response = async move { process_request(context).await }
-        .instrument(_span)
-        .await?;
+    // Run the request within a canonical log scope.
+    // All code within can use with_canonical_log() to update the log.
+    let (result, mut log) = run_with_canonical_log(canonical_log, async {
+        // Rate limiting strategy (order matters for security):
+        // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
+        // 2. Token-based rate limiting second - enforces per-project limits
+        //
+        // This order ensures that an attacker cannot bypass rate limiting by
+        // simply rotating through fake tokens from the same IP address.
 
-    // Determine the response format based on whether request is from decide and version
-    let (versioned_response, response_format) =
-        get_versioned_response(is_from_decide, query_version, response)?;
+        // Check IP-based rate limit first
+        if !state.ip_rate_limiter.allow_request(&ip_string) {
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::IpRateLimited,
+            )));
+        }
 
-    let log_context = LogContext {
-        headers: &headers,
-        query_params: &query_params,
-        method: &method,
-        path: &path,
-        ip: &ip.to_string(),
-        request_id,
-        is_from_decide,
-        query_version,
-        response_format,
-    };
-    log_request_info(log_context);
+        // Check token-based rate limit
+        // Extract token from body, use IP as fallback if extraction fails
+        let rate_limit_key =
+            decoding::extract_token(&context.body).unwrap_or_else(|| ip_string.clone());
+        if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+            return Err(rate_limit_error(FlagError::ClientFacing(
+                ClientFacingError::TokenRateLimited,
+            )));
+        }
 
-    Ok(Json(versioned_response).into_response())
-}
+        process_request(context).await
+    })
+    .instrument(_span)
+    .await;
 
-fn log_request_info(ctx: LogContext) {
-    let user_agent = ctx
-        .headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-    let content_encoding = ctx
-        .query_params
-        .compression
-        .as_ref()
-        .map_or("none", |c| c.as_str());
-    let content_type = ctx
-        .headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    tracing::info!(
-        user_agent = %user_agent,
-        content_encoding = %content_encoding,
-        content_type = %content_type,
-        version = %ctx.query_params.version.as_deref().unwrap_or("unknown"),
-        lib_version = %ctx.query_params.lib_version.as_deref().unwrap_or("unknown"),
-        compression = %ctx.query_params.compression.as_ref().map_or("none", |c| c.as_str()),
-        method = %ctx.method.as_str(),
-        path = %ctx.path.as_str().trim_end_matches('/'),
-        ip = %ctx.ip,
-        sent_at = %ctx.query_params.sent_at.unwrap_or(0).to_string(),
-        request_id = %ctx.request_id,
-        is_from_decide = %ctx.is_from_decide,
-        query_version = ?ctx.query_version,
-        response_format = %ctx.response_format,
-        "Processing request"
-    );
+    match result {
+        Ok(response) => {
+            // Determine the response format based on whether request is from decide and version
+            match get_versioned_response(is_from_decide, query_version, response) {
+                Ok((versioned_response, _response_format)) => {
+                    log.http_status = 200;
+                    log.emit();
+                    Ok(Json(versioned_response).into_response())
+                }
+                Err(e) => {
+                    log.emit_for_error(&e);
+                    Err(e)
+                }
+            }
+        }
+        Err(e) => {
+            log.emit_for_error(&e);
+            Err(e)
+        }
+    }
 }
 
 fn create_request_span(

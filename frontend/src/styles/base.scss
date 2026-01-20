@@ -1096,6 +1096,9 @@
     }
 
     .input-like {
+        --input-ring-color: var(--color-bg-fill-highlight-75);
+        --input-ring-size: 3px;
+
         border-radius: var(--radius);
         outline: 0 solid transparent;
         box-shadow: 0 0 0 0 transparent;
@@ -1108,7 +1111,7 @@
 
         &:not([disabled]):focus-visible,
         &:not([disabled]):focus-within {
-            box-shadow: 0 0 0 3px var(--color-bg-fill-highlight-75);
+            box-shadow: 0 0 0 var(--input-ring-size) var(--input-ring-color);
         }
     }
 

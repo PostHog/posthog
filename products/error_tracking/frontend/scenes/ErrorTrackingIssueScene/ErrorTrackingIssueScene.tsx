@@ -145,6 +145,7 @@ const RightHandColumn = (): JSX.Element => {
             <PostHogSDKIssueBanner event={selectedEvent} />
             <ExceptionCard
                 issueId={issue?.id ?? 'no-issue'}
+                issueName={issue?.name ?? null}
                 loading={issueLoading || initialEventLoading}
                 event={selectedEvent ?? undefined}
                 label={tagRenderer(selectedEvent)}

@@ -168,6 +168,7 @@ def class_queryset(
         qs = qs.filter(**filters)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
     # entity id

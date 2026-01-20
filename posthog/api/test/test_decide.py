@@ -753,6 +753,68 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["captureDeadClicks"], True)
 
+    def test_conversations_disabled_by_default(self, *args):
+        response = self._post_decide().json()
+        self.assertEqual(response.get("conversations"), False)
+
+    def test_conversations_enabled_with_defaults(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "test_public_token_123",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
+        self.assertEqual(response["conversations"]["color"], "#1d4aff")
+        self.assertEqual(response["conversations"]["token"], "test_public_token_123")
+        self.assertEqual(response["conversations"]["domains"], [])
+
+    def test_conversations_enabled_with_custom_config(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "Welcome! Need assistance?",
+            "widget_color": "#ff5733",
+            "widget_public_token": "custom_token",
+            "widget_domains": ["example.com", "test.com"],
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["enabled"], True)
+        self.assertEqual(response["conversations"]["widgetEnabled"], True)
+        self.assertEqual(response["conversations"]["greetingText"], "Welcome! Need assistance?")
+        self.assertEqual(response["conversations"]["color"], "#ff5733")
+        self.assertEqual(response["conversations"]["token"], "custom_token")
+        self.assertEqual(response["conversations"]["domains"], ["example.com", "test.com"])
+
+    def test_conversations_disabled_returns_false(self, *args):
+        self.team.conversations_enabled = False
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_public_token": "should_not_appear",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"], False)
+
+    def test_conversations_with_empty_greeting_uses_default(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {
+            "widget_enabled": True,
+            "widget_greeting_text": "",
+            "widget_public_token": "test_token",
+        }
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["conversations"]["greetingText"], "Hey, how can I help you today?")
+
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self, *args):
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
