@@ -97,13 +97,14 @@ def _compare_with_cpp_json(
     parsed_ast: ast.AST,
     rule: Literal["expr", "select", "order_expr", "program"],
     source: str,
+    start: int | None = None,
 ) -> None:
     if backend == "cpp-json":
         return
 
     try:
         fn = RULE_TO_PARSE_FUNCTION["cpp-json"][rule]
-        cpp_json_ast = fn(source, start=None) if rule == "expr" else fn(source)
+        cpp_json_ast = fn(source, start=start) if rule == "expr" else fn(source)
     except Exception as err:
         logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
         return
@@ -156,7 +157,7 @@ def parse_expr(
     with timings.measure(f"parse_expr_{backend}"):
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
-            _compare_with_cpp_json(backend, node, "expr", expr)
+            _compare_with_cpp_json(backend, node, "expr", expr, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
