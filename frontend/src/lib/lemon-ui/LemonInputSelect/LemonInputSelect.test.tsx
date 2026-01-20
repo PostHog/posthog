@@ -245,4 +245,45 @@ describe('LemonInputSelect', () => {
         // Verify onChange was called with empty array (clearing the selection)
         expect(onChange).toHaveBeenCalledWith([])
     })
+
+    it('custom values: typing prefix of existing option shows both entries, completing shows only one', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[
+                    { key: 'test-option', label: 'Test Option' },
+                    { key: 'example', label: 'Example Option' },
+                ]}
+                value={[]}
+                onChange={onChange}
+                allowCustomValues
+                formatCreateLabel={(input) => `Add "${input}"`}
+            />
+        )
+
+        const input = await openDropdown(container)
+
+        // Type a prefix "test-opt" (partial match for "test-option")
+        await userEvent.type(input, 'test-opt')
+
+        // Should show 2 entries: the custom "Add 'test-opt'" and the matching "Test Option"
+        const addButton = await findDropdownButtonByText('Add "test-opt"')
+        const testButton = await findDropdownButtonByText('Test Option')
+        expect(addButton).toBeInTheDocument()
+        expect(testButton).toBeInTheDocument()
+
+        // Now complete typing to "test-option" (exact match)
+        await userEvent.type(input, 'ion')
+
+        // Should now show only 1 entry: the existing "Test Option"
+        // The custom "Add 'test-option'" should NOT appear since it matches an existing option
+        const dropdownButtons = await screen.findAllByRole('button')
+        const testButtons = dropdownButtons.filter((button) => button.textContent?.includes('Test Option'))
+        const addTestButtons = dropdownButtons.filter((button) => button.textContent?.includes('Add "test-option"'))
+
+        expect(testButtons.length).toBeGreaterThanOrEqual(1)
+        expect(addTestButtons.length).toBe(0)
+    })
 })
