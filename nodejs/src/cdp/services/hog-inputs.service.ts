@@ -4,7 +4,6 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
 
-import { logger } from '../../utils/logger'
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
@@ -93,28 +92,17 @@ export class HogInputsService {
         )
 
         if (usesPushSubscriptions && globals.event?.distinct_id) {
-            try {
-                const pushSubscriptions = await this.pushSubscriptionsManager.get({
-                    teamId: hogFunction.team_id,
-                    distinctId: globals.event.distinct_id,
-                })
-                newGlobals.push_subscriptions = pushSubscriptions.map((sub) => ({
-                    id: sub.id,
-                    token: sub.token,
-                    platform: sub.platform,
-                    is_active: sub.is_active,
-                    last_successfully_used_at: sub.last_successfully_used_at,
-                }))
-            } catch (error) {
-                // Log error but don't fail the function execution
-                // Push subscriptions are optional - if lookup fails, template can fall back to manual input
-                logger.warn('[HogInputsService]', 'Failed to load push subscriptions', {
-                    error,
-                    teamId: hogFunction.team_id,
-                    distinctId: globals.event.distinct_id,
-                })
-                newGlobals.push_subscriptions = []
-            }
+            const pushSubscriptions = await this.pushSubscriptionsManager.get({
+                teamId: hogFunction.team_id,
+                distinctId: globals.event.distinct_id,
+            })
+            newGlobals.push_subscriptions = pushSubscriptions.map((sub) => ({
+                id: sub.id,
+                token: sub.token,
+                platform: sub.platform,
+                is_active: sub.is_active,
+                last_successfully_used_at: sub.last_successfully_used_at,
+            }))
         } else {
             newGlobals.push_subscriptions = []
         }
