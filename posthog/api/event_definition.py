@@ -156,19 +156,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
                 {"name": event_definition.name},
             )
 
-        # Log activity for audit trail
-        if request and request.user:
-            log_activity(
-                organization_id=cast(UUIDT, view.organization_id),
-                team_id=view.team_id,
-                user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
-                item_id=str(event_definition.id),
-                scope="EventDefinition",
-                activity="created",
-                detail=Detail(name=event_definition.name, changes=None),
-            )
-
         return event_definition
 
     def update(self, event_definition: EventDefinition, validated_data):
