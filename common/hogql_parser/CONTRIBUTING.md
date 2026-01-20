@@ -49,10 +49,10 @@ Key takeaways:
 1. Install libraries:
 
    ```bash
-   brew install boost antlr4-cpp-runtime
+   brew install antlr4-cpp-runtime
    ```
 
-1. Install `hogql_parser` by building from local sources:
+2. Install `hogql_parser` by building from local sources:
 
    ```bash
    pip install ./common/hogql_parser
@@ -63,7 +63,7 @@ Key takeaways:
    > Then you may need to remove Xcode Command Line Tools:  
    > `sudo rm -rf /Library/Developer/CommandLineTools`
 
-1. If you now run tests, the locally-built version of `hogql_parser` will be used:
+3. If you now run tests, the locally-built version of `hogql_parser` will be used:
 
    ```bash
    pytest posthog/hogql/

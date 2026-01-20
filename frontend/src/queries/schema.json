@@ -10437,6 +10437,10 @@
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -17213,6 +17217,13 @@
                 },
                 "debug": {
                     "type": "boolean"
+                },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
@@ -29053,6 +29064,10 @@
                     "type": "boolean"
                 },
                 "showCorrelationTable": {
+                    "type": "boolean"
+                },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
                     "type": "boolean"
                 },
                 "showDateRange": {

@@ -323,7 +323,7 @@ class TestBatchTraceSummarizationWorkflow:
         inputs = BatchTraceSummarizationWorkflow.parse_inputs(["123"])
 
         assert inputs.team_id == 123
-        assert inputs.max_traces == 100
+        assert inputs.max_traces == 10
         assert inputs.batch_size == 3
         assert inputs.mode == "detailed"
         assert inputs.window_minutes == 60

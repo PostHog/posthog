@@ -244,15 +244,6 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
-    rollout_percentage: function onRolloutPercentage(change) {
-        return {
-            description: [
-                <>
-                    changed rollout percentage to <div className="highlighted-activity">{change?.after as string}%</div>
-                </>,
-            ],
-        }
-    },
     key: function onKey(change, logItem) {
         const changeBefore = change?.before as string
         const changeAfter = change?.after as string
@@ -361,7 +352,6 @@ const featureFlagActionsMapping: Record<
     created_at: () => null,
     created_by: () => null,
     updated_at: () => null,
-    is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
     usage_dashboard: () => null,
