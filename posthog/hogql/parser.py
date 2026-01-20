@@ -98,6 +98,7 @@ def _compare_with_cpp_json(
     rule: Literal["expr", "select", "order_expr", "program"],
     source: str,
     start: int | None = None,
+    placeholders: dict[str, ast.Expr] | None = None,
 ) -> None:
     if backend == "cpp-json":
         return
@@ -107,6 +108,19 @@ def _compare_with_cpp_json(
         cpp_json_ast = fn(source, start=start) if rule == "expr" else fn(source)
     except Exception as err:
         logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
+        return
+
+    try:
+        if placeholders:
+            cpp_json_ast = replace_placeholders(cpp_json_ast, placeholders)
+    except Exception as err:
+        logger.warning(
+            "hogql_cpp_json_placeholder_replacement_error",
+            rule=rule,
+            backend=backend,
+            query=source,
+            error=str(err),
+        )
         return
 
     try:
@@ -157,10 +171,10 @@ def parse_expr(
     with timings.measure(f"parse_expr_{backend}"):
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["expr"](expr, start)
-            _compare_with_cpp_json(backend, node, "expr", expr, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "expr", expr, start=start, placeholders=placeholders)
     return node
 
 
@@ -176,10 +190,10 @@ def parse_order_expr(
     with timings.measure(f"parse_order_expr_{backend}"):
         with RULE_TO_HISTOGRAM["order_expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["order_expr"](order_expr)
-            _compare_with_cpp_json(backend, node, "order_expr", order_expr)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "order_expr", order_expr, start=None, placeholders=placeholders)
     return node
 
 
@@ -198,10 +212,10 @@ def parse_select(
             tracer.start_as_current_span("parse_statement_to_node"),
         ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
-            _compare_with_cpp_json(backend, node, "select", statement)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "select", statement, start=None, placeholders=placeholders)
     return node
 
 
@@ -216,7 +230,7 @@ def parse_program(
     with timings.measure(f"parse_expr_{backend}"):
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
-            _compare_with_cpp_json(backend, node, "program", source)
+    _compare_with_cpp_json(backend, node, "program", source, start=None, placeholders=None)
     return node
 
 
