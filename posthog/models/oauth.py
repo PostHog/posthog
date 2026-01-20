@@ -76,13 +76,18 @@ class OAuthApplication(AbstractApplication):
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:
-                allowed_schemes = cast(
-                    list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
+                # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
+                # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+                blocked_schemes = cast(
+                    list[str],
+                    settings.OAUTH2_PROVIDER.get(
+                        "BLOCKED_REDIRECT_URI_SCHEMES", ["javascript", "data", "file", "blob", "vbscript"]
+                    ),
                 )
-                if parsed_uri.scheme not in allowed_schemes:
+                if parsed_uri.scheme in blocked_schemes:
                     raise ValidationError(
                         {
-                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed. Allowed schemes: {', '.join(allowed_schemes)}"
+                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
                         }
                     )
             else:
@@ -107,17 +112,22 @@ class OAuthApplication(AbstractApplication):
         super().save(*args, **kwargs)
 
     def get_allowed_schemes(self) -> list[str]:
-        """Extract unique schemes from the application's registered redirect URIs, filtered against allowed schemes."""
+        """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
         from django.conf import settings
 
-        allowed_list = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]))
-        globally_allowed = set(allowed_list)
+        blocked_list = cast(
+            list[str],
+            settings.OAUTH2_PROVIDER.get(
+                "BLOCKED_REDIRECT_URI_SCHEMES", ["javascript", "data", "file", "blob", "vbscript"]
+            ),
+        )
+        blocked_schemes = set(blocked_list)
         schemes: set[str] = set()
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue
             parsed_uri = urlparse(uri)
-            if parsed_uri.scheme and parsed_uri.scheme in globally_allowed:
+            if parsed_uri.scheme and parsed_uri.scheme not in blocked_schemes:
                 schemes.add(parsed_uri.scheme)
         return list(schemes) if schemes else ["https"]
 
