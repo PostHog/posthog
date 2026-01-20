@@ -450,42 +450,6 @@ CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 ####
-# /decide
-
-# Decide rate limit setting
-DECIDE_RATE_LIMIT_ENABLED = get_from_env("DECIDE_RATE_LIMIT_ENABLED", False, type_cast=str_to_bool)
-DECIDE_BUCKET_CAPACITY = get_from_env("DECIDE_BUCKET_CAPACITY", type_cast=int, default=500)
-DECIDE_BUCKET_REPLENISH_RATE = get_from_env("DECIDE_BUCKET_REPLENISH_RATE", type_cast=float, default=10.0)
-
-# This is a list of team-ids that are prevented from using the /decide endpoint
-# until they fix an issue with their feature flags causing instability in posthog.
-DECIDE_SHORT_CIRCUITED_TEAM_IDS = [0]
-
-# Decide db settings
-DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, type_cast=str_to_bool)
-
-# Decide billing analytics
-DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
-DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
-
-# Decide regular request analytics
-# Takes 3 possible formats, all separated by commas:
-# A number: "2"
-# A range: "2:5" -- represents team IDs 2, 3, 4, 5
-# The string "all" -- represents all team IDs
-DECIDE_TRACK_TEAM_IDS = get_list(os.getenv("DECIDE_TRACK_TEAM_IDS", ""))
-
-# Decide skip hash key overrides
-DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES = get_from_env(
-    "DECIDE_SKIP_HASH_KEY_OVERRIDE_WRITES", False, type_cast=str_to_bool
-)
-
-# if `true` we disable session replay if over quota
-DECIDE_SESSION_REPLAY_QUOTA_CHECK = get_from_env("DECIDE_SESSION_REPLAY_QUOTA_CHECK", False, type_cast=str_to_bool)
-
-# if `true` we disable feature flags if over quota
-DECIDE_FEATURE_FLAG_QUOTA_CHECK = get_from_env("DECIDE_FEATURE_FLAG_QUOTA_CHECK", False, type_cast=str_to_bool)
-
 ####
 # /remote_config
 REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE = get_from_env("REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE", 0.0, type_cast=float)
@@ -561,7 +525,18 @@ OAUTH2_PROVIDER = {
     },
     # Allow http, https, and custom schemes to support localhost callbacks and native mobile apps
     # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
-    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https", "posthog", "array"],
+    "ALLOWED_REDIRECT_URI_SCHEMES": [
+        "http",
+        "https",
+        "posthog",
+        "array",
+        "cursor",
+        "cursor-dev",
+        "vscode",
+        "cline",
+        "windsurf",
+        "zed",
+    ],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires
     "DEFAULT_SCOPES": ["openid"],

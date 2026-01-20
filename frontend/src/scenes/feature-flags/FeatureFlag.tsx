@@ -736,26 +736,27 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             )
                                         }}
                                     </LemonField>
-                                    {isNewFeatureFlag && (
-                                        <LemonField name="_should_create_usage_dashboard">
-                                            {({ value, onChange }) => (
-                                                <div className="border rounded p-4">
-                                                    <LemonCheckbox
-                                                        id="create-usage-dashboard-checkbox"
-                                                        label="Create usage dashboard"
-                                                        onChange={() => onChange(!value)}
-                                                        checked={value}
-                                                        data-attr="create-usage-dashboard-checkbox"
-                                                    />
-                                                    <div className="text-secondary text-sm pl-7">
-                                                        Automatically track how often this flag is called and what
-                                                        values are returned. Creates a dashboard with call volume trends
-                                                        and variant distribution insights.
+                                    {isNewFeatureFlag &&
+                                        featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
+                                            <LemonField name="_should_create_usage_dashboard">
+                                                {({ value, onChange }) => (
+                                                    <div className="border rounded p-4">
+                                                        <LemonCheckbox
+                                                            id="create-usage-dashboard-checkbox"
+                                                            label="Create usage dashboard"
+                                                            onChange={() => onChange(!value)}
+                                                            checked={value}
+                                                            data-attr="create-usage-dashboard-checkbox"
+                                                        />
+                                                        <div className="text-secondary text-sm pl-7">
+                                                            Automatically track how often this flag is called and what
+                                                            values are returned. Creates a dashboard with call volume
+                                                            trends and variant distribution insights.
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            )}
-                                        </LemonField>
-                                    )}
+                                                )}
+                                            </LemonField>
+                                        )}
                                     {!featureFlag.is_remote_configuration && (
                                         <LemonField name="ensure_experience_continuity">
                                             {({ value, onChange }) => (
@@ -797,7 +798,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         target="_blank"
                                                         targetBlankIcon
                                                     >
-                                                        Learn more about using evaluation environments
+                                                        Learn more about evaluation contexts
                                                     </Link>
                                                 </div>
                                                 <LemonField name="evaluation_runtime">
@@ -866,17 +867,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                         <>
                                             <SceneDivider />
-                                            <SceneSection title="Tags">
+                                            <SceneSection title="Tags & Evaluation Contexts">
                                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                                     <div className="text-secondary text-sm mb-2">
-                                                        Tags provide fine-grained control over where and when your
-                                                        feature flags evaluate.{' '}
+                                                        Use tags to organize and filter your feature flags. Mark
+                                                        specific tags as <strong>evaluation contexts</strong> to control
+                                                        when flags can be evaluated – flags will only evaluate when the
+                                                        SDK provides matching environment tags.{' '}
                                                         <Link
                                                             to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                                             target="_blank"
                                                             targetBlankIcon
                                                         >
-                                                            Learn more about using evaluation environments
+                                                            Learn more about evaluation contexts
                                                         </Link>
                                                     </div>
                                                 )}
@@ -1556,17 +1559,17 @@ function FeatureFlagRollout({
                                 />
                             </SceneSection>
 
-                            <SceneSection title="Evaluation environments">
+                            <SceneSection title="Evaluation contexts">
                                 <div className="text-secondary text-sm mb-2">
-                                    Evaluation environments provide fine-grained control over where and when your
-                                    feature flags evaluate. Combine evaluation runtime and tags to control where and
+                                    Evaluation contexts provide fine-grained control over where and when your feature
+                                    flags evaluate. Combine evaluation runtime and context tags to control where and
                                     when your feature flags evaluate.{' '}
                                     <Link
                                         to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                         target="_blank"
                                         targetBlankIcon
                                     >
-                                        Learn more about using evaluation environments
+                                        Learn more about using evaluation contexts
                                     </Link>
                                 </div>
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
@@ -1680,17 +1683,29 @@ function FeatureFlagRollout({
                                 </span>
                             ) : (
                                 <>
-                                    {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                    {multivariateEnabled ? (
-                                        <>
-                                            <strong>a variant key</strong> according to the below distribution
-                                        </>
-                                    ) : (
-                                        <strong>
-                                            <code>true</code>
-                                        </strong>
-                                    )}{' '}
-                                    <span>if they match one or more release condition groups.</span>
+                                    <div>
+                                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                        {multivariateEnabled ? (
+                                            <>
+                                                <strong>a variant key</strong> according to the below distribution
+                                            </>
+                                        ) : (
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                        )}{' '}
+                                        if they match one or more release condition groups.
+                                        {multivariateEnabled && (
+                                            <>
+                                                {' '}
+                                                Otherwise, the feature flag will evaluate to{' '}
+                                                <strong>
+                                                    <code>false</code>
+                                                </strong>
+                                                .
+                                            </>
+                                        )}
+                                    </div>
                                 </>
                             )}
                         </div>

@@ -33,6 +33,7 @@ class TicketSerializer(serializers.ModelSerializer):
         model = Ticket
         fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "status",
@@ -48,9 +49,12 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "session_id",
+            "session_context",
         ]
         read_only_fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "created_at",
@@ -59,6 +63,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_text",
             "unread_team_count",
             "assigned_to_user",
+            "session_id",
+            "session_context",
         ]
 
     def get_message_count(self, obj: Ticket) -> int:
@@ -202,9 +208,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            queryset = queryset.filter(
-                Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
-            )
+            if search.isdigit():
+                queryset = queryset.filter(ticket_number=int(search))
+            else:
+                queryset = queryset.filter(
+                    Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
+                )
 
         return queryset.order_by("-updated_at")
 
