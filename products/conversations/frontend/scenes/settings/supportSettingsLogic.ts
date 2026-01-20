@@ -24,7 +24,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
-        setGreetingInputValue: (value: string) => ({ value }),
+        setGreetingInputValue: (value: string | null) => ({ value }),
         saveGreetingText: true,
     }),
     reducers({
