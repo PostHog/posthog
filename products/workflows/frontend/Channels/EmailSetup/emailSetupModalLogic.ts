@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
@@ -61,6 +61,7 @@ const getEmailSenderFromIntegration = (integration: IntegrationType): EmailSende
 
 export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'EmailSetup', 'emailSetupModalLogic']),
+    props({} as EmailSetupModalLogicProps),
     key(({ integration }) => (integration ? `workflows-sender-setup-${integration.id}` : 'workflows-sender-setup-new')),
     connect(() => ({
         values: [integrationsLogic, ['integrations', 'integrationsLoading']],
@@ -126,7 +127,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
     loaders(({ values }) => ({
         verification: {
             verifyDomain: async () => {
-                return api.integrations.verifyEmail(values.savedIntegration?.id)
+                if (values.savedIntegration) {
+                    return api.integrations.verifyEmail(values.savedIntegration.id)
+                }
             },
         },
     })),

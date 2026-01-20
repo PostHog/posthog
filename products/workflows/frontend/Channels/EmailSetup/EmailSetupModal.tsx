@@ -19,9 +19,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { DnsRecord, EmailSetupModalLogicProps, emailSetupModalLogic } from './emailSetupModalLogic'
 
 export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element => {
+    const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
-        useValues(emailSetupModalLogic(props))
-    const { verifyDomain, submitEmailSender } = useActions(emailSetupModalLogic(props))
+        useValues(logic)
+    const { verifyDomain, submitEmailSender } = useActions(logic)
     return (
         <>
             <LemonModal title="Configure email sender" width="auto" onClose={props.onComplete}>
