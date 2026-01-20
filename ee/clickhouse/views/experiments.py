@@ -294,7 +294,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         # Ensure stats_config has a method set, preserving any other fields passed from frontend
         stats_config = validated_data.get("stats_config", {}) or {}
-        team = Team.objects.get(id=self.context["team_id"])
+        team = Team.objects.select_related("organization").get(id=self.context["team_id"])
 
         if not stats_config.get("method"):
             # Get organization's default stats method setting
