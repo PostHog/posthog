@@ -12,11 +12,11 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
-from posthog.dags.materialized_columns import (
+from posthog.dags.backfill_materialized_column import (
     MaterializationConfig,
     PartitionRange,
+    backfill_materialized_column,
     join_mappings,
-    materialize_column,
     run_materialize_mutations,
 )
 
@@ -121,7 +121,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
             # behavior, not the mutation itself. this isn't intended but is probably okay to do)
             resume_merges()
 
-            materialize_column.execute_in_process(
+            backfill_materialized_column.execute_in_process(
                 run_config=dagster.RunConfig(
                     {run_materialize_mutations.name: {"config": materialize_column_config.model_dump()}},
                 ),
@@ -154,7 +154,7 @@ def test_sharded_table_job(cluster: ClickhouseCluster):
                     # skip the column (as it has been materialized), but materialize the index
                     assert all("MATERIALIZE INDEX" in command for command in mutation.commands)
 
-            materialize_column.execute_in_process(
+            backfill_materialized_column.execute_in_process(
                 run_config=dagster.RunConfig(
                     {run_materialize_mutations.name: {"config": materialize_column_and_index_config.model_dump()}},
                 ),
