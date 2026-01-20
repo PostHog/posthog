@@ -92,7 +92,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         if (!streamingActive && textAreaRef?.current) {
             textAreaRef.current.focus()
         }
-    }, [streamingActive])
+    }, [streamingActive, textAreaRef])
 
     return (
         <div
