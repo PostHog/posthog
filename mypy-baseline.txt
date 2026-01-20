@@ -45,7 +45,6 @@ ee/api/test/test_conversation.py:0: error: "HttpResponse" has no attribute "stre
 ee/api/test/test_conversation.py:0: error: Incompatible types in assignment (expression has type "Conversation | None", variable has type "Conversation")  [assignment]
 ee/api/test/test_hooks.py:0: error: Incompatible type for "id" of "Hook" (got "UUID", expected "str | int | Combinable | None")  [misc]
 ee/api/test/test_project.py:0: error: Unsupported dynamic base class "team_enterprise_api_test_factory"  [misc]
-ee/api/test/test_property_definition.py:0: error: "Organization" has no attribute "available_features"; maybe "get_available_feature" or "available_product_features"?  [attr-defined]
 ee/api/test/test_property_definition.py:0: error: Value of type "Any | None" is not indexable  [index]
 ee/api/test/test_property_definition.py:0: error: Value of type "Any | None" is not indexable  [index]
 ee/api/test/test_property_definition.py:0: error: Value of type "Any | None" is not indexable  [index]
