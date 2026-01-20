@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -681,7 +682,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        console.error('Failed to load total count:', error)
+                        posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
                         return null
                     }
                 },
@@ -701,7 +702,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        console.error('Failed to load filtered count:', error)
+                        posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
                         return null
                     }
                 },
@@ -1180,10 +1181,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             }
         },
         filteredCountQuery: () => {
-            actions.loadFilteredCount()
-        },
-        queryId: () => {
-            actions.loadTotalCount()
             actions.loadFilteredCount()
         },
     })),
