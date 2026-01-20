@@ -6,15 +6,8 @@ Here is the group mapping:
 PLAN_PROMPT = """
 Here is the plan:
 {{{plan}}}
-""".strip()
 
-NEW_PLAN_PROMPT = """
-Here is the new plan:
-{{{plan}}}
-""".strip()
-
-QUESTION_PROMPT = """
-Answer to this question: {{{question}}}
+Generate a schema from this plan.
 """.strip()
 
 FAILOVER_OUTPUT_PROMPT = """

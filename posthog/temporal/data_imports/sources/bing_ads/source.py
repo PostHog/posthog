@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -57,7 +57,9 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
             ),
         )
 
-    def validate_credentials(self, config: BingAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: BingAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.account_id or not config.bing_ads_integration_id:
             return False, "Account ID and Bing Ads integration are required"
 

@@ -52,8 +52,9 @@ function HogFlowEditorContent(): JSX.Element {
     }, [setReactFlowWrapper])
 
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full">
+        <div ref={reactFlowWrapper} className="flex flex-col grow w-full" data-attr="workflow-editor">
             <ReactFlow<HogFlowActionNode, HogFlowActionEdge>
+                className="grow"
                 fitView
                 nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}
                 edges={edges}

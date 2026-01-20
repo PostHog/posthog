@@ -10,7 +10,6 @@ from posthog.schema import (
     InsightVizNode,
     IntervalType,
     LifecycleQuery,
-    NodeKind,
     RetentionEntityKind,
     RetentionPeriod,
     RetentionQuery,
@@ -61,7 +60,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
         series = [
             EventsNode(
-                kind=NodeKind.EVENTS_NODE,
+                kind="EventsNode",
                 event=str(event_name) if isinstance(event_name, str) else None,
                 name=returning_entity.name,
                 custom_name=returning_entity.custom_name,
@@ -75,7 +74,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
         series = [
             ActionsNode(
-                kind=NodeKind.ACTIONS_NODE,
+                kind="ActionsNode",
                 id=action_id,
                 name=returning_entity.name,
                 custom_name=returning_entity.custom_name,
@@ -102,7 +101,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
 
     # Stickiness Query
     stickiness_query = StickinessQuery(
-        kind=NodeKind.STICKINESS_QUERY,
+        kind="StickinessQuery",
         series=series,
         interval=interval,
         dateRange=query.dateRange,
@@ -112,13 +111,13 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     )
 
     stickiness_target = InsightVizNode(
-        kind=NodeKind.INSIGHT_VIZ_NODE,
+        kind="InsightVizNode",
         source=stickiness_query,
     )
 
     # Lifecycle Query
     lifecycle_query = LifecycleQuery(
-        kind=NodeKind.LIFECYCLE_QUERY,
+        kind="LifecycleQuery",
         series=series,
         interval=interval,
         dateRange=query.dateRange,
@@ -128,7 +127,7 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     )
 
     lifecycle_target = InsightVizNode(
-        kind=NodeKind.INSIGHT_VIZ_NODE,
+        kind="InsightVizNode",
         source=lifecycle_query,
     )
 
@@ -146,19 +145,83 @@ def get_retention_suggestions(query: RetentionQuery, parent_query: InsightVizNod
     ]
 
 
-def get_insight_analysis(query: InsightVizNode, team: Team, insight_result: Optional[dict[str, Any]]) -> str:
+def summarize_insight_result(result: Any) -> Any:
+    if isinstance(result, list):
+        return [summarize_insight_result(item) for item in result]
+    if isinstance(result, dict):
+        new_result = {}
+        for k, v in result.items():
+            if k in ["persons_urls", "persons", "action"]:
+                continue
+            new_result[k] = summarize_insight_result(v)
+        return new_result
+    return result
+
+
+def get_query_specific_instructions(kind: str) -> str:
+    if kind == "TrendsQuery":
+        return (
+            "Focus on identifying significant changes in volume, growth trends, and seasonality. "
+            "Compare the current period to the start. Identify which breakdown segment (if any) is driving the trend."
+        )
+    elif kind == "FunnelsQuery":
+        return (
+            "Focus on conversion rates between steps. Identify the specific step with the largest drop-off (the bottleneck). "
+            "Compare conversion performance across breakdown segments if available."
+        )
+    elif kind == "RetentionQuery":
+        return (
+            "Focus on the retention curve shape. Identify when the drop-off stabilizes. "
+            "Compare retention rates between different cohorts or breakdown segments."
+        )
+    elif kind == "StickinessQuery":
+        return "Focus on how frequently users engage. Identify if there is a core group of power users."
+    elif kind == "LifecycleQuery":
+        return "Focus on the balance between new, returning, resurrecting, and dormant users. Identify which group is dominating the total count."
+
+    return "Focus on the most significant patterns and anomalies in the data."
+
+
+def get_insight_analysis(
+    query: InsightVizNode,
+    team: Team,
+    insight_result: Optional[dict[str, Any]],
+    insight_name: Optional[str] = None,
+    insight_description: Optional[str] = None,
+) -> str:
     """Generate an AI analysis of the insight, highlighting main points and actionable items."""
     try:
-        result_summary = json.dumps(insight_result, default=str)[:2000] if insight_result else "No results available"
+        # We strip out large data like persons/urls but keep the filter and results
+        result_summary = (
+            json.dumps(summarize_insight_result(insight_result), default=str)
+            if insight_result
+            else "No results available"
+        )
+
+        specific_instructions = get_query_specific_instructions(query.source.kind)
+
+        context_str = ""
+        if insight_name:
+            context_str += f"Insight Name: {insight_name}\n"
+        if insight_description:
+            context_str += f"Insight Description: {insight_description}\n"
 
         prompt = (
-            "You are an expert data analyst using PostHog. "
-            "Analyze the following insight configuration and its results. "
-            "Provide a concise analysis highlighting:\n"
-            "1. Main trends or patterns in the data\n"
-            "2. Actionable insights or recommendations\n"
-            "3. Possible explanations for the observed patterns\n\n"
-            "Keep your response focused and actionable. Avoid generic statements.\n\n"
+            "You are a senior product data analyst. "
+            "Your goal is to explain *what* is happening in this insight and *why* it matters. "
+            "\n\n"
+            f"Specific Analysis Context: {specific_instructions}\n"
+            f"{context_str}\n"
+            "Output Requirements:\n"
+            "1. **Headline**: Start with a single, high-impact sentence summarizing the most important finding.\n"
+            "2. **Evidence**: Provide 2-3 concise bullet points (-) supporting the headline. You MUST quantify changes (e.g., '+15%', '2x higher', 'dropped by 30%') using the data provided.\n"
+            "3. **Takeaway**: End with one specific recommendation or question for further investigation.\n"
+            "\n"
+            "Style Rules:\n"
+            "- Be direct. Remove fluff like 'The chart shows', 'We can observe', or 'Based on the data'.\n"
+            "- Focus on *changes* and *differences*.\n"
+            "- Use plain text only (no markdown formatting like bold/italics) as the output will be rendered as raw text.\n"
+            "\n"
             f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
             f"Results Summary: {result_summary}"
         )
@@ -195,7 +258,8 @@ def get_ai_suggestions(
             "1. **Schema Compliance**: You must return a valid `InsightVizNode` JSON. \n"
             "   - `TrendsQuery` does NOT have `breakdown` or `display` fields directly.\n"
             "   - Use `breakdownFilter` object for breakdowns (e.g., `breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' }`).\n"
-            "   - Use `trendsFilter` object for display (e.g., `trendsFilter: { display: 'ActionsBar' }`).\n"
+            "   - Use `trendsFilter` object for display (e.g., `trendsFilter: { display: 'ActionsBar' }`). Do NOT include 'yAxisScaleType' or other extra fields unless necessary and schema-compliant.\n"
+            "   - `StickinessQuery` uses `series` list (like Trends), NOT a single `event` field.\n"
             "2. **No Hallucination**: Use ONLY event names and property names that appear in the input query. Do not invent new properties like 'user_segment'.\n"
             "3. **Simple Scope**: Focus on changing the visualization type (e.g. Trends, Stickiness), time interval, or breaking down by common properties like '$browser', '$os', '$geoip_country_code' ONLY if you are sure they are relevant. Prefer simple transformations of the existing query.\n\n"
             "Provide the response as a JSON array of objects with the following keys:\n"
@@ -203,7 +267,7 @@ def get_ai_suggestions(
             "- description: A brief explanation of why this is interesting.\n"
             "- query_json: A valid PostHog InsightVizNode JSON object that represents the suggested query.\n\n"
             f"Current Query: {query.model_dump_json(exclude_none=True)}\n\n"
-            f"Results Summary: {json.dumps(insight_result, default=str)[:2000]}..."
+            f"Results Summary: {json.dumps(summarize_insight_result(insight_result), default=str)}..."
             f"{context_section}"
         )
 

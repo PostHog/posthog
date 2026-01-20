@@ -8,6 +8,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     escape_hogql_identifier,
     escape_hogql_string,
+    escape_postgres_identifier,
 )
 
 from posthog.models.utils import UUIDT
@@ -49,6 +50,33 @@ class TestPrintString(BaseTest):
             escape_clickhouse_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
             "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`",
         )
+
+    def test_sanitize_postgres_identifier(self):
+        self.assertEqual(escape_postgres_identifier("a"), "a")
+        self.assertEqual(escape_postgres_identifier("$browser"), '"$browser"')
+        self.assertEqual(escape_postgres_identifier("0asd"), '"0asd"')
+        self.assertEqual(escape_postgres_identifier("123"), '"123"')
+        self.assertEqual(escape_postgres_identifier("event"), "event")
+        self.assertEqual(escape_postgres_identifier("a b c"), '"a b c"')
+        self.assertEqual(escape_postgres_identifier("a.b.c"), '"a.b.c"')
+        self.assertEqual(escape_postgres_identifier("a-b-c"), '"a-b-c"')
+        self.assertEqual(escape_postgres_identifier("a#$#"), '"a#$#"')
+        self.assertEqual(escape_postgres_identifier("back`tick"), '"back`tick"')
+        self.assertEqual(escape_postgres_identifier("single'quote"), '"single\'quote"')
+        self.assertEqual(escape_postgres_identifier('double"quote'), '"double""quote"')
+        self.assertEqual(
+            escape_postgres_identifier("other escapes: \b \f \n \t \0 \a \v \\"),
+            '"other escapes: \b \f \n \t \0 \a \v \\"',
+        )
+
+    def test_escape_postgres_identifier_length(self):
+        identifier_at_max_length = "a" * 63
+        self.assertEqual(escape_postgres_identifier(identifier_at_max_length), identifier_at_max_length)
+
+        identifier_exceeding_max_length = "a" * 64
+        with self.assertRaises(QueryError) as context:
+            escape_postgres_identifier(identifier_exceeding_max_length)
+        self.assertIn("is too long. Maximum length is 63 characters", str(context.exception))
 
     def test_sanitize_clickhouse_string(self):
         self.assertEqual(escape_clickhouse_string("a"), "'a'")

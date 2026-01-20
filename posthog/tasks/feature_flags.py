@@ -4,6 +4,7 @@ from django.conf import settings
 
 import structlog
 from celery import shared_task
+from prometheus_client import Gauge
 
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
@@ -14,7 +15,7 @@ from posthog.models.feature_flag.flags_cache import (
 from posthog.models.feature_flag.local_evaluation import update_flag_caches
 from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = structlog.get_logger(__name__)
 
@@ -120,8 +121,8 @@ def refresh_expiring_flags_cache_entries() -> None:
         raise
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def cleanup_stale_flags_expiry_tracking_task() -> None:
+@shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+def cleanup_stale_flags_expiry_tracking_task(self: PushGatewayTask) -> None:
     """
     Periodic task to clean up stale entries in the flags cache expiry tracking sorted set.
 
@@ -132,9 +133,12 @@ def cleanup_stale_flags_expiry_tracking_task() -> None:
         logger.info("Flags Redis URL not set, skipping flags expiry tracking cleanup")
         return
 
-    try:
-        removed_count = cleanup_stale_expiry_tracking()
-        logger.info("Completed flags expiry tracking cleanup", removed_count=removed_count)
-    except Exception as e:
-        logger.exception("Failed to cleanup flags expiry tracking", error=str(e))
-        raise
+    entries_cleaned_gauge = Gauge(
+        "posthog_cleanup_stale_flags_expiry_entries_cleaned",
+        "Number of stale expiry tracking entries cleaned up",
+        registry=self.metrics_registry,
+    )
+
+    removed_count = cleanup_stale_expiry_tracking()
+    entries_cleaned_gauge.set(removed_count)
+    logger.info("Completed flags expiry tracking cleanup", removed_count=removed_count)

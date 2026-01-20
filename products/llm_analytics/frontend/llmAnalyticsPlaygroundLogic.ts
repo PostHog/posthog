@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError, RateLimitError } from 'lib/api'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -149,6 +149,8 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setupPlaygroundFromEvent: (payload: { model?: string; input?: any; tools?: any }) => ({ payload }),
         setResponseError: (hasError: boolean) => ({ hasError }),
         clearResponseError: true,
+        setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
+        setSubscriptionRequired: (required: boolean) => ({ required }),
     }),
 
     reducers({
@@ -278,6 +280,18 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 addResponseToHistory: () => false,
             },
         ],
+        rateLimitedUntil: [
+            null as number | null,
+            {
+                setRateLimited: (_, { retryAfterSeconds }) => Date.now() + retryAfterSeconds * 1000,
+            },
+        ],
+        subscriptionRequired: [
+            false as boolean,
+            {
+                setSubscriptionRequired: (_, { required }) => required,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         modelOptions: {
@@ -338,6 +352,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
 
             // Declare startTime outside try block
             let startTime: number | null = null
+
+            function handleRateLimitError(error: RateLimitError): void {
+                actions.setRateLimited(error.retryAfterSeconds)
+                actions.finalizeAssistantMessage()
+                return
+            }
 
             try {
                 // Start timer for latency? Might be inaccurate due to network etc.
@@ -406,7 +426,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         }
                     },
                     onError: (err) => {
-                        console.error('Stream error:', err)
+                        if (err instanceof RateLimitError) {
+                            return handleRateLimitError(err)
+                        }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            actions.finalizeAssistantMessage()
+                            return
+                        }
                         actions.addAssistantMessageChunk(
                             `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                         )
@@ -416,7 +443,14 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 })
                 actions.finalizeAssistantMessage()
             } catch (error) {
-                console.error('Submit prompt error:', error)
+                if (error instanceof RateLimitError) {
+                    return handleRateLimitError(error)
+                }
+                if (error instanceof ApiError && error.status === 402) {
+                    actions.setSubscriptionRequired(true)
+                    actions.finalizeAssistantMessage()
+                    return
+                }
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
                 actions.setResponseError(true)
                 lemonToast.error('Failed to connect to LLM service. Please try again.')

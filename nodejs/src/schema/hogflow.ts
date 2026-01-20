@@ -124,6 +124,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string().nullable(),
+            // When true, use the person's $geoip_time_zone property for timezone
+            use_person_timezone: z.boolean().optional(),
+            // Fallback timezone when use_person_timezone is true but person has no timezone set
+            fallback_timezone: z.string().nullable().optional(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
             day: z.union([
                 z.literal('any'),
@@ -224,6 +228,7 @@ export const HogFlowSchema = z.object({
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
+    billable_action_types: z.array(z.string()).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

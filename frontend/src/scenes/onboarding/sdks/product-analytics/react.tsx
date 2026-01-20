@@ -1,14 +1,12 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { ReactInstallation } from '@posthog/shared-onboarding/product-analytics'
 
-import { SDKInstallReactInstructions } from '../sdk-install-instructions/react'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsReactInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallReactInstructions />
-            <LemonDivider thick dashed className="my-4" />
-            <ProductAnalyticsAllJSFinalSteps />
+            <SetupWizardBanner integrationName="React" />
+            <ReactInstallation />
         </>
     )
 }

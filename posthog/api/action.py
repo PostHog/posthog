@@ -3,10 +3,13 @@ from typing import Any, cast
 
 from django.db.models import Count
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -155,6 +158,7 @@ class ActionSerializer(
         return instance
 
 
+@extend_schema(tags=[ProductKey.ACTIONS])
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

@@ -6,7 +6,6 @@ import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import {
     ActionFilter,
@@ -234,13 +233,6 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 index: number
             })
             actions.hideModal()
-
-            await breakpoint(100)
-
-            const dataLogic = insightDataLogic.findMounted({
-                dashboardItemId: props.typeKey,
-            })
-            dataLogic?.actions?.loadData('force_async')
         },
         hideModal: () => {
             actions.selectFilter(null)

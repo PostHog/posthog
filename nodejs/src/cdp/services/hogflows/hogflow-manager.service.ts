@@ -22,6 +22,7 @@ const HOG_FLOW_FIELDS = [
     'edges',
     'actions',
     'abort_action',
+    'billable_action_types',
 ]
 
 export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
@@ -146,6 +147,22 @@ export class HogFlowManagerService {
         const items = response.rows
 
         return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
+            // Ensure billable_action_types is properly parsed as an array
+            // PostgreSQL might return empty JSON arrays as empty objects
+            if (item.billable_action_types !== undefined && item.billable_action_types !== null) {
+                if (!Array.isArray(item.billable_action_types)) {
+                    // If it's an empty object, convert to empty array
+                    if (
+                        typeof item.billable_action_types === 'object' &&
+                        Object.keys(item.billable_action_types).length === 0
+                    ) {
+                        item.billable_action_types = []
+                    } else {
+                        // For any other non-array value, default to empty array
+                        item.billable_action_types = []
+                    }
+                }
+            }
             acc[item.id] = item
             return acc
         }, {})
