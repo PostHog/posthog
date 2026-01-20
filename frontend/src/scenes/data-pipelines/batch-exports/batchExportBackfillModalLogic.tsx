@@ -282,22 +282,23 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
             },
 
             submit: async ({ start_at, end_at, earliest_backfill }) => {
-                await api.batchExports
-                    .createBackfill(props.id, {
-                        start_at: earliest_backfill ? null : (start_at?.toISOString() ?? null),
-                        end_at: end_at?.toISOString() ?? null,
-                    })
-                    .catch((e) => {
-                        if (e.detail) {
-                            actions.setBackfillFormManualErrors({
-                                [e.attr ?? 'end_at']: e.detail,
-                            })
-                        } else {
-                            lemonToast.error('Unknown error occurred')
-                        }
-
-                        throw e
-                    })
+                let startAt = earliest_backfill ? null : (start_at?.toISOString() ?? null)
+                let endAt = end_at?.toISOString() ?? null
+                // If it's a daily or weekly batch export, we should only send date strings rather than datetime strings.
+                if (values.batchExportConfig?.interval === 'day' || values.batchExportConfig?.interval === 'week') {
+                    startAt = startAt?.split('T')[0] ?? null
+                    endAt = endAt?.split('T')[0] ?? null
+                }
+                await api.batchExports.createBackfill(props.id, { start_at: startAt, end_at: endAt }).catch((e) => {
+                    if (e.detail) {
+                        actions.setBackfillFormManualErrors({
+                            [e.attr ?? 'end_at']: e.detail,
+                        })
+                    } else {
+                        lemonToast.error('Unknown error occurred')
+                    }
+                    throw e
+                })
 
                 actions.closeBackfillModal()
                 return
