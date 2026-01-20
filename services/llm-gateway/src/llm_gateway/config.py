@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     default_user_cost_limit_usd: float = 2.0
     default_user_cost_window_seconds: int = 3600
+    user_cost_limits_enabled: bool = False
 
     default_fallback_cost_usd: float = 0.01
 
