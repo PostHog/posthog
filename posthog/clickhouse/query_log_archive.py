@@ -447,3 +447,14 @@ def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
         ),
         include_table_clauses=False,
     )
+
+
+# V8 - adding lc_query for storing full query JSON from log_comment
+def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
+    """
+
+
+def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
+    return f"""ALTER TABLE {mv_name} MODIFY QUERY {MV_SELECT_SQL}"""
