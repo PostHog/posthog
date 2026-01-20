@@ -97,8 +97,11 @@ impl SourceMapFile {
         self.inner.content.chunk_id = old_content.chunk_id.take();
         self.inner.content.release_id = old_content.release_id.take();
         // Preserve extension fields (e.g. x_org_dartlang_dart2js for Flutter/Dart minified name mapping)
+        // Skip "sections" since that's specific to index sourcemaps which we flatten above
         for (key, value) in old_content.fields {
-            self.inner.content.fields.entry(key).or_insert(value);
+            if key != "sections" {
+                self.inner.content.fields.entry(key).or_insert(value);
+            }
         }
 
         Ok(())
