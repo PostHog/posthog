@@ -4,10 +4,14 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import structlog
+
 if TYPE_CHECKING:
     from llm_gateway.auth.models import AuthenticatedUser
     from llm_gateway.rate_limiting.runner import ThrottleRunner
     from llm_gateway.rate_limiting.throttles import ThrottleContext
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass

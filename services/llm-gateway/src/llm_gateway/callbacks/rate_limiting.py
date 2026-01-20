@@ -32,7 +32,7 @@ def estimate_cost_from_tokens(
     if not input_cost_per_token or not output_cost_per_token:
         return None
 
-    return (input_tokens * input_cost_per_token) + (output_tokens * output_cost_per_token)
+    return input_tokens * input_cost_per_token + output_tokens * output_cost_per_token
 
 
 class RateLimitCallback(InstrumentedCallback):
@@ -46,14 +46,13 @@ class RateLimitCallback(InstrumentedCallback):
         model = standard_logging_object.get("model", "unknown")
         provider = standard_logging_object.get("custom_llm_provider", "unknown")
         product = get_product()
+        input_tokens = standard_logging_object.get("prompt_tokens")
+        output_tokens = standard_logging_object.get("completion_tokens")
 
         if response_cost and response_cost > 0:
             await record_cost(response_cost)
             COST_RECORDED.labels(provider=provider, model=model, product=product).inc(response_cost)
             return
-
-        input_tokens = standard_logging_object.get("prompt_tokens")
-        output_tokens = standard_logging_object.get("completion_tokens")
 
         estimated_cost = estimate_cost_from_tokens(model, input_tokens, output_tokens)
 
@@ -61,25 +60,11 @@ class RateLimitCallback(InstrumentedCallback):
             await record_cost(estimated_cost)
             COST_RECORDED.labels(provider=provider, model=model, product=product).inc(estimated_cost)
             COST_ESTIMATED.labels(provider=provider, model=model, product=product).inc()
-            logger.info(
-                "cost_estimated_from_tokens",
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                estimated_cost=estimated_cost,
-            )
             return
 
         settings = get_settings()
         fallback_cost = settings.default_fallback_cost_usd
+        logger.warning("cost_fallback_used", model=model, provider=provider, fallback_cost=fallback_cost)
         await record_cost(fallback_cost)
         COST_FALLBACK_DEFAULT.labels(provider=provider, model=model, product=product).inc()
         COST_MISSING.labels(provider=provider, model=model, product=product).inc()
-        logger.warning(
-            "cost_fallback_default_used",
-            model=model,
-            provider=provider,
-            fallback_cost=fallback_cost,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        )
