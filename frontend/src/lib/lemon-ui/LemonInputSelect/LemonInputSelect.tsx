@@ -386,7 +386,11 @@ export function LemonInputSelect<T = string>({
         }
 
         if (stringKeys.includes(item)) {
-            _removeItem(item)
+            // In single mode, clicking an already-selected value should keep it selected, not toggle it off
+            // (clicking an already selected item to toggle it off makes sense for multiple-select, not for single-select)
+            if (mode !== 'single') {
+                _removeItem(item)
+            }
         } else {
             _addItem(item, itemBeingEditedIndex)
         }
