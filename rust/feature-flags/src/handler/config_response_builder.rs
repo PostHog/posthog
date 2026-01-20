@@ -4,8 +4,10 @@ use crate::{
         types::{ConfigResponse, FlagsResponse},
     },
     config_cache::get_cached_config,
+    handler::session_recording::on_permitted_domain,
     team::team_models::Team,
 };
+use axum::http::HeaderMap;
 use limiters::redis::QuotaResource;
 use serde_json::{json, Value};
 
@@ -36,7 +38,7 @@ pub async fn build_response_from_cache(
         false
     };
 
-    let cached_config =
+    let mut cached_config =
         match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
             Some(config) => config,
             None => {
@@ -59,7 +61,8 @@ pub async fn build_response_from_cache(
             }
         };
 
-    response.config = ConfigResponse::from_value(cached_config.clone());
+    // Apply session recording domain filtering
+    apply_session_recording_domain_filter(&mut cached_config, &context.headers);
 
     // Real-time quota check takes precedence over cached values.
     if is_recordings_limited {
@@ -67,6 +70,8 @@ pub async fn build_response_from_cache(
     } else {
         apply_cached_quota_limits_without_recordings(&mut response, &cached_config);
     }
+
+    response.config = ConfigResponse::from_value(cached_config);
 
     tracing::debug!(
         team_id = team.id,
@@ -114,6 +119,39 @@ fn apply_cached_quota_limits_without_recordings(
 
         if !filtered.is_empty() {
             response.quota_limited = Some(filtered);
+        }
+    }
+}
+
+/// Apply session recording domain filtering to the cached config.
+///
+/// This removes `domains` from sessionRecording and sets sessionRecording=false
+/// if the request origin is not in the permitted domains list.
+fn apply_session_recording_domain_filter(cached_config: &mut Value, headers: &HeaderMap) {
+    let session_recording = match cached_config.get_mut("sessionRecording") {
+        Some(sr) => sr,
+        None => return,
+    };
+
+    let obj = match session_recording.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+
+    let domains = obj.remove("domains");
+
+    // Check domain permission if domains list exists and is non-empty
+    if let Some(domains_value) = domains {
+        if let Some(domains_array) = domains_value.as_array() {
+            let domain_strings: Vec<String> = domains_array
+                .iter()
+                .filter_map(|d| d.as_str().map(String::from))
+                .collect();
+
+            // Empty domains list means always permitted
+            if !domain_strings.is_empty() && !on_permitted_domain(&domain_strings, headers) {
+                *session_recording = json!(false);
+            }
         }
     }
 }
@@ -234,5 +272,100 @@ mod tests {
         apply_cached_quota_limits_without_recordings(&mut response, &cached);
 
         assert_eq!(response.quota_limited, None);
+    }
+
+    #[test]
+    fn test_session_recording_empty_domains_allowed() {
+        // Empty domains list means "allow all" - recording should remain enabled
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "domains": []
+            }
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://any.site.com".parse().unwrap());
+
+        apply_session_recording_domain_filter(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object(), "sessionRecording should remain as config");
+        assert!(sr.get("domains").is_none(), "domains must be stripped");
+    }
+
+    #[test]
+    fn test_session_recording_no_domains_field_allowed() {
+        // No domains field means "allow all" - recording should remain enabled
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/"
+            }
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://any.site.com".parse().unwrap());
+
+        apply_session_recording_domain_filter(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object());
+    }
+
+    #[test]
+    fn test_session_recording_domain_not_permitted_disables_recording() {
+        // Request from non-permitted domain should disable recording entirely
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "domains": ["https://allowed.example.com"]
+            }
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://evil.site.com".parse().unwrap());
+
+        apply_session_recording_domain_filter(&mut cached, &headers);
+
+        assert_eq!(
+            cached.get("sessionRecording"),
+            Some(&json!(false)),
+            "sessionRecording must be false when domain not permitted"
+        );
+    }
+
+    #[test]
+    fn test_session_recording_domain_permitted_preserves_config() {
+        // Request from permitted domain should preserve config and strip domains
+        let mut cached = json!({
+            "sessionRecording": {
+                "endpoint": "/s/",
+                "consoleLogRecordingEnabled": true,
+                "domains": ["https://allowed.example.com"]
+            }
+        });
+
+        let mut headers = HeaderMap::new();
+        headers.insert("Origin", "https://allowed.example.com".parse().unwrap());
+
+        apply_session_recording_domain_filter(&mut cached, &headers);
+
+        let sr = cached.get("sessionRecording").unwrap();
+        assert!(sr.is_object());
+        assert_eq!(sr.get("endpoint"), Some(&json!("/s/")));
+        assert_eq!(sr.get("consoleLogRecordingEnabled"), Some(&json!(true)));
+        assert!(sr.get("domains").is_none(), "domains must be stripped");
+    }
+
+    #[test]
+    fn test_session_recording_already_false_unchanged() {
+        // sessionRecording=false (e.g., opt-out) should pass through unchanged
+        let mut cached = json!({
+            "sessionRecording": false
+        });
+
+        apply_session_recording_domain_filter(&mut cached, &HeaderMap::new());
+
+        assert_eq!(cached.get("sessionRecording"), Some(&json!(false)));
     }
 }
