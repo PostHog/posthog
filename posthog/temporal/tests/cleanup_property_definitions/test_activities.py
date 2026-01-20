@@ -22,6 +22,17 @@ from posthog.temporal.tests.cleanup_property_definitions.conftest import (
 )
 
 
+def create_property_definition(team, name: str, property_type: int) -> PropertyDefinition:
+    """Create a PropertyDefinition with the correct fields for the given type.
+
+    GROUP type requires group_type_index to be set due to database constraint.
+    """
+    kwargs = {"team": team, "name": name, "type": property_type}
+    if property_type == PropertyDefinition.Type.GROUP:
+        kwargs["group_type_index"] = 0
+    return PropertyDefinition.objects.create(**kwargs)
+
+
 @parameterized_class(
     ("property_type", "property_type_int"),
     [
@@ -59,11 +70,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
         @sync_to_async
         def create_properties():
             for name in prop_names:
-                PropertyDefinition.objects.create(
-                    team=self.team,
-                    name=name,
-                    type=self.property_type,
-                )
+                create_property_definition(self.team, name, self.property_type)
 
         await create_properties()
 
@@ -104,16 +111,8 @@ class TestDeletePropertyDefinitionsFromPostgres:
 
         @sync_to_async
         def create_properties():
-            PropertyDefinition.objects.create(
-                team=self.team,
-                name=target_prop,
-                type=self.property_type,
-            )
-            PropertyDefinition.objects.create(
-                team=self.team,
-                name=other_prop,
-                type=other_type,
-            )
+            create_property_definition(self.team, target_prop, self.property_type)
+            create_property_definition(self.team, other_prop, other_type)
 
         await create_properties()
 
@@ -179,16 +178,8 @@ class TestDeletePropertyDefinitionsFromPostgres:
 
         @sync_to_async
         def create_properties():
-            PropertyDefinition.objects.create(
-                team=self.team,
-                name=prop_name,
-                type=self.property_type,
-            )
-            PropertyDefinition.objects.create(
-                team=other_team,
-                name=prop_name,
-                type=self.property_type,
-            )
+            create_property_definition(self.team, prop_name, self.property_type)
+            create_property_definition(other_team, prop_name, self.property_type)
 
         await create_properties()
 
