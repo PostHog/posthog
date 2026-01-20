@@ -5857,7 +5857,7 @@ export type CyclotronJobInputSchemaType = {
     integration_key?: string
     integration_field?: string
     requires_field?: string
-    platform?: 'android' | 'ios' | 'web'
+    platform?: 'android' | 'ios'
     requiredScopes?: string
 }
 

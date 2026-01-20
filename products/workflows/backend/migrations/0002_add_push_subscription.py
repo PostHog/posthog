@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                 ("token_hash", models.CharField(max_length=64)),
                 (
                     "platform",
-                    models.CharField(choices=[("android", "Android"), ("ios", "Ios"), ("web", "Web")], max_length=16),
+                    models.CharField(choices=[("android", "Android"), ("ios", "Ios")], max_length=16),
                 ),
                 ("is_active", models.BooleanField(db_index=True, default=True)),
                 ("last_successfully_used_at", models.DateTimeField(blank=True, null=True)),

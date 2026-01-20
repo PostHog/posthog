@@ -8,7 +8,7 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 export type PushSubscriptionGetArgs = {
     teamId: number
     distinctId: string
-    platform?: 'android' | 'ios' | 'web'
+    platform?: 'android' | 'ios'
 }
 
 const toKey = (args: PushSubscriptionGetArgs): string => {
@@ -20,7 +20,7 @@ const fromKey = (key: string): PushSubscriptionGetArgs => {
     return {
         teamId: parseInt(teamId),
         distinctId,
-        platform: platform === 'all' ? undefined : (platform as 'android' | 'ios' | 'web'),
+        platform: platform === 'all' ? undefined : (platform as 'android' | 'ios'),
     }
 }
 
@@ -32,7 +32,7 @@ type PushSubscriptionRow = {
     team_id: number
     distinct_id: string
     token: string
-    platform: 'android' | 'ios' | 'web'
+    platform: 'android' | 'ios'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
@@ -44,7 +44,7 @@ export type PushSubscription = {
     team_id: number
     distinct_id: string
     token: string
-    platform: 'android' | 'ios' | 'web'
+    platform: 'android' | 'ios'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
