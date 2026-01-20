@@ -340,6 +340,7 @@ class TestToolAccessControlDeclarations(BaseTest):
         "manage_memories",  # Manages per-team/user memories, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
+        "list_data",  # Lists entities with pagination, no protected resources modified
         # TODO: Add access control to these tools
         "task",
         "create_task",

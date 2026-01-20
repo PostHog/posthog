@@ -521,7 +521,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 target="_blank"
                                                 targetBlankIcon
                                             >
-                                                Learn more about using evaluation environments
+                                                Learn more about using evaluation contexts
                                             </Link>
                                         </div>
                                         <LemonField name="evaluation_runtime">
@@ -585,17 +585,19 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                 <>
                                     <SceneDivider />
-                                    <SceneSection title="Tags">
+                                    <SceneSection title="Tags & Evaluation Contexts">
                                         {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
                                             <div className="text-secondary text-sm mb-2">
-                                                Tags provide fine-grained control over where and when your feature flags
-                                                evaluate.{' '}
+                                                Use tags to organize and filter your feature flags. Mark specific tags
+                                                as <strong>evaluation contexts</strong> to control when flags can be
+                                                evaluated – flags will only evaluate when the SDK provides matching
+                                                environment tags.{' '}
                                                 <Link
                                                     to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                                     target="_blank"
                                                     targetBlankIcon
                                                 >
-                                                    Learn more about using evaluation environments
+                                                    Learn more about evaluation contexts
                                                 </Link>
                                             </div>
                                         )}
@@ -1262,17 +1264,17 @@ function FeatureFlagRollout({
                                 />
                             </SceneSection>
 
-                            <SceneSection title="Evaluation environments">
+                            <SceneSection title="Evaluation contexts">
                                 <div className="text-secondary text-sm mb-2">
-                                    Evaluation environments provide fine-grained control over where and when your
-                                    feature flags evaluate. Combine evaluation runtime and tags to control where and
+                                    Evaluation contexts provide fine-grained control over where and when your feature
+                                    flags evaluate. Combine evaluation runtime and context tags to control where and
                                     when your feature flags evaluate.{' '}
                                     <Link
                                         to="https://posthog.com/docs/feature-flags/evaluation-environments"
                                         target="_blank"
                                         targetBlankIcon
                                     >
-                                        Learn more about using evaluation environments
+                                        Learn more about using evaluation contexts
                                     </Link>
                                 </div>
                                 {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
