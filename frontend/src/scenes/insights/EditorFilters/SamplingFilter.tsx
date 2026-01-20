@@ -67,11 +67,11 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     onChange={(checked) => {
                         if (checked) {
                             setSamplingPercentage(10)
-                            posthog.capture('sampling_enabled_on_insight', { insight_type: insightType })
+                            posthog.capture('sampling_enabled_on_insight', { insightType })
                             return
                         }
                         setSamplingPercentage(null)
-                        posthog.capture('sampling_disabled_on_insight', { insight_type: insightType })
+                        posthog.capture('sampling_disabled_on_insight', { insightType })
                     }}
                     checked={!!samplingPercentage}
                     disabledReason={
@@ -91,7 +91,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             onChange={(newValue) => {
                                 setSamplingPercentage(newValue)
 
-                                posthog.capture('sampling_percentage_updated', { samplingPercentage, insight_type: insightType })
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage, insightType })
                             }}
                         />
                     </div>
