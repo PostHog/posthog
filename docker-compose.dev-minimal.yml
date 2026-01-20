@@ -177,6 +177,16 @@ services:
             - redis
             - db
 
+    maildev:
+        image: maildev/maildev:2.0.5
+        restart: on-failure
+        healthcheck:
+            # nosemgrep: trailofbits.generic.wget-unencrypted-url.wget-unencrypted-url
+            test: wget -qO- http://127.0.0.1:1080/healthz || exit 1
+            interval: 3s
+            timeout: 1s
+            retries: 3
+
 volumes:
     postgres-15-data:
     redpanda-data:
