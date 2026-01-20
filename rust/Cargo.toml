@@ -66,7 +66,7 @@ axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
 base64 = "0.22.0"
 bytes = "1"
-chrono = { version = "0.4.38", features = ["default", "serde"] }
+chrono = { version = "0.4.43", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
 dashmap = "6.1"
 envconfig = "0.10.0"
@@ -97,7 +97,7 @@ serde_derive = { version = "1.0" }
 serde_json = { version = "1.0" }
 serde_urlencoded = "0.7.1"
 siphasher = "1.0.1"
-sqlx = { version = "0.8.3", features = [
+sqlx = { version = "0.8.6", features = [
     "chrono",
     "json",
     "migrate",
@@ -127,7 +127,7 @@ ahash = "0.8.11"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
-moka = { version = "0.12.8", features = ["sync", "future"] }
+moka = { version = "0.12.12", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
 redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async", "tls-rustls", "tls-rustls-webpki-roots", "tokio-rustls-comp"] }
 regex = "1.11.1"

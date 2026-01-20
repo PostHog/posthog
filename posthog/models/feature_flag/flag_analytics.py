@@ -83,7 +83,8 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
 
-            if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+            billing_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
+            if total_decide_request_count > 0 and billing_token:
                 ph_client.capture(
                     distinct_id=team_id,
                     event="decide usage",
@@ -93,7 +94,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                         "team_uuid": team_uuid,
                         "min_time": min_time,
                         "max_time": max_time,
-                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
+                        "token": billing_token,
                     },
                 )
 
@@ -104,7 +105,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
 
-            if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
+            if total_local_evaluation_request_count > 0 and billing_token:
                 ph_client.capture(
                     distinct_id=team_id,
                     event="local evaluation usage",
@@ -114,7 +115,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                         "team_uuid": team_uuid,
                         "min_time": min_time,
                         "max_time": max_time,
-                        "token": settings.DECIDE_BILLING_ANALYTICS_TOKEN,
+                        "token": billing_token,
                     },
                 )
 
