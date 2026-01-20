@@ -137,8 +137,10 @@ jobs:
                   compression: 'none'
                   # Check all JS bundles in the dist folder
                   pattern: 'frontend/dist/*.js'
-                  # Exclude source maps
-                  exclude: 'frontend/dist/*.js.map'
+                  # Exclude source maps and chunk files (chunk hashes change every build)
+                  exclude: |
+                      frontend/dist/*.js.map
+                      frontend/dist/chunk-*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
 
