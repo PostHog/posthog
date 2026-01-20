@@ -3583,6 +3583,41 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
+    def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT distinct_id FROM events WHERE properties.test_prop = 'foo'",
+                modifiers=HogQLQueryModifiers(
+                    materializationMode=MaterializationMode.AUTO,
+                    forceClickhouseDataSkippingIndexes=[index_name],
+                ),
+            )
+
+            assert result.results == [("test",)]
+            assert result.clickhouse
+            assert f"force_data_skipping_indices='{index_name}'" in result.clickhouse
+
+    def test_force_data_skipping_indices_fails_when_index_cannot_be_used(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
+
+            index_name = get_bloom_filter_index_name(mat_col.name)
+            with pytest.raises(Exception) as exc_info:
+                execute_hogql_query(
+                    team=self.team,
+                    query="SELECT distinct_id FROM events WHERE concat(properties.test_prop, '') = 'foo'",
+                    modifiers=HogQLQueryModifiers(
+                        materializationMode=MaterializationMode.AUTO,
+                        forceClickhouseDataSkippingIndexes=[index_name],
+                    ),
+                )
+
+            assert "index" in str(exc_info.value).lower()
+
     @parameterized.expand(
         [
             ("no_mat_col", None, False),

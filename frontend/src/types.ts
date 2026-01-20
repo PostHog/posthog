@@ -330,6 +330,7 @@ export interface UserType extends UserBaseType {
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
         discussions_mentioned: boolean
+        data_pipeline_error_threshold?: number
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -398,6 +399,7 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     discussions_mentioned: boolean
+    data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
 }
 
@@ -684,8 +686,8 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
-    default_evaluation_environments_enabled: boolean
-    require_evaluation_environment_tags: boolean
+    default_evaluation_contexts_enabled: boolean
+    require_evaluation_contexts: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
@@ -1511,6 +1513,8 @@ export interface CohortType {
     created_at?: string
     deleted?: boolean
     id: number | 'new'
+    version?: number | null
+    pending_version?: number | null
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
@@ -3742,8 +3746,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     updated_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
@@ -3767,8 +3769,6 @@ export interface OrganizationFeatureFlag {
     team_id: number | null
     created_by: UserBasicType | null
     created_at: string | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     filters: FeatureFlagFilters
     active: boolean
 }
