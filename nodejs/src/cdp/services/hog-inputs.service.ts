@@ -96,12 +96,10 @@ export class HogInputsService {
                 teamId: hogFunction.team_id,
                 distinctId: globals.event.distinct_id,
             })
+            // Store only IDs to avoid bloating the cyclotron database
+            // Full subscription data will be loaded when needed during execution
             newGlobals.push_subscriptions = pushSubscriptions.map((sub) => ({
                 id: sub.id,
-                token: sub.token,
-                platform: sub.platform,
-                is_active: sub.is_active,
-                last_successfully_used_at: sub.last_successfully_used_at,
             }))
         } else {
             newGlobals.push_subscriptions = []
