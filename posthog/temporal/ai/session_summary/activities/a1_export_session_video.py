@@ -108,6 +108,7 @@ async def export_session_video_activity(inputs: VideoSummarySingleSessionInputs)
                 "duration": session_duration,
                 "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
                 "mode": "video",
+                "show_metadata_footer": True,
             },
             created_by_id=inputs.user_id,
             created_at=created_at,
