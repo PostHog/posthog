@@ -63,11 +63,6 @@ locals {
       })
     }
   ]...)
-
-  # Reference for hog_functions - all alerts get Slack notifications
-  alerts_with_slack_notifications = {
-    for key, alert in posthog_alert.export_alert : key => alert
-  }
 }
 
 resource "posthog_alert" "export_alert" {
@@ -87,7 +82,7 @@ resource "posthog_alert" "export_alert" {
 }
 
 resource "posthog_hog_function" "slack_alert_notification" {
-  for_each = local.alerts_with_slack_notifications
+  for_each = posthog_alert.export_alert
 
   name        = "Post to Slack on insight alert firing"
   description = "Post to a Slack channel when this insight alert fires"
