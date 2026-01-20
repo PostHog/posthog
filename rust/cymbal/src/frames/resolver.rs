@@ -1,4 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use common_types::error_tracking::RawFrameId;
 use moka::future::{Cache, CacheBuilder};
@@ -44,19 +50,21 @@ impl Resolver {
         }
         let raw_id = frame.raw_id(team_id);
 
-        if self.cache.contains_key(&raw_id.clone()) {
-            metrics::counter!(FRAME_CACHE_HITS).increment(1);
-        } else {
-            metrics::counter!(FRAME_CACHE_MISSES).increment(1);
-        }
-
+        let mut cache_miss = false;
         let frames = self
             .cache
-            .try_get_with(
-                raw_id.clone(),
-                self.resolve_impl(frame, raw_id, pool, catalog),
-            )
+            .try_get_with(raw_id.clone(), async {
+                cache_miss = true;
+                self.resolve_impl(frame, raw_id.clone(), pool, catalog)
+                    .await
+            })
             .await?;
+
+        if cache_miss {
+            metrics::counter!(FRAME_CACHE_MISSES).increment(1);
+        } else {
+            metrics::counter!(FRAME_CACHE_HITS).increment(1);
+        }
 
         Ok(frames.into_iter().map(|f| f.contents).collect())
     }
