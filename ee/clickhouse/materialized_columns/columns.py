@@ -280,6 +280,62 @@ def get_ngram_lower_index_name(column: str) -> str:
 
 
 @dataclass
+class MinMaxIndex:
+    column_name: str
+    granularity: int = 1
+
+    @property
+    def name(self) -> str:
+        return get_minmax_index_name(self.column_name)
+
+    def as_add_sql(self) -> str:
+        return f"ADD INDEX IF NOT EXISTS {self.name} {self.column_name} TYPE minmax GRANULARITY {self.granularity}"
+
+
+@dataclass
+class BloomFilterIndex:
+    column_name: str
+    false_positive_rate: float = 0.01
+    granularity: int = 1
+
+    @property
+    def name(self) -> str:
+        return get_bloom_filter_index_name(self.column_name)
+
+    def as_add_sql(self) -> str:
+        return f"ADD INDEX IF NOT EXISTS {self.name} {self.column_name} TYPE bloom_filter({self.false_positive_rate}) GRANULARITY {self.granularity}"
+
+
+@dataclass
+class NgramLowerIndex:
+    """
+    There are 2 limitations in clickhouse we need to work around:
+    - clickhouse does not support a case-insensitive ngram index, so we need to call lower() on both sides and index lower(col)
+    - clickhouse does not support ngram indexes on nullable columns, so we need to wrap the nullable version in coalesce(col, '')
+    If either of these 2 limitations change, we should simplify this.
+    """
+
+    column_name: str
+    is_nullable: bool
+    ngram_size: int = 3
+    filter_size: int = 256
+    hash_functions: int = 2
+    seed: int = 0
+    granularity: int = 1
+
+    @property
+    def name(self) -> str:
+        return get_ngram_lower_index_name(self.column_name)
+
+    def as_add_sql(self) -> str:
+        ngram_type = f"ngrambf_v1({self.ngram_size}, {self.filter_size}, {self.hash_functions}, {self.seed})"
+        if self.is_nullable:
+            return f"ADD INDEX IF NOT EXISTS {self.name} lower(coalesce({self.column_name}, '')) TYPE {ngram_type} GRANULARITY {self.granularity}"
+        else:
+            return f"ADD INDEX IF NOT EXISTS {self.name} lower({self.column_name}) TYPE {ngram_type} GRANULARITY {self.granularity}"
+
+
+@dataclass
 class CreateColumnOnDataNodesTask:
     table: str
     column: MaterializedColumn
@@ -299,29 +355,13 @@ class CreateColumnOnDataNodesTask:
             parameters["comment"] = self.column.details.as_column_comment()
 
         if self.create_minmax_index:
-            index_name = get_minmax_index_name(self.column.name)
-            actions.append(f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE minmax GRANULARITY 1")
+            actions.append(MinMaxIndex(self.column.name).as_add_sql())
 
         if self.create_bloom_filter_index:
-            index_name = get_bloom_filter_index_name(self.column.name)
-            actions.append(
-                f"ADD INDEX IF NOT EXISTS {index_name} {self.column.name} TYPE bloom_filter(0.01) GRANULARITY 1"
-            )
+            actions.append(BloomFilterIndex(self.column.name).as_add_sql())
 
         if self.create_ngram_lower_index:
-            # There are 2 limitations in clickhouse we need to work around
-            # * clickhouse does not support a case-insensitive ngram index, so we need to call lower() on both sides and index lower(col)
-            # * clickhouse does not support ngram indexes on nullable columns, so we need to wrap the nullable version in coalesce(col, '')
-            # If either of these 2 limitations change, we should simplify this
-            index_name = get_ngram_lower_index_name(self.column.name)
-            if self.column.is_nullable:
-                actions.append(
-                    f"ADD INDEX IF NOT EXISTS {index_name} lower(coalesce({self.column.name}, '')) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
-                )
-            else:
-                actions.append(
-                    f"ADD INDEX IF NOT EXISTS {index_name} lower({self.column.name}) TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1"
-                )
+            actions.append(NgramLowerIndex(self.column.name, self.column.is_nullable).as_add_sql())
 
         client.execute(
             f"ALTER TABLE {self.table} " + ", ".join(actions),

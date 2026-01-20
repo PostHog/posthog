@@ -4486,6 +4486,36 @@
         }
     },
     {
+        "model": "openai/gpt-audio",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.00001,
+                "audio": 0.000032
+            },
+            "openai": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.00001,
+                "audio": 0.000032
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-audio-mini",
+        "cost": {
+            "default": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000024,
+                "audio": 6e-7
+            },
+            "openai": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000024,
+                "audio": 6e-7
+            }
+        }
+    },
+    {
         "model": "openai/gpt-oss-120b",
         "cost": {
             "default": {
@@ -6666,10 +6696,6 @@
             "baseten-fp4": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022
-            },
-            "cerebras": {
-                "prompt_token": 0.00000225,
-                "completion_token": 0.00000275
             },
             "chutes-bf16": {
                 "prompt_token": 3.5e-7,
