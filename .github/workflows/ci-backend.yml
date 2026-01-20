@@ -457,6 +457,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
             - name: Check if OpenAPI types are up to date
