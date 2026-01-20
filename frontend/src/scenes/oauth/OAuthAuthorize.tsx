@@ -46,6 +46,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         redirectDomain,
         requiredAccessLevel,
         authorizationComplete,
+        scopesWereDefaulted,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -88,6 +89,16 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <span>
                             <strong>Unverified application.</strong> This application has not been verified by PostHog.
                             Only authorize if you trust the developer.
+                        </span>
+                    </div>
+                )}
+
+                {scopesWereDefaulted && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-side border border-border rounded text-sm">
+                        <IconWarning className="text-muted-alt shrink-0" />
+                        <span>
+                            <strong>No permissions requested.</strong> This application didn't request specific
+                            permissions. Showing all permissions supported by this resource.
                         </span>
                     </div>
                 )}

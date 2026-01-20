@@ -5,7 +5,12 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import {
+    DEFAULT_OAUTH_SCOPES,
+    MCP_SERVER_OAUTH_SCOPES,
+    getMinimumEquivalentScopes,
+    getScopeDescription,
+} from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
@@ -28,7 +33,7 @@ const isNativeProtocol = (url: string): boolean => {
 }
 
 const oauthAuthorize = async (
-    values: OAuthAuthorizationFormValues & { allow: boolean },
+    values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] },
     onNativeRedirectComplete?: () => void
 ): Promise<void> => {
     try {
@@ -37,7 +42,7 @@ const oauthAuthorize = async (
             redirect_uri: router.values.searchParams['redirect_uri'],
             response_type: router.values.searchParams['response_type'],
             state: router.values.searchParams['state'],
-            scope: router.values.searchParams['scope'],
+            scope: values.scopes.join(' '),
             code_challenge: router.values.searchParams['code_challenge'],
             code_challenge_method: router.values.searchParams['code_challenge_method'],
             nonce: router.values.searchParams['nonce'],
@@ -74,6 +79,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
+        setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -107,6 +113,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     scoped_teams: values.oauthAuthorization.scoped_teams,
                     access_type: values.oauthAuthorization.access_type,
                     allow: false,
+                    scopes: values.scopes,
                 })
             } finally {
                 actions.setCanceling(false)
@@ -124,6 +131,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             null as 'organization' | 'team' | null,
             {
                 setRequiredAccessLevel: (_, { requiredAccessLevel }) => requiredAccessLevel,
+            },
+        ],
+        scopesWereDefaulted: [
+            false,
+            {
+                setScopesWereDefaulted: (_, { scopesWereDefaulted }) => scopesWereDefaulted,
             },
         ],
         isCanceling: [
@@ -167,10 +180,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         : undefined,
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
+                const scopes = oauthAuthorizeLogic.values.scopes
                 await oauthAuthorize(
                     {
                         ...values,
                         allow: true,
+                        scopes,
                     },
                     () => actions.setAuthorizationComplete(true)
                 )
@@ -211,11 +226,30 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     urlToAction(({ actions }) => {
         const handleAuthorize = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const requestedScopes = searchParams['scope']?.split(' ')?.filter((scope: string) => scope.length) ?? []
-            const scopes = requestedScopes.length === 0 ? DEFAULT_OAUTH_SCOPES : requestedScopes
+            const resourceParam = searchParams['resource'] as string | undefined
+
+            // Check if this is an MCP server request with no scopes specified
+            // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
+            // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
+            const isMcpResource = resourceParam?.includes('mcp.posthog.com')
+            const scopesWereDefaulted = requestedScopes.length === 0
+
+            let scopes: string[]
+            if (scopesWereDefaulted && isMcpResource) {
+                // Use full MCP scopes per MCP spec when client doesn't specify
+                scopes = MCP_SERVER_OAUTH_SCOPES
+            } else if (scopesWereDefaulted) {
+                // Fallback to minimal OIDC scopes for non-MCP clients
+                scopes = DEFAULT_OAUTH_SCOPES
+            } else {
+                scopes = requestedScopes
+            }
+
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
             actions.setScopes(scopes)
+            actions.setScopesWereDefaulted(scopesWereDefaulted)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
