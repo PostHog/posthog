@@ -106,11 +106,18 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows
                 },
                 restoreWorkflow: async ({ workflow }) => {
-                    const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
-                        status: 'draft',
-                    })
-                    lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
-                    return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
+                    try {
+                        const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
+                            status: 'draft',
+                        })
+                        lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
+                        return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
+                    } catch (error: any) {
+                        lemonToast.error(
+                            `Failed to restore workflow: ${error?.detail || error?.message || 'Unknown error'}`
+                        )
+                        return values.workflows
+                    }
                 },
                 deleteWorkflow: async ({ workflow }) => {
                     LemonDialog.open({
