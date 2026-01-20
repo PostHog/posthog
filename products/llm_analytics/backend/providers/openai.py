@@ -121,6 +121,7 @@ class OpenAIProvider:
                 common: dict[str, Any] = {
                     "stream": True,
                     "stream_options": {"include_usage": True},
+                    "user": "llma-playground",
                     "posthog_distinct_id": distinct_id,
                     "posthog_trace_id": trace_id or str(uuid.uuid4()),
                     "posthog_properties": {**(properties or {}), "ai_product": "playground"},
