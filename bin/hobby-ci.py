@@ -1042,9 +1042,6 @@ def update_containers_started_comment(ctx: PRCommentContext, hostname: str) -> N
         print(f"⚠️  Could not fetch existing comments: {e}", flush=True)
         return
 
-    if not existing_comment:
-        return  # No comment to update
-
     # Build run link
     run_link = ""
     if ctx.run_id:
@@ -1067,18 +1064,30 @@ def update_containers_started_comment(ctx: PRCommentContext, hostname: str) -> N
 <sub>[Run {ctx.run_id}]({run_link})</sub>
 """
 
-    # Update comment
+    # Update or create comment
     try:
-        resp = requests.patch(
-            existing_comment["url"],
-            headers=headers,
-            json={"body": comment_body},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            print(f"✅ Updated PR comment - instance accessible", flush=True)
+        if existing_comment:
+            resp = requests.patch(
+                existing_comment["url"],
+                headers=headers,
+                json={"body": comment_body},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                print(f"✅ Updated PR comment - instance accessible", flush=True)
+            else:
+                print(f"⚠️  Failed to update comment: {resp.status_code}", flush=True)
         else:
-            print(f"⚠️  Failed to update comment: {resp.status_code}", flush=True)
+            resp = requests.post(
+                f"https://api.github.com/repos/{repo}/issues/{ctx.pr_number}/comments",
+                headers=headers,
+                json={"body": comment_body},
+                timeout=10,
+            )
+            if resp.status_code == 201:
+                print(f"✅ Created PR comment - instance accessible", flush=True)
+            else:
+                print(f"⚠️  Failed to create comment: {resp.status_code}", flush=True)
     except Exception as e:
         print(f"⚠️  Could not update PR comment: {e}", flush=True)
 
