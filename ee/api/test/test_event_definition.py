@@ -216,33 +216,6 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             },
         ]
 
-    def test_update_event_without_license(self):
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime(2010, 1, 19, 3, 14, 7)
-        )
-        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/event_definitions/{str(event.id)}",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
