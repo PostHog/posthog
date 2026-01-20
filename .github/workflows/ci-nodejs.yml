@@ -1,4 +1,5 @@
 name: Node.js CI
+# Optimized with enhanced pnpm caching for faster dependency installation
 on:
     pull_request:
     merge_group:
