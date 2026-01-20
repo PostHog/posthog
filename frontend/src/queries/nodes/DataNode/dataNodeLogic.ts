@@ -13,7 +13,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api, { ApiMethodOptions } from 'lib/api'
@@ -44,6 +44,7 @@ import {
     EventsQueryResponse,
     GroupsQuery,
     GroupsQueryResponse,
+    HogQLQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
@@ -665,6 +666,48 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     })),
+    lazyLoaders(({ values }) => ({
+        totalCount: [
+            null as number | null,
+            {
+                loadTotalCount: async () => {
+                    const query = values.totalCountQuery
+                    if (!query) {
+                        return null
+                    }
+
+                    try {
+                        const response = await performQuery(query)
+                        // Extract count from first row, first column
+                        return response?.results?.[0]?.[0] || 0
+                    } catch (error) {
+                        console.error('Failed to load total count:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+        filteredCount: [
+            null as number | null,
+            {
+                loadFilteredCount: async () => {
+                    const query = values.filteredCountQuery
+                    if (!query) {
+                        return null
+                    }
+
+                    try {
+                        const response = await performQuery(query)
+                        // Extract count from first row, first column
+                        return response?.results?.[0]?.[0] || 0
+                    } catch (error) {
+                        console.error('Failed to load filtered count:', error)
+                        return null
+                    }
+                },
+            },
+        ],
+    })),
     selectors(({ cache }) => ({
         variableOverridesAreSet: [
             (_, p) => [p.variablesOverride ?? (() => ({}))],
@@ -917,6 +960,147 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return null
             },
         ],
+        hasActiveFilters: [
+            (_, p) => [p.query],
+            (query: DataNode): boolean => {
+                if (isActorsQuery(query)) {
+                    return !!(
+                        query.search ||
+                        (query.properties && Array.isArray(query.properties) && query.properties.length > 0) ||
+                        (query.fixedProperties &&
+                            Array.isArray(query.fixedProperties) &&
+                            query.fixedProperties.length > 0)
+                    )
+                }
+                if (isEventsQuery(query)) {
+                    return !!(
+                        query.event ||
+                        (query.properties && query.properties.length > 0) ||
+                        (query.where && query.where.length > 0) ||
+                        (query.fixedProperties && query.fixedProperties.length > 0)
+                    )
+                }
+                if (isGroupsQuery(query)) {
+                    return !!(query.search || (query.properties && query.properties.length > 0))
+                }
+                if (isSessionsQuery(query)) {
+                    return !!(query.properties && query.properties.length > 0)
+                }
+                return false
+            },
+        ],
+        totalCountQuery: [
+            (_, p) => [p.query],
+            (query: DataNode): DataNode | null => {
+                // Create a simplified version of the query for counting
+                if (isActorsQuery(query)) {
+                    return {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT count(*) from persons',
+                    } as HogQLQuery
+                }
+
+                if (isEventsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(*)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                        // Remove all filters for total count
+                        event: undefined,
+                        properties: undefined,
+                        where: undefined,
+                    } as EventsQuery
+                }
+
+                if (isGroupsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(*)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                        // Remove all filters for total count
+                        search: undefined,
+                        properties: undefined,
+                    } as GroupsQuery
+                }
+
+                if (isSessionsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(distinct session_id)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                        // Remove all filters for total count
+                        properties: undefined,
+                    } as SessionsQuery
+                }
+
+                // Skip PersonsNode - it's deprecated
+                return null
+            },
+        ],
+        filteredCountQuery: [
+            (s) => [s.query, s.hasActiveFilters],
+            (query: DataNode, hasActiveFilters: boolean): DataNode | null => {
+                if (!hasActiveFilters) {
+                    return null
+                }
+
+                // Create a simplified version of the query for counting
+                // This keeps all the filters but removes pagination and ordering
+                if (isActorsQuery(query)) {
+                    return {
+                        kind: query.kind,
+                        source: query.source,
+                        select: ['count(DISTINCT id)'],
+                        // Keep filters but remove aggregated select fields
+                        search: query.search,
+                        properties: query.properties,
+                        fixedProperties: query.fixedProperties,
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                    } as ActorsQuery
+                }
+
+                if (isEventsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(*)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                    } as EventsQuery
+                }
+
+                if (isGroupsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(*)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                    } as GroupsQuery
+                }
+
+                if (isSessionsQuery(query)) {
+                    return {
+                        ...query,
+                        select: ['count(distinct session_id)'],
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                    } as SessionsQuery
+                }
+
+                // Skip PersonsNode - it's deprecated
+                return null
+            },
+        ],
     })),
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
@@ -994,6 +1178,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 // Clear loading timer when data loading finishes
                 cache.disposables.dispose('loadingTimer')
             }
+        },
+        filteredCountQuery: () => {
+            actions.loadFilteredCount()
         },
     })),
     afterMount(({ actions, props, cache }) => {
