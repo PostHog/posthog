@@ -142,7 +142,7 @@ macro_rules! test_exception_list_processing {
 
             assert!(status.is_success());
             assert_json_snapshot!(body.0, {
-                "[0].id" => "REDACTED",
+                "[].id" => "REDACTED",
             });
         }
     };
