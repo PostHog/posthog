@@ -124,12 +124,14 @@ class SESProvider:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
                 raise
 
+        ses_region = getattr(settings, "SES_REGION", "us-east-1")
+
         dns_records.append(
             {
                 "type": "mail_from",
                 "recordType": "MX",
                 "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": "10 feedback-smtp.us-east-1.amazonses.com",
+                "recordValue": f"10 feedback-smtp.{ses_region}.amazonses.com",
                 "status": "pending",
             }
         )
