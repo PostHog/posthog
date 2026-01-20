@@ -89,7 +89,7 @@ class MaterializationConfig(dagster.Config):
             # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
             # have the target column materialized by finding parts where the key column exists but the target column does
             # not.
-            [[key_column]] = client.execute(
+            key_column_result = client.execute(
                 """
                 SELECT name
                 FROM system.columns
@@ -102,6 +102,15 @@ class MaterializationConfig(dagster.Config):
                 """,
                 {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
             )
+
+            if not key_column_result:
+                raise ValueError(
+                    f"Table '{self.table}' has no primary key columns. "
+                    f"If you're trying to backfill the 'events' table, use 'sharded_events' instead. "
+                    f"If you're trying to backfill the 'person' table, use 'person' (the data table name)."
+                )
+
+            [[key_column]] = key_column_result
 
             for column in self.columns:
                 results = client.execute(
@@ -186,5 +195,5 @@ def run_materialize_mutations(
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
-def materialize_column():
+def backfill_materialized_column():
     run_materialize_mutations()
