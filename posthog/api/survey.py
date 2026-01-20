@@ -533,7 +533,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             # Validate choices first before translation validation to provide clearer error messages
             choices = raw_question.get("choices")
-            if choices:
+            if choices is not None:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
                 cleaned_question["choices"] = self._validate_and_sanitize_choices(choices)
