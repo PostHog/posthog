@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -15,7 +16,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource']],
+        values: [insightVizDataLogic(props), ['querySource', 'isFunnels']],
         actions: [insightVizDataLogic(props), ['updateQuerySource']],
     })),
     actions(() => ({
@@ -31,8 +32,13 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     }),
     selectors(() => ({
         suggestedSamplingPercentage: [
-            (s) => [s.samplingPercentage],
-            (samplingPercentage): number | null => {
+            (s) => [s.samplingPercentage, s.isFunnels],
+            (samplingPercentage, isFunnels): number | null => {
+                // Don't suggest sampling for funnels
+                if (isFunnels) {
+                    return null
+                }
+
                 // 10 is our suggested sampling percentage for those not sampling at all
                 if (!samplingPercentage || samplingPercentage > 10) {
                     return 10
@@ -47,9 +53,27 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 return AVAILABLE_SAMPLING_PERCENTAGES[AVAILABLE_SAMPLING_PERCENTAGES.indexOf(samplingPercentage) - 1]
             },
         ],
+        // For funnels, only allow disabling sampling if it's already enabled
+        isSamplingAvailable: [
+            (s) => [s.isFunnels, s.samplingPercentage],
+            (isFunnels, samplingPercentage): boolean => {
+                if (isFunnels && !samplingPercentage) {
+                    return false
+                }
+                return true
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
-        setSamplingPercentage: () => {
+        setSamplingPercentage: ({ samplingPercentage }) => {
+            // Block enabling sampling for funnels (but allow disabling)
+            if (values.isFunnels && samplingPercentage !== null) {
+                posthog.capture('sampling_enable_blocked_for_funnel')
+                return
+            }
+            if (values.isFunnels && samplingPercentage === null) {
+                posthog.capture('sampling_disabled_on_funnel_insight')
+            }
             actions.updateQuerySource({
                 samplingFactor: values.samplingPercentage ? values.samplingPercentage / 100 : null,
             })

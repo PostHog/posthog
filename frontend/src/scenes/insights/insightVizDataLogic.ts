@@ -186,6 +186,27 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isWebStatsTable: [(s) => [s.querySource], (q) => isWebStatsTableQuery(q)],
         isWebOverview: [(s) => [s.querySource], (q) => isWebOverviewQuery(q)],
         isWebAnalytics: [(s) => [s.querySource], (q) => isWebAnalyticsInsightQuery(q)],
+        insightType: [
+            (s) => [s.isTrends, s.isFunnels, s.isRetention, s.isPaths, s.isStickiness, s.isLifecycle],
+            (isTrends, isFunnels, isRetention, isPaths, isStickiness, isLifecycle) => {
+                switch (true) {
+                    case isTrends:
+                        return 'Trends'
+                    case isFunnels:
+                        return 'Funnels'
+                    case isRetention:
+                        return 'Retention'
+                    case isPaths:
+                        return 'Paths'
+                    case isStickiness:
+                        return 'Stickiness'
+                    case isLifecycle:
+                        return 'Lifecycle'
+                    default:
+                        return 'Unknown'
+                }
+            },
+        ],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [

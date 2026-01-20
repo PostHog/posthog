@@ -17,12 +17,9 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { hasDataWarehouseSeries, isFunnels } = useValues(insightVizDataLogic(insightProps))
-    const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
+    const { hasDataWarehouseSeries, insightType } = useValues(insightVizDataLogic(insightProps))
+    const { samplingPercentage, isSamplingAvailable } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
-
-    // For funnels, only allow disabling sampling if it's already enabled (not enabling new sampling)
-    const isFunnelWithSamplingDisabled = isFunnels && !samplingPercentage
 
     return (
         <>
@@ -38,20 +35,17 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     onChange={(checked) => {
                         if (checked) {
                             setSamplingPercentage(10)
-                            posthog.capture('sampling_enabled_on_insight')
+                            posthog.capture('sampling_enabled_on_insight', { insightType })
                             return
                         }
                         setSamplingPercentage(null)
-                        posthog.capture('sampling_disabled_on_insight')
-                        if (isFunnels) {
-                            posthog.capture('sampling_disabled_on_funnel_insight')
-                        }
+                        posthog.capture('sampling_disabled_on_insight', { insightType })
                     }}
                     checked={!!samplingPercentage}
                     disabledReason={
                         hasDataWarehouseSeries
                             ? 'Sampling is not available for data warehouse series'
-                            : isFunnelWithSamplingDisabled
+                            : !isSamplingAvailable
                               ? 'Sampling is not available for funnels'
                               : undefined
                     }
@@ -64,7 +58,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             options={AVAILABLE_SAMPLING_PERCENTAGES.map((percentage) => ({
                                 value: percentage,
                                 label: `${percentage}%`,
-                                disabledReason: isFunnels
+                                disabledReason: isSamplingAvailable
                                     ? 'Sampling percentage cannot be changed for funnels'
                                     : undefined,
                             }))}
@@ -72,7 +66,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             onChange={(newValue) => {
                                 setSamplingPercentage(newValue)
 
-                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage, insightType })
                             }}
                         />
                     </div>

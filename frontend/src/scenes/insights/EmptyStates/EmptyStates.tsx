@@ -73,9 +73,13 @@ export function InsightEmptyState({
     )
 }
 
-function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
+function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
     const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
+    if (suggestedSamplingPercentage === null) {
+        return null
+    }
 
     return (
         <Tooltip
