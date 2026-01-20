@@ -334,7 +334,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
     # Snowflake client doesn't evaluate arrays to python lists.
     # The presence of new lines is an indicator that 'urls' is of the correct type as
     # that's how snowflake displays arrays.
-    assert rows[0][2] == '[\n  "http://localhost.org"\n]'
+    assert rows[0][2] == '[\n  "http://localhost.org",\n  "posthog.com"\n]'
 
 
 async def test_insert_into_snowflake_activity_removes_internal_stage_files(
