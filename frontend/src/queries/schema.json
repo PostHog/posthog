@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "onboarding"],
             "type": "string"
         },
         "AggregationAxisFormat": {
