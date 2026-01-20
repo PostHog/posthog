@@ -2,14 +2,11 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-/// Parses the dart2js minified_names extension from a sourcemap JSON.
-/// Returns a map from minified name -> original name for global (class/type) names.
 pub fn parse_dart_minified_names(sourcemap_json: &str) -> Option<HashMap<String, String>> {
     let parsed: Dart2JsSourceMap = serde_json::from_str(sourcemap_json).ok()?;
     let ext = parsed.x_org_dartlang_dart2js?;
     let minified_names = ext.minified_names?;
 
-    // Parse the CSV format: "minified1,index1,minified2,index2,..."
     let global_str = minified_names.global?;
     let parts: Vec<&str> = global_str.split(',').collect();
 
@@ -31,7 +28,6 @@ pub fn parse_dart_minified_names(sourcemap_json: &str) -> Option<HashMap<String,
     }
 }
 
-/// Looks up a minified type name (e.g., "BA" from "minified:BA") and returns the original name.
 pub fn lookup_minified_type(
     minified_names: &HashMap<String, String>,
     minified_type: &str,
