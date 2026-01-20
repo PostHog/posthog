@@ -4,6 +4,8 @@ export const humanizeBatchExportName = (service: BatchExportService['type']): st
     switch (service) {
         case 'HTTP':
             return 'PostHog HTTP'
+        case 'AzureBlob':
+            return 'Azure Blob Storage'
         default:
             return service
     }

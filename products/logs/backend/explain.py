@@ -170,7 +170,7 @@ def fetch_log_by_uuid(team: Team, uuid: str, timestamp: str) -> dict | None:
             uuid,
             timestamp,
             body,
-            mapFilter((k, v) -> not(has(resource_attributes, k)), attributes),
+            attributes,
             severity_text,
             service_name,
             resource_attributes,

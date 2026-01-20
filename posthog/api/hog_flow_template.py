@@ -5,7 +5,7 @@ from django.db.models import Q
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
-from rest_framework import serializers, viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -21,6 +21,7 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 logger = structlog.get_logger(__name__)
 
 
+# NOTE: We allow unauthenticated access to global hog flow templates, never put anything secret in them
 class OnlyStaffCanEditGlobalHogFlowTemplate(BasePermission):
     message = "You don't have edit permissions for global workflow templates."
 
@@ -288,3 +289,17 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
         )
 
         super().perform_destroy(instance)
+
+
+class PublicHogFlowTemplateViewSet(
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    Public endpoint for global hogflow templates that doesn't require authentication.
+    Only exposes templates with scope=GLOBAL.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    serializer_class = HogFlowTemplateSerializer
+    queryset = HogFlowTemplate.objects.filter(scope=HogFlowTemplate.Scope.GLOBAL).order_by("-updated_at")
