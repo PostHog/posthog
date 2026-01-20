@@ -209,45 +209,9 @@ const LogsFilterSearch = (): JSX.Element => {
     )
 }
 
-const LogsAppliedFilters = (): JSX.Element | null => {
+const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
-
-    useOnMountEffect(() => setAllowInitiallyOpen(true))
-
-    if (filterGroup.values.length === 0) {
-        return null
-    }
-
-    return (
-        <div className="flex gap-1 items-center flex-wrap">
-            {filterGroup.values.map((filterOrGroup, index) => {
-                return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
-                        <NestedFilterGroup />
-                    </UniversalFilters.Group>
-                ) : (
-                    <UniversalFilters.Value
-                        key={index}
-                        index={index}
-                        filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
-                        onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type !== PropertyFilterType.HogQL}
-                    />
-                )
-            })}
-        </div>
-    )
-}
-
-const NestedFilterGroup = (): JSX.Element | null => {
-    const { filterGroup } = useValues(universalFiltersLogic)
-    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
-
-    useOnMountEffect(() => setAllowInitiallyOpen(true))
 
     if (filterGroup.values.length === 0) {
         return null
@@ -258,7 +222,7 @@ const NestedFilterGroup = (): JSX.Element | null => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
-                        <NestedFilterGroup />
+                        <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -272,5 +236,22 @@ const NestedFilterGroup = (): JSX.Element | null => {
                 )
             })}
         </>
+    )
+}
+
+const LogsAppliedFilters = (): JSX.Element | null => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
+
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
+
+    if (filterGroup.values.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex gap-1 items-center flex-wrap">
+            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
+        </div>
     )
 }
