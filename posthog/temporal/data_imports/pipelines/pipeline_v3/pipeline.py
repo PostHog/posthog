@@ -6,6 +6,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
+    cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
@@ -15,10 +16,12 @@ from posthog.temporal.data_imports.pipelines.common.extract import (
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
+    write_chunk_for_cdp_producer,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
@@ -47,6 +50,7 @@ class PipelineV3(Generic[ResumableData]):
     _kafka_producer: KafkaBatchProducer
     _resumable_source_manager: ResumableSourceManager[ResumableData] | None
     _internal_schema: HogQLSchema
+    _cdp_producer: CDPProducer
     _accumulated_pa_schema: pa.Schema | None
     _batcher: Batcher
     _load_id: int
@@ -96,6 +100,9 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resumable_source_manager
         self._batcher = Batcher(self._logger)
         self._internal_schema = HogQLSchema()
+        self._cdp_producer = CDPProducer(
+            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
         self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
@@ -104,7 +111,7 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._batch_results = []
 
-    def run(self) -> None:
+    def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
@@ -115,6 +122,8 @@ class PipelineV3(Generic[ResumableData]):
 
         try:
             reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
+
+            cdp_producer_clear_chunks(self._cdp_producer)
 
             validate_incremental_sync(self._is_incremental, self._resource)
 
@@ -171,6 +180,7 @@ class PipelineV3(Generic[ResumableData]):
 
             self._finalize(row_count=row_count)
 
+            return {"should_trigger_cdp_producer": self._cdp_producer.should_produce_table}
         finally:
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
@@ -202,6 +212,8 @@ class PipelineV3(Generic[ResumableData]):
         self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False)
 
         self._internal_schema.add_pyarrow_table(pa_table)
+
+        write_chunk_for_cdp_producer(self._cdp_producer, batch_index, pa_table)
 
         # Update accumulated schema with any new columns from this batch
         if self._accumulated_pa_schema is None:
