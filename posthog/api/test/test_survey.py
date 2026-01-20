@@ -1403,6 +1403,7 @@ class TestSurvey(APIBaseTest):
                     "description": "Make notebooks better",
                     "type": "popover",
                     "schedule": "once",
+                    "enable_iframe_embedding": False,
                     "enable_partial_responses": False,
                     "questions": [
                         {
