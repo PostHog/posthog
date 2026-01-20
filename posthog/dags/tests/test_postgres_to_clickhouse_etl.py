@@ -35,12 +35,6 @@ from unittest.mock import MagicMock, patch
 
 from dagster import build_op_context
 
-# Skip all tests in this file due to database separation architecture issues
-pytestmark = pytest.mark.skip(
-    reason="Tests need to be updated for database separation architecture. "
-    "See docstring for details."
-)
-
 from posthog.dags.postgres_to_clickhouse_etl import (
     ETLState,
     create_clickhouse_tables,
@@ -57,6 +51,12 @@ from posthog.dags.postgres_to_clickhouse_etl import (
     transform_organization_row,
     transform_team_row,
     verify_sync,
+)
+
+# Skip all tests in this file due to database separation architecture issues
+pytestmark = pytest.mark.skip(
+    reason="Tests need to be updated for database separation architecture. "
+    "See docstring for details."
 )
 
 
