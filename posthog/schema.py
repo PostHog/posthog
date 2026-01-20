@@ -334,6 +334,7 @@ class AssistantTool(StrEnum):
     UPSERT_DASHBOARD = "upsert_dashboard"
     MANAGE_MEMORIES = "manage_memories"
     CREATE_NOTEBOOK = "create_notebook"
+    LIST_DATA = "list_data"
 
 
 class AssistantToolCall(BaseModel):
@@ -5042,6 +5043,9 @@ class HogQLQueryModifiers(BaseModel):
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None
+    forceClickhouseDataSkippingIndexes: list[str] | None = Field(
+        default=None, description="If these are provided, the query will fail if these skip indexes are not used"
+    )
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
     materializationMode: MaterializationMode | None = None
@@ -5755,6 +5759,7 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show a button to configure the table's columns if possible"
     )
     showCorrelationTable: bool | None = None
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
@@ -17064,6 +17069,7 @@ class DataTableNode(BaseModel):
     showColumnConfigurator: bool | None = Field(
         default=None, description="Show a button to configure the table's columns if possible"
     )
+    showCount: bool | None = Field(default=None, description="Show count of total and filtered results")
     showDateRange: bool | None = Field(default=None, description="Show date range selector")
     showElapsedTime: bool | None = Field(default=None, description="Show the time it takes to run a query")
     showEventFilter: bool | None = Field(
