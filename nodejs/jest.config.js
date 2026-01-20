@@ -20,4 +20,21 @@ module.exports = {
         '^~/tests/(.*)$': '<rootDir>/tests/$1',
         '^~/(.*)$': '<rootDir>/src/$1',
     },
+
+    // Add JUnit XML reporter for per-test timing analysis
+    reporters: [
+        'default',
+        [
+            'jest-junit',
+            {
+                outputDirectory: 'test-results',
+                outputName: 'junit.xml',
+                ancestorSeparator: ' › ',
+                uniqueOutputName: 'false',
+                suiteNameTemplate: '{filepath}',
+                classNameTemplate: '{classname}',
+                titleTemplate: '{title}',
+            },
+        ],
+    ],
 }

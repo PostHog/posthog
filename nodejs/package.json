@@ -150,6 +150,7 @@
         "eslint-plugin-node": "^11.1.0",
         "eslint-plugin-promise": "^6.1.1",
         "jest": "^30.0.0",
+        "jest-junit": "^16.0.0",
         "pino-pretty": "^9.1.0",
         "prettier": "^3.6.2",
         "supertest": "^7.0.0",

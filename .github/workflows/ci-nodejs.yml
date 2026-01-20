@@ -248,6 +248,14 @@ jobs:
                   LOG_LEVEL: info
               run: bin/turbo run test --filter=@posthog/nodejs
 
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: test-results-shard-${{ matrix.shard }}
+                  path: nodejs/test-results/junit.xml
+                  retention-days: 7
+
             - name: Output logs on failure
               if: failure()
               run: |

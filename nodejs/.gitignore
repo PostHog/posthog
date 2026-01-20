@@ -9,3 +9,4 @@ tmp
 *.0x
 coverage/
 .tmp/
+test-results/
