@@ -1,11 +1,3 @@
-"""
-Tests for session property aggregation in experiment metrics.
-
-These tests verify that session properties (like $session_duration) are correctly
-aggregated in experiments, avoiding the multiplication bug where each event in a
-session contributes the full session value instead of deduplicating per session.
-"""
-
 from typing import cast
 
 from freezegun import freeze_time
@@ -28,27 +20,8 @@ from posthog.models.utils import uuid7
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
-    """Tests for session property aggregation in experiments."""
-
     @freeze_time("2024-01-01T12:00:00Z")
     def test_session_duration_not_multiplied_across_events(self):
-        """
-        Critical test: Verify session duration is NOT multiplied by event count.
-
-        Setup:
-        - Control user: 1 session of 60 seconds with 3 pageviews
-        - Test user: 1 session of 120 seconds with 2 pageviews
-
-        Expected (correct):
-        - Control sum: 60 (one session contributes 60s once)
-        - Test sum: 120 (one session contributes 120s once)
-
-        Bug behavior (what currently happens):
-        - Control sum: 180 (60s * 3 pageviews = each event contributes full duration)
-        - Test sum: 240 (120s * 2 pageviews)
-
-        This test should FAIL initially, proving the bug exists.
-        """
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}
