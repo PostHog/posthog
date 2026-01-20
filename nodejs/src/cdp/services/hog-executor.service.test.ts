@@ -1398,5 +1398,192 @@ describe('Hog Executor', () => {
                 expect(pushSubscriptionsManager.updateLastSuccessfullyUsedAtByToken).not.toHaveBeenCalled()
             })
         })
+
+        describe('push_subscriptions lazy loading', () => {
+            let pushSubscriptionsManager: any
+
+            beforeEach(() => {
+                pushSubscriptionsManager = executor['pushSubscriptionsManager']
+            })
+
+            it('populates full push_subscriptions data from IDs during execution', async () => {
+                const mockSubscriptionsById = {
+                    'sub-1': {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android' as const,
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                        team_id: 1,
+                        distinct_id: 'distinct-1',
+                        created_at: '2025-01-01T00:00:00Z',
+                        updated_at: '2025-01-01T00:00:00Z',
+                    },
+                    'sub-2': {
+                        id: 'sub-2',
+                        token: 'token-2',
+                        platform: 'ios' as const,
+                        is_active: true,
+                        last_successfully_used_at: null,
+                        team_id: 1,
+                        distinct_id: 'distinct-1',
+                        created_at: '2025-01-01T00:00:00Z',
+                        updated_at: '2025-01-01T00:00:00Z',
+                    },
+                }
+
+                jest.spyOn(pushSubscriptionsManager, 'getManyById').mockResolvedValue(mockSubscriptionsById)
+
+                const hogFunction = createHogFunction({
+                    name: 'Test function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
+                })
+
+                const result = await executor.execute(invocation)
+
+                // Should have populated full data during execution
+                expect(pushSubscriptionsManager.getManyById).toHaveBeenCalledWith(1, ['sub-1', 'sub-2'])
+                expect(result.invocation.state.globals.push_subscriptions).toEqual([
+                    {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android',
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                    },
+                    {
+                        id: 'sub-2',
+                        token: 'token-2',
+                        platform: 'ios',
+                        is_active: true,
+                        last_successfully_used_at: null,
+                    },
+                ])
+            })
+
+            it('handles missing subscriptions gracefully during execution', async () => {
+                const mockSubscriptionsById = {
+                    'sub-1': {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android' as const,
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                        team_id: 1,
+                        distinct_id: 'distinct-1',
+                        created_at: '2025-01-01T00:00:00Z',
+                        updated_at: '2025-01-01T00:00:00Z',
+                    },
+                    // sub-2 is missing
+                }
+
+                jest.spyOn(pushSubscriptionsManager, 'getManyById').mockResolvedValue(mockSubscriptionsById)
+
+                const hogFunction = createHogFunction({
+                    name: 'Test function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
+                })
+
+                const result = await executor.execute(invocation)
+
+                // Should handle missing subscription gracefully
+                expect(result.invocation.state.globals.push_subscriptions).toEqual([
+                    {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android',
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                    },
+                    { id: 'sub-2' }, // Missing subscription keeps only ID
+                ])
+            })
+
+            it('skips populating if push_subscriptions is empty', async () => {
+                const hogFunction = createHogFunction({
+                    name: 'Test function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    push_subscriptions: [],
+                })
+
+                jest.spyOn(pushSubscriptionsManager, 'getManyById')
+
+                await executor.execute(invocation)
+
+                // Should not call getManyById if array is empty
+                expect(pushSubscriptionsManager.getManyById).not.toHaveBeenCalled()
+            })
+
+            it('filters out inactive subscriptions during population', async () => {
+                const mockSubscriptionsById = {
+                    'sub-1': {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android' as const,
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                        team_id: 1,
+                        distinct_id: 'distinct-1',
+                        created_at: '2025-01-01T00:00:00Z',
+                        updated_at: '2025-01-01T00:00:00Z',
+                    },
+                    'sub-2': {
+                        id: 'sub-2',
+                        token: 'token-2',
+                        platform: 'ios' as const,
+                        is_active: false, // Inactive
+                        last_successfully_used_at: null,
+                        team_id: 1,
+                        distinct_id: 'distinct-1',
+                        created_at: '2025-01-01T00:00:00Z',
+                        updated_at: '2025-01-01T00:00:00Z',
+                    },
+                }
+
+                jest.spyOn(pushSubscriptionsManager, 'getManyById').mockResolvedValue(mockSubscriptionsById)
+
+                const hogFunction = createHogFunction({
+                    name: 'Test function',
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+
+                const invocation = createExampleInvocation(hogFunction, {
+                    push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
+                })
+
+                const result = await executor.execute(invocation)
+
+                // Should filter out inactive subscriptions
+                expect(result.invocation.state.globals.push_subscriptions).toEqual([
+                    {
+                        id: 'sub-1',
+                        token: 'token-1',
+                        platform: 'android',
+                        is_active: true,
+                        last_successfully_used_at: '2025-01-01T00:00:00Z',
+                    },
+                    { id: 'sub-2' }, // Inactive subscription keeps only ID
+                ])
+            })
+        })
     })
 })
