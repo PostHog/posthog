@@ -461,7 +461,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }}
                             </LemonField>
-                            {isNewFeatureFlag && (
+                            {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
                                 <LemonField name="_should_create_usage_dashboard">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
