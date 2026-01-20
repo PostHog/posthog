@@ -463,8 +463,8 @@ function RuleRow({
                         type="number"
                         min={rule.type === 'change_amount' ? -100 : 0}
                         max={100}
-                        value={rule.value ?? ''}
-                        onChange={(val) => onChange({ value: val !== '' ? Number(val) : undefined })}
+                        value={rule.value}
+                        onChange={(val) => onChange({ value: val })}
                         placeholder="%"
                         className="w-20"
                     />
