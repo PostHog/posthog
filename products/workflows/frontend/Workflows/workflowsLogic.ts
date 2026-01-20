@@ -137,6 +137,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             children: 'Cancel',
                         },
                     })
+                    return values.workflows
                 },
             },
         ],
