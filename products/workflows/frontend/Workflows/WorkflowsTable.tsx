@@ -323,8 +323,7 @@ export function WorkflowsTable(): JSX.Element {
                             key: 'archived_workflows',
                             className: 'p-1',
                             content:
-                                archivedWorkflows.length === 0 ? (
-                                    <div className="p-4 text-muted">No archived workflows.</div>
+                                    <LemonTable
                                 ) : (
                                     <LemonTable
                                         dataSource={archivedWorkflows}
