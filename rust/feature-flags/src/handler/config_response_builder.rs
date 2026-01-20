@@ -56,16 +56,11 @@ pub async fn build_response_from_cache(
         false
     };
 
+    // Real-time quota check takes precedence over cached values.
     if is_recordings_limited {
         apply_recordings_quota_limit(&mut response, &cached_config);
-    } else if let Some(quota_limited) = cached_config.get("quotaLimited") {
-        if let Some(arr) = quota_limited.as_array() {
-            response.quota_limited = Some(
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect(),
-            );
-        }
+    } else {
+        apply_cached_quota_limits_without_recordings(&mut response, &cached_config);
     }
 
     tracing::debug!(
@@ -95,6 +90,27 @@ fn apply_recordings_quota_limit(response: &mut FlagsResponse, cached_config: &Va
         limited.push(recordings_str);
     }
     response.quota_limited = Some(limited);
+}
+
+/// Apply cached quota limits, filtering out "recordings".
+fn apply_cached_quota_limits_without_recordings(
+    response: &mut FlagsResponse,
+    cached_config: &Value,
+) {
+    let recordings_str = QuotaResource::Recordings.as_str();
+
+    if let Some(arr) = cached_config.get("quotaLimited").and_then(|v| v.as_array()) {
+        let filtered: Vec<String> = arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter(|&s| s != recordings_str)
+            .map(String::from)
+            .collect();
+
+        if !filtered.is_empty() {
+            response.quota_limited = Some(filtered);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -162,5 +178,56 @@ mod tests {
             config.get("nested"),
             Some(&json!({"deeply": {"value": 123}}))
         );
+    }
+
+    #[test]
+    fn test_cached_quota_limits_filters_stale_recordings() {
+        let mut response = create_base_response();
+        // Cached config has stale "recordings" limit
+        let cached = json!({"quotaLimited": ["recordings", "feature_flags"]});
+
+        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+
+        // "recordings" should be filtered out, only "feature_flags" remains
+        assert_eq!(
+            response.quota_limited,
+            Some(vec!["feature_flags".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_cached_quota_limits_filters_only_recordings() {
+        let mut response = create_base_response();
+        // Cached config has only stale "recordings" limit
+        let cached = json!({"quotaLimited": ["recordings"]});
+
+        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+
+        // Should be None since filtering "recordings" leaves empty list
+        assert_eq!(response.quota_limited, None);
+    }
+
+    #[test]
+    fn test_cached_quota_limits_preserves_other_limits() {
+        let mut response = create_base_response();
+        // Cached config has no "recordings" limit
+        let cached = json!({"quotaLimited": ["feature_flags", "events"]});
+
+        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+
+        assert_eq!(
+            response.quota_limited,
+            Some(vec!["feature_flags".to_string(), "events".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_cached_quota_limits_handles_empty() {
+        let mut response = create_base_response();
+        let cached = json!({});
+
+        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+
+        assert_eq!(response.quota_limited, None);
     }
 }
