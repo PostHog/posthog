@@ -15,13 +15,9 @@ GOMOD=$(GOCMD) mod
 # Build flags for smaller binary
 LDFLAGS=-ldflags "-s -w"
 
-# Default target builds the final binary for production
-all: build-linux
-
-# Install dependencies
-deps:
-	$(GOMOD) download
-	$(GOMOD) tidy
+# Run development version
+run: build
+	$(OUTPUT_DIR)/$(BINARY_NAME)-development
 
 # Build for current platform (development)
 build: deps
@@ -29,7 +25,7 @@ build: deps
 
 # Build for Linux (production - hobby deployments are on Ubuntu)
 build-linux: deps
-	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME) .
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-linux .
 
 # Build for macOS (for local testing)
 build-darwin: deps
@@ -39,12 +35,8 @@ build-darwin: deps
 build-demo: deps
 	$(GOBUILD) $(LDFLAGS) -o $(OUTPUT_DIR)/$(BINARY_NAME)-demo ./demo
 
-# Build all possible binaries
+# Build Linux and macOS binaries
 build-all: build build-linux build-darwin
-
-# Run development version
-run: build
-	$(OUTPUT_DIR)/$(BINARY_NAME)-development
 
 # Run a demo (usage: make demo DEMO=checks)
 demo: build-demo
@@ -53,11 +45,16 @@ demo: build-demo
 # Clean build artifacts
 clean:
 	$(GOCLEAN)
-	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)
+	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-linux
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-darwin
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-development
 	rm -f $(OUTPUT_DIR)/$(BINARY_NAME)-demo
 	rm -f hobby-installer
+
+# Install dependencies
+deps:
+	$(GOMOD) download
+	$(GOMOD) tidy
 
 # Run tests
 test:

@@ -1005,7 +1005,7 @@ async def test_run_workflow_timeout_exceeded(
         ) as mock_pause_saved_query_schedule,
     ):
         mock_hogql_table.side_effect = Exception(
-            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))"
         )
 
         async with temporalio.worker.Worker(
@@ -1648,7 +1648,7 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
 
 async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
     """Test that materialize_model raises NonRetryableException when query returns no results."""
-    query = "SELECT 1 as test_column FROM events WHERE 1 = 0"
+    query = "SELECT 1 WHERE 1 = 0"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
         name="empty_results_test_model",
@@ -1669,6 +1669,7 @@ async def test_materialize_model_empty_results(ateam, bucket_name, minio_client)
         ),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
         unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"),
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,

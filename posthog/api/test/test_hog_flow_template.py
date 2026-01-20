@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from rest_framework import status
+
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -476,3 +478,20 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert response.status_code == 204
 
         assert not HogFlowTemplate.objects.filter(id=template_id).exists()
+
+    def test_public_list_flow_templates(self):
+        self.user.is_staff = True
+        self.user.save()
+
+        # Create at least 2 global templates
+        for _i in range(2):
+            hog_flow_data = self._create_hog_flow_data()
+            hog_flow_data["scope"] = "global"
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flow_templates", hog_flow_data)
+            assert response.status_code == 201
+
+        self.client.logout()
+        response = self.client.get("/api/public_hog_flow_templates/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) > 1
