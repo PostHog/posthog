@@ -491,12 +491,16 @@ def register_files_with_ducklake(
     try:
         configure_connection(conn, storage_config)
 
-        try:
-            attach_catalog(conn, ducklake_config, alias=alias)
-        except duckdb.CatalogException as exc:
-            if alias not in str(exc):
-                raise
+        # Check if the DuckLake catalog is already attached in a robust way by querying DuckDB
+        existing_catalogs = {
+            row[0]
+            for row in conn.execute("SELECT catalog_name FROM duckdb_catalog.get_catalogs()").fetchall()
+        }
+
+        if alias in existing_catalogs:
             context.log.info(f"DuckLake catalog '{alias}' already attached")
+        else:
+            attach_catalog(conn, ducklake_config, alias=alias)
 
         for s3_path in s3_paths:
             try:
