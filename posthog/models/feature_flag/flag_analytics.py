@@ -20,6 +20,25 @@ if TYPE_CHECKING:
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
 
+# SDK library names must match the Rust Library::as_str() values in
+# rust/feature-flags/src/handler/types.rs
+SDK_LIBRARIES = [
+    "posthog-js",
+    "posthog-node",
+    "posthog-python",
+    "posthog-php",
+    "posthog-ruby",
+    "posthog-go",
+    "posthog-java",
+    "posthog-dotnet",
+    "posthog-elixir",
+    "posthog-android",
+    "posthog-ios",
+    "posthog-react-native",
+    "posthog-flutter",
+    "other",
+]
+
 # :NOTE: When making changes here, make sure you run test_no_interference_between_different_types_of_new_incoming_increments
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
@@ -29,6 +48,16 @@ def get_team_request_key(team_id: int, request_type: FlagRequestType) -> str:
         return f"posthog:decide_requests:{team_id}"
     elif request_type == FlagRequestType.LOCAL_EVALUATION:
         return f"posthog:local_evaluation_requests:{team_id}"
+    else:
+        raise ValueError(f"Unknown request type: {request_type}")
+
+
+def get_team_request_library_key(team_id: int, request_type: FlagRequestType, library: str) -> str:
+    """Get the Redis key for SDK-specific request counts."""
+    if request_type == FlagRequestType.DECIDE:
+        return f"posthog:decide_requests:sdk:{team_id}:{library}"
+    elif request_type == FlagRequestType.LOCAL_EVALUATION:
+        return f"posthog:local_evaluation_requests:sdk:{team_id}:{library}"
     else:
         raise ValueError(f"Unknown request type: {request_type}")
 
@@ -64,6 +93,24 @@ def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) 
     return total_count, min_time, max_time
 
 
+def _extract_sdk_breakdown_from_redis(
+    client: redis.Redis, team_id: int, request_type: FlagRequestType
+) -> dict[str, int]:
+    """
+    Extract per-SDK request counts from Redis, consuming the buckets.
+    Returns a dict mapping SDK name to total count.
+    """
+    sdk_breakdown: dict[str, int] = {}
+
+    for library in SDK_LIBRARIES:
+        key = get_team_request_library_key(team_id, request_type, library)
+        count, _, _ = _extract_total_count_for_key_from_redis_hash(client, key)
+        if count > 0:
+            sdk_breakdown[library] = count
+
+    return sdk_breakdown
+
+
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
     for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
@@ -83,19 +130,26 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, decide_key_name)
 
+            # Extract SDK breakdown for decide requests
+            decide_sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
             billing_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
             if total_decide_request_count > 0 and billing_token:
+                properties: dict = {
+                    "count": total_decide_request_count,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": min_time,
+                    "max_time": max_time,
+                    "token": billing_token,
+                }
+                if decide_sdk_breakdown:
+                    properties["sdk_breakdown"] = decide_sdk_breakdown
+
                 ph_client.capture(
                     distinct_id=team_id,
                     event="decide usage",
-                    properties={
-                        "count": total_decide_request_count,
-                        "team_id": team_id,
-                        "team_uuid": team_uuid,
-                        "min_time": min_time,
-                        "max_time": max_time,
-                        "token": billing_token,
-                    },
+                    properties=properties,
                 )
 
             local_evaluation_key_name = get_team_request_key(team_id, FlagRequestType.LOCAL_EVALUATION)
@@ -105,18 +159,27 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
                 max_time,
             ) = _extract_total_count_for_key_from_redis_hash(client, local_evaluation_key_name)
 
+            # Extract SDK breakdown for local evaluation requests
+            local_eval_sdk_breakdown = _extract_sdk_breakdown_from_redis(
+                client, team_id, FlagRequestType.LOCAL_EVALUATION
+            )
+
             if total_local_evaluation_request_count > 0 and billing_token:
+                properties = {
+                    "count": total_local_evaluation_request_count,
+                    "team_id": team_id,
+                    "team_uuid": team_uuid,
+                    "min_time": min_time,
+                    "max_time": max_time,
+                    "token": billing_token,
+                }
+                if local_eval_sdk_breakdown:
+                    properties["sdk_breakdown"] = local_eval_sdk_breakdown
+
                 ph_client.capture(
                     distinct_id=team_id,
                     event="local evaluation usage",
-                    properties={
-                        "count": total_local_evaluation_request_count,
-                        "team_id": team_id,
-                        "team_uuid": team_uuid,
-                        "min_time": min_time,
-                        "max_time": max_time,
-                        "token": billing_token,
-                    },
+                    properties=properties,
                 )
 
     except redis.exceptions.LockError:
