@@ -171,6 +171,7 @@ export const FEATURE_FLAGS = {
     // Feature flags used to control opt-in for different behaviors, should not be removed
     AI_UX: 'ai-ux-improvements', // owner: #team-platform-ux, small improvements to the ai experience, this is released to team
     AI_FIRST: 'ai-first', // owner: #team-platform-ux, this a larger change, not released to team yet
+    AI_CHAT_ONBOARDING: 'ai-chat-onboarding', // owner: #team-growth, AI-powered product discovery chat during onboarding
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
@@ -223,7 +224,6 @@ export const FEATURE_FLAGS = {
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
-    AI_CHAT_ONBOARDING: 'ai-chat-onboarding', // owner: #team-growth, AI-powered conversational onboarding with integrated chat multivariate=control,test
     AI_ONLY_MODE: 'ai-only-mode', // owner: #team-posthog-ai
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion

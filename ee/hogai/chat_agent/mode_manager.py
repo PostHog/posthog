@@ -9,6 +9,7 @@ from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.error_tracking import error_tracking_agent
 from ee.hogai.core.agent_modes.presets.onboarding import onboarding_agent
+from ee.hogai.core.agent_modes.presets.onboarding_prompt_builder import OnboardingPromptBuilder
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
@@ -54,6 +55,8 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:
+        if self._mode == AgentMode.ONBOARDING:
+            return OnboardingPromptBuilder
         return ChatAgentPromptBuilder
 
     @property

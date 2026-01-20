@@ -222,9 +222,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        # Skip billing for impersonated sessions (support agents) and mark conversations as internal
+        # Skip billing for impersonated sessions (support agents), onboarding mode, and mark conversations as internal
         is_impersonated = is_impersonated_session(request)
-        is_agent_billable = not is_impersonated
+        agent_mode = serializer.validated_data.get("agent_mode")
+        is_onboarding = agent_mode == AgentMode.ONBOARDING
+        is_agent_billable = not is_impersonated and not is_onboarding
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model

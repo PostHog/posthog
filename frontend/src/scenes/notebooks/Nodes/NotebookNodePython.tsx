@@ -229,6 +229,7 @@ const Component = ({
         pythonExecution?.traceback?.length,
         pythonExecution?.variables?.length,
         updateAttributes,
+        attributes.autoHeight,
     ])
 
     if (!expanded) {

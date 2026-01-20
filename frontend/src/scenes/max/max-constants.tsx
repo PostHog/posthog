@@ -931,6 +931,12 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
     },
+    [AgentMode.Onboarding]: {
+        name: 'Onboarding',
+        description: 'Helps new users discover which PostHog products are right for their needs.',
+        icon: iconForType('product_analytics'),
+        scenes: new Set([Scene.Onboarding]),
+    },
 }
 
 export const SPECIAL_MODES = {

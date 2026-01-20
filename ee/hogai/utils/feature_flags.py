@@ -1,3 +1,5 @@
+from django.conf import settings
+
 import posthoganalytics
 
 from posthog.models import Team, User
@@ -14,6 +16,9 @@ def has_web_search_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_onboarding_mode_feature_flag(team: Team, user: User) -> bool:
+    # Allow enabling via PERSISTED_FEATURE_FLAGS in development
+    if settings.DEBUG and "ai-chat-onboarding" in settings.PERSISTED_FEATURE_FLAGS:
+        return True
     return posthoganalytics.feature_enabled(
         "ai-chat-onboarding",
         str(user.distinct_id),
