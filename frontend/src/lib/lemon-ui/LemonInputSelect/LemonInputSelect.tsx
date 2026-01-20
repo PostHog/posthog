@@ -383,6 +383,8 @@ export function LemonInputSelect<T = string>({
             popoverFocusRef.current = false
             // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
             popoverOptionClickEvent?.stopPropagation()
+            // Remove focus from input after selecting an option, since in single mode that feels better UX-wise
+            inputRef.current?.blur()
         }
 
         if (stringKeys.includes(item)) {
