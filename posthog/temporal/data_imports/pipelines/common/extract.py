@@ -13,6 +13,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 from posthog.temporal.data_imports.pipelines.common.load import get_incremental_field_value
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
@@ -333,3 +334,13 @@ def finalize_desc_sort_incremental_value(
         )
         schema.refresh_from_db()
         schema.update_incremental_field_value(last_incremental_field_value)
+
+
+def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
+    if cdp_producer.should_produce_table:
+        cdp_producer.clear_s3_chunks()
+
+
+def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
+    if cdp_producer.should_produce_table:
+        cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
