@@ -272,7 +272,6 @@ export const FEATURE_FLAGS = {
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
-    LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-posthog-ai
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
