@@ -317,7 +317,6 @@ def _verify_and_fix_batch(
                 cache_type=cache_type,
                 result=result,
                 verification=verification if status == "mismatch" else None,
-                db_data=db_batch_data.get(team.id) if db_batch_data else None,
             )
 
 
@@ -383,7 +382,6 @@ def _verify_empty_cache_team(
             issue_type=issue_type,
             cache_type=cache_type,
             result=result,
-            db_data=empty_value,
         )
 
 
@@ -395,7 +393,6 @@ def _fix_and_record(
     cache_type: str,
     result: VerificationResult,
     verification: dict | None = None,
-    db_data: dict | None = None,
 ) -> None:
     """
     Fix a team's cache and record the result.
@@ -407,7 +404,6 @@ def _fix_and_record(
         cache_type: Cache type for metrics
         result: VerificationResult to update
         verification: Optional verification result dict containing diff info
-        db_data: Pre-loaded DB data to avoid redundant query during fix
     """
     # Log what's being fixed, including diff details for mismatches
     log_kwargs: dict = {"team_id": team.id, "issue_type": issue_type, "cache_type": cache_type}
@@ -419,13 +415,11 @@ def _fix_and_record(
     logger.info("Fixing cache entry", **log_kwargs)
 
     try:
-        # If we have pre-loaded DB data, write it directly to cache to avoid redundant DB query
-        if db_data is not None:
-            config.hypercache.set_cache_value(team, db_data)
-            success = True
-        else:
-            # Fall back to update_fn which will load from DB
-            success = config.update_fn(team)
+        # Always use update_fn to ensure dual-write to both shared and dedicated caches.
+        # For flag definitions, this writes to both the shared cache (Django reads) and
+        # the dedicated cache (Rust service reads). The db_data optimization was removed
+        # because it only wrote to the shared cache, leaving the dedicated cache stale.
+        success = config.update_fn(team)
     except Exception as e:
         success = False
         logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))

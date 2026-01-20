@@ -187,68 +187,6 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
 
-    def test_uses_db_data_directly_when_provided(self):
-        """Test that _fix_and_record uses db_data to set cache directly, bypassing update_fn."""
-        mock_config = MagicMock()
-        db_data = {"flags": ["flag1", "flag2"]}
-
-        result = VerificationResult()
-
-        _fix_and_record(
-            team=self.team,
-            config=mock_config,
-            issue_type="cache_miss",
-            cache_type="test_cache",
-            result=result,
-            db_data=db_data,
-        )
-
-        # Should call set_cache_value with db_data, NOT update_fn
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, db_data)
-        mock_config.update_fn.assert_not_called()
-        assert result.cache_miss_fixed == 1
-
-    def test_falls_back_to_update_fn_when_db_data_is_none(self):
-        """Test that _fix_and_record falls back to update_fn when db_data is None."""
-        mock_config = MagicMock()
-        mock_config.update_fn.return_value = True
-
-        result = VerificationResult()
-
-        _fix_and_record(
-            team=self.team,
-            config=mock_config,
-            issue_type="cache_miss",
-            cache_type="test_cache",
-            result=result,
-            db_data=None,
-        )
-
-        # Should call update_fn, NOT set_cache_value
-        mock_config.update_fn.assert_called_once_with(self.team)
-        mock_config.hypercache.set_cache_value.assert_not_called()
-        assert result.cache_miss_fixed == 1
-
-    def test_db_data_set_cache_value_exception_increments_fix_failed(self):
-        """Test that exceptions in set_cache_value (db_data path) increment fix_failed."""
-        mock_config = MagicMock()
-        mock_config.hypercache.set_cache_value.side_effect = Exception("Redis error")
-        db_data = {"flags": ["flag1"]}
-
-        result = VerificationResult()
-
-        _fix_and_record(
-            team=self.team,
-            config=mock_config,
-            issue_type="cache_miss",
-            cache_type="test_cache",
-            result=result,
-            db_data=db_data,
-        )
-
-        assert result.cache_miss_fixed == 0
-        assert result.fix_failed == 1
-
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestVerifyAndFixBatch(BaseTest):
@@ -404,12 +342,13 @@ class TestVerifyAndFixBatch(BaseTest):
             ("cache_mismatch", {"status": "mismatch", "issue": "DATA_MISMATCH"}, {}, "cache_mismatch_fixed"),
         ]
     )
-    def test_fix_uses_db_batch_data_directly(self, _name, verification_result, expiry_status, result_attr):
-        """Test that fixes use pre-loaded db_batch_data to avoid redundant DB queries."""
+    def test_fix_uses_update_fn_for_dual_write(self, _name, verification_result, expiry_status, result_attr):
+        """Test that fixes use update_fn to ensure dual-write to both shared and dedicated caches."""
         mock_config = MagicMock()
         mock_db_batch_data: dict = {self.team.id: {"flags": ["flag1", "flag2"]}}
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
         mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
         mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
@@ -426,18 +365,18 @@ class TestVerifyAndFixBatch(BaseTest):
                 result=result,
             )
 
-        # Should call set_cache_value with db_batch_data, NOT update_fn
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": ["flag1", "flag2"]})
-        mock_config.update_fn.assert_not_called()
+        # Should call update_fn for dual-write (writes to both shared and dedicated caches)
+        mock_config.update_fn.assert_called_once_with(self.team)
         assert getattr(result, result_attr) == 1
 
-    def test_expiry_missing_fix_uses_db_batch_data_directly(self):
-        """Test that expiry_missing fixes use pre-loaded db_batch_data to avoid redundant DB queries."""
+    def test_expiry_missing_fix_uses_update_fn_for_dual_write(self):
+        """Test that expiry_missing fixes use update_fn to ensure dual-write to both caches."""
         mock_config = MagicMock()
         mock_db_batch_data: dict = {self.team.id: {"flags": ["flag1", "flag2"]}}
         mock_config.hypercache.batch_load_fn.return_value = mock_db_batch_data
         mock_config.hypercache.batch_get_from_cache.return_value = {}
         mock_config.hypercache.get_cache_identifier.return_value = str(self.team.id)
+        mock_config.update_fn.return_value = True
         mock_config.get_team_ids_to_skip_fix_fn = None
 
         result = VerificationResult()
@@ -458,9 +397,8 @@ class TestVerifyAndFixBatch(BaseTest):
                 result=result,
             )
 
-        # Should call set_cache_value with db_batch_data, NOT update_fn
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": ["flag1", "flag2"]})
-        mock_config.update_fn.assert_not_called()
+        # Should call update_fn for dual-write (writes to both shared and dedicated caches)
+        mock_config.update_fn.assert_called_once_with(self.team)
         assert result.expiry_missing_fixed == 1
 
     def test_fix_falls_back_to_update_fn_without_batch_load(self):
@@ -729,9 +667,10 @@ class TestVerifyEmptyCacheTeam(BaseTest):
     """Test _verify_empty_cache_team fast-path verification."""
 
     def test_cache_miss_triggers_fix(self):
-        """Teams with no cache entry should be fixed with empty_cache_value."""
+        """Teams with no cache entry should be fixed via update_fn for dual-write."""
         mock_config = MagicMock()
         mock_config.empty_cache_value = {"flags": []}
+        mock_config.update_fn.return_value = True
 
         result = VerificationResult()
         # Cache batch data has no entry for this team (cache miss)
@@ -747,9 +686,9 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             team_ids_to_skip_fix=set(),
         )
 
-        # Should trigger cache_miss fix with empty_cache_value
+        # Should trigger cache_miss fix via update_fn (dual-write to both caches)
         assert result.cache_miss_fixed == 1
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": []})
+        mock_config.update_fn.assert_called_once_with(self.team)
 
     def test_cached_data_none_triggers_fix(self):
         """Teams with cached_data=None should be fixed."""
@@ -773,9 +712,10 @@ class TestVerifyEmptyCacheTeam(BaseTest):
         assert result.cache_miss_fixed == 1
 
     def test_cache_mismatch_triggers_fix(self):
-        """Teams with cached flags but expected empty should be fixed."""
+        """Teams with cached flags but expected empty should be fixed via update_fn."""
         mock_config = MagicMock()
         mock_config.empty_cache_value = {"flags": []}
+        mock_config.update_fn.return_value = True
 
         result = VerificationResult()
         # Cache has stale data (team used to have flags)
@@ -791,9 +731,9 @@ class TestVerifyEmptyCacheTeam(BaseTest):
             team_ids_to_skip_fix=set(),
         )
 
-        # Should trigger cache_mismatch fix
+        # Should trigger cache_mismatch fix via update_fn (dual-write to both caches)
         assert result.cache_mismatch_fixed == 1
-        mock_config.hypercache.set_cache_value.assert_called_once_with(self.team, {"flags": []})
+        mock_config.update_fn.assert_called_once_with(self.team)
 
     def test_cache_match_no_fix(self):
         """Teams with correct empty cache should not trigger fix."""

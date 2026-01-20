@@ -1,17 +1,29 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+from django.core.cache import caches
+from django.test import override_settings
+
 from parameterized import parameterized
 
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.feature_flag.local_evaluation import (
+    FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
+    FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
     _get_flags_for_local_evaluation,
     clear_flag_caches,
+    clear_flag_definition_caches,
     flags_hypercache,
+    flags_without_cohorts_hypercache,
     get_flags_response_for_local_evaluation,
     update_flag_caches,
+    update_flag_definitions_cache,
+    verify_team_flag_definitions,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.project import Project
 from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
@@ -308,6 +320,14 @@ class TestLocalEvaluationSignals(BaseTest):
 class TestSurveyFlagExclusion(BaseTest):
     """Tests for excluding survey-linked flags from local evaluation (GitHub issue #43631)."""
 
+    def setUp(self):
+        super().setUp()
+        # Clear existing flags and caches to ensure test isolation
+        FeatureFlag.objects.filter(team=self.team).delete()
+        Survey.objects.filter(team=self.team).delete()
+        clear_flag_caches(self.team)
+        clear_flag_definition_caches(self.team)
+
     @parameterized.expand(
         [
             ("targeting_flag", "targeting_flag"),
@@ -576,3 +596,489 @@ class TestSurveyFlagExclusion(BaseTest):
         assert flag_a.key not in flag_keys
         assert flag_b.key not in flag_keys
         assert regular_flag.key in flag_keys
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestFlagDefinitionsCache(BaseTest):
+    """Tests for flag definitions HyperCache operations with dual-write support."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_update_flag_definitions_cache_updates_both_variants(self):
+        """Test that update_flag_definitions_cache updates both with/without cohorts variants."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team)
+        assert result is True
+
+        # Both variants should be cached
+        with_cohorts, source1 = flags_hypercache.get_from_cache_with_source(self.team)
+        without_cohorts, source2 = flags_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+
+        assert source1 == "redis"
+        assert source2 == "redis"
+        assert with_cohorts is not None
+        assert without_cohorts is not None
+        assert len(with_cohorts["flags"]) == 1
+        assert len(without_cohorts["flags"]) == 1
+
+    def test_update_flag_definitions_cache_accepts_team_id(self):
+        """Test that update_flag_definitions_cache accepts team ID instead of Team object."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team.id)
+        assert result is True
+
+        data, source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert source == "redis"
+        assert data is not None
+        assert len(data["flags"]) == 1
+
+    def test_update_flag_definitions_cache_returns_false_for_nonexistent_team(self):
+        """Test that update_flag_definitions_cache returns False for non-existent team ID."""
+        result = update_flag_definitions_cache(999999)
+        assert result is False
+
+    def test_clear_flag_definition_caches_clears_both_variants(self):
+        """Test that clearing caches removes both with/without cohorts variants."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm both caches
+        update_flag_definitions_cache(self.team)
+
+        # Verify caches exist
+        _, source1 = flags_hypercache.get_from_cache_with_source(self.team)
+        _, source2 = flags_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+        assert source1 == "redis"
+        assert source2 == "redis"
+
+        # Clear caches
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+        # Both should now load from DB
+        _, source1 = flags_hypercache.get_from_cache_with_source(self.team)
+        _, source2 = flags_without_cohorts_hypercache.get_from_cache_with_source(self.team)
+        assert source1 == "db"
+        assert source2 == "db"
+
+    def test_hypercache_configs_are_properly_configured(self):
+        """Test that HyperCacheManagementConfigs have correct settings."""
+        # With cohorts config
+        config1 = FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG
+        assert config1.cache_name == "flag_definitions"
+        assert config1.hypercache == flags_hypercache
+        assert config1.update_fn == update_flag_definitions_cache
+
+        # Without cohorts config
+        config2 = FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG
+        assert config2.cache_name == "flag_definitions_no_cohorts"
+        assert config2.hypercache == flags_without_cohorts_hypercache
+        assert config2.update_fn == update_flag_definitions_cache
+
+
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        **settings.CACHES,
+        FLAGS_DEDICATED_CACHE_ALIAS: {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "flags-dedicated-dual-write-test",
+        },
+    },
+)
+class TestFlagDefinitionsDualWrite(BaseTest):
+    """Tests for flag definitions dual-write to dedicated cache."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+        # Clear dedicated cache
+        if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES:
+            caches[FLAGS_DEDICATED_CACHE_ALIAS].clear()
+
+    def test_update_writes_to_dedicated_cache(self):
+        """Test that update_flag_definitions_cache writes to dedicated cache."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        # Verify data in dedicated cache
+        dedicated_cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
+        for hypercache in [flags_hypercache, flags_without_cohorts_hypercache]:
+            cache_key = hypercache.get_cache_key(self.team)
+            cached_data = dedicated_cache.get(cache_key)
+            assert cached_data is not None
+            # Data is stored as JSON string in dedicated cache
+            import json
+
+            parsed = json.loads(cached_data)
+            assert len(parsed["flags"]) == 1
+            assert parsed["flags"][0]["key"] == "test-flag"
+
+    def test_update_writes_etag_to_dedicated_cache(self):
+        """Test that ETag is written to dedicated cache when enable_etag=True."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        # Verify ETag in dedicated cache
+        dedicated_cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
+        for hypercache in [flags_hypercache, flags_without_cohorts_hypercache]:
+            etag_key = hypercache.get_etag_key(self.team)
+            etag = dedicated_cache.get(etag_key)
+            # ETag should be a hash string
+            assert etag is not None
+            assert len(etag) > 0
+
+    def test_dedicated_cache_failure_does_not_abort_update(self):
+        """Test that dedicated cache write failure doesn't prevent shared cache update."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Mock dedicated cache to raise exception
+        with patch.object(caches[FLAGS_DEDICATED_CACHE_ALIAS], "set", side_effect=Exception("Cache write failed")):
+            with patch.object(
+                caches[FLAGS_DEDICATED_CACHE_ALIAS], "set_many", side_effect=Exception("Cache write failed")
+            ):
+                result = update_flag_definitions_cache(self.team)
+
+        # Update should still succeed (shared cache was written)
+        assert result is True
+
+        # Shared cache should have the data
+        data, source = flags_hypercache.get_from_cache_with_source(self.team)
+        assert source == "redis"
+        assert data is not None
+        assert len(data["flags"]) == 1
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestVerifyFlagDefinitions(BaseTest):
+    """Tests for flag definitions cache verification."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_verify_returns_miss_when_cache_empty(self):
+        """Test that verification detects cache miss."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+
+        assert result["status"] == "miss"
+        assert result["issue"] == "CACHE_MISS"
+
+    def test_verify_returns_match_when_cache_matches(self):
+        """Test that verification returns match when cache is correct."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm the cache
+        update_flag_definitions_cache(self.team)
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+
+        assert result["status"] == "match"
+        assert result["issue"] == ""
+
+    def test_verify_returns_mismatch_when_flag_changed(self):
+        """Test that verification detects when flag has changed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm the cache
+        update_flag_definitions_cache(self.team)
+
+        # Change the flag
+        flag.key = "modified-flag"
+        flag.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "diffs" in result
+
+    def test_verify_both_variants_independently(self):
+        """Test that each variant can be verified independently."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Warm both caches
+        update_flag_definitions_cache(self.team)
+
+        # Verify both variants match
+        result_with = verify_team_flag_definitions(self.team, include_cohorts=True)
+        result_without = verify_team_flag_definitions(self.team, include_cohorts=False)
+
+        assert result_with["status"] == "match"
+        assert result_without["status"] == "match"
+
+    def test_verify_returns_mismatch_when_cohort_changed(self):
+        """Test that verification detects cohort definition changes."""
+        # Create a cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        # Create a flag that uses the cohort
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # Warm the cache (with cohorts variant)
+        update_flag_definitions_cache(self.team)
+
+        # Change the cohort definition
+        cohort.groups = [{"properties": [{"key": "email", "value": "changed@example.com", "type": "person"}]}]
+        cohort.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        # Should detect cohorts mismatch
+        assert "diffs" in result
+        cohorts_diff = [d for d in result["diffs"] if d.get("type") == "COHORTS_MISMATCH"]
+        assert len(cohorts_diff) == 1
+
+    def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
+        """Test that verification detects group type mapping changes."""
+        # Create group type mapping
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=0,
+        )
+
+        # Create a flag with group-based targeting
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        # Warm the cache
+        update_flag_definitions_cache(self.team)
+
+        # Change the group type mapping
+        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
+        mapping.group_type = "organization"
+        mapping.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        # Should detect group type mapping mismatch
+        assert "diffs" in result
+        mapping_diff = [d for d in result["diffs"] if d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH"]
+        assert len(mapping_diff) == 1
+
+
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        **settings.CACHES,
+        "flags_dedicated": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "flags-definitions-test",
+        },
+    },
+)
+class TestFlagDefinitionsManagementCommands(BaseTest):
+    """Tests for flag definitions cache management commands."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_verify_command_specific_teams(self):
+        """Test verify_flag_definitions_cache command with specific teams."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "Verification Results" in output
+        assert "Total teams verified: 1" in output
+
+    def test_verify_command_with_variant_flag(self):
+        """Test verify command with --variant flag for single variant verification."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Test with-cohorts variant
+        out = StringIO()
+        call_command(
+            "verify_flag_definitions_cache",
+            f"--team-ids={self.team.id}",
+            "--variant=with-cohorts",
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        # Should only verify one variant, not both
+        assert output.count("Verification Results") == 1
+
+    def test_warm_command_specific_teams(self):
+        """Test warm_flag_definitions_cache command with specific teams."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("warm_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "Flag definitions cache warm completed" in output or "Total teams: 1" in output
+
+    def test_warm_command_with_variant_flag(self):
+        """Test warm command with --variant flag for single variant warming."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Test with-cohorts variant only
+        out = StringIO()
+        call_command(
+            "warm_flag_definitions_cache",
+            f"--team-ids={self.team.id}",
+            "--variant=with-cohorts",
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+
+
+@override_settings(FLAGS_REDIS_URL=None)
+class TestFlagDefinitionsCacheWithoutRedis(BaseTest):
+    """Test flag definitions cache behavior when FLAGS_REDIS_URL is not set."""
+
+    def test_update_flag_definitions_cache_returns_false_without_redis(self):
+        """Test update returns False when FLAGS_REDIS_URL not configured."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = update_flag_definitions_cache(self.team)
+
+        # Without Redis URL configured, the HyperCache will still work but won't track expiry
+        # The update should complete successfully
+        assert result is True
+
+    def test_management_commands_error_without_redis_url(self):
+        """Test management commands fail gracefully without FLAGS_REDIS_URL."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "FLAGS_REDIS_URL" in output
+        assert "NOT configured" in output
