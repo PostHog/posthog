@@ -33,6 +33,7 @@ class TicketSerializer(serializers.ModelSerializer):
         model = Ticket
         fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "status",
@@ -48,9 +49,12 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "session_id",
+            "session_context",
         ]
         read_only_fields = [
             "id",
+            "ticket_number",
             "channel_source",
             "distinct_id",
             "created_at",
@@ -59,6 +63,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_text",
             "unread_team_count",
             "assigned_to_user",
+            "session_id",
+            "session_context",
         ]
 
     def get_message_count(self, obj: Ticket) -> int:
@@ -105,7 +111,7 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     pagination_class = TicketPagination
     posthog_feature_flag = {
-        "product-conversations": [
+        "product-support": [
             "list",
             "retrieve",
             "create",
@@ -188,13 +194,13 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if date_from:
             parsed = relative_date_parse(date_from, self.team.timezone_info)
             if parsed:
-                queryset = queryset.filter(created_at__gte=parsed)
+                queryset = queryset.filter(updated_at__gte=parsed)
 
         date_to = self.request.query_params.get("date_to")
         if date_to:
             parsed = relative_date_parse(date_to, self.team.timezone_info)
             if parsed:
-                queryset = queryset.filter(created_at__lte=parsed)
+                queryset = queryset.filter(updated_at__lte=parsed)
 
         distinct_id = self.request.query_params.get("distinct_id")
         if distinct_id and len(distinct_id) <= 200:
@@ -202,9 +208,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
-            queryset = queryset.filter(
-                Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
-            )
+            if search.isdigit():
+                queryset = queryset.filter(ticket_number=int(search))
+            else:
+                queryset = queryset.filter(
+                    Q(anonymous_traits__name__icontains=search) | Q(anonymous_traits__email__icontains=search)
+                )
 
         return queryset.order_by("-updated_at")
 

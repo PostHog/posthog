@@ -1,4 +1,4 @@
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -124,7 +124,7 @@ SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kaf
 """.format(
         table_name=PRECALCULATED_PERSON_PROPERTIES_KAFKA_TABLE,
         engine=kafka_engine(
-            topic="clickhouse_precalculated_person_properties", group="clickhouse_precalculated_person_properties"
+            topic="clickhouse_precalculated_person_properties", group=CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES
         ),
     )
 

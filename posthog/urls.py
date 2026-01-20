@@ -18,6 +18,7 @@ from posthog.api import (
     authentication,
     decide,
     github,
+    hog_flow_template,
     hog_function_template,
     playwright_setup,
     remote_config,
@@ -48,6 +49,7 @@ from posthog.temporal.codec_server import decode_payloads
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
 from products.slack_app.backend.api import slack_event_handler
+from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -202,6 +204,10 @@ urlpatterns = [
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
     ),
+    opt_slash_path(
+        "api/public_hog_flow_templates",
+        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
+    ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),
     re_path(r"^api.+", api_not_found),
@@ -245,6 +251,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     opt_slash_path("slack/event-callback", slack_event_handler),
+    # GitHub webhooks for task lifecycle events
+    opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

@@ -27,6 +27,7 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
+    FirebaseIntegration,
     GitHubIntegration,
     GitLabIntegration,
     GoogleAdsIntegration,
@@ -68,6 +69,14 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = GoogleCloudIntegration.integration_from_key(
                 validated_data["kind"], key_info, team_id, request.user
             )
+            return instance
+
+        elif validated_data["kind"] == "firebase":
+            key_file = request.FILES.get("key")
+            if not key_file:
+                raise ValidationError("Firebase service account key file not provided")
+            key_info = json.loads(key_file.read().decode("utf-8"))
+            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
             return instance
 
         elif validated_data["kind"] == "email":

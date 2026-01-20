@@ -1,5 +1,11 @@
 import { AnyPropertyFilter } from '~/types'
 
+export type EvaluationOutputType = 'boolean'
+
+export interface EvaluationOutputConfig {
+    allows_na?: boolean
+}
+
 export interface EvaluationConfig {
     id: string
     name: string
@@ -9,8 +15,8 @@ export interface EvaluationConfig {
     evaluation_config: {
         prompt: string
     }
-    output_type: 'boolean'
-    output_config: Record<string, never>
+    output_type: EvaluationOutputType
+    output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
     total_runs: number
     last_run_at?: string
@@ -32,7 +38,8 @@ export interface EvaluationRun {
     generation_id: string
     trace_id: string
     timestamp: string
-    result: boolean
+    result: boolean | null
+    applicable?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
 }
