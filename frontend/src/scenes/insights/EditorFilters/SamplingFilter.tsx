@@ -17,7 +17,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { hasDataWarehouseSeries, insightType } = useValues(insightVizDataLogic(insightProps))
+    const { hasDataWarehouseSeries, insightType, isFunnels } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage, isSamplingAvailable } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -58,9 +58,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             options={AVAILABLE_SAMPLING_PERCENTAGES.map((percentage) => ({
                                 value: percentage,
                                 label: `${percentage}%`,
-                                disabledReason: isSamplingAvailable
-                                    ? 'Sampling percentage cannot be changed for funnels'
-                                    : undefined,
+                                disabledReason: isFunnels ? 'Sampling is not supported for funnels' : undefined,
                             }))}
                             value={samplingPercentage}
                             onChange={(newValue) => {
