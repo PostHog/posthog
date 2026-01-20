@@ -269,13 +269,10 @@ def detect_recording_resolution(
         logger.info("video_exporter.resolution_detection_complete")
 
 
-def _update_exported_asset_with_inactivity_periods(
+def detect_inactivity_periods(
     page: Page,
-    exported_asset_id: int,
-) -> None:
-    """Detect inactivity periods when recording session videos and store in the exported asset's export_context."""
-    from posthog.models.exported_asset import ExportedAsset
-
+) -> list[ReplayInactivityPeriod] | None:
+    """Detect inactivity periods when recording session videos."""
     try:
         # Get data from the global variable using browser
         logger.info("video_exporter.waiting_for_inactivity_periods_global")
@@ -293,14 +290,8 @@ def _update_exported_asset_with_inactivity_periods(
             """,
             timeout=15000,
         ).json_value()
-        # Update export asset with the inactivity periods to skip them during analysis
-        inactivity_periods = [ReplayInactivityPeriod(**period) for period in inactivity_periods_raw]
-        asset = ExportedAsset.objects.get(pk=exported_asset_id)
-        if asset.export_context is None:
-            asset.export_context = {}
-        asset.export_context["inactivity_periods"] = [p.model_dump() for p in inactivity_periods]
-        asset.save(update_fields=["export_context"])
-        return None
+        inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
+        return inactivity_periods
     except Exception as e:
         logger.warning("video_exporter.inactivity_periods_detection_failed", error=str(e))
         return None
@@ -321,8 +312,7 @@ def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
 
 def record_replay_to_file(
     opts: RecordReplayToFileOptions,
-    exported_asset_id: Optional[int] = None,
-) -> None:
+) -> list[ReplayInactivityPeriod] | None:
     # Check if ffmpeg is available for video conversion
     ext = os.path.splitext(opts.image_path)[1].lower()
     if ext in [".mp4", ".gif"] and not shutil.which("ffmpeg"):
@@ -429,11 +419,7 @@ def record_replay_to_file(
             video = page.video
 
             # Collect data on inactivity periods and store in the exported asset
-            if exported_asset_id is not None:
-                _update_exported_asset_with_inactivity_periods(
-                    page=page,
-                    exported_asset_id=exported_asset_id,
-                )
+            inactivity_periods = detect_inactivity_periods(page=page)
 
             # Stop the recording
             page.close()
@@ -467,6 +453,7 @@ def record_replay_to_file(
                     browser.close()
                 except Exception:
                     pass
+        return inactivity_periods
     except Exception as e:
         with posthoganalytics.new_context():
             posthoganalytics.tag("url_to_render", opts.url_to_render)
