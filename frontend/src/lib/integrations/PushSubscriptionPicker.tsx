@@ -8,7 +8,7 @@ export type PushSubscriptionPickerProps = {
     value?: string
     onChange?: (value: string | null) => void
     disabled?: boolean
-    platform?: 'android' | 'ios' | 'web'
+    platform?: 'android' | 'ios'
 }
 
 export function PushSubscriptionPicker({

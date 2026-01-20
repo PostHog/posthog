@@ -97,7 +97,7 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         {
             "distinct_id": "user-123",
             "token": "fcm-token-abc123...",
-            "platform": "android" | "ios" | "web"
+            "platform": "android" | "ios"
         }
         """
         distinct_id = request.data.get("distinct_id")
@@ -158,7 +158,7 @@ def sdk_push_subscription_register(request: HttpRequest):
         "api_key": "phc_xxx...",
         "distinct_id": "user-123",
         "token": "fcm-token-abc123...",
-        "platform": "android" | "ios" | "web"
+        "platform": "android" | "ios"
     }
 
     Security note: This endpoint uses @csrf_exempt because it's called by mobile SDKs
