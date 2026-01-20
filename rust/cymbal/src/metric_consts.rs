@@ -73,6 +73,8 @@ pub const POSTHOG_SDK_EXCEPTION_RESOLVED: &str = "cymbal_posthog_sdk_exception_r
 pub const SUSPICIOUS_FRAMES_DETECTED: &str = "cymbal_suspicious_frames_detected";
 pub const LEGACY_JS_FRAME_RESOLVED: &str = "cymbal_legacy_js_frame_resolved";
 pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_failed";
+pub const DART_EXCEPTION_REMAP_FAILED: &str = "cymbal_dart_exception_remap_failed";
+pub const DART_EXCEPTION_REMAP_SUCCESS: &str = "cymbal_dart_exception_remap_success";
 
 // Spike detection metrics
 pub const SPIKE_DETECTION_TIME: &str = "cymbal_spike_detection_time";

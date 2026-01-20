@@ -10,9 +10,10 @@ use crate::{
     frames::RawFrame,
     langs::java::RawJavaFrame,
     metric_consts::{
-        FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_EXCEPTION_REMAP_FAILED,
+        DART_EXCEPTION_REMAP_FAILED, DART_EXCEPTION_REMAP_SUCCESS, FINGERPRINT_BATCH_TIME,
+        FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_EXCEPTION_REMAP_FAILED,
     },
-    symbol_store::Catalog,
+    symbol_store::{chunk_id::OrChunkId, dart_minified_names::lookup_minified_type, Catalog},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
 
@@ -87,6 +88,21 @@ pub async fn do_stack_processing(
                         exception.module = Some(remapped_module);
                         exception.exception_type = remapped_type;
                     }
+                }
+            }
+
+            // Handle dart2js minified exception types (e.g., "minified:BA" -> "UnsupportedError")
+            // Flutter Web uses posthog-js, so frames come as JavaScriptWeb with chunk_id
+            if exception.exception_type.starts_with("minified:") {
+                if let Some(remapped_type) = remap_dart_minified_exception_type(
+                    &exception.exception_type,
+                    &frames,
+                    team_id,
+                    &context.catalog,
+                )
+                .await
+                {
+                    exception.exception_type = remapped_type;
                 }
             }
 
@@ -208,6 +224,51 @@ fn split_last_dot(s: &str) -> Result<(&str, &str), UnhandledError> {
         "Could not split remapped module and type".to_string(),
     ))?;
     Ok((before, last))
+}
+
+/// Remaps dart2js minified exception types (e.g., "minified:BA" -> "UnsupportedError")
+/// by looking up the minified name in the sourcemap's x_org_dartlang_dart2js extension.
+async fn remap_dart_minified_exception_type(
+    exception_type: &str,
+    frames: &[RawFrame],
+    team_id: i32,
+    catalog: &Catalog,
+) -> Option<String> {
+    // Find a JS frame with a chunk_id to use for looking up the sourcemap
+    let chunk_id = frames.iter().find_map(|frame| match frame {
+        RawFrame::JavaScriptWeb(js_frame) => js_frame.chunk_id.clone(),
+        RawFrame::JavaScriptNode(node_frame) => node_frame.chunk_id.clone(),
+        RawFrame::LegacyJS(js_frame) => js_frame.chunk_id.clone(),
+        _ => None,
+    })?;
+
+    // Look up the sourcemap using the chunk_id (it may already be cached from frame resolution)
+    let sourcemap = catalog
+        .smp
+        .lookup(team_id, OrChunkId::ChunkId(chunk_id))
+        .await
+        .ok()?;
+
+    // Get the dart2js minified names from the sourcemap
+    let minified_names = sourcemap.get_dart_minified_names()?;
+
+    if minified_names.is_empty() {
+        metrics::counter!(DART_EXCEPTION_REMAP_FAILED, "reason" => "no_minified_names")
+            .increment(1);
+        return None;
+    }
+
+    match lookup_minified_type(minified_names, exception_type) {
+        Some(original) => {
+            metrics::counter!(DART_EXCEPTION_REMAP_SUCCESS).increment(1);
+            Some(original)
+        }
+        None => {
+            metrics::counter!(DART_EXCEPTION_REMAP_FAILED, "reason" => "type_not_found")
+                .increment(1);
+            None
+        }
+    }
 }
 
 #[cfg(test)]
