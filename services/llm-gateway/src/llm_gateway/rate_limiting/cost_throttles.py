@@ -146,6 +146,6 @@ class UserCostThrottle(CostThrottle):
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         settings = get_settings()
-        if not settings.user_cost_limits_enabled:
+        if settings.user_cost_limits_disabled:
             return ThrottleResult.allow()
         return await super().allow_request(context)

@@ -49,12 +49,14 @@ class Settings(BaseSettings):
     team_rate_limit_multipliers: dict[int, int] = {}
 
     product_cost_limits: dict[str, ProductCostLimit] = {
-        "llm_gateway": ProductCostLimit(limit_usd=20.0, window_seconds=3600),
+        "llm_gateway": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+        "wizard": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+        "array": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
     }
 
-    default_user_cost_limit_usd: float = 2.0
+    default_user_cost_limit_usd: float = 500.0
     default_user_cost_window_seconds: int = 3600
-    user_cost_limits_enabled: bool = False
+    user_cost_limits_disabled: bool = False
 
     default_fallback_cost_usd: float = 0.01
 
