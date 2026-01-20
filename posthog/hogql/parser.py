@@ -108,15 +108,18 @@ def _compare_with_cpp_json(
         logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
         return
 
-    if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
-        logger.warning(
-            "hogql_cpp_json_mismatch",
-            rule=rule,
-            backend=backend,
-            query=source,
-            parsed_ast=repr(parsed_ast),
-            cpp_json_ast=repr(cpp_json_ast),
-        )
+    try:
+        if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
+            logger.warning(
+                "hogql_cpp_json_mismatch",
+                rule=rule,
+                backend=backend,
+                query=source,
+                parsed_ast=repr(parsed_ast),
+                cpp_json_ast=repr(cpp_json_ast),
+            )
+    except Exception as err:
+        logger.warning("hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err))
 
 
 def parse_string_template(
