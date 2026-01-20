@@ -1,0 +1,177 @@
+import uuid
+
+import pytest
+
+import temporalio.worker
+from temporalio import activity
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+
+from posthog.temporal.cleanup_property_definitions.types import (
+    CleanupPropertyDefinitionsInput,
+    DeleteClickHousePropertyDefinitionsInput,
+    DeletePostgresPropertyDefinitionsInput,
+)
+from posthog.temporal.cleanup_property_definitions.workflows import CleanupPropertyDefinitionsWorkflow
+
+
+@pytest.mark.asyncio
+async def test_cleanup_property_definitions_workflow():
+    TEST_TEAM_ID = 12345
+    TEST_PATTERN = "^temp_.*"
+    TEST_PROPERTY_TYPE = "person"
+    postgres_deleted = 0
+    clickhouse_deleted = False
+
+    @activity.defn(name="delete-property-definitions-from-postgres")
+    async def delete_postgres_mocked(input: DeletePostgresPropertyDefinitionsInput) -> int:
+        nonlocal postgres_deleted
+        assert input.team_id == TEST_TEAM_ID
+        assert input.pattern == TEST_PATTERN
+        assert input.property_type == 2  # PERSON
+        postgres_deleted = 5
+        return 5
+
+    @activity.defn(name="delete-property-definitions-from-clickhouse")
+    async def delete_clickhouse_mocked(input: DeleteClickHousePropertyDefinitionsInput) -> None:
+        nonlocal clickhouse_deleted
+        assert input.team_id == TEST_TEAM_ID
+        assert input.pattern == TEST_PATTERN
+        assert input.property_type == 2  # PERSON
+        clickhouse_deleted = True
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[CleanupPropertyDefinitionsWorkflow],
+            activities=[
+                delete_postgres_mocked,
+                delete_clickhouse_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                CleanupPropertyDefinitionsWorkflow.run,
+                CleanupPropertyDefinitionsInput(
+                    team_id=TEST_TEAM_ID,
+                    pattern=TEST_PATTERN,
+                    property_type=TEST_PROPERTY_TYPE,
+                    dry_run=False,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert result["team_id"] == TEST_TEAM_ID
+    assert result["pattern"] == TEST_PATTERN
+    assert result["property_type"] == TEST_PROPERTY_TYPE
+    assert result["dry_run"] is False
+    assert result["postgres_deleted"] == 5
+    assert postgres_deleted == 5
+    assert clickhouse_deleted is True
+
+
+@pytest.mark.asyncio
+async def test_cleanup_property_definitions_workflow_dry_run():
+    TEST_TEAM_ID = 12345
+    TEST_PATTERN = "^temp_.*"
+    TEST_PROPERTY_TYPE = "person"
+
+    @activity.defn(name="delete-property-definitions-from-postgres")
+    async def delete_postgres_mocked(input: DeletePostgresPropertyDefinitionsInput) -> int:
+        raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="delete-property-definitions-from-clickhouse")
+    async def delete_clickhouse_mocked(input: DeleteClickHousePropertyDefinitionsInput) -> None:
+        raise AssertionError("Should not be called in dry run mode")
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[CleanupPropertyDefinitionsWorkflow],
+            activities=[
+                delete_postgres_mocked,
+                delete_clickhouse_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                CleanupPropertyDefinitionsWorkflow.run,
+                CleanupPropertyDefinitionsInput(
+                    team_id=TEST_TEAM_ID,
+                    pattern=TEST_PATTERN,
+                    property_type=TEST_PROPERTY_TYPE,
+                    dry_run=True,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert result["team_id"] == TEST_TEAM_ID
+    assert result["pattern"] == TEST_PATTERN
+    assert result["property_type"] == TEST_PROPERTY_TYPE
+    assert result["dry_run"] is True
+    assert result["postgres_deleted"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cleanup_property_definitions_workflow_no_matches():
+    TEST_TEAM_ID = 12345
+    TEST_PATTERN = "^nonexistent_.*"
+    TEST_PROPERTY_TYPE = "event"
+
+    @activity.defn(name="delete-property-definitions-from-postgres")
+    async def delete_postgres_mocked(input: DeletePostgresPropertyDefinitionsInput) -> int:
+        return 0
+
+    @activity.defn(name="delete-property-definitions-from-clickhouse")
+    async def delete_clickhouse_mocked(input: DeleteClickHousePropertyDefinitionsInput) -> None:
+        pass
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[CleanupPropertyDefinitionsWorkflow],
+            activities=[
+                delete_postgres_mocked,
+                delete_clickhouse_mocked,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                CleanupPropertyDefinitionsWorkflow.run,
+                CleanupPropertyDefinitionsInput(
+                    team_id=TEST_TEAM_ID,
+                    pattern=TEST_PATTERN,
+                    property_type=TEST_PROPERTY_TYPE,
+                    dry_run=False,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert result["postgres_deleted"] == 0
+
+
+def test_cleanup_property_definitions_workflow_parse_inputs():
+    result = CleanupPropertyDefinitionsWorkflow.parse_inputs(
+        ['{"team_id": 12345, "pattern": "^temp_.*", "property_type": "person", "dry_run": true}']
+    )
+    assert result.team_id == 12345
+    assert result.pattern == "^temp_.*"
+    assert result.property_type == "person"
+    assert result.dry_run is True
+
+    result = CleanupPropertyDefinitionsWorkflow.parse_inputs(
+        ['{"team_id": 99999, "pattern": "^foo_.*", "property_type": "event"}']
+    )
+    assert result.team_id == 99999
+    assert result.pattern == "^foo_.*"
+    assert result.property_type == "event"
+    assert result.dry_run is False
