@@ -69,7 +69,14 @@ jobs:
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
-                  cache: pnpm
+
+            - name: Cache pnpm store
+              uses: actions/cache@v4
+              with:
+                  path: ~/.local/share/pnpm/store
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -77,7 +84,8 @@ jobs:
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
               run: |
-                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  pnpm fetch --frozen-lockfile
+                  pnpm --filter=@posthog/nodejs... install --offline --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check formatting with prettier
@@ -103,7 +111,14 @@ jobs:
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
-                  cache: pnpm
+
+            - name: Cache pnpm store
+              uses: actions/cache@v4
+              with:
+                  path: ~/.local/share/pnpm/store
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -111,7 +126,8 @@ jobs:
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
               run: |
-                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  pnpm fetch --frozen-lockfile
+                  pnpm --filter=@posthog/nodejs... install --offline --frozen-lockfile
                   bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check builds correctly
@@ -206,8 +222,14 @@ jobs:
               uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
               with:
                   node-version: 24.13.0
-                  cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Cache pnpm store
+              uses: actions/cache@v4
+              with:
+                  path: ~/.local/share/pnpm/store
+                  key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-store-
 
             - name: Download MaxMind Database
               run: |
@@ -218,7 +240,9 @@ jobs:
                   npm_config_fetch_retries: 3
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+              run: |
+                  pnpm fetch --frozen-lockfile
+                  pnpm --filter=@posthog/nodejs... install --offline --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka
               run: |
