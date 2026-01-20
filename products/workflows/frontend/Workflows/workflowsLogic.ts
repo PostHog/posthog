@@ -89,7 +89,6 @@ export const workflowsLogic = kea<workflowsLogicType>([
                                     })
                                     lemonToast.success(`Workflow "${workflow.name}" archived`)
                                     router.actions.push(urls.workflows())
-                                    deleteFromTree('hog_flow/', workflow.id)
                                     actions.loadWorkflows()
                                 } catch (error: any) {
                                     lemonToast.error(
@@ -123,6 +122,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                                 try {
                                     await api.hogFlows.deleteHogFlow(workflow.id)
                                     lemonToast.success(`Workflow "${workflow.name}" deleted`)
+                                    deleteFromTree('hog_flow/', workflow.id)
                                     actions.loadWorkflows()
                                 } catch (error: any) {
                                     lemonToast.error(
