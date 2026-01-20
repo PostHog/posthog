@@ -192,8 +192,6 @@ class LoginSerializer(serializers.Serializer):
                             return False
                     except BadSignature:
                         pass
-            # No remember cookie found - email MFA required
-            return True
 
         # Has TOTP device - check for TOTP remember cookie
         if device:
@@ -208,19 +206,16 @@ class LoginSerializer(serializers.Serializer):
                         # Workaround for signature mismatches due to Django upgrades.
                         # See https://github.com/PostHog/posthog/issues/19350
                         pass
-            # TOTP device exists but no valid remember cookie - 2FA required
-            return True
 
         # Has passkeys enabled for 2FA but no TOTP - 2FA still required (passkey will be used)
         if passkeys_enabled_for_2fa:
             for key, value in self.context["request"].COOKIES.items():
                 if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                     try:
-                        return validate_remember_device_cookie(value, user=user, otp_device_id="passkey_2fa")
+                        if validate_remember_device_cookie(value, user=user, otp_device_id="passkey_2fa"):
+                            return False
                     except BadSignature:
                         pass
-            # Passkey exists, but no valid remember cookie - 2FA required
-            return True
 
         # No device and no passkeys enabled for 2FA - should have been handled above, but fallback to email MFA
         return True
