@@ -5696,6 +5696,8 @@ export enum AppMetricsTab {
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
+
+    // WARNING: Everything below here is to be removed in future releases
     Support = 'support',
     Docs = 'docs',
     Changelog = 'changelog',
