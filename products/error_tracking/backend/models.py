@@ -166,6 +166,8 @@ class ErrorTrackingRelease(UUIDTModel):
 class ErrorTrackingSymbolSet(UUIDTModel):
     # Derived from the symbol set reference
     ref = models.TextField(null=False, blank=False)
+    # Hash of the symbol set reference
+    ref_hash = models.TextField(null=True, blank=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     # How we stored this symbol set, and where to look for it
@@ -207,6 +209,7 @@ class ErrorTrackingSymbolSet(UUIDTModel):
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "ref"], name="unique_ref_per_team"),
+            models.UniqueConstraint(fields=["team_id", "ref_hash"], name="unique_team_id_ref_hash"),
         ]
         db_table = "posthog_errortrackingsymbolset"
 
