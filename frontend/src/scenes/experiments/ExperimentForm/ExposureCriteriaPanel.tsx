@@ -46,8 +46,8 @@ export function ExposureCriteriaPanel({
                                 style: { backgroundColor: 'var(--color-bg-table)' },
                                 children: (
                                     <div>
-                                        <h3 className="l4 mt-2">Advanced settings</h3>
-                                        <div className="text-secondary mb-2 font-medium">
+                                        <h3 className="l4 mt-2 font-semibold">Advanced settings</h3>
+                                        <div className="text-secondary mb-2 text-sm font-normal">
                                             Configure when users are considered exposed to the experiment and included
                                             in the analysis.
                                         </div>
@@ -286,8 +286,8 @@ export function ExposureCriteriaPanel({
                             style: { backgroundColor: 'var(--color-bg-table)' },
                             children: (
                                 <div>
-                                    <h3 className="l4 mt-2">Advanced settings</h3>
-                                    <div className="text-secondary mb-2 font-medium">
+                                    <h3 className="l4 mt-2 font-semibold">Advanced settings</h3>
+                                    <div className="text-secondary mb-2 text-sm font-normal">
                                         Configure additional exposure options.
                                     </div>
                                 </div>
