@@ -232,8 +232,13 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: |
                   bin/hogli db:download-schema
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
-                  pnpm --filter=@posthog/nodejs setup:test
+                  # Create test databases
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+                  # Restore schema to test database
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  # Run Rust migrations for test databases
+                  cd nodejs && pnpm run setup:test:rust
 
             - name: Set up databases (slow path - run migrations)
               if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'true'
