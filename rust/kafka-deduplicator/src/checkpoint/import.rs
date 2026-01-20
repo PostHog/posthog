@@ -66,20 +66,22 @@ impl CheckpointImporter {
             // Defensive cleanup: remove any existing directory from a previous failed attempt.
             // Since the path is deterministic (based on checkpoint timestamp), a crash loop
             // could leave corrupted partial downloads that would break the retry.
-            if local_attempt_path.exists() {
-                info!(
+            // We call remove unconditionally and ignore NotFound to avoid TOCTOU races.
+            match tokio::fs::remove_dir_all(&local_attempt_path).await {
+                Ok(_) => info!(
                     checkpoint = attempt_tag,
                     local_attempt_path = local_path_tag,
-                    "Removing existing directory before checkpoint import (likely from previous failed attempt)"
-                );
-                tokio::fs::remove_dir_all(&local_attempt_path)
-                    .await
-                    .with_context(|| {
+                    "Removed existing directory before checkpoint import"
+                ),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(e).with_context(|| {
                         format!(
                             "Failed to remove existing directory before import: {}",
                             local_path_tag
                         )
-                    })?;
+                    })
+                }
             }
 
             // Create the directory for this import attempt
