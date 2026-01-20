@@ -53,7 +53,7 @@ class TestPostHogCallback:
 
             assert call_kwargs["distinct_id"] == "user-distinct-id-123"
             assert call_kwargs["event"] == "$ai_generation"
-            assert call_kwargs["groups"] == {"project": "456"}
+            assert call_kwargs["groups"] == {"project": 456}
 
             props = call_kwargs["properties"]
             assert props["$ai_model"] == "claude-3-opus"
@@ -63,7 +63,7 @@ class TestPostHogCallback:
             assert props["$ai_latency"] == 1.5
             assert props["$ai_trace_id"] == "session-123"
             assert props["$ai_total_cost_usd"] == 0.05
-            assert props["team_id"] == "456"
+            assert props["team_id"] == 456
 
     @pytest.mark.asyncio
     async def test_on_success_uses_uuid_when_no_auth_user(
