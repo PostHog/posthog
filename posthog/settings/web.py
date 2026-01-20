@@ -450,6 +450,10 @@ CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 ####
+# Decide billing analytics
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+
 ####
 # /remote_config
 REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE = get_from_env("REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE", 0.0, type_cast=float)
