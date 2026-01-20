@@ -2581,6 +2581,10 @@ export interface CohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
     readonly is_calculating: boolean
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -2681,6 +2685,10 @@ export interface PatchedCohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version?: number | null
+    /** @nullable */
+    readonly pending_version?: number | null
     readonly is_calculating?: boolean
     readonly created_by?: UserBasicApi
     /** @nullable */
