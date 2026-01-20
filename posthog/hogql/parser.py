@@ -1,3 +1,4 @@
+import random
 from collections.abc import Callable
 from typing import Literal, cast
 
@@ -100,6 +101,10 @@ def _compare_with_cpp_json(
     start: int | None = None,
     placeholders: dict[str, ast.Expr] | None = None,
 ) -> None:
+    # Only compare a fraction of queries to avoid performance overhead
+    if random.random() > 0.1:
+        return
+
     if backend == "cpp-json":
         return
 
