@@ -1,11 +1,12 @@
-import { SDKInstallAstroInstructions } from '../sdk-install-instructions/astro'
-import { ProductAnalyticsAllJSFinalSteps } from './AllJSFinalSteps'
+import { AstroInstallation } from '@posthog/shared-onboarding/product-analytics'
+
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsAstroInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAstroInstructions />
-            <ProductAnalyticsAllJSFinalSteps />
+            <SetupWizardBanner integrationName="Astro" />
+            <AstroInstallation />
         </>
     )
 }

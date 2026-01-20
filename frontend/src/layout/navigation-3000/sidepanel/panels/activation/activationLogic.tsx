@@ -18,7 +18,7 @@ import {
 
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { isDefinitionStale } from 'lib/utils/definitions'
+import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -157,18 +157,7 @@ export const activationLogic = kea<activationLogicType>([
         hasSentAIEvent: {
             __default: undefined as boolean | undefined,
             loadAIEventDefinitions: async (): Promise<boolean> => {
-                const AI_EVENT_NAMES = ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding']
-
-                const aiEventDefinitions = await api.eventDefinitions.list({
-                    event_type: EventDefinitionType.Event,
-                    search: '$ai_',
-                })
-
-                const validAIEvent = aiEventDefinitions.results.find(
-                    (r) => AI_EVENT_NAMES.includes(r.name) && !isDefinitionStale(r)
-                )
-
-                return !!validAIEvent
+                return hasRecentAIEvents()
             },
         },
     })),

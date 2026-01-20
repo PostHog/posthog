@@ -373,6 +373,37 @@ export const featureFlagsDashboardCreate = async (
 }
 
 /**
+ * Get other active flags that depend on this flag.
+ */
+export type featureFlagsDependentFlagsRetrieveResponse200 = {
+    data: void
+    status: 200
+}
+
+export type featureFlagsDependentFlagsRetrieveResponseSuccess = featureFlagsDependentFlagsRetrieveResponse200 & {
+    headers: Headers
+}
+export type featureFlagsDependentFlagsRetrieveResponse = featureFlagsDependentFlagsRetrieveResponseSuccess
+
+export const getFeatureFlagsDependentFlagsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/dependent_flags/`
+}
+
+export const featureFlagsDependentFlagsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<featureFlagsDependentFlagsRetrieveResponse> => {
+    return apiMutator<featureFlagsDependentFlagsRetrieveResponse>(
+        getFeatureFlagsDependentFlagsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
@@ -410,7 +441,8 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
 }
 
 /**
- * Check if this flag has other active flags that depend on it.
+ * Deprecated: Use GET /dependent_flags instead.
+Safe to delete after usage falls to zero, expected by Jan 22, 2026.
  */
 export type featureFlagsHasActiveDependentsCreateResponse200 = {
     data: void

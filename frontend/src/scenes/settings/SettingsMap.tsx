@@ -55,6 +55,7 @@ import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { GithubIntegration } from './environment/Integrations'
 import { LinearIntegration } from './environment/Integrations'
+import { LogsCaptureSettings } from './environment/LogsCaptureSettings'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
@@ -96,6 +97,7 @@ import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentS
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
+import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -450,7 +452,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-integrations',
-                title: 'Integrations',
+                title: (
+                    <>
+                        Integrations
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
                 component: <ReplayIntegrations />,
                 flag: 'REPLAY_LINEAR_INTEGRATION',
             },
@@ -519,6 +528,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-releases',
                 title: 'Releases',
                 component: <Releases />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-logs',
+        title: 'Logs',
+        flag: 'LOGS_SETTINGS',
+        settings: [
+            {
+                id: 'logs',
+                title: 'Logs',
+                component: <LogsCaptureSettings />,
+                flag: 'LOGS_SETTINGS',
             },
         ],
     },
@@ -749,6 +772,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-integrations',
+        title: 'Integrations',
+        settings: [
+            {
+                id: 'organization-integrations-list',
+                title: 'Connected integrations',
+                component: <OrganizationIntegrations />,
             },
         ],
     },

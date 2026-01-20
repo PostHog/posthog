@@ -62,10 +62,15 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -76,6 +81,9 @@ jobs:
                   sccache --start-server
 
             - name: Run cargo build
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
@@ -151,7 +159,7 @@ jobs:
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
 
             - name: Install sccache
               uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
@@ -236,10 +244,15 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
+            - name: Install system OpenSSL
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
               with:
-                  toolchain: 1.88.0
+                  toolchain: 1.91.1
                   components: clippy,rustfmt
 
             - name: Install sccache
@@ -254,9 +267,15 @@ jobs:
               run: cargo fmt -- --check
 
             - name: Run clippy
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Run cargo check
+              env:
+                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
+                  OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
     shear:

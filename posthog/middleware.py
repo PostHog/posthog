@@ -780,7 +780,7 @@ class CSPMiddleware:
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com",
+                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
                 "frame-src https:",
@@ -889,6 +889,8 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
+    # Allow upgrading from read-only to read-write impersonation
+    "/admin/impersonation/upgrade/",
 ]
 
 
@@ -917,6 +919,9 @@ class ImpersonationReadOnlyMiddleware:
         if self._is_path_allowlisted(request.path):
             return self.get_response(request)
 
+        if self._is_allowed_users_request(request):
+            return self.get_response(request)
+
         return JsonResponse(
             {
                 "type": "authentication_error",
@@ -934,6 +939,24 @@ class ImpersonationReadOnlyMiddleware:
             elif path.startswith(allowed_path):
                 return True
         return False
+
+    def _is_allowed_users_request(self, request: HttpRequest) -> bool:
+        """
+        Allow switching organizations.
+
+        Switching occurs via a PATCH to /api/users/@me/ that only contains `set_current_organization`.
+        """
+        if request.method != "PATCH":
+            return False
+
+        if request.path not in ("/api/users/@me/", "/api/users/@me"):
+            return False
+
+        try:
+            body = json.loads(request.body)
+            return isinstance(body, dict) and set(body.keys()) == {"set_current_organization"}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return False
 
 
 IMPERSONATION_BLOCKED_PATHS: list[str] = [

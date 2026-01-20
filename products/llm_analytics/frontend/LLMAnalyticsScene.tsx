@@ -30,7 +30,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDuration, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -56,6 +56,7 @@ import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { ClustersView } from './clusters/ClustersView'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { EvaluationTemplatesEmptyState } from './evaluations/EvaluationTemplates'
 import {
@@ -490,7 +491,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             ),
         },
         {
-            title: 'Recent',
+            title: 'Runs',
             key: 'recent_stats',
             render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
                 const stats = evaluation.stats
@@ -514,19 +515,6 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     </div>
                 )
             },
-        },
-        {
-            title: 'Runs',
-            key: 'total_runs',
-            render: (_, evaluation) => (
-                <div className="flex flex-col items-center">
-                    <div className="font-semibold">{evaluation.total_runs}</div>
-                    {evaluation.last_run_at && (
-                        <div className="text-muted text-xs">Last: {humanFriendlyDuration(evaluation.last_run_at)}</div>
-                    )}
-                </div>
-            ),
-            sorter: (a, b) => b.total_runs - a.total_runs,
         },
         {
             title: 'Actions',
@@ -645,6 +633,15 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DOCS_URLS_BY_TAB: Record<string, string> = {
+    traces: 'https://posthog.com/docs/llm-analytics/traces',
+    generations: 'https://posthog.com/docs/llm-analytics/generations',
+    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
+    errors: 'https://posthog.com/docs/llm-analytics/errors',
+    evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
+}
+
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -734,14 +731,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     ) {
         tabs.push({
             key: 'errors',
-            label: (
-                <>
-                    Errors{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Errors',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsErrors />
@@ -759,14 +749,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     ) {
         tabs.push({
             key: 'sessions',
-            label: (
-                <>
-                    Sessions{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Sessions',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSessionsScene />
@@ -800,8 +783,8 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: (
                 <>
                     Evaluations{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Alpha
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
                     </LemonTag>
                 </>
             ),
@@ -826,6 +809,27 @@ export function LLMAnalyticsScene(): JSX.Element {
             content: <LLMAnalyticsDatasetsScene />,
             link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
             'data-attr': 'datasets-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]) {
+        tabs.push({
+            key: 'clusters',
+            label: (
+                <>
+                    Clusters{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Alpha
+                    </LemonTag>
+                </>
+            ),
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <ClustersView />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsClusters(), searchParams).url,
+            'data-attr': 'clusters-tab',
         })
     }
 
@@ -870,7 +874,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     actions={
                         <>
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/installation"
+                                to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                                 type="secondary"
                                 targetBlank
                                 size="small"

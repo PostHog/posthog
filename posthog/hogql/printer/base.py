@@ -267,7 +267,9 @@ class HogQLPrinter(Visitor[str]):
         return []
 
     def _ensure_team_id_where_clause(
-        self, table_type: ast.TableType | ast.LazyTableType, node_type: ast.TableOrSelectType
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType,
     ):
         if self.dialect != "hogql":
             raise NotImplementedError("HogQLPrinter._ensure_team_id_where_clause not overridden")
@@ -278,8 +280,10 @@ class HogQLPrinter(Visitor[str]):
         raise ImpossibleASTError(f"Unsupported dialect {self.dialect}")
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
-        # return constraints we must place on the select query
+        # Constraints to add to the SELECT's WHERE clause (for most join types)
         extra_where: ast.Expr | None = None
+        # For LEFT JOINs, team_id goes in ON instead of WHERE to preserve NULL rows
+        team_id_for_on_clause: ast.Expr | None = None
 
         join_strings = []
 
@@ -294,8 +298,14 @@ class HogQLPrinter(Visitor[str]):
             if not isinstance(table_type, ast.TableType) and not isinstance(table_type, ast.LazyTableType):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
-            # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            extra_where = self._ensure_team_id_where_clause(table_type, node.type)
+            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
+            # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
+            team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
+            is_left_join = node.join_type is not None and "LEFT" in node.join_type
+            if is_left_join and team_id_expr is not None and node.constraint is not None:
+                team_id_for_on_clause = team_id_expr
+            else:
+                extra_where = team_id_expr
 
             sql = self._print_table_ref(table_type, node)
 
@@ -363,7 +373,11 @@ class HogQLPrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
+            if team_id_for_on_clause is not None:
+                combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
+                join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
+            else:
+                join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
@@ -980,6 +994,9 @@ class HogQLPrinter(Visitor[str]):
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
             # Check for dmat (dynamic materialized) columns
@@ -988,6 +1005,9 @@ class HogQLPrinter(Visitor[str]):
                     self.visit(field_type.table_type),
                     self._print_identifier(dmat_column),
                     is_nullable=True,
+                    has_minmax_index=False,
+                    has_ngram_lower_index=False,
+                    has_bloom_filter_index=False,
                 )
 
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
@@ -1018,6 +1038,9 @@ class HogQLPrinter(Visitor[str]):
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):
@@ -1327,16 +1350,21 @@ class HogQLPrinter(Visitor[str]):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, int | float | str):
-                raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")
             if isinstance(value, bool):
                 pairs.append(f"{key}={1 if value else 0}")
             elif isinstance(value, int) or isinstance(value, float):
                 pairs.append(f"{key}={value}")
-            else:
+            elif isinstance(value, list):
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
+                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
+            elif isinstance(value, str):
                 pairs.append(f"{key}={self._print_escaped_string(value)}")
+            else:
+                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None

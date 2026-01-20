@@ -110,7 +110,7 @@ Key constants in `constants.py`:
 | Constant                             | Default    | Description                 |
 | ------------------------------------ | ---------- | --------------------------- |
 | `DEFAULT_MAX_TRACES_PER_WINDOW`      | 100        | Max traces per window       |
-| `DEFAULT_BATCH_SIZE`                 | 5          | Concurrent trace processing |
+| `DEFAULT_BATCH_SIZE`                 | 3          | Concurrent trace processing |
 | `DEFAULT_MODE`                       | "detailed" | Summary detail level        |
 | `DEFAULT_WINDOW_MINUTES`             | 60         | Time window to query        |
 | `WORKFLOW_EXECUTION_TIMEOUT_MINUTES` | 120        | Max workflow duration       |

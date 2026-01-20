@@ -62,7 +62,7 @@ from posthog.event_usage import (
 )
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at
+from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
@@ -81,6 +81,8 @@ from posthog.user_permissions import UserPermissions
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
 REDIRECT_TO_SITE_FAILED_COUNTER = Counter("posthog_redirect_to_site_failed", "Redirect to site failed")
 
+NUM_2FA_BACKUP_CODES = 10
+
 logger = structlog.get_logger(__name__)
 
 
@@ -94,6 +96,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_impersonated_until = serializers.SerializerMethodField()
+    is_impersonated_read_only = serializers.SerializerMethodField()
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -129,6 +132,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -148,6 +152,7 @@ class UserSerializer(serializers.ModelSerializer):
             "allow_sidebar_suggestions",
             "shortcut_position",
             "role_at_organization",
+            "passkeys_enabled_for_2fa",
         ]
 
         read_only_fields = [
@@ -160,6 +165,7 @@ class UserSerializer(serializers.ModelSerializer):
             "id",
             "is_impersonated",
             "is_impersonated_until",
+            "is_impersonated_read_only",
             "sensitive_session_expires_at",
             "team",
             "organization",
@@ -187,6 +193,13 @@ class UserSerializer(serializers.ModelSerializer):
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
         return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
+
+    def get_is_impersonated_read_only(self, _) -> Optional[bool]:
+        if "request" not in self.context:
+            return None
+        if not is_impersonated_session(self.context["request"]):
+            return None
+        return is_read_only_impersonation(self.context["request"])
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -269,6 +282,18 @@ class UserSerializer(serializers.ModelSerializer):
                         )
                 # Merge with existing settings
                 current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            elif key == "data_pipeline_error_threshold":
+                if not isinstance(value, (int, float)):
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be a number, got {type(value)} instead",
+                        code="invalid_input",
+                    )
+                if value < 0.0 or value > 1.0:
+                    raise serializers.ValidationError(
+                        f"data_pipeline_error_threshold must be between 0.0 and 1.0, got {value}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = float(value)
             else:
                 # For non-dict settings, validate type directly
                 if not isinstance(value, expected_type):
@@ -313,6 +338,19 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_role_at_organization(self, value):
         if value and value not in dict(ROLE_CHOICES):
             raise serializers.ValidationError("Invalid role selected")
+        return value
+
+    def validate_passkeys_enabled_for_2fa(self, value: bool) -> bool:
+        """Validate that user has passkeys before enabling passkeys for 2FA"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
+        if value:  # Only validate when enabling
+            instance = cast(User, self.instance)
+            if instance and not has_passkeys(instance):
+                raise serializers.ValidationError(
+                    "You must have at least one passkey set up before enabling passkeys for 2FA.",
+                    code="no_passkeys",
+                )
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
@@ -650,19 +688,33 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
         """Get current 2FA status including backup codes if enabled"""
+        from posthog.helpers.two_factor_session import has_passkeys
+
         user = self.get_object()
         totp_device = TOTPDevice.objects.filter(user=user).first()
         static_device = StaticDevice.objects.filter(user=user).first()
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
         backup_codes = []
         if static_device:
             backup_codes = [token.token for token in static_device.token_set.all()]
 
+        # Determine 2FA method
+        method = None
+        if totp_device:
+            method = "TOTP"
+        elif passkeys_enabled_for_2fa:
+            method = "passkey"
+
         return Response(
             {
-                "is_enabled": default_device(user) is not None,
+                "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
                 "backup_codes": backup_codes if totp_device else [],
-                "method": "TOTP" if totp_device else None,
+                "method": method,
+                "has_passkeys": user_has_passkeys,
+                "has_totp": totp_device is not None,
+                "passkeys_enabled_for_2fa": passkeys_enabled_for_2fa,
             }
         )
 
@@ -684,7 +736,7 @@ class UserViewSet(
 
         # Generate new backup codes
         backup_codes = []
-        for _ in range(5):  # Generate 5 backup codes
+        for _ in range(NUM_2FA_BACKUP_CODES):
             token = StaticToken.random_token()
             static_device.token_set.create(token=token)
             backup_codes.append(token)

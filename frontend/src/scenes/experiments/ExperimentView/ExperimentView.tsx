@@ -218,15 +218,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const {
-        experimentLoading,
-        experimentId,
-        experiment,
-        usesNewQueryRunner,
-        isExperimentDraft,
-        exposureCriteria,
-        featureFlags,
-    } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -296,7 +289,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
                                 label: 'History',
                                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
                             },
-                            ...(experiment.feature_flag && featureFlags[FEATURE_FLAGS.SURVEYS_EXPERIMENTS_CROSS_SELL]
+                            ...(experiment.feature_flag
                                 ? [
                                       {
                                           key: 'feedback',

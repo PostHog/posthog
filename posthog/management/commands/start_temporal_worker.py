@@ -22,6 +22,10 @@ from posthog.temporal.ai import (
     ACTIVITIES as AI_ACTIVITIES,
     WORKFLOWS as AI_WORKFLOWS,
 )
+from posthog.temporal.cleanup_property_definitions import (
+    ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
+    WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
+)
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
@@ -150,7 +154,8 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
-        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
+        + CLEANUP_PROPDEFS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -159,7 +164,8 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
         + DLQ_REPLAY_ACTIVITIES
-        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
+        + CLEANUP_PROPDEFS_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,

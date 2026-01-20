@@ -57,7 +57,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import CohortType
+from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies, get_friendly_error_message, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
@@ -81,7 +81,7 @@ from posthog.utils import format_query_params_absolute_url
 
 
 def validate_filters_and_compute_realtime_support(
-    filters_dict: dict, team: Team, current_cohort_type: str | None = None
+    filters_dict: dict, team: Team, current_cohort_type: str | None = None, cohort_count: int | None = None
 ) -> tuple[dict, str | None, list | None]:
     try:
         if not filters_dict:
@@ -96,6 +96,11 @@ def validate_filters_and_compute_realtime_support(
         cohort_type = (
             CohortType.REALTIME if _calculate_realtime_support(cast(Group, validated_filters.properties)) else None
         )
+
+        # Check if cohort exceeds the maximum person count for real-time evaluation
+        if cohort_type == CohortType.REALTIME and cohort_count is not None:
+            if cohort_count > REALTIME_COHORT_MAX_PERSON_COUNT:
+                cohort_type = None
 
         return clean_filters, cohort_type, None
 
@@ -117,7 +122,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
                 return None, "Unsupported behavioral filter for realtime bytecode", None
-            bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+            bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
@@ -147,7 +152,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
-        bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+        bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
 
         # Generate conditionHash from bytecode
         condition_hash = None
@@ -383,6 +388,8 @@ class CohortSerializer(serializers.ModelSerializer):
             "deleted",
             "filters",
             "query",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
@@ -398,6 +405,8 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "version",
+            "pending_version",
             "is_calculating",
             "created_by",
             "created_at",
@@ -802,7 +811,7 @@ class CohortSerializer(serializers.ModelSerializer):
             filters = validated_data["filters"]
             if filters:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
-                    filters, cohort.team, current_cohort_type=cohort.cohort_type
+                    filters, cohort.team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
                 )
                 cohort.filters = clean_filters
                 # Always compute cohort_type from filters; ignore any client-provided value

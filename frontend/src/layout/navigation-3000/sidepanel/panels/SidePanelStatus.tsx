@@ -91,6 +91,7 @@ export const SidePanelStatus = (): JSX.Element => {
                     title="Status"
                     className={clsx('w-full h-full', !ready && 'hidden')}
                     onLoad={() => setReady(true)}
+                    sandbox="allow-scripts allow-same-origin"
                 />
 
                 {!ready && <SidePanelDocsSkeleton />}

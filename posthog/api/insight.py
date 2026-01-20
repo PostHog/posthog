@@ -301,7 +301,7 @@ class InsightBasicSerializer(
 
         return representation
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def _dashboard_tiles(self, instance):
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
@@ -615,7 +615,7 @@ class InsightSerializer(InsightBasicSerializer):
             # it will mean this dashboard becomes restricted because of the patch
             if (
                 self.user_permissions.dashboard(dashboard).effective_privilege_level
-                == Dashboard.PrivilegeLevel.CAN_VIEW
+                != Dashboard.PrivilegeLevel.CAN_EDIT
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
@@ -629,6 +629,17 @@ class InsightSerializer(InsightBasicSerializer):
                 tile.save()
 
         if ids_to_remove:
+            # Check permission before removing insight from dashboards
+            dashboards_to_remove = Dashboard.objects.filter(id__in=ids_to_remove)
+            for dashboard in dashboards_to_remove:
+                if (
+                    self.user_permissions.dashboard(dashboard).effective_privilege_level
+                    != Dashboard.PrivilegeLevel.CAN_EDIT
+                ):
+                    raise PermissionDenied(
+                        f"You don't have permission to remove insights from dashboard: {dashboard.id}"
+                    )
+
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
 
         self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
@@ -793,7 +804,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         return representation
 
-    @lru_cache(maxsize=1)
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 
@@ -884,7 +895,7 @@ class InsightSerializer(InsightBasicSerializer):
                     timezone=self.context["get_team"]().timezone,
                 )
 
-    @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
+    @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer, one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Dashboard | None) -> DashboardTile | None:
         dashboard_tile: DashboardTile | None = self.context.get("dashboard_tile", None)
 
