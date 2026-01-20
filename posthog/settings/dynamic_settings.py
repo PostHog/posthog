@@ -145,6 +145,11 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
+    "GITHUB_WEBHOOK_SECRET": (
+        get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
+        "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
+        str,
+    ),
     "PARALLEL_DASHBOARD_ITEM_CACHE": (
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
@@ -213,6 +218,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "GITHUB_WEBHOOK_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
@@ -228,4 +234,5 @@ SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
+    "GITHUB_WEBHOOK_SECRET",
 ]

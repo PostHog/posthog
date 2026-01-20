@@ -36,6 +36,7 @@ async def summarize_with_openai(
         response = await client.chat.completions.create(
             model=str(model),
             messages=messages,
+            user="llma-summarization",
             response_format=cast(
                 Any,
                 {

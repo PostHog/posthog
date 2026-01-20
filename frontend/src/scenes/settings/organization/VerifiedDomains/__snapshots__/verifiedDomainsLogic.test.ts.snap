@@ -92,7 +92,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "data_attributes": [
           "data-attr",
         ],
-        "default_evaluation_environments_enabled": false,
+        "default_evaluation_contexts_enabled": false,
         "effective_membership_level": 8,
         "feature_flag_confirmation_enabled": false,
         "feature_flag_confirmation_message": "",
@@ -156,7 +156,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
-        "require_evaluation_environment_tags": false,
+        "require_evaluation_contexts": false,
         "revenue_analytics_config": {
           "events": [
             {

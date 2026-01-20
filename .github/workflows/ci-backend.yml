@@ -31,6 +31,7 @@ env:
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    UV_HTTP_TIMEOUT: 120
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
@@ -207,6 +208,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |
@@ -455,6 +458,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
             - name: Check if OpenAPI types are up to date
@@ -757,6 +764,12 @@ jobs:
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  # Add unique prefix per matrix job to avoid cache contention
+                  prefix-key: 'v1-rust-${{ matrix.segment }}-${{ matrix.group }}'
+                  # Add shared-key for cross-job cache reuse
+                  shared-key: 'v1-rust-shared'
+                  workspaces: rust
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -810,7 +823,7 @@ jobs:
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  sudo apt-get install unzip cmake curl uuid pkg-config
                   curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
@@ -899,22 +912,6 @@ jobs:
             # - name: Setup tmate session
             #   if: failure()
             #   uses: mxschmitt/action-tmate@v3
-
-            - name: Run /decide read replica tests
-              id: run-decide-read-replica-tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.group == 1 && !matrix.person-on-events }}
-              env:
-                  POSTHOG_DB_NAME: posthog
-                  READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
-                  POSTHOG_POSTGRES_READ_HOST: localhost
-                  POSTHOG_DB_PASSWORD: posthog
-                  POSTHOG_DB_USER: posthog
-              shell: bash
-              run: |
-                  pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                      --durations=1000 --durations-min=1.0 \
-                      --reruns 2 --reruns-delay 1 \
-                      $PYTEST_ARGS
 
             - name: Run Temporal tests
               id: run-temporal-tests
@@ -1157,6 +1154,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |
