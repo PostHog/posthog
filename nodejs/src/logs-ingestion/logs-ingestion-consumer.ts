@@ -242,7 +242,7 @@ export class LogsIngestionConsumer {
             (
                 await Promise.all(
                     uniqueTokens.map(async (token) =>
-                        (await this.hub.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_gb_ingested')) ? token : null
+                        (await this.hub.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested')) ? token : null
                     )
                 )
             ).filter((token): token is string => token !== null)

@@ -545,7 +545,7 @@ describe('LogsIngestionConsumer', () => {
 
             expect(quotaAllowedMessages).toHaveLength(1)
             expect(quotaDroppedMessages).toHaveLength(0)
-            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'logs_gb_ingested')
+            expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'logs_mb_ingested')
         })
 
         it('should drop messages when quota limited', async () => {
