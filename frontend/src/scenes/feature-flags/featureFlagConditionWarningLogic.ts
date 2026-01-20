@@ -1,8 +1,9 @@
-import { kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
-import { AnyPropertyFilter, FeatureFlagEvaluationRuntime } from '~/types'
+import { cohortsModel } from '~/models/cohortsModel'
+import { AnyPropertyFilter, CohortType, FeatureFlagEvaluationRuntime, PropertyFilterType } from '~/types'
 
 import type { featureFlagConditionWarningLogicType } from './featureFlagConditionWarningLogicType'
 
@@ -19,37 +20,62 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({} as FeatureFlagConditionWarningLogicProps),
     key((props) => JSON.stringify(props.properties)),
+    connect({
+        values: [cohortsModel, ['cohortsById']],
+    }),
 
     selectors({
         warning: [
-            (_, p) => [p.properties, p.evaluationRuntime],
-            (properties: AnyPropertyFilter[], evaluationRuntime: FeatureFlagEvaluationRuntime): string | undefined => {
+            (s, p) => [s.cohortsById, p.properties, p.evaluationRuntime],
+            (
+                cohortsById: Partial<Record<string | number, CohortType>>,
+                properties: AnyPropertyFilter[],
+                evaluationRuntime: FeatureFlagEvaluationRuntime
+            ): string | undefined => {
                 if (evaluationRuntime === FeatureFlagEvaluationRuntime.SERVER) {
                     return
                 }
 
-                const unsupportedFeatures = new Set<string>()
+                const issues: string[] = []
+
                 properties.forEach((property) => {
+                    if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {
+                        issues.push('is_not_set operator')
+                    }
+
+                    if (property.type === PropertyFilterType.Cohort) {
+                        const cohortId = property.value
+                        // Try both numeric and string keys since cohort IDs can be stored as either type
+                        const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
+                        if (cohort?.is_static) {
+                            issues.push('static cohorts')
+                        }
+                    }
+
                     if (isPropertyFilterWithOperator(property) && property.operator === 'regex') {
                         const pattern = String(property.value)
 
                         if (REGEX_LOOKAHEAD.test(pattern)) {
-                            unsupportedFeatures.add('lookahead')
+                            issues.push('lookahead in regex')
                         }
 
                         if (REGEX_LOOKBEHIND.test(pattern)) {
-                            unsupportedFeatures.add('lookbehind')
+                            issues.push('lookbehind in regex')
                         }
 
                         if (REGEX_BACKREFERENCE.test(pattern)) {
-                            unsupportedFeatures.add('backreferences')
+                            issues.push('backreferences in regex')
                         }
                     }
                 })
 
-                return unsupportedFeatures.size > 0
-                    ? `This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (${Array.from(unsupportedFeatures).join(', ')}).`
-                    : undefined
+                if (issues.length === 0) {
+                    return undefined
+                }
+
+                const uniqueIssues = [...new Set(issues)]
+
+                return `This flag cannot be evaluated locally. Unsupported features: ${uniqueIssues.join(', ')}.`
             },
         ],
     }),

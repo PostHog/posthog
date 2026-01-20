@@ -18,6 +18,7 @@ export interface UserBasic {
 
 export interface Ticket {
     id: string
+    ticket_number: number
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
@@ -38,6 +39,7 @@ export interface Ticket {
 
 export interface ConversationTicket {
     id: string
+    ticket_number?: number
     status: TicketStatus
     last_message?: string
     last_message_at?: string
