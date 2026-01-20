@@ -102,6 +102,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
                             children: 'Cancel',
                         },
                     })
+                    // Return unchanged workflows since dialog handles the update
+                    return values.workflows
                 },
                 restoreWorkflow: async ({ workflow }) => {
                     const updatedWorkflow = await api.hogFlows.updateHogFlow(workflow.id, {
