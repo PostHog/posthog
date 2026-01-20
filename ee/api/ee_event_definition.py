@@ -141,5 +141,5 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return representation
 
-    def get_is_action(self, obj):
+    def get_is_action(self, obj) -> bool:
         return hasattr(obj, "action_id") and obj.action_id is not None
