@@ -242,7 +242,9 @@ class TestEmailIntegration:
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_client.create_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.create_email_domain.assert_called_once_with(
+            "posthog.com", mail_from_subdomain="youmustnothavelikedmyemail", team_id=self.team.id
+        )
 
     @patch("posthog.models.integration.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
@@ -289,7 +291,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", mail_from_subdomain="feedback")
 
         integration.refresh_from_db()
         assert integration.config == {
@@ -324,7 +326,7 @@ class TestEmailIntegration:
 
         assert verification_result == expected_result
 
-        mock_client.verify_email_domain.assert_called_once_with("posthog.com", team_id=self.team.id)
+        mock_client.verify_email_domain.assert_called_once_with("posthog.com", mail_from_subdomain="feedback")
 
         integration.refresh_from_db()
         assert integration.config == {
