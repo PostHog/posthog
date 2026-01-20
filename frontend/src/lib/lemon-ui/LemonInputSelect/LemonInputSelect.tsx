@@ -445,6 +445,14 @@ export function LemonInputSelect<T = string>({
                 const newValues = [...values]
                 newValues.pop()
                 onChange?.(newValues)
+            } else if (mode === 'single') {
+                // In single mode, "selected all + backspace" should clear the selection
+                const input = e.currentTarget
+                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                    e.preventDefault()
+                    setInputValue('')
+                    onChange?.([])
+                }
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()

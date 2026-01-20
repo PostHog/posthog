@@ -213,4 +213,36 @@ describe('LemonInputSelect', () => {
         // Verify selection was NOT reset (onChange not called with empty array)
         expect(onChange).not.toHaveBeenCalledWith([])
     })
+
+    it('single-select mode: select all + backspace clears the selection', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[
+                    { key: 'option-1', label: 'Option 1' },
+                    { key: 'option-2', label: 'Option 2' },
+                ]}
+                value={['option-1']}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        // Verify the selected option is displayed
+        expect(screen.getAllByText('Option 1').length).toBeGreaterThan(0)
+
+        const input = await openDropdown(container)
+
+        // In single mode, focusing the input enters edit mode with the value selected
+        // Simulate selecting all text (e.g., via Cmd+A)
+        input.setSelectionRange(0, input.value.length)
+
+        // Press Backspace with all text selected
+        await userEvent.keyboard('{Backspace}')
+
+        // Verify onChange was called with empty array (clearing the selection)
+        expect(onChange).toHaveBeenCalledWith([])
+    })
 })
