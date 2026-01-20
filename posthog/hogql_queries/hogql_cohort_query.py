@@ -68,24 +68,6 @@ class TestWrapperCohortQuery(CohortQuery):
         super().__init__(filter=filter, team=team)
 
 
-def normalize_property_for_cohort(prop: Property) -> Property:
-    """
-    Normalize property for cohort queries to ensure correct SQL generation.
-
-    When EXACT operator is used with multi-element lists, convert to IN_ operator
-    to ensure ClickHouse generates array syntax instead of tuple syntax.
-    """
-    if isinstance(prop.value, list) and len(prop.value) > 1:
-        operator = prop.operator or PropertyOperator.EXACT
-        if operator == PropertyOperator.EXACT:
-            # Create new Property with IN_ operator to generate correct array syntax
-            # Copy all attributes from original property to preserve any optional fields
-            prop_dict = prop.to_dict()
-            prop_dict["operator"] = PropertyOperator.IN_
-            return Property(**prop_dict)
-    return prop
-
-
 def convert_property(prop: Property) -> PersonPropertyFilter:
     value = prop.value
     if isinstance(value, Number):
@@ -520,66 +502,33 @@ class HogQLCohortQuery:
             unwrapped = [unwrap_property(prop) for prop in properties]
             return all(p is not None and p.type == "person" and not p.negation for p in unwrapped)
 
-        def combine_person_properties_and(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
+        def combine_person_properties(
+            properties: Union[list[Property], list[PropertyGroup]], combine_type: PropertyOperatorType
+        ) -> ast.SelectQuery:
             """
-            Combine multiple person property filters into a single ActorsQuery with AND logic.
+            Combine multiple person property filters into a single ActorsQuery.
 
-            This optimization replaces N separate queries with N-1 INTERSECT operations
-            with a single query that includes all conditions. For cohorts with many person
-            properties, this reduces query time by ~19x and memory usage by ~15x.
-
-            Example:
-                Before: Query1 INTERSECT DISTINCT Query2 INTERSECT DISTINCT Query3
-                After:  Single query with AND(condition1, condition2, condition3)
+            For AND: Replaces N queries with N-1 INTERSECT operations with a single query.
+            For OR: Replaces N queries with N-1 UNION DISTINCT operations with a single query.
             """
             person_filters = []
             for prop_or_group in properties:
-                # Unwrap PropertyGroup to get the underlying Property
                 prop = unwrap_property(prop_or_group)
                 if prop is None:
                     continue
                 person_filters.append(convert_property(prop))
 
-            actors_query = ActorsQuery(
-                properties=person_filters,
-                select=["id"],
-            )
-            query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
-
-        def combine_person_properties_or(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
-            """
-            Combine multiple person property filters into a single ActorsQuery with OR logic.
-
-            This optimization replaces N separate queries with N-1 UNION DISTINCT operations
-            with a single query that includes all conditions with OR logic. For cohorts with many person
-            properties in OR groups, this prevents ClickHouse from materializing multiple IN subqueries
-            during query planning.
-
-            Example:
-                Before: Query1 UNION DISTINCT Query2 UNION DISTINCT Query3 UNION DISTINCT Query4
-                        (each query has nested IN subquery that gets materialized during planning)
-                After:  Single query with OR(condition1, condition2, condition3, condition4)
-                        (evaluated during execution, no planning-time materialization)
-            """
-            person_filters = []
-            for prop_or_group in properties:
-                # Unwrap PropertyGroup to get the underlying Property
-                prop = unwrap_property(prop_or_group)
-                if prop is None:
-                    continue
-                # Normalize property to ensure correct SQL generation (e.g., array vs tuple syntax)
-                normalized_prop = normalize_property_for_cohort(prop)
-                person_filters.append(convert_property(normalized_prop))
-
-            # Wrap in PropertyGroupFilterValue with OR type
-            property_group = PropertyGroupFilterValue(
-                type=PropertyOperatorType.OR,
-                values=person_filters,
-            )
+            # AND: pass list directly (default behavior)
+            # OR: wrap in PropertyGroupFilterValue
+            query_properties: Union[list[PersonPropertyFilter], PropertyGroupFilterValue] = person_filters
+            if combine_type == PropertyOperatorType.OR:
+                query_properties = PropertyGroupFilterValue(
+                    type=PropertyOperatorType.OR,
+                    values=person_filters,
+                )
 
             actors_query = ActorsQuery(
-                properties=property_group,
+                properties=query_properties,
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
@@ -594,12 +543,11 @@ class HogQLCohortQuery:
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
-            if should_combine_person_properties_and:
-                if prop.type == PropertyOperatorType.AND and can_combine_person_properties(prop.values):
-                    return Condition(combine_person_properties_and(prop.values), False)
-            if should_combine_person_properties_or:
-                if prop.type == PropertyOperatorType.OR and can_combine_person_properties(prop.values):
-                    return Condition(combine_person_properties_or(prop.values), False)
+            if can_combine_person_properties(prop.values):
+                if should_combine_person_properties_and and prop.type == PropertyOperatorType.AND:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.AND), False)
+                if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
 
             children = [build_conditions(property) for property in prop.values]
 
