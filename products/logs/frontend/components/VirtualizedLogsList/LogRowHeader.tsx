@@ -85,11 +85,16 @@ export function LogRowHeader({
                     size="xsmall"
                     className="h-full"
                     icon={orderBy === 'latest' ? <IconArrowDown /> : <IconArrowUp />}
-                    tooltip={orderBy === 'latest' ? 'Showing latest first' : 'Showing earliest first'}
+                    tooltip={
+                        orderBy === 'latest'
+                            ? 'Showing latest first. Click to show earliest first (reloads).'
+                            : 'Showing earliest first. Click to show latest first (reloads).'
+                    }
                     onClick={() => {
                         const newOrderBy = orderBy === 'latest' ? 'earliest' : 'latest'
                         onChangeOrderBy?.(newOrderBy)
                     }}
+                    disabled={!orderBy || !onChangeOrderBy}
                 />
             </div>
 
