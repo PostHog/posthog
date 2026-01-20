@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib import admin, messages
-from django.core.cache import cache
 from django.core.files.uploadedfile import UploadedFile
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
@@ -24,7 +23,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.exported_recording import ExportedRecording
-from posthog.models.remote_config import cache_key_for_team_token
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.export_recording.types import ExportRecordingInput
@@ -263,9 +262,9 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/remote_config_cache_actions.html",
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
-                    "delete_url": reverse("admin:posthog_team_delete_cache", args=[team.pk]),
+                    "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
                     "team_name_escaped": escapejs(team.name),
-                    "cache_key": cache_key_for_team_token(team.api_token),
+                    "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
             )
         )
@@ -279,9 +278,9 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_view_cache",
             ),
             path(
-                "<path:object_id>/delete-cache/",
-                self.admin_site.admin_view(self.delete_cache),
-                name="posthog_team_delete_cache",
+                "<path:object_id>/rebuild-cache/",
+                self.admin_site.admin_view(self.rebuild_cache),
+                name="posthog_team_rebuild_cache",
             ),
             path(
                 "<path:object_id>/export-replay/",
@@ -394,11 +393,9 @@ class TeamAdmin(admin.ModelAdmin):
 
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
-        cache_key = cache_key_for_team_token(team.api_token)
-        cached_data = cache.get(cache_key)
-
-        if cached_data == "404":
-            return JsonResponse({"error": "Team not found (404 cached)"}, status=404)
+        hypercache = RemoteConfig.get_hypercache()
+        cache_key = hypercache.get_cache_key(team.api_token)
+        cached_data = hypercache.get_from_cache(team.api_token)
 
         if cached_data is None:
             return JsonResponse({"cached": False, "message": "No cached config found"})
@@ -407,15 +404,14 @@ class TeamAdmin(admin.ModelAdmin):
             {"cached": True, "cache_key": cache_key, "data": cached_data}, json_dumps_params={"indent": 2}
         )
 
-    def delete_cache(self, request, object_id):
+    def rebuild_cache(self, request, object_id):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
 
         team = Team.objects.get(pk=object_id)
-        cache_key = cache_key_for_team_token(team.api_token)
-        cache.delete(cache_key)
+        RemoteConfig.get_hypercache().update_cache(team.api_token)
 
-        self.message_user(request, f"Cache deleted for team '{team.name}' (token: {team.api_token})")
+        self.message_user(request, f"Cache rebuilt for team '{team.name}' (token: {team.api_token})")
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def import_replay_view(self, request, object_id):
