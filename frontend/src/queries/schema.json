@@ -15283,7 +15283,8 @@
                 "RedditAds",
                 "TikTokAds",
                 "BingAds",
-                "Shopify"
+                "Shopify",
+                "SnapchatAds"
             ],
             "type": "string"
         },
