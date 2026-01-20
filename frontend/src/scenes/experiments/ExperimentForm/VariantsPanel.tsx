@@ -116,12 +116,13 @@ export function VariantsPanel({
 
         if (typeof selected === 'string') {
             // User typed a custom value - create mode
-            setMode('create')
             setLinkedFeatureFlag(null)
             setFeatureFlagKeyForAutocomplete(selected)
             updateFeatureFlag({
                 feature_flag_key: selected,
             })
+            // Change mode after updating the key to avoid validating the old key in setMode listener
+            setMode('create')
             debouncedValidateFeatureFlagKey(selected)
         } else {
             // User selected an existing flag - link mode
