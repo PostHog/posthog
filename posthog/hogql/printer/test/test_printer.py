@@ -3491,6 +3491,25 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "%@gmail.com%"},
             )
 
+    def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
+        # Numeric properties should not use the toString optimization - fall back to default handling
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name="test_numeric_prop",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        with materialized("events", "test_numeric_prop", is_nullable=False) as mat_col:
+            # The optimization should not apply because the property is configured as Numeric.
+            # PropertySwapper converts numeric properties to accurateCastOrNull(...), so the
+            # toString() now wraps a Call node (not a property) and our optimization doesn't apply.
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_numeric_prop), '%123%')",
+                f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
     def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:
         # For non-nullable columns, NOT ILIKE uses raw column directly
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
