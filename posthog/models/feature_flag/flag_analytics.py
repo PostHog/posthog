@@ -171,7 +171,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
             # Extract SDK breakdown for decide requests
             decide_sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
 
-            billing_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
+            billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
             if total_decide_request_count > 0 and billing_token:
                 properties: dict = {
                     "count": total_decide_request_count,

@@ -886,7 +886,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
 ) -> list[tuple[int, int]]:
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
-    validity_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
