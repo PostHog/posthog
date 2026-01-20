@@ -326,7 +326,7 @@ class ClickHousePrinter(HogQLPrinter):
 
         String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
         wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
-        from doing optimisations that are safe..
+        from doing optimisations that are safe.
         Returns None if the expression is not a valid string property access or doesn't have a
         materialized column.
         """
