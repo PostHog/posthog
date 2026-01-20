@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { router } from 'kea-router'
 import {
+    type MutableRefObject,
     type ReactNode,
     type RefObject,
     createContext,
@@ -22,6 +23,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -201,6 +203,7 @@ interface SearchContextValue {
     handleItemClick: (item: SearchItem) => void
     showAskAiLink: boolean
     onAskAiClick?: () => void
+    highlightedItemRef: MutableRefObject<SearchItem | null>
 }
 
 const SearchContext = createContext<SearchContextValue | null>(null)
@@ -249,6 +252,7 @@ function SearchRoot({
     const [filteredItems, setFilteredItems] = useState<SearchItem[]>([])
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
+    const highlightedItemRef = useRef<SearchItem | null>(null)
 
     const allItems = useMemo(() => {
         const items: SearchItem[] = []
@@ -340,6 +344,7 @@ function SearchRoot({
             handleItemClick,
             showAskAiLink,
             onAskAiClick,
+            highlightedItemRef,
         }),
         [searchValue, filteredItems, groupedItems, isSearching, isActive, handleItemClick, showAskAiLink, onAskAiClick]
     )
@@ -374,7 +379,8 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, highlightedItemRef } =
+        useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -388,6 +394,20 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
     const handleAskAiLinkClick = useCallback(() => {
         onAskAiClick?.()
     }, [onAskAiClick])
+
+    const handleInputKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' && e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                const item = highlightedItemRef.current
+                if (item?.href) {
+                    newInternalTab(item.href)
+                }
+            }
+        },
+        [highlightedItemRef]
+    )
 
     useEffect(() => {
         if (autoFocus && inputRef.current) {
@@ -422,6 +442,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     ref={inputRef}
                     value={searchValue}
                     onChange={(e) => handleInputChange(e.target.value)}
+                    onKeyDown={handleInputKeyDown}
                     aria-label="Search"
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
@@ -516,7 +537,7 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, isSearching, handleItemClick } = useSearchContext()
+    const { groupedItems, isSearching, handleItemClick, highlightedItemRef } = useSearchContext()
 
     return (
         <ScrollableShadows direction="vertical" styledScrollbars className={cn('flex-1 overflow-y-auto', className)}>
@@ -553,37 +574,45 @@ function SearchResults({
                                                 <Autocomplete.Item
                                                     value={item}
                                                     onClick={() => handleItemClick(item)}
-                                                    render={(props) => (
-                                                        <div className="px-1">
-                                                            <Link
-                                                                to={item.href}
-                                                                buttonProps={{
-                                                                    fullWidth: true,
-                                                                }}
-                                                                {...props}
-                                                                tabIndex={-1}
-                                                            >
-                                                                {icon}
-                                                                <span className="truncate">
-                                                                    {item.displayName || item.name}
-                                                                </span>
-                                                                {(group.category === 'recents' ||
-                                                                    group.category === 'groups') &&
-                                                                    (item.groupNoun || typeLabel) && (
-                                                                        <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                            {capitalizeFirstLetter(
-                                                                                item.groupNoun || typeLabel || ''
-                                                                            )}
+                                                    render={(props) => {
+                                                        const isHighlighted =
+                                                            (props as Record<string, unknown>)['data-highlighted'] ===
+                                                            ''
+                                                        if (isHighlighted) {
+                                                            highlightedItemRef.current = item
+                                                        }
+                                                        return (
+                                                            <div className="px-1">
+                                                                <Link
+                                                                    to={item.href}
+                                                                    buttonProps={{
+                                                                        fullWidth: true,
+                                                                    }}
+                                                                    {...props}
+                                                                    tabIndex={-1}
+                                                                >
+                                                                    {icon}
+                                                                    <span className="truncate">
+                                                                        {item.displayName || item.name}
+                                                                    </span>
+                                                                    {(group.category === 'recents' ||
+                                                                        group.category === 'groups') &&
+                                                                        (item.groupNoun || typeLabel) && (
+                                                                            <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                {capitalizeFirstLetter(
+                                                                                    item.groupNoun || typeLabel || ''
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+                                                                    {item.lastViewedAt && (
+                                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                            {formatRelativeTimeShort(item.lastViewedAt)}
                                                                         </span>
                                                                     )}
-                                                                {item.lastViewedAt && (
-                                                                    <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
-                                                                        {formatRelativeTimeShort(item.lastViewedAt)}
-                                                                    </span>
-                                                                )}
-                                                            </Link>
-                                                        </div>
-                                                    )}
+                                                                </Link>
+                                                            </div>
+                                                        )
+                                                    }}
                                                 />
                                             </ContextMenuTrigger>
                                             <ContextMenuContent loop className="max-w-[250px] z-top">

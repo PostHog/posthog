@@ -37,6 +37,8 @@
     'posthog.tasks.email.send_hog_functions_digest_email',
     'posthog.tasks.email.send_invite',
     'posthog.tasks.email.send_member_join',
+    'posthog.tasks.email.send_passkey_added_email',
+    'posthog.tasks.email.send_passkey_removed_email',
     'posthog.tasks.email.send_password_changed_email',
     'posthog.tasks.email.send_password_reset',
     'posthog.tasks.email.send_personal_api_key_exposed',
