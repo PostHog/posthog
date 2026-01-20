@@ -215,27 +215,8 @@ function TraceMetadata({
     markupUsd?: number
     showBillingInfo?: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const getSessionUrl = (sessionId: string): string => {
-        if (
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-        ) {
-            return urls.llmAnalyticsSession(sessionId, { timestamp: getSessionStartTimestamp(trace.createdAt) })
-        }
-        // Fallback to filtering traces by session when feature flag is off
-        const filter = [
-            {
-                key: '$ai_session_id',
-                value: [sessionId],
-                operator: 'exact',
-                type: 'event',
-            },
-        ]
-        const params = new URLSearchParams()
-        params.set('filters', JSON.stringify(filter))
-        return `${urls.llmAnalyticsTraces()}?${params.toString()}`
+        return urls.llmAnalyticsSession(sessionId, { timestamp: getSessionStartTimestamp(trace.createdAt) })
     }
 
     return (
@@ -246,14 +227,7 @@ function TraceMetadata({
                 </Chip>
             )}
             {trace.aiSessionId && (
-                <Chip
-                    title={
-                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                            ? 'AI Session ID - Click to view session details'
-                            : 'AI Session ID - Click to filter traces by this session'
-                    }
-                >
+                <Chip title="AI Session ID - Click to view session details">
                     <Link to={getSessionUrl(trace.aiSessionId)} subtle>
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
