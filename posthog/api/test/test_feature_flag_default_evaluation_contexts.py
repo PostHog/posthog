@@ -35,9 +35,9 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.feature_flag_patcher.stop()
         super().tearDown()
 
-    def test_create_flag_without_default_environments(self):
-        """Test creating a flag when default environments are disabled"""
-        self.team.default_evaluation_environments_enabled = False
+    def test_create_flag_without_default_contexts(self):
+        """Test creating a flag when default contexts are disabled"""
+        self.team.default_evaluation_contexts_enabled = False
         self.team.save()
 
         # Add some default tags (but feature is disabled)
@@ -60,9 +60,9 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.assertEqual(flag.tagged_items.count(), 0)
         self.assertEqual(flag.evaluation_tags.count(), 0)
 
-    def test_create_flag_with_default_environments_enabled(self):
-        """Test creating a flag when default environments are enabled but not explicitly requested"""
-        self.team.default_evaluation_environments_enabled = True
+    def test_create_flag_with_default_contexts_enabled(self):
+        """Test creating a flag when default contexts are enabled but not explicitly requested"""
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -89,7 +89,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_create_flag_with_explicit_tags_overrides(self):
         """Test that explicitly provided tags are not overridden"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -116,7 +116,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_create_flag_with_explicit_tags_only(self):
         """Test that only explicitly provided tags are applied"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -147,7 +147,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_create_flag_with_empty_evaluation_tags(self):
         """Test that empty evaluation_tags array is respected"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -172,12 +172,15 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_update_flag_doesnt_apply_defaults(self):
         """Test that updating an existing flag doesn't apply defaults"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create a flag first without defaults
         flag = FeatureFlag.objects.create(
-            key="existing-flag", name="Existing Flag", team=self.team, created_by=self.user
+            key="existing-flag",
+            name="Existing Flag",
+            team=self.team,
+            created_by=self.user,
         )
 
         # Now add default evaluation tags
@@ -202,7 +205,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_create_flag_with_none_evaluation_tags_applies_defaults(self):
         """Test that explicitly setting evaluation_tags to None applies defaults"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -225,7 +228,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_create_flag_with_explicit_evaluation_tags(self):
         """Test that explicitly provided evaluation tags are used"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # Create default evaluation tags
@@ -254,7 +257,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
     def test_no_default_tags_configured(self):
         """Test creating a flag when feature is enabled but no default tags exist"""
-        self.team.default_evaluation_environments_enabled = True
+        self.team.default_evaluation_contexts_enabled = True
         self.team.save()
 
         # No default tags configured
