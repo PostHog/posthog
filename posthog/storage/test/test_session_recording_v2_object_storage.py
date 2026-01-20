@@ -526,6 +526,18 @@ class TestEncryptedBlockStorage(APIBaseTest):
         assert "Recording has been deleted" in str(cm.exception)
         assert cm.exception.deleted_at == deleted_at
 
+    async def test_fetch_block_bytes_410_raises_deleted_error_with_none_deleted_at(self):
+        mock_session, _ = create_mock_session(
+            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": None})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.fetch_block_bytes("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
+        assert "Recording has been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at is None
+
     async def test_fetch_block_410_raises_deleted_error(self):
         deleted_at = 1700000000
         mock_session, _ = create_mock_session(
@@ -538,6 +550,18 @@ class TestEncryptedBlockStorage(APIBaseTest):
             await storage.fetch_block("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
         assert "Recording has been deleted" in str(cm.exception)
         assert cm.exception.deleted_at == deleted_at
+
+    async def test_fetch_block_410_raises_deleted_error_with_none_deleted_at(self):
+        mock_session, _ = create_mock_session(
+            "get", MockResponse(410, {"error": "Recording has been deleted", "deleted_at": None})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.fetch_block("s3://bucket/key1?range=bytes=0-100", session_id="session-123", team_id=1)
+        assert "Recording has been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at is None
 
     async def test_delete_recording_success(self):
         mock_session, mock_delete = create_mock_session("delete", MockResponse(200, {"status": "deleted"}))
@@ -570,3 +594,15 @@ class TestEncryptedBlockStorage(APIBaseTest):
             await storage.delete_recording(session_id="session-123", team_id=1)
         assert "Recording has already been deleted" in str(cm.exception)
         assert cm.exception.deleted_at == deleted_at
+
+    async def test_delete_recording_410_raises_deleted_error_with_none_deleted_at(self):
+        mock_session, _ = create_mock_session(
+            "delete", MockResponse(410, {"error": "Recording has already been deleted", "deleted_at": None})
+        )
+
+        storage = EncryptedBlockStorage(mock_session, "http://localhost:8000")
+
+        with self.assertRaises(RecordingDeletedError) as cm:
+            await storage.delete_recording(session_id="session-123", team_id=1)
+        assert "Recording has already been deleted" in str(cm.exception)
+        assert cm.exception.deleted_at is None

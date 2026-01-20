@@ -209,6 +209,25 @@ describe('recording-decryptor', () => {
             }
         })
 
+        it('should throw SessionKeyDeletedError with undefined deletedAt when not available', async () => {
+            const deletedSessionKey: SessionKey = {
+                plaintextKey: Buffer.alloc(0),
+                encryptedKey: Buffer.alloc(0),
+                nonce: Buffer.alloc(0),
+                sessionState: 'deleted',
+            }
+            mockKeyStore.getKey.mockResolvedValue(deletedSessionKey)
+
+            const decryptor = new RecordingDecryptor(mockKeyStore)
+
+            try {
+                await decryptor.decryptBlock('session-123', 1, Buffer.from('test'))
+            } catch (error) {
+                expect(error).toBeInstanceOf(SessionKeyDeletedError)
+                expect((error as SessionKeyDeletedError).deletedAt).toBeUndefined()
+            }
+        })
+
         it('should return data unchanged when session state is cleartext', async () => {
             const cleartextSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
