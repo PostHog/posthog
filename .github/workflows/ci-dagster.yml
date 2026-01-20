@@ -182,11 +182,7 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest -n auto posthog/dags
-
-            - name: Run products Dagster tests
-              run: |
-                  pytest -n auto products/**/dags
+                  pytest -n auto posthog/dags products/**/dags
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
