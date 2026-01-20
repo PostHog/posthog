@@ -497,7 +497,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
     394: ErrorCodeMeta("QUERY_WAS_CANCELLED"),
-    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO"),
+    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
     396: ErrorCodeMeta("TOO_MANY_ROWS_OR_BYTES"),
     397: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_MATERIALIZED_VIEW"),
     398: ErrorCodeMeta("UNKNOWN_MUTATION_COMMAND"),

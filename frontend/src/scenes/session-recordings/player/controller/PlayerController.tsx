@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -21,7 +21,6 @@ import {
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
-import { playerSettingsLogic } from '../playerSettingsLogic'
 import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
@@ -88,36 +87,6 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function CinemaMode(): JSX.Element {
-    const { isCinemaMode, sidebarOpen } = useValues(playerSettingsLogic)
-    const { setIsCinemaMode, setSidebarOpen } = useActions(playerSettingsLogic)
-
-    const handleCinemaMode = (): void => {
-        setIsCinemaMode(!isCinemaMode)
-        if (sidebarOpen) {
-            setSidebarOpen(false)
-        }
-    }
-
-    return (
-        <>
-            {isCinemaMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
-            <LemonButton
-                size="xsmall"
-                onClick={handleCinemaMode}
-                tooltip={
-                    <>
-                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode <KeyboardShortcut t />
-                    </>
-                }
-                status={isCinemaMode ? 'danger' : 'default'}
-                icon={<IconVideoCamera className="text-xl" />}
-                data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
-            />
-        </>
-    )
-}
-
 export function Screenshot({ className }: { className?: string }): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
 
@@ -142,7 +111,6 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 
 export function PlayerController(): JSX.Element {
     const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -172,7 +140,7 @@ export function PlayerController(): JSX.Element {
                     <Timestamp size={size} />
                 </div>
                 <div className="flex justify-end items-center">
-                    {!isCinemaMode && ModesWithInteractions.includes(playerMode) && (
+                    {ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
                             <EmojiCommentOnRecordingButton />
@@ -182,7 +150,6 @@ export function PlayerController(): JSX.Element {
                     )}
                     {(ModesWithInteractions.includes(playerMode) ||
                         playerMode === SessionRecordingPlayerMode.Kiosk) && <PlayerUpNext />}
-                    {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

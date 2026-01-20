@@ -8,6 +8,7 @@ on:
 
 env:
     CARGO_TERM_COLOR: always
+    UV_HTTP_TIMEOUT: 120
 
 jobs:
     # Job to decide if we should run rust ci
