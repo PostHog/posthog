@@ -59,6 +59,21 @@ class OAuthApplication(AbstractApplication):
             ),
         ]
 
+    # Dangerous URI schemes that could be used for attacks (XSS, data exfiltration, etc.)
+    DEFAULT_BLOCKED_SCHEMES = frozenset(["javascript", "data", "file", "blob", "vbscript"])
+
+    @staticmethod
+    def get_blocked_schemes() -> set[str]:
+        """Get the set of blocked redirect URI schemes from settings."""
+        return set(
+            cast(
+                list[str],
+                settings.OAUTH2_PROVIDER.get(
+                    "BLOCKED_REDIRECT_URI_SCHEMES", list(OAuthApplication.DEFAULT_BLOCKED_SCHEMES)
+                ),
+            )
+        )
+
     def clean(self):
         super().clean()
 
@@ -78,13 +93,7 @@ class OAuthApplication(AbstractApplication):
             if is_custom_scheme:
                 # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
                 # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
-                blocked_schemes = cast(
-                    list[str],
-                    settings.OAUTH2_PROVIDER.get(
-                        "BLOCKED_REDIRECT_URI_SCHEMES", ["javascript", "data", "file", "blob", "vbscript"]
-                    ),
-                )
-                if parsed_uri.scheme in blocked_schemes:
+                if parsed_uri.scheme in self.get_blocked_schemes():
                     raise ValidationError(
                         {
                             "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
@@ -113,15 +122,7 @@ class OAuthApplication(AbstractApplication):
 
     def get_allowed_schemes(self) -> list[str]:
         """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
-        from django.conf import settings
-
-        blocked_list = cast(
-            list[str],
-            settings.OAUTH2_PROVIDER.get(
-                "BLOCKED_REDIRECT_URI_SCHEMES", ["javascript", "data", "file", "blob", "vbscript"]
-            ),
-        )
-        blocked_schemes = set(blocked_list)
+        blocked_schemes = self.get_blocked_schemes()
         schemes: set[str] = set()
         for uri in self.redirect_uris.split(" "):
             if not uri:

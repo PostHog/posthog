@@ -338,8 +338,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
     def redirect(self, redirect_to, application: OAuthApplication | None):
         if application is None:
-            # The application can be None in case of an error during app validation
-            # In such cases, fall back to safe default schemes
+            # The application can be None in case of an error during app validation.
+            # Intentionally use stricter fallback (only http/https) since we can't verify
+            # what schemes were pre-registered without a valid application.
             allowed_schemes = ["http", "https"]
         else:
             allowed_schemes = application.get_allowed_schemes()
