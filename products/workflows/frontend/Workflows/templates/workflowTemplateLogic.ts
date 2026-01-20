@@ -28,6 +28,8 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
         showSaveAsTemplateModal: true,
         hideSaveAsTemplateModal: true,
         updateTemplate: (workflowTemplate: HogFlowTemplate) => ({ workflowTemplate }),
+        showTemplateJsonModal: true,
+        hideTemplateJsonModal: true,
     }),
     forms(({ actions, values, props }) => ({
         templateForm: {
@@ -106,6 +108,13 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 submitTemplateFormSuccess: () => false,
             },
         ],
+        templateJsonModalVisible: [
+            false,
+            {
+                showTemplateJsonModal: () => true,
+                hideTemplateJsonModal: () => false,
+            },
+        ],
     }),
     selectors({
         isEditMode: [
@@ -116,8 +125,28 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
             () => [(_, props: WorkflowTemplateLogicProps) => props],
             (props: WorkflowTemplateLogicProps): string | undefined => props.editTemplateId,
         ],
+        templateJson: [
+            (s) => [s.workflow, s.templateForm],
+            (workflow, templateForm): string => {
+                if (!workflow) {
+                    return ''
+                }
+                const template = {
+                    ...workflow,
+                    name: templateForm.name || workflow.name || '',
+                    description: templateForm.description || workflow.description || '',
+                    image_url: templateForm.image_url || undefined,
+                    scope: templateForm.scope || undefined,
+                }
+                const { status, ...templateWithoutStatus } = template
+                return JSON.stringify(templateWithoutStatus, null, 2)
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
+        showTemplateJsonModal: () => {
+            actions.hideSaveAsTemplateModal()
+        },
         showSaveAsTemplateModal: async () => {
             const workflow = values.workflow
             if (workflow) {

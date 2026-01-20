@@ -49,6 +49,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_at",
             "last_message_text",
             "unread_team_count",
+            "session_id",
+            "session_context",
         ]
         read_only_fields = [
             "id",
@@ -61,6 +63,8 @@ class TicketSerializer(serializers.ModelSerializer):
             "last_message_text",
             "unread_team_count",
             "assigned_to_user",
+            "session_id",
+            "session_context",
         ]
 
     def get_message_count(self, obj: Ticket) -> int:
