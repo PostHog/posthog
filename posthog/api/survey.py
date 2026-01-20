@@ -2140,6 +2140,8 @@ def public_survey_page(request, survey_id: str):
 
     if survey.enable_iframe_embedding:
         response.xframe_options_exempt = True
+        # Override infrastructure-level CSP to allow embedding from any origin
+        response["Content-Security-Policy"] = "frame-ancestors *"
     else:
         response["X-Frame-Options"] = "DENY"
 

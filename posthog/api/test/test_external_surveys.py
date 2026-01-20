@@ -145,6 +145,8 @@ class TestExternalSurveys(APIBaseTest):
 
         # X-Frame-Options should not be present when iframe embedding is enabled
         assert "X-Frame-Options" not in response
+        # CSP should allow framing from any origin
+        assert response["Content-Security-Policy"] == "frame-ancestors *"
         assert "Cache-Control" in response
         assert "Vary" in response
 
