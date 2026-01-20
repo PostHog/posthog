@@ -30,12 +30,17 @@ export function WorkflowTemplateChooser(): JSX.Element {
 
     const { createWorkflowFromTemplate, createEmptyWorkflow } = useActions(newWorkflowLogic)
 
-    const canManageTemplate = (template: HogFlowTemplate): boolean => {
+    const canEditTemplate = (template: HogFlowTemplate): boolean => {
         if (template.scope === 'global') {
             return user?.is_staff ?? false
         }
 
         return true
+    }
+
+    const canDeleteTemplate = (template: HogFlowTemplate): boolean => {
+        // Global templates are managed in code and can't be deleted from the database
+        return template.scope !== 'global'
     }
 
     return (
@@ -61,7 +66,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                             template={template}
                             onClick={() => createWorkflowFromTemplate(template)}
                             onEdit={
-                                canManageTemplate(template)
+                                canEditTemplate(template)
                                     ? (e) => {
                                           e.stopPropagation()
                                           router.actions.push(urls.workflowNew(), { editTemplateId: template.id })
@@ -69,7 +74,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                     : undefined
                             }
                             onDelete={
-                                canManageTemplate(template)
+                                canDeleteTemplate(template)
                                     ? (e) => {
                                           e.stopPropagation()
                                           LemonDialog.open({
@@ -78,10 +83,7 @@ export function WorkflowTemplateChooser(): JSX.Element {
                                                   <>
                                                       Are you sure you want to delete "{template.name}"?
                                                       <br />
-                                                      This action cannot be undone
-                                                      {template.scope === 'team'
-                                                          ? '!'
-                                                          : ' and will affect all posthog users!'}
+                                                      This action cannot be undone!
                                                   </>
                                               ),
                                               primaryButton: {
