@@ -233,7 +233,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
 
-    def _validate_and_sanitize_link(self, link: str, context: str) -> str:
+    def _validate_and_sanitize_link(self, link: str) -> str:
         """Validate URL scheme and format, then sanitize HTML. Returns cleaned link."""
         parsed_url = urlparse(link)
 
@@ -259,7 +259,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             return nh3_clean_with_allow_list(link)
         return link
 
-    def _validate_and_sanitize_choices(self, choices: list, context: str) -> list:
+    def _validate_and_sanitize_choices(self, choices: list) -> list:
         """Validate choices are non-empty strings and sanitize HTML. Returns cleaned choices."""
         cleaned_choices = []
         for choice in choices:
@@ -420,15 +420,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def _validate_question_translations(self, translations_dict, question_index):
         """Validate and sanitize translations for a single question."""
+        # Use question_index + 1 for user-facing error messages
+        question_num = question_index + 1
+
         if not isinstance(translations_dict, dict):
-            raise serializers.ValidationError(f"Question {question_index}: translations must be an object")
+            raise serializers.ValidationError(f"Question {question_num}: translations must be an object")
 
         cleaned_translations = {}
 
         for lang_code, translation_data in translations_dict.items():
             if not isinstance(translation_data, dict):
                 raise serializers.ValidationError(
-                    f"Question {question_index}: Translation for '{lang_code}' must be an object"
+                    f"Question {question_num}: Translation for '{lang_code}' must be an object"
                 )
 
             cleaned_translation = {}
@@ -438,7 +441,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
                         raise serializers.ValidationError(
-                            f"Question {question_index}: Translation '{lang_code}' field '{field}' must be a string"
+                            f"Question {question_num}: Translation '{lang_code}' field '{field}' must be a string"
                         )
                     if nh3.is_html(translation_data[field]):
                         cleaned_translation[field] = nh3_clean_with_allow_list(translation_data[field])
@@ -449,21 +452,17 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if "link" in translation_data:
                 if not isinstance(translation_data["link"], str):
                     raise serializers.ValidationError(
-                        f"Question {question_index}: Translation '{lang_code}' field 'link' must be a string"
+                        f"Question {question_num}: Translation '{lang_code}' field 'link' must be a string"
                     )
-                cleaned_translation["link"] = self._validate_and_sanitize_link(
-                    translation_data["link"], f"Question {question_index}: Translation '{lang_code}'"
-                )
+                cleaned_translation["link"] = self._validate_and_sanitize_link(translation_data["link"])
 
             # Validate and sanitize choices array
             if "choices" in translation_data:
                 if not isinstance(translation_data["choices"], list):
                     raise serializers.ValidationError(
-                        f"Question {question_index}: Translation '{lang_code}' field 'choices' must be a list of strings"
+                        f"Question {question_num}: Translation '{lang_code}' field 'choices' must be a list of strings"
                     )
-                cleaned_translation["choices"] = self._validate_and_sanitize_choices(
-                    translation_data["choices"], f"Question {question_index}: Translation '{lang_code}'"
-                )
+                cleaned_translation["choices"] = self._validate_and_sanitize_choices(translation_data["choices"])
 
             # Only store non-empty translations to avoid wasting storage
             if cleaned_translation:
@@ -483,9 +482,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not isinstance(raw_question, dict):
                 raise serializers.ValidationError("Questions must be a list of objects")
 
-            cleaned_question = {
-                **raw_question,
-            }
+            # Start with empty dict and only add validated fields
+            cleaned_question = {}
+
+            # Copy known safe fields that don't need validation
+            for field in [
+                "type",
+                "id",
+                "branching",
+                "buttonText",
+                "lowerBoundLabel",
+                "upperBoundLabel",
+                "scale",
+                "lowerLabel",
+                "upperLabel",
+                "hasOpenChoice",
+                "shuffleOptions",
+                "descriptionContentType",
+                "skipSubmitButton",
+            ]:
+                if field in raw_question:
+                    cleaned_question[field] = raw_question[field]
+
             question_text = raw_question.get("question")
 
             if not question_text:
@@ -494,21 +512,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if not isinstance(question_text, str):
                 raise serializers.ValidationError("Question text must be a string")
 
-            description = raw_question.get("description")
-            if description and not isinstance(description, str):
-                raise serializers.ValidationError("Question description must be a string")
-
+            # Sanitize and assign question text
             if nh3.is_html(question_text):
                 cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
-            if description and nh3.is_html(description):
-                cleaned_question["description"] = nh3_clean_with_allow_list(description)
+            else:
+                cleaned_question["question"] = question_text
+
+            description = raw_question.get("description")
+            if description:
+                if not isinstance(description, str):
+                    raise serializers.ValidationError("Question description must be a string")
+                # Sanitize and assign description
+                if nh3.is_html(description):
+                    cleaned_question["description"] = nh3_clean_with_allow_list(description)
+                else:
+                    cleaned_question["description"] = description
 
             # Validate choices first before translation validation to provide clearer error messages
             choices = raw_question.get("choices")
             if choices:
                 if not isinstance(choices, list):
                     raise serializers.ValidationError("Question choices must be a list of strings")
-                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices, "Question")
+                cleaned_question["choices"] = self._validate_and_sanitize_choices(choices)
 
             description_content_type = raw_question.get("descriptionContentType")
             if description_content_type and description_content_type not in ["text", "html"]:
@@ -525,13 +550,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         # Reject choices in translation if original question doesn't have choices
                         if "choices" not in raw_question or not isinstance(original_choices, list):
                             raise serializers.ValidationError(
-                                f"Question {index}: Translation '{lang_code}' has choices field but original question does not have choices"
+                                f"Question {index + 1}: Translation '{lang_code}' has choices field but original question does not have choices"
                             )
 
                         translated_choices = translation_data["choices"]
                         if len(translated_choices) != len(original_choices):
                             raise serializers.ValidationError(
-                                f"Question {index}: Translation '{lang_code}' has {len(translated_choices)} choices "
+                                f"Question {index + 1}: Translation '{lang_code}' has {len(translated_choices)} choices "
                                 f"but question has {len(original_choices)} choices. Array lengths must match to avoid partial translations."
                             )
 
@@ -539,7 +564,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
             link = raw_question.get("link")
             if link:
-                cleaned_question["link"] = self._validate_and_sanitize_link(link, "Question")
+                cleaned_question["link"] = self._validate_and_sanitize_link(link)
 
             cleaned_questions.append(cleaned_question)
 
