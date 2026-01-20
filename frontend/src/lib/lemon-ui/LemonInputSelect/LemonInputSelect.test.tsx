@@ -1,9 +1,23 @@
 import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { LemonInputSelect } from './LemonInputSelect'
 
 describe('LemonInputSelect', () => {
+    // Helper functions
+    const openDropdown = async (container: HTMLElement): Promise<HTMLInputElement> => {
+        const input = container.querySelector('input[type="text"]')
+        expect(input).toBeInTheDocument()
+        await userEvent.click(input!)
+        return input as HTMLInputElement
+    }
+
+    const findDropdownButtonByText = async (text: string): Promise<HTMLElement | undefined> => {
+        const dropdownButtons = await screen.findAllByRole('button')
+        return dropdownButtons.find((button) => button.textContent?.includes(text))
+    }
+
     it('works with string values (backwards compatibility)', () => {
         const onChange = jest.fn()
 
@@ -137,5 +151,66 @@ describe('LemonInputSelect', () => {
         lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0]
         expect(typeof lastCall[0]).toBe('number')
         expect(lastCall[0]).toBe(42)
+    })
+
+    it('single-select mode: clicking already-selected value keeps it selected', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[
+                    { key: 'option-1', label: 'Option 1' },
+                    { key: 'option-2', label: 'Option 2' },
+                ]}
+                value={['option-1']}
+                onChange={onChange}
+                allowCustomValues
+                data-attr="test-select"
+            />
+        )
+
+        // Verify the selected option is displayed
+        expect(screen.getAllByText('Option 1').length).toBeGreaterThan(0)
+
+        await openDropdown(container)
+        const selectedOptionButton = await findDropdownButtonByText('Option 1')
+        expect(selectedOptionButton).toBeInTheDocument()
+        await userEvent.click(selectedOptionButton!)
+        // Verify onChange was NOT called with empty array (which would reset the selection)
+        expect(onChange).not.toHaveBeenCalledWith([])
+    })
+
+    it('single-select mode: custom values show with formatCreateLabel when re-opening dropdown', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                options={[{ key: 'existing-option', label: 'Existing Option' }]}
+                value={['custom-value']}
+                onChange={onChange}
+                allowCustomValues
+                formatCreateLabel={(input) => `${input} (new entry)`}
+                data-attr="test-custom-select"
+            />
+        )
+
+        // Custom value should be displayed
+        expect(screen.getAllByText('custom-value').length).toBeGreaterThan(0)
+
+        await openDropdown(container)
+
+        // Wait for dropdown to appear and check for formatted label
+        const formattedLabel = await screen.findByText('custom-value (new entry)')
+        expect(formattedLabel).toBeInTheDocument()
+
+        // Click on the custom value option
+        const customValueButton = formattedLabel.closest('button')
+        expect(customValueButton).toBeInTheDocument()
+        await userEvent.click(customValueButton!)
+
+        // Verify selection was NOT reset (onChange not called with empty array)
+        expect(onChange).not.toHaveBeenCalledWith([])
     })
 })
