@@ -9,11 +9,11 @@ from posthog.models.event_properties.sql import (
 )
 
 operations = [
-    # 1. Sharded data table (on data nodes)
+    # 1. Replicated data table (on data + coordinator nodes for global replication)
     run_sql_with_exceptions(
         EVENT_PROPERTIES_SHARDED_TABLE_SQL(),
-        node_roles=[NodeRole.DATA],
-        sharded=True,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        sharded=False,
     ),
     # 2. Distributed read table (on data + coordinator nodes)
     run_sql_with_exceptions(
