@@ -308,7 +308,7 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
-        with self.is_cloud(False):
+        with self.is_cloud(False), self.settings(DEBUG=False):
             response = self.client.post(
                 "/api/signup/",
                 {
@@ -1128,7 +1128,7 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(response_data["redirect_url"], "/next_path")
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.rate_limit.get_ip_address", return_value="192.168.1.100")
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
         """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
@@ -1170,7 +1170,7 @@ class TestSignupAPI(APIBaseTest):
         # Test that different IPs can each make 5 signups
         for ip_suffix in range(2):
             ip = f"192.168.1.{100 + ip_suffix}"
-            with patch("posthog.rate_limit.get_ip_address", return_value=ip):
+            with patch("posthog.utils.get_ip_address", return_value=ip):
                 for i in range(5):
                     response = self.client.post(
                         "/api/signup/",
