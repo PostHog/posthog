@@ -79,14 +79,10 @@ def normalize_property_for_cohort(prop: Property) -> Property:
         operator = prop.operator or PropertyOperator.EXACT
         if operator == PropertyOperator.EXACT:
             # Create new Property with IN_ operator to generate correct array syntax
-            return Property(
-                key=prop.key,
-                value=prop.value,
-                operator=PropertyOperator.IN_,
-                type=prop.type,
-                group_type_index=prop.group_type_index,
-                negation=prop.negation,
-            )
+            # Copy all attributes from original property to preserve any optional fields
+            prop_dict = prop.to_dict()
+            prop_dict['operator'] = PropertyOperator.IN_
+            return Property(**prop_dict)
     return prop
 
 
