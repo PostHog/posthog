@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -84,9 +84,16 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
 
 export function WorkflowsTable(): JSX.Element {
     useMountedLogic(workflowsLogic)
-    const { filteredWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
-    const { toggleWorkflowStatus, duplicateWorkflow, deleteWorkflow, setSearchTerm, setCreatedBy, setStatus } =
-        useActions(workflowsLogic)
+    const { filteredWorkflows, archivedWorkflows, workflowsLoading, filters } = useValues(workflowsLogic)
+    const {
+        toggleWorkflowStatus,
+        duplicateWorkflow,
+        archiveWorkflow,
+        restoreWorkflow,
+        setSearchTerm,
+        setCreatedBy,
+        setStatus,
+    } = useActions(workflowsLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
 
     const columns: LemonTableColumns<HogFlow> = [
@@ -214,31 +221,16 @@ export function WorkflowsTable(): JSX.Element {
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
-                                    data-attr="workflow-delete"
+                                    data-attr="workflow-archive-restore"
                                     fullWidth
-                                    status="danger"
+                                    status={workflow.status === 'archived' ? 'default' : 'danger'}
                                     onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Delete workflow',
-                                            description: (
-                                                <p>
-                                                    Are you sure you want to delete the workflow "
-                                                    <strong>{workflow.name}</strong>"? This action cannot be undone.
-                                                    In-progress workflows will end immediately.
-                                                </p>
-                                            ),
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => {
-                                                    deleteWorkflow(workflow)
-                                                },
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
+                                        workflow.status === 'archived'
+                                            ? restoreWorkflow(workflow)
+                                            : archiveWorkflow(workflow)
                                     }}
                                 >
-                                    Delete
+                                    {workflow.status === 'archived' ? 'Restore' : 'Archive'}
                                 </LemonButton>
                             </>
                         }
@@ -305,6 +297,29 @@ export function WorkflowsTable(): JSX.Element {
                 columns={columns}
                 defaultSorting={{ columnKey: 'status', order: 1 }}
             />
+            {archivedWorkflows.length > 0 && (
+                <LemonCollapse
+                    className="mt-4"
+                    panels={[
+                        {
+                            header: 'Archived workflows',
+                            key: 'archived_workflows',
+                            className: 'p-1',
+                            content:
+                                archivedWorkflows.length === 0 ? (
+                                    <div className="p-4 text-muted">No archived workflows.</div>
+                                ) : (
+                                    <LemonTable
+                                        dataSource={archivedWorkflows}
+                                        loading={workflowsLoading}
+                                        columns={columns}
+                                        defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
+                                    />
+                                ),
+                        },
+                    ]}
+                />
+            )}
             <NewWorkflowModal />
         </div>
     )
