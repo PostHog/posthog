@@ -51,7 +51,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
-    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'posthog-ai' }))
     const isAiUx = useFeatureFlag('AI_UX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
@@ -106,6 +106,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
     const { exitAIOnlyMode } = useActions(appLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -134,7 +135,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
+
+                        {!isRemovingSidePanelFlag && <HistoryPreview sidePanel={sidePanel} />}
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */

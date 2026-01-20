@@ -6,8 +6,10 @@ import api from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
@@ -149,6 +151,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             })
         },
         askSidePanelMax: ({ prompt }) => {
+            const isRemovingSidePanelMax = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL_MAX]
+            if (isRemovingSidePanelMax) {
+                newInternalTab(urls.ai(undefined, prompt))
+                return
+            }
+
             let logic = maxLogic.findMounted({ tabId: 'sidepanel' })
             if (!logic) {
                 logic = maxLogic({ tabId: 'sidepanel' })
@@ -159,6 +167,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             window.setTimeout(() => logic!.actions.askMax(prompt), 100)
         },
         openSidePanelMax: ({ conversationId }) => {
+            const isRemovingSidePanelMax = values.featureFlags[FEATURE_FLAGS.UX_REMOVE_SIDEPANEL_MAX]
+            if (isRemovingSidePanelMax) {
+                newInternalTab(urls.ai(conversationId))
+                return
+            }
+
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
                 actions.openSidePanel(SidePanelTab.Max)
             }
