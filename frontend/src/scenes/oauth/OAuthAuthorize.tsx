@@ -49,6 +49,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         authorizationComplete,
         scopesWereDefaulted,
         isMcpResource,
+        resourceScopesLoading,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -113,14 +114,21 @@ export const OAuthAuthorize = (): JSX.Element => {
                         />
                         <div>
                             <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
-                            <ul className="space-y-2">
-                                {scopeDescriptions.map((scopeDescription, idx) => (
-                                    <li key={idx} className="flex items-center space-x-2 text-large">
-                                        <IconCheck color="var(--success)" />
-                                        <span className="font-medium">{scopeDescription}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                            {resourceScopesLoading ? (
+                                <div className="flex items-center gap-2 py-2">
+                                    <Spinner className="text-muted" />
+                                    <span className="text-muted">Loading permissions...</span>
+                                </div>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {scopeDescriptions.map((scopeDescription, idx) => (
+                                        <li key={idx} className="flex items-center space-x-2 text-large">
+                                            <IconCheck color="var(--success)" />
+                                            <span className="font-medium">{scopeDescription}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </div>
 
                         {redirectDomain && (
@@ -164,7 +172,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         ? 'Authorizing...'
                                         : isCanceling
                                           ? 'Processing...'
-                                          : undefined
+                                          : resourceScopesLoading
+                                            ? 'Loading permissions...'
+                                            : undefined
                                 }
                                 onClick={() => submitOauthAuthorization()}
                             >

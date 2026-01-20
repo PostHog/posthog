@@ -81,6 +81,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
+        loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
+        setResourceScopesLoading: (loading: boolean) => ({ loading }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -120,6 +122,31 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setCanceling(false)
             }
         },
+        loadResourceScopes: async ({ resourceUrl }) => {
+            // Fetch scopes from the OAuth Protected Resource Metadata endpoint
+            // Per RFC 9728, the metadata is at /.well-known/oauth-protected-resource
+            actions.setResourceScopesLoading(true)
+            try {
+                const url = new URL(resourceUrl)
+                const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource`
+                const response = await fetch(metadataUrl)
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch protected resource metadata: ${response.status}`)
+                }
+                const metadata = await response.json()
+                if (metadata.scopes_supported && Array.isArray(metadata.scopes_supported)) {
+                    actions.setScopes(metadata.scopes_supported)
+                    return
+                }
+            } catch (e) {
+                // Fall back to hardcoded scopes on any error
+                console.warn('Failed to fetch resource scopes, using fallback:', e)
+            } finally {
+                actions.setResourceScopesLoading(false)
+            }
+            // Fallback to hardcoded MCP scopes
+            actions.setScopes(MCP_SERVER_OAUTH_SCOPES)
+        },
     })),
     reducers({
         scopes: [
@@ -144,6 +171,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
+            },
+        ],
+        resourceScopesLoading: [
+            false,
+            {
+                setResourceScopesLoading: (_, { loading }) => loading,
             },
         ],
         isCanceling: [
@@ -250,26 +283,24 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }
             const scopesWereDefaulted = requestedScopes.length === 0
 
-            let scopes: string[]
-            if (scopesWereDefaulted && isMcpResource) {
-                // Use full MCP scopes per MCP spec when client doesn't specify
-                scopes = MCP_SERVER_OAUTH_SCOPES
-            } else if (scopesWereDefaulted) {
-                // Fallback to minimal OIDC scopes for non-MCP clients
-                scopes = DEFAULT_OAUTH_SCOPES
-            } else {
-                scopes = requestedScopes
-            }
-
             const rawRequiredAccessLevel = searchParams['required_access_level'] as 'organization' | 'project' | null
             const requiredAccessLevel = rawRequiredAccessLevel === 'project' ? 'team' : rawRequiredAccessLevel
 
-            actions.setScopes(scopes)
             actions.setScopesWereDefaulted(scopesWereDefaulted)
             actions.setIsMcpResource(isMcpResource)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
+
+            if (scopesWereDefaulted && isMcpResource && resourceParam) {
+                // Fetch scopes dynamically from the protected resource metadata
+                actions.loadResourceScopes(resourceParam)
+            } else if (scopesWereDefaulted) {
+                // Fallback to minimal OIDC scopes for non-MCP clients
+                actions.setScopes(DEFAULT_OAUTH_SCOPES)
+            } else {
+                actions.setScopes(requestedScopes)
+            }
         }
 
         return {
