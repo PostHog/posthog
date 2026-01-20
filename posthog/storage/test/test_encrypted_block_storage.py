@@ -27,10 +27,6 @@ class TestEncryptedBlockStorage:
     def test_init_strips_trailing_slash(self, client_with_trailing_slash):
         assert client_with_trailing_slash.base_url == "http://localhost:6740"
 
-    def test_build_s3_uri_returns_input(self, client):
-        block_url = "s3://bucket/key?range=bytes=0-100"
-        assert client._build_s3_uri(block_url) == block_url
-
 
 class TestFetchBlockBytes:
     @pytest.fixture
@@ -61,7 +57,7 @@ class TestFetchBlockBytes:
         assert result == b"compressed-data"
         mock_session.get.assert_called_once_with(
             "http://localhost:6740/api/projects/1/recordings/session-123/block",
-            params={"uri": "s3://bucket/key?range=bytes=0-100"},
+            params={"key": "key", "start": 0, "end": 100},
         )
 
     @pytest.mark.asyncio
@@ -217,7 +213,7 @@ class TestDeleteRecording:
         mock_session.delete.assert_called_once_with("http://localhost:6740/api/projects/1/recordings/session-123")
 
     @pytest.mark.asyncio
-    async def test_not_found_returns_false(self, client, mock_session):
+    async def test_not_found_raises_error(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 404
         mock_response.__aenter__ = AsyncMock(return_value=mock_response)
@@ -225,9 +221,8 @@ class TestDeleteRecording:
 
         mock_session.delete = MagicMock(return_value=mock_response)
 
-        result = await client.delete_recording("session-123", 1)
-
-        assert result is False
+        with pytest.raises(RecordingApiFetchError, match="Recording key not found"):
+            await client.delete_recording("session-123", 1)
 
     @pytest.mark.asyncio
     async def test_client_error_raises_error(self, client, mock_session):
