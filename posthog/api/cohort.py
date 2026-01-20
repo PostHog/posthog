@@ -122,7 +122,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             # Unsupported behavioral filters return None → skip bytecode
             if expr is None:
                 return None, "Unsupported behavioral filter for realtime bytecode", None
-            bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+            bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
@@ -152,7 +152,7 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
-        bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+        bytecode = create_bytecode(expr, cohort_membership_supported=True, null_safe_comparisons=True).bytecode
 
         # Generate conditionHash from bytecode
         condition_hash = None
