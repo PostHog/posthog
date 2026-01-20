@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInputSelect, LemonSelect, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonInputSelect,
+    LemonSelect,
+    LemonSwitch,
+    LemonTable,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -11,7 +19,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { APPROVAL_ACTIONS, getApprovalActionLabel } from 'scenes/approvals/utils'
+import { APPROVAL_ACTIONS, ApprovalActionKey, getApprovalActionLabel } from 'scenes/approvals/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
@@ -149,6 +157,15 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const [approverUserIds, setApproverUserIds] = useState<number[]>(policy?.approver_config?.users || [])
     const [approverRoleIds, setApproverRoleIds] = useState<string[]>(policy?.approver_config?.roles || [])
 
+    // Conditions for field-level gating (only for feature_flag.update)
+    const existingConditions = policy?.conditions as
+        | { type?: string; field?: string; operator?: string; value?: number }
+        | undefined
+    const [conditionType, setConditionType] = useState<string>(existingConditions?.type || 'any_change')
+    const [conditionField] = useState<string>(existingConditions?.field || 'rollout_percentage')
+    const [conditionOperator, setConditionOperator] = useState<string>(existingConditions?.operator || '>')
+    const [conditionValue, setConditionValue] = useState<number | undefined>(existingConditions?.value)
+
     useEffect(() => {
         loadAllMembers()
         loadRoles()
@@ -160,6 +177,19 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             return
         }
 
+        // Build conditions for feature_flag.update action
+        let conditions: Record<string, unknown> = {}
+        if (actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE) {
+            conditions = {
+                type: conditionType,
+                field: conditionField,
+            }
+            if (conditionType !== 'any_change') {
+                conditions.operator = conditionOperator
+                conditions.value = conditionValue
+            }
+        }
+
         const policyData = {
             action_key: actionKey,
             approver_config: {
@@ -168,7 +198,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                 roles: approverRoleIds,
             },
             allow_self_approve: allowSelfApprove,
-            conditions: {},
+            conditions,
             bypass_roles: [],
             enabled: true,
         }
@@ -231,6 +261,79 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
                         }))}
                     />
                 </div>
+
+                {actionKey === ApprovalActionKey.FEATURE_FLAG_UPDATE && (
+                    <div className="p-3 border rounded bg-bg-light space-y-3">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Condition type</label>
+                            <LemonSelect
+                                fullWidth
+                                value={conditionType}
+                                onChange={setConditionType}
+                                options={[
+                                    {
+                                        label: 'Any change',
+                                        value: 'any_change',
+                                    },
+                                    {
+                                        label: 'Value threshold',
+                                        value: 'before_after',
+                                    },
+                                    {
+                                        label: 'Change amount',
+                                        value: 'change_amount',
+                                    },
+                                ]}
+                            />
+                            <p className="text-xs text-secondary mt-1">
+                                {conditionType === 'any_change' &&
+                                    'Require approval for any change to rollout percentage'}
+                                {conditionType === 'before_after' &&
+                                    'Require approval when the new value crosses a threshold'}
+                                {conditionType === 'change_amount' &&
+                                    'Require approval when the change exceeds a threshold'}
+                            </p>
+                        </div>
+
+                        {conditionType !== 'any_change' && (
+                            <div className="flex gap-2 items-end">
+                                <div className="flex-1">
+                                    <label className="block text-sm font-medium mb-1">Operator</label>
+                                    <LemonSelect
+                                        fullWidth
+                                        value={conditionOperator}
+                                        onChange={setConditionOperator}
+                                        options={[
+                                            { label: '> (greater than)', value: '>' },
+                                            { label: '>= (greater than or equal)', value: '>=' },
+                                            { label: '< (less than)', value: '<' },
+                                            { label: '<= (less than or equal)', value: '<=' },
+                                            { label: '== (equal to)', value: '==' },
+                                            { label: '!= (not equal to)', value: '!=' },
+                                        ]}
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-sm font-medium mb-1">
+                                        {conditionType === 'before_after' ? 'Threshold (%)' : 'Change amount (%)'}
+                                    </label>
+                                    <LemonInput
+                                        type="number"
+                                        min={conditionType === 'before_after' ? 0 : -100}
+                                        max={100}
+                                        value={conditionValue ?? ''}
+                                        onChange={(val) => setConditionValue(val !== '' ? Number(val) : undefined)}
+                                        placeholder={conditionType === 'before_after' ? 'e.g. 50' : 'e.g. 10 or -10'}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        <p className="text-xs text-secondary">
+                            <strong>Field:</strong> Rollout percentage (checked across all release conditions)
+                        </p>
+                    </div>
+                )}
 
                 <div>
                     <label className="block text-sm font-medium mb-1">Approver users</label>
