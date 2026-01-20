@@ -116,7 +116,7 @@ export const workflowLogic = kea<workflowLogicType>([
     key((props) => props.id || 'new'),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
-        actions: [workflowsLogic, ['archiveWorkflow', 'restoreWorkflow']],
+        actions: [workflowsLogic, ['archiveWorkflow']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({

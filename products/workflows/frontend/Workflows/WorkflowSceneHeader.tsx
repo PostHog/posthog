@@ -17,15 +17,8 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const {
-        saveWorkflowPartial,
-        submitWorkflow,
-        discardChanges,
-        setWorkflowValue,
-        duplicate,
-        archiveWorkflow,
-        restoreWorkflow,
-    } = useActions(logic)
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
+        useActions(logic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const templateId = searchParams.templateId as string | undefined
@@ -105,15 +98,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             </LemonButton>
                                             <LemonDivider />
                                             <LemonButton
-                                                status={workflow.status === 'archived' ? 'default' : 'danger'}
+                                                status="danger"
                                                 fullWidth
-                                                onClick={
-                                                    workflow.status === 'archived'
-                                                        ? () => restoreWorkflow(workflow)
-                                                        : () => archiveWorkflow(workflow)
-                                                }
+                                                onClick={() => archiveWorkflow(workflow)}
                                             >
-                                                {workflow.status === 'archived' ? 'Restore' : 'Archive'}
+                                                Archive
                                             </LemonButton>
                                         </>
                                     }

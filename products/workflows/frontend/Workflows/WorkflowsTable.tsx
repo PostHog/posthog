@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonCollapse, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -90,6 +90,7 @@ export function WorkflowsTable(): JSX.Element {
         duplicateWorkflow,
         archiveWorkflow,
         restoreWorkflow,
+        deleteWorkflow,
         setSearchTerm,
         setCreatedBy,
         setStatus,
@@ -102,7 +103,11 @@ export function WorkflowsTable(): JSX.Element {
             key: 'name',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: (_, item) => {
-                return (
+                return item.status === 'archived' ? (
+                    <Tooltip title="Restore this workflow to make changes">
+                        <span className="font-semibold text-sm text-muted">{item.name}</span>
+                    </Tooltip>
+                ) : (
                     <LemonTableLink
                         to={urls.workflow(item.id, 'workflow')}
                         title={item.name}
@@ -199,19 +204,21 @@ export function WorkflowsTable(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    data-attr="workflow-edit"
-                                    fullWidth
-                                    status={workflow.status === 'draft' ? 'default' : 'danger'}
-                                    onClick={() => toggleWorkflowStatus(workflow)}
-                                    tooltip={
-                                        workflow.status === 'draft'
-                                            ? 'Enables the workflow to start sending messages'
-                                            : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
-                                    }
-                                >
-                                    {workflow.status === 'draft' ? 'Enable' : 'Disable'}
-                                </LemonButton>
+                                {workflow.status !== 'archived' && (
+                                    <LemonButton
+                                        data-attr="workflow-edit"
+                                        fullWidth
+                                        status={workflow.status === 'draft' ? 'default' : 'danger'}
+                                        onClick={() => toggleWorkflowStatus(workflow)}
+                                        tooltip={
+                                            workflow.status === 'draft'
+                                                ? 'Enables the workflow to start sending messages'
+                                                : 'Disables the workflow from sending any new messages. In-progress workflows will end immediately.'
+                                        }
+                                    >
+                                        {workflow.status === 'draft' ? 'Enable' : 'Disable'}
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     data-attr="workflow-duplicate"
                                     fullWidth
@@ -232,6 +239,16 @@ export function WorkflowsTable(): JSX.Element {
                                 >
                                     {workflow.status === 'archived' ? 'Restore' : 'Archive'}
                                 </LemonButton>
+                                {workflow.status === 'archived' && (
+                                    <LemonButton
+                                        data-attr="workflow-delete"
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => deleteWorkflow(workflow)}
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                )}
                             </>
                         }
                     />

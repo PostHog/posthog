@@ -29,6 +29,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
         duplicateWorkflow: (workflow: HogFlow) => ({ workflow }),
         archiveWorkflow: (workflow: HogFlow) => ({ workflow }),
         restoreWorkflow: (workflow: HogFlow) => ({ workflow }),
+        deleteWorkflow: (workflow: HogFlow) => ({ workflow }),
         loadWorkflows: () => ({}),
         setFilters: (filters: Partial<WorkflowsFilters>) => ({ filters }),
         setSearchTerm: (search: string) => ({ search }),
@@ -70,6 +71,7 @@ export const workflowsLogic = kea<workflowsLogicType>([
                 },
                 archiveWorkflow: async ({ workflow }) => {
                     LemonDialog.open({
+                        width: 500,
                         title: 'Archive workflow?',
                         description: `Are you sure you want to archive "${workflow.name}"?${
                             workflow.status === 'active'
@@ -107,6 +109,32 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     })
                     lemonToast.success(`Workflow "${workflow.name}" restored to draft status`)
                     return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
+                },
+                deleteWorkflow: async ({ workflow }) => {
+                    LemonDialog.open({
+                        width: 500,
+                        title: 'Delete workflow?',
+                        description: `Are you sure you want to permanently delete "${workflow.name}"? This action cannot be undone.`,
+                        primaryButton: {
+                            children: 'Delete',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: async () => {
+                                try {
+                                    await api.hogFlows.deleteHogFlow(workflow.id)
+                                    lemonToast.success(`Workflow "${workflow.name}" deleted`)
+                                    actions.loadWorkflows()
+                                } catch (error: any) {
+                                    lemonToast.error(
+                                        `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
+                                    )
+                                }
+                            },
+                        },
+                        secondaryButton: {
+                            children: 'Cancel',
+                        },
+                    })
                 },
             },
         ],
