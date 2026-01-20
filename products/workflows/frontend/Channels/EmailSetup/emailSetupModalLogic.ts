@@ -109,14 +109,13 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
-                        integration = await api.integrations.update(values.savedIntegration.id, {
-                            kind: 'email',
-                            config: config,
+                        integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
+                            config,
                         })
                     } else {
                         integration = await api.integrations.create({
                             kind: 'email',
-                            config: config,
+                            config,
                         })
                     }
                     actions.loadIntegrations()

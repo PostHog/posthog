@@ -480,3 +480,16 @@ class IntegrationViewSet(
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
+
+    @action(methods=["PATCH"], detail=True, url_path="email")
+    def email_update(self, request, **kwargs):
+        instance = self.get_object()
+        config = request.data.get("config", {})
+
+        serializer = NativeEmailIntegrationSerializer(data=config)
+        serializer.is_valid(raise_exception=True)
+
+        email = EmailIntegration(instance)
+        email.update_native_integration(serializer.validated_data)
+
+        return Response(IntegrationSerializer(email.integration).data)

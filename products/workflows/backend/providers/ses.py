@@ -131,7 +131,7 @@ class SESProvider:
                 "type": "mail_from",
                 "recordType": "MX",
                 "recordHostname": f"{mail_from_subdomain}.{domain}",
-                "recordValue": f"10 feedback-smtp.{ses_region}.amazonses.com",
+                "recordValue": f"feedback-smtp.{ses_region}.amazonses.com",
                 "status": "pending",
             }
         )
@@ -196,6 +196,21 @@ class SESProvider:
             "status": overall,
             "dnsRecords": dns_records,
         }
+
+    def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
+        """
+        Update the MAIL FROM subdomain for a given identity
+        """
+        try:
+            self.ses_client.set_identity_mail_from_domain(
+                Identity=domain,
+                MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                BehaviorOnMXFailure="UseDefaultValue",
+            )
+            logger.info(f"MAIL FROM domain for {domain} updated to {mail_from_subdomain}.{domain}")
+        except (ClientError, BotoCoreError) as e:
+            logger.exception(f"SES API error updating MAIL FROM domain: {e}")
+            raise
 
     def delete_identity(self, identity: str):
         """

@@ -1371,6 +1371,34 @@ class EmailIntegration:
 
         return integration
 
+    def update_native_integration(self, config: dict) -> Integration:
+        provider = self.integration.config.get("provider")
+        domain = self.integration.config.get("domain")
+        # Only name and mail_from_subdomain can be updated
+        name: str = config.get("name", self.integration.config.get("name"))
+        mail_from_subdomain: str = config.get(
+            "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
+        )
+
+        # Update domain in the appropriate provider
+        if provider == "ses":
+            ses = SESProvider()
+            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
+        else:
+            raise ValueError(f"Invalid provider: must be 'ses'")
+
+        self.integration.config.update(
+            {
+                "name": name,
+                "mail_from_subdomain": mail_from_subdomain,
+            }
+        )
+        self.integration.save()
+
+        return self.integration
+
     def verify(self):
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
