@@ -16,10 +16,42 @@ interface SamplingFilterProps {
     infoTooltipContent?: string
 }
 
+function getInsightType(logic: {
+    isTrends: boolean
+    isFunnels: boolean
+    isRetention: boolean
+    isPaths: boolean
+    isStickiness: boolean
+    isLifecycle: boolean
+}): string {
+    if (logic.isTrends) {
+        return 'TRENDS'
+    }
+    if (logic.isFunnels) {
+        return 'FUNNELS'
+    }
+    if (logic.isRetention) {
+        return 'RETENTION'
+    }
+    if (logic.isPaths) {
+        return 'PATHS'
+    }
+    if (logic.isStickiness) {
+        return 'STICKINESS'
+    }
+    if (logic.isLifecycle) {
+        return 'LIFECYCLE'
+    }
+    return 'UNKNOWN'
+}
+
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { hasDataWarehouseSeries, isTrends, isFunnels, isRetention, isPaths, isStickiness, isLifecycle } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
+    const insightType = getInsightType({ isTrends, isFunnels, isRetention, isPaths, isStickiness, isLifecycle })
 
     return (
         <>
@@ -35,11 +67,11 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     onChange={(checked) => {
                         if (checked) {
                             setSamplingPercentage(10)
-                            posthog.capture('sampling_enabled_on_insight')
+                            posthog.capture('sampling_enabled_on_insight', { insight_type: insightType })
                             return
                         }
                         setSamplingPercentage(null)
-                        posthog.capture('sampling_disabled_on_insight')
+                        posthog.capture('sampling_disabled_on_insight', { insight_type: insightType })
                     }}
                     checked={!!samplingPercentage}
                     disabledReason={
@@ -59,7 +91,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                             onChange={(newValue) => {
                                 setSamplingPercentage(newValue)
 
-                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                posthog.capture('sampling_percentage_updated', { samplingPercentage, insight_type: insightType })
                             }}
                         />
                     </div>
