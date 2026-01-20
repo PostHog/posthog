@@ -99,7 +99,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
     tmp_dir = tempfile.mkdtemp(prefix="ph-video-export-")
     tmp_path = os.path.join(tmp_dir, f"{uuid.uuid4()}.{build['tmp_ext']}")
     try:
-        record_replay_to_file(
+        inactivity_periods = record_replay_to_file(
             RecordReplayToFileOptions(
                 image_path=tmp_path,
                 url_to_render=build["url_to_render"],
@@ -109,9 +109,11 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
                 recording_duration=build["duration"],
                 playback_speed=build.get("playback_speed", 1),  # default to 1 if not provided
             ),
-            exported_asset_id=build.get("exported_asset_id"),
         )
-        return {"tmp_path": tmp_path}
+        return {
+            "tmp_path": tmp_path,
+            "inactivity_periods": [x.model_dump() for x in inactivity_periods] if inactivity_periods else None,
+        }
     except Exception:
         # Clean up temp directory on failure
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -123,6 +125,11 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
+    inactivity_periods = inputs["inactivity_periods"]
+
+    if inactivity_periods:
+        asset.export_context["inactivity_periods"] = inactivity_periods
+        asset.save(update_fields=["export_context"])
 
     # Check file size first to prevent OOM
     file_size = os.path.getsize(tmp_path)
