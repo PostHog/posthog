@@ -10,7 +10,7 @@ export type QuotaResource =
     | 'cdp_trigger_events'
     | 'workflow_emails'
     | 'workflow_destinations_dispatched'
-    | 'logs_gb_ingested'
+    | 'logs_mb_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 
