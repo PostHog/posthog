@@ -80,6 +80,16 @@ class DeleteClickHousePropertyDefinitionsInput:
     property_type: int
 
 
+@dataclass
+class PreviewPropertyDefinitionsInput:
+    """Input for previewing property definitions that would be deleted."""
+
+    team_id: int
+    pattern: str
+    property_type: int
+    limit: int = 100
+
+
 class CleanupPropertyDefinitionsError(Exception):
     """Error during property definitions cleanup."""
 

@@ -11,6 +11,7 @@ from posthog.temporal.cleanup_property_definitions.types import (
     CleanupPropertyDefinitionsInput,
     DeleteClickHousePropertyDefinitionsInput,
     DeletePostgresPropertyDefinitionsInput,
+    PreviewPropertyDefinitionsInput,
 )
 from posthog.temporal.cleanup_property_definitions.workflows import CleanupPropertyDefinitionsWorkflow
 
@@ -78,6 +79,7 @@ async def test_cleanup_property_definitions_workflow_dry_run():
     TEST_TEAM_ID = 12345
     TEST_PATTERN = "^temp_.*"
     TEST_PROPERTY_TYPE = "person"
+    PREVIEW_NAMES = ["temp_prop_1", "temp_prop_2"]
 
     @activity.defn(name="delete-property-definitions-from-postgres")
     async def delete_postgres_mocked(input: DeletePostgresPropertyDefinitionsInput) -> int:
@@ -86,6 +88,13 @@ async def test_cleanup_property_definitions_workflow_dry_run():
     @activity.defn(name="delete-property-definitions-from-clickhouse")
     async def delete_clickhouse_mocked(input: DeleteClickHousePropertyDefinitionsInput) -> None:
         raise AssertionError("Should not be called in dry run mode")
+
+    @activity.defn(name="preview-property-definitions")
+    async def preview_mocked(input: PreviewPropertyDefinitionsInput) -> dict:
+        assert input.team_id == TEST_TEAM_ID
+        assert input.pattern == TEST_PATTERN
+        assert input.property_type == 2  # PERSON
+        return {"total_count": 2, "names": PREVIEW_NAMES, "truncated": False}
 
     task_queue_name = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -96,6 +105,7 @@ async def test_cleanup_property_definitions_workflow_dry_run():
             activities=[
                 delete_postgres_mocked,
                 delete_clickhouse_mocked,
+                preview_mocked,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -116,6 +126,8 @@ async def test_cleanup_property_definitions_workflow_dry_run():
     assert result["property_type"] == TEST_PROPERTY_TYPE
     assert result["dry_run"] is True
     assert result["postgres_deleted"] == 0
+    assert result["preview"]["total_count"] == 2
+    assert result["preview"]["names"] == PREVIEW_NAMES
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from posthog.temporal.cleanup_property_definitions.types import (
     CleanupPropertyDefinitionsError,
     DeleteClickHousePropertyDefinitionsInput,
     DeletePostgresPropertyDefinitionsInput,
+    PreviewPropertyDefinitionsInput,
 )
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -77,3 +78,29 @@ async def delete_property_definitions_from_clickhouse(
         )
 
     logger.info("Deleted matching property definitions from ClickHouse")
+
+
+@activity.defn(name="preview-property-definitions")
+async def preview_property_definitions(input: PreviewPropertyDefinitionsInput) -> dict:
+    """Preview property definitions that would be deleted."""
+    bind_contextvars(team_id=input.team_id, pattern=input.pattern, property_type=input.property_type)
+    logger = LOGGER.bind()
+    logger.info("Previewing property definitions for deletion")
+
+    @database_sync_to_async
+    def get_matching_definitions() -> dict:
+        if not Team.objects.filter(id=input.team_id).exists():
+            raise CleanupPropertyDefinitionsError(f"Team {input.team_id} not found")
+
+        queryset = PropertyDefinition.objects.filter(
+            team_id=input.team_id,
+            type=input.property_type,
+            name__regex=input.pattern,
+        )
+        total_count = queryset.count()
+        names = list(queryset.values_list("name", flat=True)[: input.limit])
+        return {"total_count": total_count, "names": names, "truncated": total_count > input.limit}
+
+    result = await get_matching_definitions()
+    logger.info(f"Found {result['total_count']} matching property definitions")
+    return result

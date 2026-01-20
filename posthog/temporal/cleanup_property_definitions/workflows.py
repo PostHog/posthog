@@ -6,11 +6,13 @@ from temporalio import common, workflow
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
     delete_property_definitions_from_postgres,
+    preview_property_definitions,
 )
 from posthog.temporal.cleanup_property_definitions.types import (
     CleanupPropertyDefinitionsInput,
     DeleteClickHousePropertyDefinitionsInput,
     DeletePostgresPropertyDefinitionsInput,
+    PreviewPropertyDefinitionsInput,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -48,9 +50,19 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
         }
 
         if input.dry_run:
+            preview = await workflow.execute_activity(
+                preview_property_definitions,
+                PreviewPropertyDefinitionsInput(
+                    team_id=input.team_id,
+                    pattern=input.pattern,
+                    property_type=property_type_int,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+            )
+            result["preview"] = preview
             workflow.logger.info(
-                f"DRY RUN: Would delete {input.property_type} property definitions "
-                f"matching pattern '{input.pattern}' for team {input.team_id}"
+                f"DRY RUN: Would delete {preview['total_count']} {input.property_type} property definitions "
+                f"matching pattern '{input.pattern}' for team {input.team_id}: {preview['names']}"
             )
             return result
 
