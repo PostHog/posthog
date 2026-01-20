@@ -152,7 +152,8 @@ func main() {
 				return nil
 			}
 			// Write directly to stdout without log prefix since JSON already has time field
-			os.Stdout.Write(append(jsonBytes, '\n'))
+			_, _ = os.Stdout.Write(append(jsonBytes, '\n'))
+
 			return nil
 		},
 	}))

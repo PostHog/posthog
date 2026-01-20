@@ -27,6 +27,7 @@ export type SettingSectionId =
     | 'environment-surveys'
     | 'environment-feature-flags'
     | 'environment-error-tracking'
+    | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
     | 'environment-integrations'
@@ -59,7 +60,6 @@ export type SettingSectionId =
     | 'user-danger-zone'
     | 'user-feature-previews'
     | 'mcp-server'
-    | 'product-logs'
 
 export type SettingId =
     | 'replay-triggers'
@@ -166,6 +166,7 @@ export type SettingId =
     | 'activity-log-settings'
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
+    | 'logs'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'

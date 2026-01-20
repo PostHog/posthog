@@ -1,15 +1,14 @@
-import { renderProductTourPreview } from 'posthog-js/dist/product-tours-preview'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { LemonColorPicker } from 'lib/lemon-ui/LemonColor/LemonColorPicker'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider/LemonSlider'
-import { prepareStepForRender } from 'scenes/product-tours/editor/generateStepHtml'
-import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { ProductTourAppearance, ProductTourStep } from '~/types'
+
+import { BoxShadowSelector, ColorPickerField, FontSelector } from './CustomizationFields'
+import { ProductTourPreview } from './ProductTourPreview'
 
 const DEFAULT_APPEARANCE: ProductTourAppearance = {
     backgroundColor: '#ffffff',
@@ -24,55 +23,10 @@ const DEFAULT_APPEARANCE: ProductTourAppearance = {
     whiteLabel: false,
 }
 
-const COLOR_PRESETS = [
-    '#ffffff',
-    '#1d1f27',
-    '#1d4aff',
-    '#f3f4f6',
-    '#e5e7eb',
-    '#ef4444',
-    '#22c55e',
-    '#f59e0b',
-    '#8b5cf6',
-    '#ec4899',
-]
-
-const BOX_SHADOW_PRESETS = [
-    { value: 'none', label: 'None' },
-    { value: '0 2px 8px rgba(0, 0, 0, 0.1)', label: 'Subtle' },
-    { value: '0 4px 12px rgba(0, 0, 0, 0.15)', label: 'Medium' },
-    { value: '0 8px 24px rgba(0, 0, 0, 0.2)', label: 'Large' },
-    { value: '0 12px 32px rgba(0, 0, 0, 0.25)', label: 'Extra large' },
-]
-
 interface ProductTourCustomizationProps {
     appearance: ProductTourAppearance | undefined
     steps: ProductTourStep[]
     onChange: (appearance: ProductTourAppearance) => void
-}
-
-function ColorPickerField({
-    label,
-    value,
-    onChange,
-}: {
-    label: string
-    value: string | undefined
-    onChange: (color: string) => void
-}): JSX.Element {
-    return (
-        <LemonField.Pure label={label} className="flex-1">
-            <div className="flex items-center gap-2">
-                <LemonColorPicker
-                    colors={COLOR_PRESETS}
-                    selectedColor={value}
-                    onSelectColor={onChange}
-                    showCustomColor
-                />
-                <span className="text-xs text-secondary font-mono">{value}</span>
-            </div>
-        </LemonField.Pure>
-    )
 }
 
 function TourStepPreview({
@@ -86,20 +40,7 @@ function TourStepPreview({
     selectedStepIndex: number
     onStepChange: (index: number) => void
 }): JSX.Element {
-    const previewRef = useRef<HTMLDivElement>(null)
     const step = steps[selectedStepIndex]
-
-    useEffect(() => {
-        if (previewRef.current && step) {
-            renderProductTourPreview({
-                step: prepareStepForRender(step) as any,
-                appearance: appearance as any,
-                parentElement: previewRef.current,
-                stepIndex: selectedStepIndex,
-                totalSteps: steps.length,
-            })
-        }
-    }, [step, appearance, selectedStepIndex, steps.length])
 
     const stepOptions = steps.map((_, index) => ({
         label: `Step ${index + 1}`,
@@ -120,7 +61,14 @@ function TourStepPreview({
                 )}
             </div>
             <div className="flex justify-center p-8 bg-[#f0f0f0] rounded min-h-[200px]">
-                <div ref={previewRef} />
+                {step && (
+                    <ProductTourPreview
+                        step={step}
+                        appearance={appearance}
+                        stepIndex={selectedStepIndex}
+                        totalSteps={steps.length}
+                    />
+                )}
             </div>
         </div>
     )
@@ -198,30 +146,15 @@ export function ProductTourCustomization({ appearance, steps, onChange }: Produc
                             </div>
                         </LemonField.Pure>
 
-                        <LemonField.Pure label="Font">
-                            <LemonSelect
-                                value={currentAppearance.fontFamily}
-                                onChange={(fontFamily) => updateAppearance({ fontFamily: fontFamily || 'system-ui' })}
-                                options={WEB_SAFE_FONTS.map((font) => ({
-                                    label: (
-                                        <span style={{ fontFamily: font.value === 'inherit' ? undefined : font.value }}>
-                                            {font.label}
-                                        </span>
-                                    ),
-                                    value: font.value,
-                                }))}
-                            />
-                        </LemonField.Pure>
+                        <FontSelector
+                            value={currentAppearance.fontFamily}
+                            onChange={(fontFamily) => updateAppearance({ fontFamily })}
+                        />
 
-                        <LemonField.Pure label="Drop shadow">
-                            <LemonSelect
-                                value={currentAppearance.boxShadow}
-                                onChange={(boxShadow) =>
-                                    updateAppearance({ boxShadow: boxShadow || '0 4px 12px rgba(0, 0, 0, 0.15)' })
-                                }
-                                options={BOX_SHADOW_PRESETS}
-                            />
-                        </LemonField.Pure>
+                        <BoxShadowSelector
+                            value={currentAppearance.boxShadow}
+                            onChange={(boxShadow) => updateAppearance({ boxShadow })}
+                        />
 
                         <div className="flex items-center justify-between">
                             <span className="text-sm font-medium">Show dark overlay</span>

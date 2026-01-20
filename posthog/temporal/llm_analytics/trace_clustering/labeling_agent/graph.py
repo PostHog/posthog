@@ -6,8 +6,8 @@ from typing import Any
 from django.conf import settings
 
 import structlog
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from posthog.cloud_utils import is_cloud
@@ -19,16 +19,16 @@ from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel,
 logger = structlog.get_logger(__name__)
 
 
-def _get_llm(model: str, timeout: float) -> ChatAnthropic:
-    """Create an Anthropic chat client for the labeling agent."""
+def _get_llm(model: str, timeout: float) -> ChatOpenAI:
+    """Create an OpenAI chat client for the labeling agent."""
     if not settings.DEBUG and not is_cloud():
         raise Exception("AI features are only available in PostHog Cloud")
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise Exception("Anthropic API key is not configured")
+        raise Exception("OpenAI API key is not configured")
 
-    return ChatAnthropic(
+    return ChatOpenAI(
         model=model,
         api_key=api_key,
         timeout=timeout,

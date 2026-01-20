@@ -262,4 +262,63 @@ describe('event-pipeline-runner-heatmap-step', () => {
             customHeaders
         )
     })
+
+    it('should skip processing when team has heatmaps_opt_in set to false', async () => {
+        const mockTimestamp = DateTime.now()
+        const teamWithOptOut = createTestTeam({ heatmaps_opt_in: false })
+
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
+
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
+            team: teamWithOptOut,
+            headers: mockHeaders,
+            groupStoreForBatch: mockGroupStore,
+        }
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DROP)
+        if (result.type === PipelineResultType.DROP) {
+            expect(result.reason).toBe('heatmap_opt_in_disabled')
+        }
+        expect(mockEventPipelineRunner.runHeatmapPipeline).not.toHaveBeenCalled()
+    })
+
+    it('should process heatmaps when heatmaps_opt_in is null (default)', async () => {
+        const mockTimestamp = DateTime.now()
+        const teamWithNull = createTestTeam({ heatmaps_opt_in: null })
+        const mockResult = ok({ lastStep: 'prepareEventStep', preparedEvent: createTestPreIngestionEvent() })
+        mockEventPipelineRunner.runHeatmapPipeline.mockResolvedValue(mockResult)
+
+        const step = createEventPipelineRunnerHeatmapStep(
+            mockConfig,
+            mockKafkaProducer,
+            mockTeamManager,
+            mockGroupTypeManager,
+            mockHogTransformer,
+            mockPersonsStore
+        )
+
+        const input = {
+            normalizedEvent: mockEvent,
+            timestamp: mockTimestamp,
+            team: teamWithNull,
+            headers: mockHeaders,
+            groupStoreForBatch: mockGroupStore,
+        }
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(mockEventPipelineRunner.runHeatmapPipeline).toHaveBeenCalled()
+    })
 })

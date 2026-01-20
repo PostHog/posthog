@@ -107,8 +107,8 @@ export function DangerousOperationApprovalCard({
             </div>
 
             <div className="p-2 pb-0">
-                <p className="text-secondary mb-3">This operation will make the following changes:</p>
-                <pre className="bg-bg-light rounded whitespace-pre-wrap font-mono m-0">{operation.preview}</pre>
+                <p className="text-secondary mb-2">This operation will make the following changes:</p>
+                <p className="text-secondary m-0 whitespace-pre">{operation.preview}</p>
             </div>
 
             <LemonDivider />
