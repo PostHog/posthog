@@ -144,3 +144,160 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         assert test_variant.sum == 120
         assert control_variant.number_of_samples == 1
         assert test_variant.number_of_samples == 1
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_multiple_sessions_per_user_sums_correctly(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+        session_1 = str(uuid7("2024-01-02"))
+        session_2 = str(uuid7("2024-01-02"))
+
+        _create_person(distinct_ids=["user"], team_id=self.team.pk)
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user",
+            timestamp="2024-01-02T11:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                ff_property: "test",
+                "$feature_flag": feature_flag.key,
+                "$session_id": f"{session_1}_exposure",
+            },
+        )
+
+        # Session 1: 60s duration with 2 pageviews
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T12:00:00Z",
+            properties={ff_property: "test", "$session_id": session_1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T12:01:00Z",
+            properties={ff_property: "test", "$session_id": session_1},
+        )
+
+        # Session 2: 120s duration with 2 pageviews
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T13:00:00Z",
+            properties={ff_property: "test", "$session_id": session_2},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T13:02:00Z",
+            properties={ff_property: "test", "$session_id": session_2},
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.SUM,
+                math_property="$session_duration",
+                math_property_type="session_properties",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+
+        test_variant = result.variant_results[0]
+        # Sum of both sessions: 60 + 120 = 180 (not 60*2 + 120*2 = 360)
+        assert test_variant.sum == 180
+        assert test_variant.number_of_samples == 1
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_session_duration_backwards_compat_without_property_type(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+        session_id = str(uuid7("2024-01-02"))
+
+        _create_person(distinct_ids=["user"], team_id=self.team.pk)
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user",
+            timestamp="2024-01-02T11:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                ff_property: "test",
+                "$feature_flag": feature_flag.key,
+                "$session_id": f"{session_id}_exposure",
+            },
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T12:00:00Z",
+            properties={ff_property: "test", "$session_id": session_id},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user",
+            timestamp="2024-01-02T12:01:00Z",
+            properties={ff_property: "test", "$session_id": session_id},
+        )
+
+        flush_persons_and_events()
+
+        # No math_property_type specified - should still work for $session_duration
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.SUM,
+                math_property="$session_duration",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.variant_results is not None
+        test_variant = result.variant_results[0]
+        assert test_variant.sum == 60
+        assert test_variant.number_of_samples == 1
