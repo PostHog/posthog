@@ -144,6 +144,7 @@ class KernelRuntime(UUIDTModel):
         STARTING = "starting", "starting"
         RUNNING = "running", "running"
         STOPPED = "stopped", "stopped"
+        TIMED_OUT = "timed_out", "timed_out"
         DISCARDED = "discarded", "discarded"
         ERROR = "error", "error"
 
