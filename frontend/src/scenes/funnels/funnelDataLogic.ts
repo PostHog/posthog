@@ -462,12 +462,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (funnelsFilter?.funnelOrderType && funnelsFilter?.funnelOrderType !== StepOrderValue.ORDERED) {
                     count = count + 1
                 }
-                if (
-                    funnelsFilter?.funnelStepReference &&
-                    funnelsFilter?.funnelStepReference !== FunnelStepReference.total
-                ) {
-                    count = count + 1
-                }
                 if (funnelsFilter?.exclusions?.length) {
                     count = count + 1
                 }

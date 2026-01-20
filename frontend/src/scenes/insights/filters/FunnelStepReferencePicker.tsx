@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -27,12 +27,14 @@ export function FunnelStepReferencePicker(): JSX.Element | null {
     ]
 
     return (
-        <LemonSelect
+        <LemonSegmentedButton
+            className="pb-2 px-2"
             value={funnelStepReference || FunnelStepReference.total}
             onChange={(stepRef) => stepRef && updateInsightFilter({ funnelStepReference: stepRef })}
-            dropdownMatchSelectWidth={false}
-            data-attr="funnel-step-reference-selector"
             options={options}
+            size="small"
+            fullWidth
+            data-attr="funnel-step-reference-selector"
         />
     )
 }

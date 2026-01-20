@@ -8,7 +8,6 @@ import { Noun } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'
 
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter/FunnelExclusionsFilter'
-import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
@@ -19,9 +18,6 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
         <div className="deprecated-space-y-4">
             <LemonField.Pure label="Step order" info={<StepOrderInfo />}>
                 <FunnelStepOrderPicker />
-            </LemonField.Pure>
-            <LemonField.Pure label="Conversion rate calculation">
-                <FunnelStepReferencePicker />
             </LemonField.Pure>
 
             <LemonField.Pure
