@@ -1,10 +1,4 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use common_types::error_tracking::RawFrameId;
 use moka::future::{Cache, CacheBuilder};
