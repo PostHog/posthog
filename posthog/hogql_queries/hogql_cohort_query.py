@@ -81,7 +81,7 @@ def normalize_property_for_cohort(prop: Property) -> Property:
             # Create new Property with IN_ operator to generate correct array syntax
             # Copy all attributes from original property to preserve any optional fields
             prop_dict = prop.to_dict()
-            prop_dict['operator'] = PropertyOperator.IN_
+            prop_dict["operator"] = PropertyOperator.IN_
             return Property(**prop_dict)
     return prop
 
