@@ -73,7 +73,7 @@ export function generateHCL<T, O extends HclExportOptions = HclExportOptions>(
     if (includeImport && resourceId !== undefined) {
         // Since v1.0.2 of the TF provider (https://github.com/PostHog/terraform-provider-posthog/pull/24/)
         // we can specify the project to which a resource belongs when importing it.
-        const importId = `${options.projectId}/${resourceId}`
+        const importId = options.projectId ? `${options.projectId}/${resourceId}` : String(resourceId)
         lines.push(`import {`)
         lines.push(`  to = ${exporter.resourceType}.${resourceName}`)
         lines.push(`  id = "${importId}"`)
