@@ -583,7 +583,16 @@ class TestSdkBreakdown(BaseTest):
             "posthog:local_evaluation_requests:sdk:123:posthog-python",
         )
 
-    def test_sdk_libraries_matches_expected_values(self):
+    def test_sdk_libraries_matches_rust_library_enum(self):
+        """
+        Verify SDK_LIBRARIES matches Rust Library::as_str() values.
+
+        IMPORTANT: These values must match the Rust Library enum in:
+        rust/feature-flags/src/handler/types.rs
+
+        If this test fails after adding a new SDK to Rust, update SDK_LIBRARIES
+        in posthog/models/feature_flag/flag_analytics.py to match.
+        """
         expected_libraries = [
             "posthog-js",
             "posthog-node",
@@ -771,6 +780,79 @@ class TestSdkBreakdown(BaseTest):
                     "token": "token",
                     "sdk_breakdown": {"posthog-python": 50, "posthog-node": 30},
                 },
+            )
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_uses_pipelining_for_all_sdks(self):
+        """
+        Verify that SDK breakdown extraction works correctly with many SDKs.
+
+        This test exercises the pipelining path by setting up data for multiple
+        SDKs and verifying all are extracted and consumed correctly.
+        """
+        client = redis.get_client()
+        team_id = 444
+
+        with freeze_time("2022-05-07 12:23:07") as frozen_datetime:
+            time_bucket_1 = "165192618"
+
+            # Set up data for multiple SDKs (simulating real-world usage)
+            test_sdks = {
+                "posthog-js": 1000,
+                "posthog-node": 500,
+                "posthog-python": 300,
+                "posthog-android": 200,
+                "posthog-ios": 150,
+                "other": 50,
+            }
+
+            for sdk, count in test_sdks.items():
+                client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_1, count)
+
+            # Move to second bucket - extraction requires 2+ buckets
+            frozen_datetime.tick(datetime.timedelta(seconds=10))
+            time_bucket_2 = "165192619"
+
+            for sdk in test_sdks:
+                client.hincrby(f"posthog:decide_requests:sdk:{team_id}:{sdk}", time_bucket_2, 1)
+
+            # Move time forward so bucket 2 is no longer "current"
+            frozen_datetime.tick(datetime.timedelta(seconds=15))
+
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
+            # Verify all SDKs were extracted with correct counts from bucket 1
+            self.assertEqual(result, test_sdks)
+
+            # Verify bucket 1 was consumed for all SDKs, bucket 2 remains
+            for sdk in test_sdks:
+                remaining = client.hgetall(f"posthog:decide_requests:sdk:{team_id}:{sdk}")
+                self.assertEqual(remaining, {b"165192619": b"1"}, f"SDK {sdk} should only have bucket 2 remaining")
+
+    @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
+    def test_extract_sdk_breakdown_handles_single_bucket_gracefully(self):
+        """
+        Verify that SDKs with only one bucket (still being filled) are not extracted.
+        """
+        client = redis.get_client()
+        team_id = 333
+
+        with freeze_time("2022-05-07 12:23:07"):
+            time_bucket = "165192618"
+
+            # Set up data with only one bucket per SDK
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-js", time_bucket, 100)
+            client.hincrby(f"posthog:decide_requests:sdk:{team_id}:posthog-node", time_bucket, 50)
+
+            result = _extract_sdk_breakdown_from_redis(client, team_id, FlagRequestType.DECIDE)
+
+            # Should return empty dict since there's only one bucket (still being filled)
+            self.assertEqual(result, {})
+
+            # Data should still be in Redis (not consumed)
+            self.assertEqual(
+                client.hgetall(f"posthog:decide_requests:sdk:{team_id}:posthog-js"),
+                {b"165192618": b"100"},
             )
 
 

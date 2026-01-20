@@ -99,14 +99,52 @@ def _extract_sdk_breakdown_from_redis(
     """
     Extract per-SDK request counts from Redis, consuming the buckets.
     Returns a dict mapping SDK name to total count.
-    """
-    sdk_breakdown: dict[str, int] = {}
 
-    for library in SDK_LIBRARIES:
-        key = get_team_request_library_key(team_id, request_type, library)
-        count, _, _ = _extract_total_count_for_key_from_redis_hash(client, key)
-        if count > 0:
-            sdk_breakdown[library] = count
+    Uses Redis pipelining to fetch all SDK keys in a single round-trip,
+    then deletes consumed buckets in another round-trip.
+    """
+    # Build all keys upfront
+    keys = [get_team_request_library_key(team_id, request_type, library) for library in SDK_LIBRARIES]
+
+    # Pipeline HGETALL for all SDK keys in one round-trip
+    pipe = client.pipeline(transaction=False)
+    for key in keys:
+        pipe.hgetall(key)
+    results = pipe.execute()
+
+    # Process results and collect buckets to delete
+    sdk_breakdown: dict[str, int] = {}
+    deletions: list[tuple[str, list[bytes]]] = []
+
+    for library, key, existing_values in zip(SDK_LIBRARIES, keys, results):
+        if not existing_values:
+            continue
+
+        time_buckets = existing_values.keys()
+        # The latest bucket is still being filled, so we don't want to delete it nor count it.
+        # It will be counted in a later iteration, when it's not being filled anymore.
+        if len(time_buckets) <= 1:
+            continue
+
+        total_count = 0
+        buckets_to_delete: list[bytes] = []
+
+        # Sort buckets and skip the latest one (still being filled)
+        for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
+            total_count += int(existing_values[time_bucket])
+            buckets_to_delete.append(time_bucket)
+
+        if total_count > 0:
+            sdk_breakdown[library] = total_count
+            deletions.append((key, buckets_to_delete))
+
+    # Pipeline all deletions in one round-trip
+    if deletions:
+        pipe = client.pipeline(transaction=False)
+        for key, buckets in deletions:
+            for bucket in buckets:
+                pipe.hdel(key, bucket)
+        pipe.execute()
 
     return sdk_breakdown
 
