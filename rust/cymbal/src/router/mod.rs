@@ -15,7 +15,7 @@ pub fn processing_router() -> Router<Arc<AppContext>> {
     Router::<Arc<AppContext>>::new()
         .route("/", get(index))
         .route(
-            "/:team_id/exception_list/process",
+            "/{team_id}/exception_list/process",
             post(process_exception_list),
         )
 }
