@@ -34,50 +34,9 @@ import {
 } from '@posthog/shared-onboarding/feature-flags'
 import { JSEventCapture, NodeEventCapture, PythonEventCapture } from '@posthog/shared-onboarding/product-analytics'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import SetupWizardBanner from '../sdk-install-instructions/components/SetupWizardBanner'
-import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstructions'
-
-// Helper to create wrapped instruction components
-function withOnboardingDocsWrapper(
-    Installation: React.ComponentType<any>,
-    snippets?: Record<string, React.ComponentType<any>>,
-    wizardIntegrationName?: string
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <>
-                {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
-                <OnboardingDocsContentWrapper snippets={snippets}>
-                    <Installation />
-                </OnboardingDocsContentWrapper>
-            </>
-        )
-    }
-}
-
-// Helper to create components with Installation + AdvertiseMobileReplay (for mobile SDKs)
-function withMobileReplay(
-    Installation: React.ComponentType<any>,
-    sdkKey: SDKKey,
-    snippets?: Record<string, React.ComponentType<any>>,
-    wizardIntegrationName?: string
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <>
-                {wizardIntegrationName && <SetupWizardBanner integrationName={wizardIntegrationName} />}
-                <OnboardingDocsContentWrapper snippets={snippets}>
-                    <Installation />
-                    <AdvertiseMobileReplay context="experiments-onboarding" sdkKey={sdkKey} />
-                </OnboardingDocsContentWrapper>
-            </>
-        )
-    }
-}
+import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations
 // JS Web SDKs - client-side with full JS capabilities
@@ -159,12 +118,28 @@ const ExperimentsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstall
 const ExperimentsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation, SERVER_SDK_SNIPPETS)
 
 // Mobile SDKs with AdvertiseMobileReplay
-const ExperimentsAndroidInstructionsWrapper = withMobileReplay(AndroidInstallation, SDKKey.ANDROID, MOBILE_SNIPPETS)
-const ExperimentsIOSInstructionsWrapper = withMobileReplay(IOSInstallation, SDKKey.IOS, MOBILE_SNIPPETS)
-const ExperimentsFlutterInstructionsWrapper = withMobileReplay(FlutterInstallation, SDKKey.FLUTTER, MOBILE_SNIPPETS)
+const ExperimentsAndroidInstructionsWrapper = withMobileReplay(
+    AndroidInstallation,
+    SDKKey.ANDROID,
+    'experiments-onboarding',
+    MOBILE_SNIPPETS
+)
+const ExperimentsIOSInstructionsWrapper = withMobileReplay(
+    IOSInstallation,
+    SDKKey.IOS,
+    'experiments-onboarding',
+    MOBILE_SNIPPETS
+)
+const ExperimentsFlutterInstructionsWrapper = withMobileReplay(
+    FlutterInstallation,
+    SDKKey.FLUTTER,
+    'experiments-onboarding',
+    MOBILE_SNIPPETS
+)
 const ExperimentsRNInstructionsWrapper = withMobileReplay(
     ReactNativeInstallation,
     SDKKey.REACT_NATIVE,
+    'experiments-onboarding',
     MOBILE_SNIPPETS,
     'React Native'
 )
