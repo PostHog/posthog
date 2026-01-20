@@ -5,6 +5,18 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
 
+/**
+ * Shared refresh constants for lazy loaders that need to stay in sync with Temporal workflows.
+ *
+ * IMPORTANT: If you change these values, also update the corresponding workflow wait times:
+ * - posthog/temporal/backfill_materialized_property/workflows.py
+ * - posthog/temporal/eav_backfill/workflows.py
+ *
+ * The workflows wait 3 minutes to account for REFRESH_AGE_MS + REFRESH_JITTER_MS + buffer.
+ */
+export const TEAM_AND_SLOTS_REFRESH_AGE_MS = 2 * 60 * 1000 // 2 minutes
+export const TEAM_AND_SLOTS_REFRESH_JITTER_MS = 30 * 1000 // 30 seconds
+
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
     help: 'The number of times we have hit the cache',

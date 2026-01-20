@@ -38,6 +38,8 @@ export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_sessi
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
+// write EAV event properties to ClickHouse
+export const KAFKA_CLICKHOUSE_EVENT_PROPERTIES = `${prefix}clickhouse_event_properties${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`

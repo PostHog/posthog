@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -34,13 +35,23 @@ export interface EventSubpipelineConfig {
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        kafkaProducer,
+        groupId,
+        materializedColumnSlotManager,
+    } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -60,7 +71,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
-        .pipe(createCreateEventStep())
+        .pipe(createCreateEventStep({ materializedColumnSlotManager }))
         .pipe(
             createEmitEventStep({
                 kafkaProducer,

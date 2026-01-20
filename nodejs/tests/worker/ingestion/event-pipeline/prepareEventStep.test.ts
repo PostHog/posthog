@@ -171,8 +171,8 @@ describe('prepareEventStep()', () => {
         )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
-        expect(chEvent.elements_chain).toEqual('random string')
-        expect(chEvent.properties).toEqual('{"a":1}')
+        expect(chEvent.event.elements_chain).toEqual('random string')
+        expect(chEvent.event.properties).toEqual('{"a":1}')
     })
     // Tests combo of prepareEvent + createEvent
     it('uses elements_chain if both elements and elements_chain are present', async () => {
@@ -195,8 +195,8 @@ describe('prepareEventStep()', () => {
         )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
-        expect(chEvent.elements_chain).toEqual('random string')
-        expect(chEvent.properties).toEqual('{"a":1}')
+        expect(chEvent.event.elements_chain).toEqual('random string')
+        expect(chEvent.event.properties).toEqual('{"a":1}')
     })
 
     // Tests combo of prepareEvent + createEvent
@@ -216,7 +216,7 @@ describe('prepareEventStep()', () => {
         )
         const chEvent = createEvent(preppedEvent, person, false, false, null)
 
-        expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
-        expect(chEvent.properties).toEqual('{"a":1}')
+        expect(chEvent.event.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
+        expect(chEvent.event.properties).toEqual('{"a":1}')
     })
 })

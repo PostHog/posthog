@@ -1,5 +1,6 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KafkaProducerWrapper } from '../../kafka/producer'
+import { MaterializedColumnSlotManager } from '../../utils/materialized-column-slot-manager'
 import { TeamManager } from '../../utils/team-manager'
 import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -27,6 +28,7 @@ export interface PerEventProcessingConfig {
     personsStore: PersonsStore
     kafkaProducer: KafkaProducerWrapper
     groupId: string
+    materializedColumnSlotManager: MaterializedColumnSlotManager
 }
 
 type EventBranch = 'client_ingestion_warning' | 'heatmap' | 'event'
@@ -46,7 +48,16 @@ export function createPerEventProcessingSubpipeline<TInput extends PerEventProce
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerEventProcessingConfig
 ): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
+    const {
+        options,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        personsStore,
+        kafkaProducer,
+        groupId,
+        materializedColumnSlotManager,
+    } = config
 
     return builder.retry(
         (e) =>
@@ -72,6 +83,7 @@ export function createPerEventProcessingSubpipeline<TInput extends PerEventProce
                             personsStore,
                             kafkaProducer,
                             groupId,
+                            materializedColumnSlotManager,
                         })
                     )
             }),
