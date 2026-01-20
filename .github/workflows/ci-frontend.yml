@@ -149,12 +149,18 @@ jobs:
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
-            - name: Calculate dist folder size
-              id: dist-size
+            - name: Calculate JS and CSS bundle sizes
+              id: bundle-sizes
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
-                  echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
-                  echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
+                  # Calculate total size of JS files (excluding .map files)
+                  size_js_bytes=$(find frontend/dist -name '*.js' ! -name '*.js.map' -type f -exec stat --printf='%s\n' {} + | awk '{sum+=$1} END {print sum+0}')
+                  echo "size_js_bytes=${size_js_bytes}" >> $GITHUB_OUTPUT
+                  echo "JS bundle size: ${size_js_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_js_bytes}))"
+
+                  # Calculate total size of CSS files (excluding .map files)
+                  size_css_bytes=$(find frontend/dist -name '*.css' ! -name '*.css.map' -type f -exec stat --printf='%s\n' {} + | awk '{sum+=$1} END {print sum+0}')
+                  echo "size_css_bytes=${size_css_bytes}" >> $GITHUB_OUTPUT
+                  echo "CSS bundle size: ${size_css_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_css_bytes}))"
 
             - name: Capture bundle size to PostHog
               if: |
@@ -166,7 +172,8 @@ jobs:
                   event: 'posthog-ci-frontend-bundle-size'
                   properties: |
                       {
-                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "size_js_bytes": ${{ steps.bundle-sizes.outputs.size_js_bytes }},
+                        "size_css_bytes": ${{ steps.bundle-sizes.outputs.size_css_bytes }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},
                         "pr_number": ${{ github.event.pull_request.number || 'null' }},
