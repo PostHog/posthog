@@ -39,6 +39,8 @@ export interface LemonInputSelectOption<T = string> {
     tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
+    /** @internal - marks custom values (user-created, not in original options) */
+    __isCustomValue?: boolean
     /** Original typed value - when provided, this will be used in onChange callbacks */
     value?: T
 }
@@ -212,7 +214,9 @@ export function LemonInputSelect<T = string>({
         // Custom values are shown as options before other options (Map guarantees preserves insertion order)
         const allOptionsMap = new Map<string, LemonInputSelectOption<T>>()
         for (const customValue of customValues) {
-            allOptionsMap.set(customValue, { key: customValue, label: customValue })
+            // Mark custom values with __isCustomValue flag so they use formatCreateLabel in the dropdown not only when typing
+            // but also when re-opening the dropdown after typing
+            allOptionsMap.set(customValue, { key: customValue, label: customValue, __isCustomValue: true })
         }
         for (const option of options) {
             allOptionsMap.set(option.key, option)
@@ -764,7 +768,7 @@ export function LemonInputSelect<T = string>({
                                                     >
                                                         <span className="whitespace-nowrap ph-no-capture truncate">
                                                             {
-                                                                !option.__isInput
+                                                                !option.__isInput && !option.__isCustomValue
                                                                     ? (option.labelComponent ?? option.label) // Regular option
                                                                     : getInputLabel(option) // Input-based option
                                                             }
@@ -824,7 +828,7 @@ export function LemonInputSelect<T = string>({
                                     >
                                         <span className="whitespace-nowrap ph-no-capture truncate">
                                             {
-                                                !option.__isInput
+                                                !option.__isInput && !option.__isCustomValue
                                                     ? (option.labelComponent ?? option.label) // Regular option
                                                     : getInputLabel(option) // Input-based option
                                             }
