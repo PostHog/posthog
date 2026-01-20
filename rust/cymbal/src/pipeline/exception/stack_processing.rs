@@ -20,7 +20,7 @@ pub async fn do_stack_processing(
     context: Arc<AppContext>,
     events: &[PipelineResult],
     mut indexed_props: Vec<(usize, RawErrProps)>,
-) -> Result<Vec<(usize, FingerprintedErrProps)>, (usize, UnhandledError)> {
+) -> Result<Vec<(usize, FingerprintedErrProps)>, (usize, Arc<UnhandledError>)> {
     let frame_batch_timer = common_metrics::timing_guard(FRAME_BATCH_TIME, &[]);
     let mut frame_resolve_handles = HashMap::new();
     for (index, props) in indexed_props.iter_mut() {
@@ -128,7 +128,7 @@ pub async fn do_stack_processing(
                         ))
                 })
                 .transpose()
-                .map_err(|e| (index, e))?;
+                .map_err(|e| (index, Arc::new(e)))?;
         }
 
         let team_id = events[index]
@@ -140,11 +140,11 @@ pub async fn do_stack_processing(
             .posthog_pool
             .acquire()
             .await
-            .map_err(|e| (index, e.into()))?;
+            .map_err(|e| (index, Arc::new(e.into())))?;
 
         let proposed = resolve_fingerprint(&mut conn, &context.team_manager, team_id, &props)
             .await
-            .map_err(|e| (index, e))?;
+            .map_err(|e| (index, Arc::new(e)))?;
 
         let fingerprinted = props.to_fingerprinted(proposed);
         indexed_fingerprinted.push((index, fingerprinted));
