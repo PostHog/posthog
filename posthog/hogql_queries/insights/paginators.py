@@ -109,7 +109,7 @@ class HogQLCursorPaginator:
         after: str | None = None,
         order_field: str = "start_time",
         order_direction: str = "DESC",
-        secondary_field: str,
+        secondary_sort_field: str,
         limit_context: LimitContext | None = None,
         field_indices: dict[str, int] | None = None,
         use_having_clause: bool = False,
@@ -120,7 +120,7 @@ class HogQLCursorPaginator:
         self.after = after
         self.order_field = order_field
         self.order_direction = order_direction
-        self.secondary_field = secondary_field
+        self.secondary_sort_field = secondary_sort_field
         self.limit_context = limit_context
         self.field_indices = field_indices or {}
         self.use_having_clause = use_having_clause
@@ -150,7 +150,7 @@ class HogQLCursorPaginator:
         after: str | None = None,
         order_field: str = "start_time",
         order_direction: str = "DESC",
-        secondary_field: str,
+        secondary_sort_field: str,
         field_indices: dict[str, int] | None = None,
         use_having_clause: bool = False,
     ) -> "HogQLCursorPaginator":
@@ -162,7 +162,7 @@ class HogQLCursorPaginator:
             after=after,
             order_field=order_field,
             order_direction=order_direction,
-            secondary_field=secondary_field,
+            secondary_sort_field=secondary_sort_field,
             limit_context=limit_context,
             field_indices=field_indices,
             use_having_clause=use_having_clause,
@@ -187,7 +187,7 @@ class HogQLCursorPaginator:
                     left_tuple = ast.Tuple(
                         exprs=[
                             ast.Field(chain=[self.order_field]),
-                            ast.Field(chain=[self.secondary_field]),
+                            ast.Field(chain=[self.secondary_sort_field]),
                         ]
                     )
 
@@ -257,17 +257,17 @@ class HogQLCursorPaginator:
         # Handle different result types: dict (from HogQL), tuple, or object
         if isinstance(last_result, dict):
             order_value = last_result.get(self.order_field)
-            secondary_value = last_result.get(self.secondary_field)
+            secondary_value = last_result.get(self.secondary_sort_field)
         elif isinstance(last_result, list | tuple) and self.field_indices:
             # For tuples, use field_indices to find the correct position
             order_idx = self.field_indices.get(self.order_field)
-            secondary_idx = self.field_indices.get(self.secondary_field, 0)
+            secondary_idx = self.field_indices.get(self.secondary_sort_field, 0)
             order_value = last_result[order_idx] if order_idx is not None else None
             secondary_value = last_result[secondary_idx]
         else:
             # For objects, use getattr
             order_value = getattr(last_result, self.order_field, None)
-            secondary_value = getattr(last_result, self.secondary_field, None)
+            secondary_value = getattr(last_result, self.secondary_sort_field, None)
 
         # Serialize datetime objects to ISO format strings
         if isinstance(order_value, datetime):

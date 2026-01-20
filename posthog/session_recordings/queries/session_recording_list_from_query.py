@@ -147,7 +147,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 after=expanded_query.after,
                 order_field=order_field,
                 order_direction=order_direction,
-                secondary_field="session_id",
+                secondary_sort_field="session_id",
                 field_indices=field_indices,
                 use_having_clause=True,  # Session recordings query uses GROUP BY, so cursor conditions must be in HAVING
             )

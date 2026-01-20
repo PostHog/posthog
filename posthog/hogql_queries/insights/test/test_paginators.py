@@ -230,7 +230,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
         paginator = HogQLCursorPaginator(
-            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         self.assertIsNotNone(paginator.cursor_data)
@@ -247,14 +247,14 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
                 after="invalid_cursor",
                 order_field="start_time",
                 order_direction="DESC",
-                secondary_field="session_id",
+                secondary_sort_field="session_id",
             )
         self.assertIn("Invalid cursor format", str(context.exception))
 
     def test_cursor_extraction_from_dict_results(self):
         """Test cursor extraction when results are dicts"""
         paginator = HogQLCursorPaginator(
-            limit=5, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=5, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         # Simulate results with has_more
@@ -293,7 +293,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             limit=3,
             order_field="start_time",
             order_direction="DESC",
-            secondary_field="session_id",
+            secondary_sort_field="session_id",
             field_indices=field_indices,
         )
         paginator.results = [
@@ -315,7 +315,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             limit=3,
             order_field="console_error_count",
             order_direction="DESC",
-            secondary_field="session_id",
+            secondary_sort_field="session_id",
             field_indices=field_indices,
         )
         paginator2.results = paginator.results
@@ -331,7 +331,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
     def test_no_cursor_when_no_more_results(self):
         """Test that cursor is None when there are no more results"""
         paginator = HogQLCursorPaginator(
-            limit=5, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=5, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
         paginator.results = [
             {"session_id": "s1", "start_time": "2025-01-06 10:00:00"},
@@ -350,7 +350,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
         paginator = HogQLCursorPaginator(
-            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events"))
@@ -369,7 +369,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
         paginator = HogQLCursorPaginator(
-            limit=10, after=cursor, order_field="start_time", order_direction="ASC", secondary_field="session_id"
+            limit=10, after=cursor, order_field="start_time", order_direction="ASC", secondary_sort_field="session_id"
         )
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events"))
@@ -388,7 +388,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
         paginator = HogQLCursorPaginator(
-            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=10, after=cursor, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         query = cast(SelectQuery, parse_select("SELECT session_id, start_time FROM events WHERE team_id = 1"))
@@ -404,7 +404,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
     def test_limit_plus_one_for_has_more_detection(self):
         """Test that paginator fetches limit+1 to detect has_more"""
         paginator = HogQLCursorPaginator(
-            limit=10, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=10, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         query = cast(SelectQuery, parse_select("SELECT session_id FROM events"))
@@ -418,7 +418,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
     def test_has_more_detection(self):
         """Test has_more is correctly detected when results exceed limit"""
         paginator = HogQLCursorPaginator(
-            limit=5, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=5, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         # Mock response with 6 results (limit+1)
@@ -434,7 +434,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
     def test_trim_results_removes_extra_item(self):
         """Test that trim_results removes the extra item used for has_more detection"""
         paginator = HogQLCursorPaginator(
-            limit=5, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=5, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
 
         # Mock response with 6 results
@@ -449,7 +449,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
     def test_response_params_includes_next_cursor(self):
         """Test that response_params includes nextCursor"""
         paginator = HogQLCursorPaginator(
-            limit=5, order_field="start_time", order_direction="DESC", secondary_field="session_id"
+            limit=5, order_field="start_time", order_direction="DESC", secondary_sort_field="session_id"
         )
         paginator.results = [{"session_id": f"s{i}", "start_time": f"2025-01-06 {10 - i}:00:00"} for i in range(5)]
         paginator.response = MagicMock()
@@ -471,31 +471,17 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             limit=5,
             order_field="start_time",
             order_direction="DESC",
-            secondary_field="session_id",
+            secondary_sort_field="session_id",
             field_indices=field_indices,
         )
 
         self.assertEqual(paginator.field_indices, field_indices)
         self.assertEqual(paginator.order_field, "start_time")
 
-    def test_secondary_field_is_required(self):
-        """Test that secondary_field is required"""
+    def test_cursor_extraction_with_custom_secondary_sort_field(self):
+        """Test cursor extraction uses custom secondary_sort_field"""
         paginator = HogQLCursorPaginator(
-            limit=10, order_field="start_time", order_direction="DESC", secondary_field="session_id"
-        )
-        self.assertEqual(paginator.secondary_field, "session_id")
-
-    def test_secondary_field_uuid(self):
-        """Test that secondary_field can be set to uuid for events pagination"""
-        paginator = HogQLCursorPaginator(
-            limit=10, order_field="timestamp", order_direction="DESC", secondary_field="uuid"
-        )
-        self.assertEqual(paginator.secondary_field, "uuid")
-
-    def test_cursor_extraction_with_custom_secondary_field(self):
-        """Test cursor extraction uses custom secondary_field"""
-        paginator = HogQLCursorPaginator(
-            limit=3, order_field="timestamp", order_direction="DESC", secondary_field="uuid"
+            limit=3, order_field="timestamp", order_direction="DESC", secondary_sort_field="uuid"
         )
         paginator.results = [
             {"uuid": "uuid-1", "timestamp": "2025-01-06 10:00:00"},
@@ -511,14 +497,14 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(decoded["secondary_value"], "uuid-3")
         self.assertEqual(decoded["order_value"], "2025-01-06 08:00:00")
 
-    def test_cursor_extraction_with_custom_secondary_field_tuples(self):
-        """Test cursor extraction with custom secondary_field using tuples and field_indices"""
+    def test_cursor_extraction_with_custom_secondary_sort_field_tuples(self):
+        """Test cursor extraction with custom secondary_sort_field using tuples and field_indices"""
         field_indices = {"uuid": 0, "timestamp": 1}
         paginator = HogQLCursorPaginator(
             limit=2,
             order_field="timestamp",
             order_direction="DESC",
-            secondary_field="uuid",
+            secondary_sort_field="uuid",
             field_indices=field_indices,
         )
         paginator.results = [
@@ -534,14 +520,14 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(decoded["secondary_value"], "uuid-2")
         self.assertEqual(decoded["order_value"], "2025-01-06 09:00:00")
 
-    def test_where_clause_with_custom_secondary_field(self):
-        """Test that WHERE clause uses custom secondary_field"""
+    def test_where_clause_with_custom_secondary_sort_field(self):
+        """Test that WHERE clause uses custom secondary_sort_field"""
         cursor_data = {"order_value": "2025-01-06 12:00:00", "secondary_value": "uuid-123"}
         json_str = json.dumps(cursor_data)
         cursor = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
 
         paginator = HogQLCursorPaginator(
-            limit=10, after=cursor, order_field="timestamp", order_direction="DESC", secondary_field="uuid"
+            limit=10, after=cursor, order_field="timestamp", order_direction="DESC", secondary_sort_field="uuid"
         )
 
         query = cast(SelectQuery, parse_select("SELECT uuid, timestamp FROM events"))
@@ -549,15 +535,15 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNotNone(paginated_query.where)
 
-    def test_from_limit_context_with_secondary_field(self):
-        """Test from_limit_context factory method passes secondary_field correctly"""
+    def test_from_limit_context_with_secondary_sort_field(self):
+        """Test from_limit_context factory method passes secondary_sort_field correctly"""
         paginator = HogQLCursorPaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=5,
             order_field="timestamp",
             order_direction="DESC",
-            secondary_field="uuid",
+            secondary_sort_field="uuid",
         )
 
-        self.assertEqual(paginator.secondary_field, "uuid")
+        self.assertEqual(paginator.secondary_sort_field, "uuid")
         self.assertEqual(paginator.order_field, "timestamp")
