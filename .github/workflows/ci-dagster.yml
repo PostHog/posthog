@@ -125,13 +125,15 @@ jobs:
               run: bin/check_kafka_clickhouse_up
 
             - name: Download pre-migrated schema from CI
+              id: download_schema
+              continue-on-error: true
               run: |
                   set -e
                   mkdir -p .postgres-backups
                   echo "Finding latest CI run with migrated-schema artifact..."
                   RUN_ID=$(gh api 'repos/PostHog/posthog/actions/artifacts?name=migrated-schema&per_page=10' --jq '[.artifacts[] | select(.expired == false and .size_in_bytes > 10000)] | .[0].workflow_run.id')
                   if [ -z "$RUN_ID" ]; then
-                      echo "❌ No migrated-schema artifact found. CI job cannot continue without it."
+                      echo "⚠️ No migrated-schema artifact found. Will fall back to running full migrations."
                       exit 1
                   fi
                   echo "Downloading from run $RUN_ID..."
@@ -143,6 +145,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
 
             - name: Restore pre-migrated schema
+              if: steps.download_schema.outcome == 'success'
               run: |
                   set -e
                   set -o pipefail
@@ -150,13 +153,28 @@ jobs:
                   gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
                   echo "✅ Schema restored"
 
-            - name: Run any pending migrations
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+
+            - name: Install sqlx-cli
               run: |
-                  # Run any migrations that might be newer than the cached schema
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Run migrations
+              run: |
+                  # Run Django migrations (full if no artifact, or just pending if artifact was restored)
                   python manage.py migrate --no-input
-                  # Create persons database if needed and run any pending migrations
+                  # Create persons database and run sqlx migrations (not included in artifact)
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
-                    python -c "import psycopg; psycopg.connect('postgres://posthog:posthog@localhost:5432/postgres').execute('CREATE DATABASE posthog_persons').close()" 2>/dev/null || true
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
                   # Run ClickHouse migrations
                   python manage.py migrate_clickhouse
 
