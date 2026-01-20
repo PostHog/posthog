@@ -108,10 +108,10 @@ impl CohortCacheManager {
 
         let reader = self.reader.clone();
 
+        common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
+
         self.cache
             .try_get_with(team_id, async move {
-                common_metrics::inc(COHORT_CACHE_MISS_COUNTER, &[], 1);
-
                 match Cohort::list_from_pg(reader, team_id).await {
                     Ok(cohorts) => {
                         common_metrics::inc(DB_COHORT_READS_COUNTER, &[], 1);
