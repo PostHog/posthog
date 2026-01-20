@@ -223,7 +223,7 @@ class TestEmailIntegration:
         mock_ses_provider_class.return_value = mock_client
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
+            {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -235,6 +235,7 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "youmustnothavelikedmyemail",
             "verified": False,
             "provider": "ses",
         }
@@ -295,6 +296,7 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": False,
             "provider": "ses",
         }
@@ -329,6 +331,7 @@ class TestEmailIntegration:
             "email": self.valid_config["email"],
             "name": self.valid_config["name"],
             "domain": "posthog.com",
+            "mail_from_subdomain": "feedback",
             "verified": True,
             "provider": "ses",
         }
@@ -363,6 +366,7 @@ class TestEmailIntegration:
             {
                 "email": "me@otherdomain.com",
                 "name": "Me",
+                "mail_from_subdomain": "feedback",
                 "provider": "ses",
             },
             team_id=self.team.id,
