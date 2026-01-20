@@ -12,9 +12,6 @@ on:
 jobs:
     build:
         name: build ${{ matrix.image }}
-        concurrency:
-            group: rust-docker-build-${{ github.ref }}
-            cancel-in-progress: false
         strategy:
             matrix:
                 include:
