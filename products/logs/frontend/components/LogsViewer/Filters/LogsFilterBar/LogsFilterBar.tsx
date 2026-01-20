@@ -234,7 +234,7 @@ const LogsAppliedFilters = (): JSX.Element | null => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type !== PropertyFilterType.HogQL}
                     />
                 )
             })}
