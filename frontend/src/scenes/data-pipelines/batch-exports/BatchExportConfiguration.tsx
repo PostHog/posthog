@@ -162,7 +162,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     </div>
                                 )}
                                 {configuration.interval === 'week' && (
-                                    <div className="flex gap-2 min-h-16">
+                                    <div className="flex items-end gap-2 min-h-16">
                                         <LemonField
                                             name="offset_day"
                                             label="Start time"
