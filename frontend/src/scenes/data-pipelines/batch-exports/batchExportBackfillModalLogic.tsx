@@ -268,9 +268,9 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
                     }
 
                     // Validate that end date is not in the future
-                    const upperBound = dayjs().tz(teamLogic.values.timezone)
+                    const upperBound = dayjs()
                     if (end_at > upperBound) {
-                        errors.end_at = 'End date cannot be in the future'
+                        errors.end_at = `End date (${end_at.format('MMMM D, YYYY h:mm A z')}) cannot be in the future`
                     }
 
                     if (start_at && end_at < start_at) {
