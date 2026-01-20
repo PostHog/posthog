@@ -1248,11 +1248,11 @@ class TestUserAPI(APIBaseTest):
 
         patched_token.return_value = "test-cache-key-123"
 
-        # Mock the Rust service response
+        # Mock the Rust service V2 response format
         mock_get_flags.return_value = {
             "flags": {
-                "test-flag-1": True,
-                "test-flag-2": "test-variant",
+                "test-flag-1": {"enabled": True, "variant": None},
+                "test-flag-2": {"enabled": True, "variant": "test-variant"},
             }
         }
 
