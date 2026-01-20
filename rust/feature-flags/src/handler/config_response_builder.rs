@@ -61,17 +61,20 @@ pub async fn build_response_from_cache(
             }
         };
 
-    // Apply session recording domain filtering
-    apply_session_recording_domain_filter(&mut cached_config, &context.headers);
+    // Sanitize config for client consumption (removes internal fields, applies domain filtering)
+    sanitize_config_for_client(&mut cached_config, &context.headers);
 
-    // Real-time quota check takes precedence over cached values.
     if is_recordings_limited {
-        apply_recordings_quota_limit(&mut response, &cached_config);
-    } else {
-        apply_cached_quota_limits_without_recordings(&mut response, &cached_config);
+        cached_config["sessionRecording"] = json!(false);
     }
 
     response.config = ConfigResponse::from_value(cached_config);
+
+    if is_recordings_limited {
+        set_recordings_quota_limited(&mut response);
+    } else {
+        set_cached_quota_limits_without_recordings(&mut response);
+    }
 
     tracing::debug!(
         team_id = team.id,
@@ -81,11 +84,11 @@ pub async fn build_response_from_cache(
     Ok(response)
 }
 
-/// Apply session recording quota limit by disabling recording and updating quotaLimited.
-fn apply_recordings_quota_limit(response: &mut FlagsResponse, cached_config: &Value) {
-    response.config.set("sessionRecording", json!(false));
-
-    let mut limited: Vec<String> = cached_config
+/// Set quota_limited to include "recordings" when recordings are quota limited.
+/// Merges with any existing quota limits from the config.
+fn set_recordings_quota_limited(response: &mut FlagsResponse) {
+    let mut limited: Vec<String> = response
+        .config
         .get("quotaLimited")
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -102,14 +105,16 @@ fn apply_recordings_quota_limit(response: &mut FlagsResponse, cached_config: &Va
     response.quota_limited = Some(limited);
 }
 
-/// Apply cached quota limits, filtering out "recordings".
-fn apply_cached_quota_limits_without_recordings(
-    response: &mut FlagsResponse,
-    cached_config: &Value,
-) {
+/// Set quota_limited from cached config, filtering out stale "recordings" entries.
+/// Used when recordings are NOT quota limited (real-time check says no).
+fn set_cached_quota_limits_without_recordings(response: &mut FlagsResponse) {
     let recordings_str = QuotaResource::Recordings.as_str();
 
-    if let Some(arr) = cached_config.get("quotaLimited").and_then(|v| v.as_array()) {
+    if let Some(arr) = response
+        .config
+        .get("quotaLimited")
+        .and_then(|v| v.as_array())
+    {
         let filtered: Vec<String> = arr
             .iter()
             .filter_map(|v| v.as_str())
@@ -123,11 +128,17 @@ fn apply_cached_quota_limits_without_recordings(
     }
 }
 
-/// Apply session recording domain filtering to the cached config.
+/// Sanitize cached config before returning to clients.
 ///
-/// This removes `domains` from sessionRecording and sets sessionRecording=false
-/// if the request origin is not in the permitted domains list.
-fn apply_session_recording_domain_filter(cached_config: &mut Value, headers: &HeaderMap) {
+/// Matches Python's `sanitize_config_for_public_cdn` behavior:
+/// - Removes `siteAppsJS` (raw JS only needed for array.js bundle, not JSON API)
+/// - Removes `sessionRecording.domains` (internal field, not needed by SDK)
+/// - Sets `sessionRecording` to `false` if request origin not in permitted domains
+fn sanitize_config_for_client(cached_config: &mut Value, headers: &HeaderMap) {
+    if let Some(obj) = cached_config.as_object_mut() {
+        obj.remove("siteAppsJS");
+    }
+
     let session_recording = match cached_config.get_mut("sessionRecording") {
         Some(sr) => sr,
         None => return,
@@ -167,20 +178,21 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_recordings_quota_limit_adds_to_empty() {
+    fn test_set_recordings_quota_limited_adds_to_empty() {
         let mut response = create_base_response();
-        let cached = json!({});
-        apply_recordings_quota_limit(&mut response, &cached);
+        response.config = ConfigResponse::from_value(json!({}));
 
-        assert_eq!(response.config.get("sessionRecording"), Some(&json!(false)));
+        set_recordings_quota_limited(&mut response);
+
         assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
 
     #[test]
-    fn test_apply_recordings_quota_limit_merges_existing() {
+    fn test_set_recordings_quota_limited_merges_existing() {
         let mut response = create_base_response();
-        let cached = json!({"quotaLimited": ["feature_flags"]});
-        apply_recordings_quota_limit(&mut response, &cached);
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["feature_flags"]}));
+
+        set_recordings_quota_limited(&mut response);
 
         assert_eq!(
             response.quota_limited,
@@ -189,10 +201,11 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_recordings_quota_limit_no_duplicate() {
+    fn test_set_recordings_quota_limited_no_duplicate() {
         let mut response = create_base_response();
-        let cached = json!({"quotaLimited": ["recordings"]});
-        apply_recordings_quota_limit(&mut response, &cached);
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["recordings"]}));
+
+        set_recordings_quota_limited(&mut response);
 
         assert_eq!(response.quota_limited, Some(vec!["recordings".to_string()]));
     }
@@ -227,9 +240,10 @@ mod tests {
     fn test_cached_quota_limits_filters_stale_recordings() {
         let mut response = create_base_response();
         // Cached config has stale "recordings" limit
-        let cached = json!({"quotaLimited": ["recordings", "feature_flags"]});
+        response.config =
+            ConfigResponse::from_value(json!({"quotaLimited": ["recordings", "feature_flags"]}));
 
-        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+        set_cached_quota_limits_without_recordings(&mut response);
 
         // "recordings" should be filtered out, only "feature_flags" remains
         assert_eq!(
@@ -242,9 +256,9 @@ mod tests {
     fn test_cached_quota_limits_filters_only_recordings() {
         let mut response = create_base_response();
         // Cached config has only stale "recordings" limit
-        let cached = json!({"quotaLimited": ["recordings"]});
+        response.config = ConfigResponse::from_value(json!({"quotaLimited": ["recordings"]}));
 
-        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+        set_cached_quota_limits_without_recordings(&mut response);
 
         // Should be None since filtering "recordings" leaves empty list
         assert_eq!(response.quota_limited, None);
@@ -254,9 +268,10 @@ mod tests {
     fn test_cached_quota_limits_preserves_other_limits() {
         let mut response = create_base_response();
         // Cached config has no "recordings" limit
-        let cached = json!({"quotaLimited": ["feature_flags", "events"]});
+        response.config =
+            ConfigResponse::from_value(json!({"quotaLimited": ["feature_flags", "events"]}));
 
-        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+        set_cached_quota_limits_without_recordings(&mut response);
 
         assert_eq!(
             response.quota_limited,
@@ -267,11 +282,33 @@ mod tests {
     #[test]
     fn test_cached_quota_limits_handles_empty() {
         let mut response = create_base_response();
-        let cached = json!({});
+        response.config = ConfigResponse::from_value(json!({}));
 
-        apply_cached_quota_limits_without_recordings(&mut response, &cached);
+        set_cached_quota_limits_without_recordings(&mut response);
 
         assert_eq!(response.quota_limited, None);
+    }
+
+    #[test]
+    fn test_sanitize_removes_site_apps_js() {
+        // siteAppsJS contains raw transpiled JavaScript, only needed for array.js bundle
+        let mut cached = json!({
+            "siteApps": [{"id": 1, "url": "https://example.com/app.js"}],
+            "siteAppsJS": "function() { console.log('raw js'); }",
+            "heatmaps": true
+        });
+
+        sanitize_config_for_client(&mut cached, &HeaderMap::new());
+
+        assert!(
+            cached.get("siteAppsJS").is_none(),
+            "siteAppsJS must be removed"
+        );
+        assert!(
+            cached.get("siteApps").is_some(),
+            "siteApps should be preserved"
+        );
+        assert_eq!(cached.get("heatmaps"), Some(&json!(true)));
     }
 
     #[test]
@@ -287,7 +324,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://any.site.com".parse().unwrap());
 
-        apply_session_recording_domain_filter(&mut cached, &headers);
+        sanitize_config_for_client(&mut cached, &headers);
 
         let sr = cached.get("sessionRecording").unwrap();
         assert!(sr.is_object(), "sessionRecording should remain as config");
@@ -297,6 +334,7 @@ mod tests {
     #[test]
     fn test_session_recording_no_domains_field_allowed() {
         // No domains field means "allow all" - recording should remain enabled
+        // Note: Python always includes domains field, so this is defensive
         let mut cached = json!({
             "sessionRecording": {
                 "endpoint": "/s/"
@@ -306,7 +344,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://any.site.com".parse().unwrap());
 
-        apply_session_recording_domain_filter(&mut cached, &headers);
+        sanitize_config_for_client(&mut cached, &headers);
 
         let sr = cached.get("sessionRecording").unwrap();
         assert!(sr.is_object());
@@ -325,7 +363,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://evil.site.com".parse().unwrap());
 
-        apply_session_recording_domain_filter(&mut cached, &headers);
+        sanitize_config_for_client(&mut cached, &headers);
 
         assert_eq!(
             cached.get("sessionRecording"),
@@ -348,7 +386,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("Origin", "https://allowed.example.com".parse().unwrap());
 
-        apply_session_recording_domain_filter(&mut cached, &headers);
+        sanitize_config_for_client(&mut cached, &headers);
 
         let sr = cached.get("sessionRecording").unwrap();
         assert!(sr.is_object());
@@ -364,7 +402,7 @@ mod tests {
             "sessionRecording": false
         });
 
-        apply_session_recording_domain_filter(&mut cached, &HeaderMap::new());
+        sanitize_config_for_client(&mut cached, &HeaderMap::new());
 
         assert_eq!(cached.get("sessionRecording"), Some(&json!(false)));
     }
