@@ -15,21 +15,21 @@ class SESProvider:
         # Initialize the boto3 clients
         self.sts_client = boto3.client(
             "sts",
-            # aws_access_key_id=settings.SES_ACCESS_KEY_ID,
-            # aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
-            # region_name=settings.SES_REGION,
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
         )
         self.ses_client = boto3.client(
             "ses",
-            # aws_access_key_id=settings.SES_ACCESS_KEY_ID,
-            # aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
-            # region_name=settings.SES_REGION,
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
         )
         self.ses_v2_client = boto3.client(
             "sesv2",
-            # aws_access_key_id=settings.SES_ACCESS_KEY_ID,
-            # aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
-            # region_name=settings.SES_REGION,
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
         )
 
     def create_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
@@ -135,7 +135,7 @@ class SESProvider:
         )
         dns_records.append(
             {
-                "type": "mail_from_spf",
+                "type": "mail_from",
                 "recordType": "TXT",
                 "recordHostname": f"{mail_from_subdomain}.{domain}",
                 "recordValue": "v=spf1 include:amazonses.com ~all",
@@ -169,7 +169,7 @@ class SESProvider:
         # Normalize overall status
         if verification_status == "Success" and dkim_status == "Success" and mail_from_status == "Success":
             overall = "success"
-        elif "Failed" in (verification_status, dkim_status):
+        elif "Failed" in (verification_status, dkim_status, mail_from_status):
             overall = "failed"
         else:
             overall = "pending"

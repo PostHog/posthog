@@ -129,7 +129,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                                                         void navigator.clipboard.writeText(subdomain)
                                                                         lemonToast.success('Target copied to clipboard')
                                                                     }}
-                                                                    tooltip="Copy hostname"
+                                                                    tooltip="Copy target"
                                                                     className="ml-0.5 -mr-0.5"
                                                                 />
                                                             )}
