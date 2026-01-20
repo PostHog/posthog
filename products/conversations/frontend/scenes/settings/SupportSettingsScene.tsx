@@ -235,7 +235,7 @@ export function SupportSettingsScene(): JSX.Element {
                                             type="primary"
                                             onClick={saveGreetingText}
                                             disabledReason={
-                                                !greetingInputValue?.trim() ? 'Enter a greeting message' : undefined
+                                                !greetingInputValue ? 'Enter a greeting message' : undefined
                                             }
                                         >
                                             Save
