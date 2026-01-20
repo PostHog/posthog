@@ -135,21 +135,12 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # These assertions represent the CORRECT behavior
-        # Control: 1 session * 60 seconds = 60
-        # Test: 1 session * 120 seconds = 120
-        #
-        # If the bug exists, we'd see:
-        # Control: 3 events * 60 seconds = 180 (WRONG)
-        # Test: 2 events * 120 seconds = 240 (WRONG)
-        self.assertEqual(control_variant.sum, 60, "Control session duration should be 60s (not multiplied by 3 events)")
-        self.assertEqual(test_variant.sum, 120, "Test session duration should be 120s (not multiplied by 2 events)")
-
-        # Each variant has 1 user
-        self.assertEqual(control_variant.number_of_samples, 1)
-        self.assertEqual(test_variant.number_of_samples, 1)
+        assert control_variant.sum == 60
+        assert test_variant.sum == 120
+        assert control_variant.number_of_samples == 1
+        assert test_variant.number_of_samples == 1
