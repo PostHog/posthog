@@ -381,7 +381,7 @@ async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
                     )
                 ),
                 id=f"monitor-proxy-{inputs.proxy_record_id}",
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.MANAGED_PROXY_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=30),
                     maximum_interval=dt.timedelta(minutes=5),
