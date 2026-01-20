@@ -26,7 +26,7 @@ class PostHogCallback(InstrumentedCallback):
 
         trace_id = metadata.get("user_id") or str(uuid4())
         distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
-        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+        team_id = str(auth_user.team_id) if auth_user and auth_user.team_id else None
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
@@ -59,7 +59,6 @@ class PostHogCallback(InstrumentedCallback):
             capture_kwargs["groups"] = {"project": team_id}
 
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     async def _on_failure(self, kwargs: dict[str, Any], response_obj: Any, start_time: float, end_time: float) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
@@ -68,7 +67,7 @@ class PostHogCallback(InstrumentedCallback):
 
         trace_id = metadata.get("user_id") or str(uuid4())
         distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
-        team_id = auth_user.team_id if auth_user and auth_user.team_id else None
+        team_id = str(auth_user.team_id) if auth_user and auth_user.team_id else None
 
         properties: dict[str, Any] = {
             "$ai_model": standard_logging_object.get("model", ""),
@@ -90,7 +89,6 @@ class PostHogCallback(InstrumentedCallback):
             capture_kwargs["groups"] = {"project": team_id}
 
         posthoganalytics.capture(**capture_kwargs)
-        posthoganalytics.flush()
 
     def _extract_metadata(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params", {}) or {}
