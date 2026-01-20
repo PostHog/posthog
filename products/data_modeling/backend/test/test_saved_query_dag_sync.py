@@ -37,8 +37,8 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
 
         node = sync_saved_query_to_dag(saved_query)
-
-        self.assertIsNotNone(node)
+        # use explicit assert for mypy's dumb ass
+        assert node is not None
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
         self.assertEqual(node.dag_id, get_dag_id(self.team.id))
@@ -60,7 +60,7 @@ class TestSyncSavedQueryToDag(BaseTest):
             name="events",
         ).first()
 
-        self.assertIsNotNone(events_node)
+        assert events_node is not None
         self.assertEqual(events_node.type, NodeType.TABLE)
         self.assertEqual(events_node.properties.get("origin"), "posthog")
 
@@ -96,6 +96,9 @@ class TestSyncSavedQueryToDag(BaseTest):
         saved_query.save()
         after = sync_saved_query_to_dag(saved_query)
 
+        assert before is not None
+        assert after is not None
+
         self.assertEqual(before.id, after.id)
         after.refresh_from_db()
         self.assertEqual(after.name, "updated_view")
@@ -110,16 +113,20 @@ class TestSyncSavedQueryToDag(BaseTest):
         node = sync_saved_query_to_dag(saved_query)
 
         # initially depends on events
+        edge = Edge.objects.filter(target=node).first()
+        assert edge is not None
         self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(Edge.objects.filter(target=node).first().source.name, "events")
+        self.assertEqual(edge.source.name, "events")
 
         # change to depend on persons instead
         saved_query.query = {"query": "SELECT * FROM persons", "kind": "HogQLQuery"}
         saved_query.save()
         sync_saved_query_to_dag(saved_query)
 
+        edge = Edge.objects.filter(target=node).first()
+        assert edge is not None
         self.assertEqual(Edge.objects.filter(target=node).count(), 1)
-        self.assertEqual(Edge.objects.filter(target=node).first().source.name, "persons")  # not events
+        self.assertEqual(edge.source.name, "persons")  # not events
 
     def test_sync_creates_edge_to_other_saved_query(self):
         upstream_query = DataWarehouseSavedQuery.objects.create(
@@ -165,6 +172,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(conflict_edges.count(), 1)
 
         conflict_edge = conflict_edges.first()
+        assert conflict_edge is not None
         self.assertEqual(conflict_edge.properties.get("error_type"), "cycle")
         self.assertIn("original_dag_id", conflict_edge.properties)
         self.assertEqual(conflict_edge.properties["original_dag_id"], get_dag_id(self.team.id))
@@ -196,7 +204,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
 
         node = sync_saved_query_to_dag(saved_query)
-
+        assert node is not None
         unresolved = node.properties.get("unresolved_dependencies", [])
         self.assertEqual(len(unresolved), 1)
         self.assertEqual(unresolved[0]["name"], "nonexistent_table")
@@ -348,6 +356,7 @@ class TestUpdateNodeType(BaseTest):
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
         node = sync_saved_query_to_dag(saved_query)
+        assert node is not None
         self.assertEqual(node.type, NodeType.VIEW)
         update_node_type(saved_query, NodeType.MAT_VIEW)
         node.refresh_from_db()

@@ -69,12 +69,12 @@ def resolve_dependency_to_node(
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
         if table.table_id:
-            saved_query = (
+            matview_saved_query = (
                 DataWarehouseSavedQuery.objects.filter(team=team, table_id=table.table_id).exclude(deleted=True).first()
             )
             # matview
-            if saved_query:
-                return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name)
+            if matview_saved_query is not None:
+                return Node.objects.get(team=team, dag_id=dag_id, saved_query=matview_saved_query, name=dependency_name)
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -119,7 +119,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
     team = saved_query.team
     dag_id = get_dag_id(team.id)
     # parse query first - if this fails, we don't create/update the node
-    query = saved_query.query.get("query")
+    query = saved_query.query.get("query") if saved_query.query else None
     if not query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
     try:

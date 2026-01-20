@@ -29,7 +29,8 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         saved_query = DataWarehouseSavedQuery.objects.get(id=response.json()["id"])
         node = Node.objects.filter(saved_query=saved_query).first()
 
-        self.assertIsNotNone(node)
+        assert node is not None
+        assert node.saved_query is not None
         self.assertEqual(node.saved_query.name, "dag_sync_create_test")
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.dag_id, get_dag_id(self.team.id))
@@ -67,7 +68,8 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         node = Node.objects.filter(saved_query=saved_query).first()
-        self.assertIsNotNone(node)
+        assert node is not None
+        assert node.saved_query is not None
         self.assertEqual(node.saved_query.name, "dag_sync_update_test_renamed")
 
     def test_delete_saved_query_removes_from_dag(self):
