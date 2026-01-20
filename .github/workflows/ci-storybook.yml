@@ -66,6 +66,9 @@ jobs:
                   node-version: 24.13.0
                   cache: pnpm
 
+            - name: Install Ninja
+              run: apt-get update && apt-get install -y ninja-build unzip
+
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
               with:
@@ -208,6 +211,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+
+            - name: Install Ninja
+              run: apt-get update && apt-get install -y ninja-build unzip
 
             - name: Setup Emscripten for WASM build
               uses: mymindstorm/setup-emsdk@6ab9eb1bda2574c4ddb79809fc9247783eaf9021 # v14
