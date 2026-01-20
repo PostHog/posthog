@@ -117,6 +117,7 @@ export interface ModeDefinition {
 export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
+    'list_data',
     'search',
     'switch_mode',
 ]
@@ -439,6 +440,22 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return isExecuting() ? 'Analyzing a dashboard...' : 'Retrieving a dashboard...'
                 },
             },
+        },
+    },
+    list_data: {
+        name: 'List data',
+        description: 'List data with pagination to browse PostHog entities',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const kind = typeof toolCall.args?.kind === 'string' ? toolCall.args.kind : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const entityLabel = (kind ? kind.replace(/_/g, ' ') : 'entities').toLowerCase()
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+
+            if (toolCall.status === 'completed') {
+                return `Listed ${entityLabel}${pageInfo}`
+            }
+            return `Listing ${entityLabel}${pageInfo}...`
         },
     },
     create_insight: {

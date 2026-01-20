@@ -35,7 +35,7 @@ You must use EXACTLY ONE of these parameters:
 
 # How to use the <insight>insight_id</insight> tag:
 You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
-Use the read_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
+Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
 
 # Best practices:
 The document should be structured as a series of sections, each with a heading and a body.
