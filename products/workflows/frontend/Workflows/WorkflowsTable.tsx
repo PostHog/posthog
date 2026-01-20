@@ -322,16 +322,14 @@ export function WorkflowsTable(): JSX.Element {
                             header: 'Archived workflows',
                             key: 'archived_workflows',
                             className: 'p-1',
-                            content:
-                                    <LemonTable
-                                ) : (
-                                    <LemonTable
-                                        dataSource={archivedWorkflows}
-                                        loading={workflowsLoading}
-                                        columns={columns}
-                                        defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
-                                    />
-                                ),
+                            content: (
+                                <LemonTable
+                                    dataSource={archivedWorkflows}
+                                    loading={workflowsLoading}
+                                    columns={columns}
+                                    defaultSorting={{ columnKey: 'updatedAt', order: 1 }}
+                                />
+                            ),
                         },
                     ]}
                 />
