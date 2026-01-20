@@ -13,6 +13,8 @@ from ee.billing.salesforce_enrichment.enrichment import (
     _extract_domain,
     _is_yc_funded,
     _normalize_datetime_string,
+    _normalize_text_value,
+    _prepare_harmonic_tags,
     _values_match,
     enrich_accounts_async,
     get_salesforce_accounts_by_domain,
@@ -514,6 +516,17 @@ class TestHarmonicDataTransformation(BaseTest):
         assert result["is_yc_company"] is False
 
     @freeze_time("2025-07-29T12:00:00Z")
+    def test_transform_harmonic_data_is_yc_company_false_no_investors_key(self):
+        """Test is_yc_company=False when funding exists but has no investors key."""
+        harmonic_data = load_harmonic_fixture()
+        del harmonic_data["funding"]["investors"]
+
+        result = transform_harmonic_data(harmonic_data)
+
+        assert result is not None
+        assert result["is_yc_company"] is False
+
+    @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_includes_yc_company_flag(self):
         """Test Salesforce update includes harmonic_is_yc_company__c field."""
         harmonic_data = load_harmonic_fixture()
@@ -930,3 +943,168 @@ class TestValuesMatch(BaseTest):
     def test_normalize_datetime_string_invalid_format(self):
         result = _normalize_datetime_string("not-a-date")
         assert result is None
+
+
+class TestNormalizeTextValue(BaseTest):
+    @parameterized.expand(
+        [
+            ("normal_case_preserved", "Enterprise Software", False, "Enterprise Software"),
+            ("whitespace_trimmed", "  Enterprise Software  ", False, "Enterprise Software"),
+            ("category_already_uppercase", "INDUSTRY", True, "INDUSTRY"),
+            ("category_with_whitespace", "  industry  ", True, "INDUSTRY"),
+            ("empty_string_returns_none", "", False, None),
+            ("whitespace_only_returns_none", "   ", False, None),
+            ("none_returns_none", None, False, None),
+            ("mixed_case_uppercased", "Mixed Case Value", True, "MIXED CASE VALUE"),
+        ]
+    )
+    def test_normalize_text_value(self, _name, input_value, uppercase, expected):
+        result = _normalize_text_value(input_value, uppercase=uppercase)
+        assert result == expected
+
+
+class TestPrepareHarmonicTags(BaseTest):
+    def test_prepare_harmonic_tags_empty_inputs(self):
+        result = _prepare_harmonic_tags([], [])
+        assert result == []
+
+    def test_prepare_harmonic_tags_from_tags_array(self):
+        tags = [
+            {
+                "displayValue": "Enterprise Software",
+                "type": "INDUSTRY",
+                "isPrimaryTag": True,
+                "dateAdded": "2024-01-15T10:30:00Z",
+            },
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "Enterprise Software"
+        assert result[0]["Category__c"] == "INDUSTRY"
+        assert result[0]["Industry__c"] == "Enterprise Software"
+        assert result[0]["Date_Added__c"] == "2024-01-15"
+        assert result[0]["Is_Primary__c"] is True
+
+    def test_prepare_harmonic_tags_from_tags_v2_array(self):
+        tags_v2 = [
+            {
+                "displayValue": "B2B",
+                "type": "CATEGORY",
+                "dateAdded": "2024-02-20T00:00:00Z",
+            },
+        ]
+        result = _prepare_harmonic_tags([], tags_v2)
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "B2B"
+        assert result[0]["Category__c"] == "CATEGORY"
+        assert result[0]["Industry__c"] is None
+        assert result[0]["Date_Added__c"] == "2024-02-20"
+        assert result[0]["Is_Primary__c"] is False
+
+    def test_prepare_harmonic_tags_deduplicates_case_insensitive(self):
+        tags = [
+            {"displayValue": "B2B", "type": "CATEGORY", "isPrimaryTag": True},
+            {"displayValue": "b2b", "type": "CATEGORY", "isPrimaryTag": False},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "B2B"
+        assert result[0]["Category__c"] == "CATEGORY"
+
+    def test_prepare_harmonic_tags_deduplicates_across_arrays(self):
+        tags = [
+            {"displayValue": "Enterprise", "type": "INDUSTRY", "isPrimaryTag": True},
+        ]
+        tags_v2 = [
+            {"displayValue": "enterprise", "type": "INDUSTRY"},
+        ]
+        result = _prepare_harmonic_tags(tags, tags_v2)
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "Enterprise"
+        assert result[0]["Is_Primary__c"] is True
+
+    def test_prepare_harmonic_tags_normalizes_category_uppercase(self):
+        tags = [
+            {"displayValue": "Enterprise", "type": "  industry  ", "isPrimaryTag": True},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert result[0]["Category__c"] == "INDUSTRY"
+        assert result[0]["Industry__c"] == "Enterprise"
+
+    def test_prepare_harmonic_tags_sets_industry_field_correctly(self):
+        tags = [
+            {"displayValue": "Software", "type": "INDUSTRY", "isPrimaryTag": True},
+            {"displayValue": "B2B", "type": "CATEGORY", "isPrimaryTag": False},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 2
+        assert result[0]["Industry__c"] == "Software"
+        assert result[1]["Industry__c"] is None
+
+    def test_prepare_harmonic_tags_handles_missing_date_added(self):
+        tags = [
+            {"displayValue": "Enterprise", "type": "INDUSTRY", "isPrimaryTag": True},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert result[0]["Date_Added__c"] is None
+
+    def test_prepare_harmonic_tags_skips_empty_display_value(self):
+        tags = [
+            {"displayValue": "", "type": "INDUSTRY", "isPrimaryTag": True},
+            {"displayValue": "   ", "type": "CATEGORY", "isPrimaryTag": False},
+            {"displayValue": "Valid", "type": "INDUSTRY", "isPrimaryTag": False},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "Valid"
+
+    def test_prepare_harmonic_tags_skips_non_dict_items(self):
+        tags = [
+            {"displayValue": "Valid", "type": "INDUSTRY", "isPrimaryTag": True},
+            "invalid_string",
+            None,
+            123,
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "Valid"
+
+    def test_prepare_harmonic_tags_preserves_original_casing_in_name(self):
+        tags = [
+            {"displayValue": "Enterprise Software", "type": "industry", "isPrimaryTag": True},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert result[0]["Name"] == "Enterprise Software"
+        assert result[0]["Category__c"] == "INDUSTRY"
+        assert result[0]["Industry__c"] == "Enterprise Software"
+
+    def test_prepare_harmonic_tags_handles_none_type(self):
+        tags = [
+            {"displayValue": "Unknown", "type": None, "isPrimaryTag": False},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Name"] == "Unknown"
+        assert result[0]["Category__c"] is None
+        assert result[0]["Industry__c"] is None
+
+    def test_prepare_harmonic_tags_missing_is_primary_key(self):
+        """Test that missing isPrimaryTag key defaults to False."""
+        tags = [
+            {"displayValue": "Enterprise", "type": "INDUSTRY"},
+        ]
+        result = _prepare_harmonic_tags(tags, [])
+
+        assert len(result) == 1
+        assert result[0]["Is_Primary__c"] is False
