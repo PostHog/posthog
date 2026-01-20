@@ -749,14 +749,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     ) {
         tabs.push({
             key: 'sessions',
-            label: (
-                <>
-                    Sessions{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Sessions',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSessionsScene />
