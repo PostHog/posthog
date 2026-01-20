@@ -61,16 +61,28 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 				for !in.IsDelim('}') {
 					key := string(in.String())
 					in.WantColon()
-					v1 := in.Interface()
+					var v1 interface{}
 					if m, ok := v1.(easyjson.Unmarshaler); ok {
 						m.UnmarshalEasyJSON(in)
 					} else if m, ok := v1.(json.Unmarshaler); ok {
 						_ = m.UnmarshalJSON(in.Raw())
+					} else {
+						v1 = in.Interface()
 					}
 					(out.Properties)[key] = v1
 					in.WantComma()
 				}
 				in.Delim('}')
+			}
+		case "stats":
+			if in.IsNull() {
+				in.Skip()
+				out.Stats = nil
+			} else {
+				if out.Stats == nil {
+					out.Stats = new(EventStats)
+				}
+				easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in, out.Stats)
 			}
 		default:
 			in.SkipRecursive()
@@ -144,6 +156,11 @@ func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 			out.RawByte('}')
 		}
 	}
+	if in.Stats != nil {
+		const prefix string = ",\"stats\":"
+		out.RawString(prefix)
+		easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out, *in.Stats)
+	}
 	out.RawByte('}')
 }
 
@@ -170,7 +187,56 @@ func (v *ResponsePostHogEvent) UnmarshalJSON(data []byte) error {
 func (v *ResponsePostHogEvent) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents(l, v)
 }
-func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.Lexer, out *ResponseGeoEvent) {
+func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.Lexer, out *EventStats) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		if in.IsNull() {
+			in.Skip()
+			in.WantComma()
+			continue
+		}
+		switch key {
+		case "users_on_product":
+			out.UsersOnProduct = int(in.Int())
+		case "active_recordings":
+			out.ActiveRecordings = int(in.Int())
+		default:
+			in.SkipRecursive()
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter.Writer, in EventStats) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	{
+		const prefix string = ",\"users_on_product\":"
+		out.RawString(prefix[1:])
+		out.Int(int(in.UsersOnProduct))
+	}
+	{
+		const prefix string = ",\"active_recordings\":"
+		out.RawString(prefix)
+		out.Int(int(in.ActiveRecordings))
+	}
+	out.RawByte('}')
+}
+func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(in *jlexer.Lexer, out *ResponseGeoEvent) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -205,7 +271,7 @@ func easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(in *jlexer.L
 		in.Consumed()
 	}
 }
-func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter.Writer, in ResponseGeoEvent) {
+func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(out *jwriter.Writer, in ResponseGeoEvent) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -230,23 +296,23 @@ func easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(out *jwriter
 // MarshalJSON supports json.Marshaler interface
 func (v ResponseGeoEvent) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(&w, v)
+	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ResponseGeoEvent) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents1(w, v)
+	easyjson4d398eaaEncodeGithubComPosthogPosthogLivestreamEvents2(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *ResponseGeoEvent) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(&r, v)
+	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ResponseGeoEvent) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents1(l, v)
+	easyjson4d398eaaDecodeGithubComPosthogPosthogLivestreamEvents2(l, v)
 }
