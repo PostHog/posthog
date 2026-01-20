@@ -347,8 +347,10 @@ class TestBuildBillingToken(BaseTest):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         assert call_kwargs["event"] == "$billing_privilege_escalation"
-        assert call_kwargs["distinct_id"] == str(member_user.distinct_id)
-        assert call_kwargs["properties"]["authorizer_actor_id"] == admin_authorizer.id
+        assert call_kwargs["distinct_id"] == str(admin_authorizer.distinct_id)
+        assert call_kwargs["properties"]["target_user_id"] == member_user.id
+        assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
+        assert call_kwargs["properties"]["target_email"] == member_user.email
         assert call_kwargs["properties"]["action"] == "update_billing"
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
@@ -398,8 +400,10 @@ class TestBuildBillingToken(BaseTest):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         assert call_kwargs["event"] == "$billing_privilege_escalation"
-        assert call_kwargs["distinct_id"] == str(non_member_user.distinct_id)
-        assert call_kwargs["properties"]["authorizer_actor_id"] == valid_authorizer.id
+        assert call_kwargs["distinct_id"] == str(valid_authorizer.distinct_id)
+        assert call_kwargs["properties"]["target_user_id"] == non_member_user.id
+        assert call_kwargs["properties"]["target_distinct_id"] == str(non_member_user.distinct_id)
+        assert call_kwargs["properties"]["target_email"] == non_member_user.email
 
     @parameterized.expand(
         [
@@ -540,8 +544,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
         assert capture_kwargs["event"] == "$billing_privilege_escalation"
-        assert capture_kwargs["distinct_id"] == str(member.distinct_id)
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
         assert capture_kwargs["properties"]["action"] == "update_billing"
 
     @patch("ee.billing.billing_manager.requests.patch")
@@ -624,7 +630,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         # Verify that the capture was called with the newer owner as authorizer
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == newer_owner.id
+        assert capture_kwargs["distinct_id"] == str(newer_owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
 
     @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
@@ -664,8 +673,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
-        assert capture_kwargs["distinct_id"] == str(admin.distinct_id)
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == admin.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(admin.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == admin.email
 
     @patch("ee.billing.billing_manager.capture_exception")
     @patch("ee.billing.billing_manager.requests.patch")
@@ -794,4 +805,7 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
         assert capture_kwargs["event"] == "$billing_privilege_escalation"
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
