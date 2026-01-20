@@ -45,9 +45,13 @@ export function VariantsPanel({
     const { mode, linkedFeatureFlag, featureFlagKeyForAutocomplete, featureFlagKeyValidation } = useValues(
         variantsPanelLogic({ experiment, disabled })
     )
-    const { setMode, setLinkedFeatureFlag, setFeatureFlagKeyForAutocomplete, validateFeatureFlagKey } = useActions(
-        variantsPanelLogic({ experiment, disabled })
-    )
+    const {
+        setMode,
+        setLinkedFeatureFlag,
+        setFeatureFlagKeyForAutocomplete,
+        validateFeatureFlagKey,
+        clearFeatureFlagKeyValidation,
+    } = useActions(variantsPanelLogic({ experiment, disabled }))
 
     const { openSelectExistingFeatureFlagModal, closeSelectExistingFeatureFlagModal } = useActions(
         selectExistingFeatureFlagModalLogic
@@ -94,9 +98,17 @@ export function VariantsPanel({
 
     const handleFeatureFlagSelection = (selectedKeys: (FeatureFlagType | string)[]): void => {
         if (selectedKeys.length === 0) {
-            setMode('create')
+            // Clear validation first to prevent it from being re-triggered by setMode listener
+            clearFeatureFlagKeyValidation()
             setLinkedFeatureFlag(null)
             setFeatureFlagKeyForAutocomplete(null)
+            updateFeatureFlag({
+                feature_flag_key: undefined,
+                parameters: {
+                    feature_flag_variants: undefined,
+                },
+            })
+            setMode('create')
             return
         }
 
