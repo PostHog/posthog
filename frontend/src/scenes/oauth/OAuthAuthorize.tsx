@@ -94,7 +94,10 @@ export const OAuthAuthorize = (): JSX.Element => {
                 )}
 
                 {scopesWereDefaulted && (
-                    <div className="flex items-center gap-2 p-3 mb-4 bg-side border border-border rounded text-sm">
+                    <div
+                        role="status"
+                        className="flex items-center gap-2 p-3 mb-4 bg-side border border-border rounded text-sm"
+                    >
                         <IconWarning className="text-muted-alt shrink-0" />
                         <span>
                             <strong>No permissions requested.</strong> This application didn't request specific
