@@ -20,10 +20,17 @@ import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
 import { humanizeAccessControlLevel, scopeTypeForAccessControlsTab, sortAccessControlRows } from './helpers'
-import { AccessControlRow, AccessControlsTab, RuleModalState, ScopeType } from './types'
+import { AccessControlFilters, AccessControlRow, AccessControlsTab, RuleModalState, ScopeType } from './types'
 
 export interface AccessControlsLogicProps {
     projectId: string
+}
+
+const initialFilters: AccessControlFilters = {
+    roleIds: [],
+    memberIds: [],
+    resourceKeys: [],
+    ruleLevels: [],
 }
 
 export const accessControlsLogic = kea<accessControlsLogicType>([
@@ -60,7 +67,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 'canEditRoleBasedAccessControls',
             ],
             accessControlLogic({
-                resource: 'project' as APIScopeObject,
+                resource: 'project',
                 resource_id: props.projectId,
                 title: '',
                 description: '',
@@ -78,7 +85,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             resourcesAccessControlLogic,
             ['updateResourceAccessControls'],
             accessControlLogic({
-                resource: 'project' as APIScopeObject,
+                resource: 'project',
                 resource_id: props.projectId,
                 title: '',
                 description: '',
@@ -89,10 +96,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
     actions({
         setActiveTab: (activeTab: AccessControlsTab) => ({ activeTab }),
-        setSelectedRoleIds: (selectedRoleIds: string[]) => ({ selectedRoleIds }),
-        setSelectedMemberIds: (selectedMemberIds: string[]) => ({ selectedMemberIds }),
-        setSelectedResourceKeys: (selectedResourceKeys: string[]) => ({ selectedResourceKeys }),
-        setSelectedRuleLevels: (selectedRuleLevels: string[]) => ({ selectedRuleLevels }),
+        setFilters: (filters: Partial<AccessControlFilters>) => ({ filters }),
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: RuleModalState) => ({ state }),
         closeRuleModal: true,
@@ -100,7 +104,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         saveRule: (params: {
             scopeType: ScopeType
             scopeId: string | null
-            resourceKey: string
+            resourceKey: APIScopeObject
             level: AccessControlLevel
         }) => params,
     }),
@@ -112,28 +116,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 setActiveTab: (_, { activeTab }) => activeTab,
             },
         ],
-        selectedRoleIds: [
-            [] as string[],
+        filters: [
+            initialFilters,
             {
-                setSelectedRoleIds: (_, { selectedRoleIds }) => selectedRoleIds,
-            },
-        ],
-        selectedMemberIds: [
-            [] as string[],
-            {
-                setSelectedMemberIds: (_, { selectedMemberIds }) => selectedMemberIds,
-            },
-        ],
-        selectedResourceKeys: [
-            [] as string[],
-            {
-                setSelectedResourceKeys: (_, { selectedResourceKeys }) => selectedResourceKeys,
-            },
-        ],
-        selectedRuleLevels: [
-            [] as string[],
-            {
-                setSelectedRuleLevels: (_, { selectedRuleLevels }) => selectedRuleLevels,
+                setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
         ],
         searchText: [
@@ -145,8 +131,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ruleModalState: [
             null as RuleModalState | null,
             {
-                openRuleModal: (_, { state }) => state,
-                closeRuleModal: () => null,
+                openRuleModal: (_: RuleModalState | null, { state }: { state: RuleModalState }) =>
+                    state as RuleModalState,
+                closeRuleModal: () => null as null,
             },
         ],
     }),
@@ -169,26 +156,25 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         resourcesWithProject: [
             (s) => [s.resources, s.projectResourceLabel],
-            (resources, projectResourceLabel): { key: string; label: string }[] => {
+            (resources, projectResourceLabel): { key: APIScopeObject; label: string }[] => {
                 const resourcesList = resources as unknown as AccessControlType['resource'][]
                 const resourceOptions = resourcesList.map((resource) => ({
-                    key: resource,
+                    key: resource as APIScopeObject,
                     label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
                 }))
-                return [{ key: 'project', label: projectResourceLabel }, ...resourceOptions]
+                return [{ key: 'project' as APIScopeObject, label: projectResourceLabel }, ...resourceOptions]
             },
         ],
 
         projectDefaultLevel: [
             (s) => [s.accessControlDefault],
-            (accessControlDefault): AccessControlLevel =>
-                (accessControlDefault?.access_level ?? AccessControlLevel.None) as AccessControlLevel,
+            (accessControlDefault): AccessControlLevel => accessControlDefault?.access_level ?? AccessControlLevel.None,
         ],
 
         projectRoleOverrideByRoleId: [
             (s) => [s.accessControlRoles],
             (accessControlRoles): Map<string, AccessControlLevel> =>
-                new Map(accessControlRoles.map((ac) => [ac.role as string, ac.access_level as AccessControlLevel])),
+                new Map(accessControlRoles.map((ac) => [ac.role, ac.access_level ?? AccessControlLevel.None])),
         ],
 
         projectMemberOverrideByMemberId: [
@@ -287,7 +273,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     scopeLabel: 'Default',
                     resourceKey: 'project',
                     resourceLabel: projectResourceLabel,
-                    levels: [projectDefaultLevel],
+                    level: projectDefaultLevel,
                     isException: true,
                 })
 
@@ -303,7 +289,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                         scopeLabel: 'Default',
                         resourceKey,
                         resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
-                        levels: [explicitLevel as AccessControlLevel],
+                        level: explicitLevel,
                         isException: true,
                     })
                 }
@@ -319,7 +305,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                                 scopeLabel: role.name,
                                 resourceKey: 'project',
                                 resourceLabel: projectResourceLabel,
-                                levels: [roleProjectOverride],
+                                level: roleProjectOverride,
                                 isException: true,
                             })
                         }
@@ -331,9 +317,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                                     scopeType: 'role',
                                     scopeId: role.id,
                                     scopeLabel: role.name,
-                                    resourceKey,
+                                    resourceKey: resourceKey as APIScopeObject,
                                     resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
-                                    levels: [level],
+                                    level: level,
                                     isException: true,
                                 })
                             }
@@ -351,7 +337,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             scopeLabel: fullName(member.user),
                             resourceKey: 'project',
                             resourceLabel: projectResourceLabel,
-                            levels: [memberProjectOverride],
+                            level: memberProjectOverride,
                             isException: true,
                         })
                     }
@@ -363,9 +349,9 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                                 scopeType: 'member',
                                 scopeId: member.id,
                                 scopeLabel: fullName(member.user),
-                                resourceKey,
+                                resourceKey: resourceKey as APIScopeObject,
                                 resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
-                                levels: [level],
+                                level: level,
                                 isException: true,
                             })
                         }
@@ -395,23 +381,23 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         scopedRows: [
-            (s) => [s.activeTab, s.allRows, s.canUseRoles, s.selectedMemberIds, s.selectedRoleIds],
-            (activeTab, allRows, canUseRoles, selectedMemberIds, selectedRoleIds): AccessControlRow[] => {
-                const scopeType: ScopeType = scopeTypeForAccessControlsTab(activeTab)
+            (s) => [s.activeTab, s.allRows, s.canUseRoles, s.filters],
+            (activeTab, allRows, canUseRoles, filters: AccessControlFilters): AccessControlRow[] => {
+                const scopeType: ScopeType = scopeTypeForAccessControlsTab(activeTab as AccessControlsTab)
                 let rows = allRows.filter((row) => row.scopeType === scopeType)
 
                 if (scopeType === 'role') {
                     if (!canUseRoles) {
                         return []
                     }
-                    if (selectedRoleIds.length > 0) {
-                        rows = rows.filter((row) => (row.scopeId ? selectedRoleIds.includes(row.scopeId) : false))
+                    if (filters.roleIds.length > 0) {
+                        rows = rows.filter((row) => (row.scopeId ? filters.roleIds.includes(row.scopeId) : false))
                     }
                 }
 
                 if (scopeType === 'member') {
-                    if (selectedMemberIds.length > 0) {
-                        rows = rows.filter((row) => (row.scopeId ? selectedMemberIds.includes(row.scopeId) : false))
+                    if (filters.memberIds.length > 0) {
+                        rows = rows.filter((row) => (row.scopeId ? filters.memberIds.includes(row.scopeId) : false))
                     }
                 }
 
@@ -420,27 +406,30 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         ],
 
         filteredSortedRows: [
-            (s) => [s.scopedRows, s.searchText, s.selectedResourceKeys, s.selectedRuleLevels],
-            (scopedRows, searchText, selectedResourceKeys, selectedRuleLevels): AccessControlRow[] => {
+            (s) => [s.scopedRows, s.searchText, s.filters],
+            (scopedRows, searchText, filters: AccessControlFilters): AccessControlRow[] => {
                 const search = searchText.trim().toLowerCase()
 
                 const filtered = scopedRows.filter((row) => {
-                    if (selectedResourceKeys.length > 0 && !selectedResourceKeys.includes(row.resourceKey)) {
+                    if (filters.resourceKeys.length > 0 && !filters.resourceKeys.includes(row.resourceKey)) {
                         return false
                     }
-                    if (selectedRuleLevels.length > 0) {
-                        const ruleKeys = row.levels.map((level) => (level ?? AccessControlLevel.None) as string)
-                        if (!ruleKeys.some((level) => selectedRuleLevels.includes(level))) {
+
+                    if (filters.ruleLevels.length > 0) {
+                        if (row.level !== null && !filters.ruleLevels.includes(row.level)) {
                             return false
                         }
                     }
+
                     if (search.length > 0) {
-                        const levelText = row.levels.map((level) => humanizeAccessControlLevel(level)).join(' ')
+                        const levelText = humanizeAccessControlLevel(row.level)
                         const haystack = `${row.scopeLabel} ${row.resourceLabel} ${levelText}`.toLowerCase()
+
                         if (!haystack.includes(search)) {
                             return false
                         }
                     }
+
                     return true
                 })
 
@@ -468,12 +457,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             if (isProjectRule) {
                 if (row.scopeType === 'role' && row.scopeId) {
                     actions.updateAccessControlRoles([{ role: row.scopeId, level: null }])
-                    return
-                }
-                if (row.scopeType === 'member' && row.scopeId) {
+                } else if (row.scopeType === 'member' && row.scopeId) {
                     actions.updateAccessControlMembers([{ member: row.scopeId, level: null }])
-                    return
                 }
+
                 return
             }
 

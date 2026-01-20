@@ -1,4 +1,4 @@
-import { AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel } from '~/types'
 
 export type ScopeType = 'default' | 'role' | 'member'
 
@@ -7,9 +7,9 @@ export type AccessControlRow = {
     scopeType: ScopeType
     scopeId: string | null
     scopeLabel: string
-    resourceKey: string
+    resourceKey: APIScopeObject
     resourceLabel: string
-    levels: (AccessControlLevel | null)[]
+    level: AccessControlLevel | null
     isException: boolean
 }
 
@@ -24,3 +24,10 @@ export type RuleModalState =
       }
 
 export type AccessControlsTab = 'defaults' | 'roles' | 'members'
+
+export type AccessControlFilters = {
+    roleIds: string[]
+    memberIds: string[]
+    resourceKeys: APIScopeObject[]
+    ruleLevels: string[]
+}

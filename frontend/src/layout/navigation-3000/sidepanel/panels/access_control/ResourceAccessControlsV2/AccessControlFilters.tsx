@@ -3,30 +3,24 @@ import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils'
 
-import { OrganizationMemberType, RoleType } from '~/types'
+import { APIScopeObject, OrganizationMemberType, RoleType } from '~/types'
 
 import { MultiSelectFilterDropdown } from './MultiselectFilterDropdown'
-import { AccessControlsTab } from './types'
+import { AccessControlFilters as AccessControlFiltersType, AccessControlsTab } from './types'
 
 export interface AccessControlFiltersProps {
     activeTab: AccessControlsTab
     searchText: string
     setSearchText: (value: string) => void
-    selectedRoleIds: string[]
-    setSelectedRoleIds: (values: string[]) => void
-    selectedMemberIds: string[]
-    setSelectedMemberIds: (values: string[]) => void
-    selectedResourceKeys: string[]
-    setSelectedResourceKeys: (values: string[]) => void
-    selectedRuleLevels: string[]
-    setSelectedRuleLevels: (values: string[]) => void
+    filters: AccessControlFiltersType
+    setFilters: (filters: Partial<AccessControlFiltersType>) => void
     roles: RoleType[]
     members: OrganizationMemberType[]
-    resources: { key: string; label: string }[]
+    resources: { key: APIScopeObject; label: string }[]
     ruleOptions: { key: string; label: string }[]
     canUseRoles: boolean
     canEditAny: boolean
-    onAddClick: () => void
+    onAdd: () => void
 }
 
 export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Element {
@@ -42,108 +36,189 @@ export function AccessControlFilters(props: AccessControlFiltersProps): JSX.Elem
                     size="small"
                 />
 
-                {props.activeTab === 'roles' ? (
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        placement="bottom-start"
-                        overlay={
-                            <MultiSelectFilterDropdown
-                                title="Role"
-                                placeholder="Filter by roles…"
-                                values={props.selectedRoleIds}
-                                setValues={props.setSelectedRoleIds}
-                                options={props.roles.map((role) => ({
-                                    key: role.id,
-                                    label: role.name,
-                                }))}
-                            />
-                        }
-                    >
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            disabledReason={!props.canUseRoles ? 'Roles require an upgrade' : undefined}
-                        >
-                            Role{props.selectedRoleIds.length ? ` (${props.selectedRoleIds.length})` : ''}
-                        </LemonButton>
-                    </LemonDropdown>
-                ) : null}
+                {props.activeTab === 'roles' && (
+                    <RolesFilter
+                        selectedRoleIds={props.filters.roleIds}
+                        setSelectedRoleIds={(values) => props.setFilters({ roleIds: values })}
+                        roles={props.roles}
+                        canUseRoles={props.canUseRoles}
+                    />
+                )}
 
-                {props.activeTab === 'members' ? (
-                    <LemonDropdown
-                        closeOnClickInside={false}
-                        placement="bottom-start"
-                        overlay={
-                            <MultiSelectFilterDropdown
-                                title="Member"
-                                placeholder="Filter by members…"
-                                values={props.selectedMemberIds}
-                                setValues={props.setSelectedMemberIds}
-                                options={props.members.map((member) => ({
-                                    key: member.id,
-                                    label: fullName(member.user),
-                                }))}
-                            />
-                        }
-                    >
-                        <LemonButton type="secondary" size="small">
-                            Member{props.selectedMemberIds.length ? ` (${props.selectedMemberIds.length})` : ''}
-                        </LemonButton>
-                    </LemonDropdown>
-                ) : null}
+                {props.activeTab === 'members' && (
+                    <MembersFilter
+                        selectedMemberIds={props.filters.memberIds}
+                        setSelectedMemberIds={(values) => props.setFilters({ memberIds: values })}
+                        members={props.members}
+                    />
+                )}
 
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    placement="bottom-start"
-                    overlay={
-                        <MultiSelectFilterDropdown
-                            title="Feature"
-                            placeholder="Filter by features…"
-                            values={props.selectedResourceKeys}
-                            setValues={props.setSelectedResourceKeys}
-                            options={props.resources.map((r) => ({ key: r.key, label: r.label }))}
-                        />
-                    }
-                >
-                    <LemonButton type="secondary" size="small">
-                        Feature{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
-                    </LemonButton>
-                </LemonDropdown>
+                <FeaturesFilter
+                    selectedResourceKeys={props.filters.resourceKeys}
+                    setSelectedResourceKeys={(values) => props.setFilters({ resourceKeys: values })}
+                    resources={props.resources}
+                />
 
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    placement="bottom-start"
-                    overlay={
-                        <MultiSelectFilterDropdown
-                            title="Access"
-                            placeholder="Filter by access…"
-                            values={props.selectedRuleLevels}
-                            setValues={props.setSelectedRuleLevels}
-                            options={props.ruleOptions}
-                        />
-                    }
-                >
-                    <LemonButton type="secondary" size="small">
-                        Access{props.selectedRuleLevels.length ? ` (${props.selectedRuleLevels.length})` : ''}
-                    </LemonButton>
-                </LemonDropdown>
+                <AccessLevelFilter
+                    selectedRuleLevels={props.filters.ruleLevels}
+                    setSelectedRuleLevels={(values) => props.setFilters({ ruleLevels: values })}
+                    ruleOptions={props.ruleOptions}
+                />
             </div>
 
-            <LemonButton
-                type="primary"
-                size="small"
-                icon={<IconPlus />}
-                onClick={props.onAddClick}
-                disabledReason={
-                    !props.canEditAny
-                        ? 'You cannot edit this'
-                        : props.activeTab === 'roles' && !props.canUseRoles
-                          ? 'Roles require an upgrade'
-                          : undefined
-                }
-            >
-                Add
-            </LemonButton>
+            <AddRuleButton
+                activeTab={props.activeTab}
+                canEditAny={props.canEditAny}
+                canUseRoles={props.canUseRoles}
+                onAddClick={props.onAdd}
+            />
         </div>
+    )
+}
+
+function RolesFilter(props: {
+    selectedRoleIds: string[]
+    setSelectedRoleIds: (values: string[]) => void
+    roles: RoleType[]
+    canUseRoles: boolean
+}): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <MultiSelectFilterDropdown
+                    title="Role"
+                    placeholder="Filter by roles…"
+                    values={props.selectedRoleIds}
+                    setValues={props.setSelectedRoleIds}
+                    options={props.roles.map((role) => ({
+                        key: role.id,
+                        label: role.name,
+                    }))}
+                />
+            }
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                disabledReason={!props.canUseRoles ? 'You must upgrade your plan to use roles' : undefined}
+            >
+                Role{props.selectedRoleIds.length ? ` (${props.selectedRoleIds.length})` : ''}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function MembersFilter(props: {
+    selectedMemberIds: string[]
+    setSelectedMemberIds: (values: string[]) => void
+    members: OrganizationMemberType[]
+}): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <MultiSelectFilterDropdown
+                    title="Member"
+                    placeholder="Filter by members…"
+                    values={props.selectedMemberIds}
+                    setValues={props.setSelectedMemberIds}
+                    options={props.members.map((member) => ({
+                        key: member.id,
+                        label: fullName(member.user),
+                    }))}
+                />
+            }
+        >
+            <LemonButton type="secondary" size="small">
+                Member{props.selectedMemberIds.length ? ` (${props.selectedMemberIds.length})` : ''}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function FeaturesFilter(props: {
+    selectedResourceKeys: APIScopeObject[]
+    setSelectedResourceKeys: (values: APIScopeObject[]) => void
+    resources: { key: APIScopeObject; label: string }[]
+}): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <MultiSelectFilterDropdown
+                    title="Feature"
+                    placeholder="Filter by features…"
+                    values={props.selectedResourceKeys}
+                    setValues={(values) => props.setSelectedResourceKeys(values as APIScopeObject[])}
+                    options={props.resources.map((r) => ({ key: r.key, label: r.label }))}
+                />
+            }
+        >
+            <LemonButton type="secondary" size="small">
+                Feature{props.selectedResourceKeys.length ? ` (${props.selectedResourceKeys.length})` : ''}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function AccessLevelFilter(props: {
+    selectedRuleLevels: string[]
+    setSelectedRuleLevels: (values: string[]) => void
+    ruleOptions: { key: string; label: string }[]
+}): JSX.Element {
+    return (
+        <LemonDropdown
+            closeOnClickInside={false}
+            placement="bottom-start"
+            overlay={
+                <MultiSelectFilterDropdown
+                    title="Access"
+                    placeholder="Filter by access…"
+                    values={props.selectedRuleLevels}
+                    setValues={props.setSelectedRuleLevels}
+                    options={props.ruleOptions}
+                />
+            }
+        >
+            <LemonButton type="secondary" size="small">
+                Access{props.selectedRuleLevels.length ? ` (${props.selectedRuleLevels.length})` : ''}
+            </LemonButton>
+        </LemonDropdown>
+    )
+}
+
+function AddRuleButton(props: {
+    onAddClick: () => void
+    canEditAny: boolean
+    activeTab: AccessControlsTab
+    canUseRoles: boolean
+}): JSX.Element {
+    function getDisabledReason(): string | undefined {
+        if (!props.canEditAny) {
+            return 'You cannot edit this'
+        }
+
+        if (props.activeTab === 'roles' && !props.canUseRoles) {
+            return 'You must upgrade your plan to use roles'
+        }
+        return undefined
+    }
+
+    const disabledReason = getDisabledReason()
+
+    return (
+        <LemonButton
+            type="primary"
+            size="small"
+            icon={<IconPlus />}
+            onClick={props.onAddClick}
+            disabledReason={disabledReason}
+        >
+            Add
+        </LemonButton>
     )
 }

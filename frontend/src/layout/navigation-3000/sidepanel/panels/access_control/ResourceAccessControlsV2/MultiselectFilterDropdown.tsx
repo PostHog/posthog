@@ -1,12 +1,12 @@
 import { LemonInputSelect, Link } from '@posthog/lemon-ui'
 
 // NEEDED? ALREDY EXISTS? CORRECT NAME?
-export function MultiSelectFilterDropdown(props: {
+export function MultiSelectFilterDropdown<T extends string = string>(props: {
     title: string
     placeholder: string
-    options: { key: string; label: string }[]
-    values: string[]
-    setValues: (values: string[]) => void
+    options: { key: T; label: string }[]
+    values: T[]
+    setValues: (values: T[]) => void
 }): JSX.Element {
     return (
         <div className="w-96 p-1 space-y-3">

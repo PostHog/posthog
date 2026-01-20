@@ -85,23 +85,16 @@ function getColumns(
             title: 'Access',
             key: 'rules',
             render: function RenderRules(_: any, row: AccessControlRow) {
-                const rendered = row.levels.map((level) => ({
-                    key: (level ?? AccessControlLevel.None) as string,
-                    label: humanizeAccessControlLevel(level),
-                }))
+                const level = row.level ?? AccessControlLevel.None
+                const label = humanizeAccessControlLevel(row.level)
 
                 return (
                     <div className="flex gap-2 flex-wrap">
-                        {rendered.map(({ key, label }) => (
-                            <Tooltip
-                                key={key}
-                                title={describeAccessControlLevel(key as AccessControlLevel, row.resourceKey)}
-                            >
-                                <LemonTag type="default" size="medium" className="px-2">
-                                    {label}
-                                </LemonTag>
-                            </Tooltip>
-                        ))}
+                        <Tooltip key={level as string} title={describeAccessControlLevel(row.level, row.resourceKey)}>
+                            <LemonTag type="default" size="medium" className="px-2">
+                                {label}
+                            </LemonTag>
+                        </Tooltip>
                     </div>
                 )
             },

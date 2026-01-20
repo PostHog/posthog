@@ -14,7 +14,7 @@ import { AccessControlRuleModal } from './AccessControlRuleModal'
 import { AccessControlTable } from './AccessControlTable'
 import { accessControlsLogic } from './accessControlsLogic'
 import { scopeTypeForAccessControlsTab } from './helpers'
-import { AccessControlRow } from './types'
+import { AccessControlRow, AccessControlsTab } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
     useMountedLogic(membersLogic)
@@ -26,10 +26,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
     const {
         activeTab,
         searchText,
-        selectedRoleIds,
-        selectedMemberIds,
-        selectedResourceKeys,
-        selectedRuleLevels,
+        filters,
         ruleModalState,
         canUseRoles,
         allMembers,
@@ -45,18 +42,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         canEditRoleBasedAccessControls,
     } = useValues(logic)
 
-    const {
-        setActiveTab,
-        setSearchText,
-        setSelectedRoleIds,
-        setSelectedMemberIds,
-        setSelectedResourceKeys,
-        setSelectedRuleLevels,
-        openRuleModal,
-        closeRuleModal,
-        deleteRule,
-        saveRule,
-    } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openRuleModal, closeRuleModal, deleteRule, saveRule } =
+        useActions(logic)
 
     function confirmDelete(row: AccessControlRow): void {
         LemonDialog.open({
@@ -81,13 +68,13 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         activeKey={activeTab}
                         onChange={setActiveTab}
                         tabs={[
-                            { key: 'defaults', label: 'Defaults' },
+                            { key: 'defaults' as AccessControlsTab, label: 'Defaults' },
                             {
-                                key: 'roles',
+                                key: 'roles' as AccessControlsTab,
                                 label: 'Roles',
                                 tooltip: !canUseRoles ? 'Requires role-based access' : undefined,
                             },
-                            { key: 'members', label: 'Members' },
+                            { key: 'members' as AccessControlsTab, label: 'Members' },
                         ]}
                     />
 
@@ -95,21 +82,15 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         activeTab={activeTab}
                         searchText={searchText}
                         setSearchText={setSearchText}
-                        selectedRoleIds={selectedRoleIds}
-                        setSelectedRoleIds={setSelectedRoleIds}
-                        selectedMemberIds={selectedMemberIds}
-                        setSelectedMemberIds={setSelectedMemberIds}
-                        selectedResourceKeys={selectedResourceKeys}
-                        setSelectedResourceKeys={setSelectedResourceKeys}
-                        selectedRuleLevels={selectedRuleLevels}
-                        setSelectedRuleLevels={setSelectedRuleLevels}
+                        filters={filters}
+                        setFilters={setFilters}
                         roles={roles ?? []}
                         members={allMembers}
                         resources={resourcesWithProject}
                         ruleOptions={ruleOptions}
                         canUseRoles={canUseRoles}
                         canEditAny={canEditAny}
-                        onAddClick={() =>
+                        onAdd={() =>
                             openRuleModal({
                                 mode: 'add',
                                 initialScopeType: scopeTypeForAccessControlsTab(activeTab),
@@ -129,7 +110,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                 </div>
             </PayGateMini>
 
-            {ruleModalState ? (
+            {ruleModalState && (
                 <AccessControlRuleModal
                     state={ruleModalState}
                     close={closeRuleModal}
@@ -139,12 +120,12 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     resources={resourcesWithProject}
                     projectAvailableLevels={projectAvailableLevels}
                     resourceAvailableLevels={resourceAvailableLevels}
-                    canEditAccessControls={canEditAccessControls}
-                    canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
+                    canEditAccessControls={canEditAccessControls ?? false}
+                    canEditRoleBasedAccessControls={canEditRoleBasedAccessControls ?? false}
                     onSave={saveRule}
                     loading={loading}
                 />
-            ) : null}
+            )}
         </>
     )
 }

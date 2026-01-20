@@ -1,6 +1,6 @@
 import { toSentenceCase } from 'lib/utils'
 
-import { AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import { AccessControlRow, AccessControlsTab, ScopeType } from './types'
 
@@ -15,7 +15,10 @@ export function scopeTypeForAccessControlsTab(activeTab: AccessControlsTab): Sco
     }
 }
 
-export function describeAccessControlLevel(level: AccessControlLevel | null | undefined, resourceKey: string): string {
+export function describeAccessControlLevel(
+    level: AccessControlLevel | null | undefined,
+    resourceKey: APIScopeObject
+): string {
     if (level === null || level === undefined || level === AccessControlLevel.None) {
         return 'No access.'
     }
@@ -66,4 +69,8 @@ export function sortAccessControlRows(a: AccessControlRow, b: AccessControlRow):
     }
 
     return a.resourceLabel.localeCompare(b.resourceLabel)
+}
+
+export function getScopeTypeNoun(scopeType: ScopeType): string {
+    return scopeType === 'role' ? 'role' : 'member'
 }
