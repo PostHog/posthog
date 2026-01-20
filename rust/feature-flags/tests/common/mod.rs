@@ -39,16 +39,38 @@ impl ServerHandle {
         limited_tokens: Vec<String>,
         valid_tokens: Vec<(String, i32)>, // (token, team_id) pairs
     ) -> ServerHandle {
+        Self::for_config_with_mock_redis_and_recordings(
+            config,
+            limited_tokens,
+            vec![], // no recordings-limited tokens
+            valid_tokens,
+        )
+        .await
+    }
+
+    /// Create a server with mock Redis that supports both feature flag and recordings quota limits.
+    #[allow(dead_code)]
+    pub async fn for_config_with_mock_redis_and_recordings(
+        config: Config,
+        limited_tokens: Vec<String>,           // feature flags limited
+        recordings_limited_tokens: Vec<String>, // session recordings limited
+        valid_tokens: Vec<(String, i32)>,      // (token, team_id) pairs
+    ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
         // Create a mock client that handles both quota limit checks and token verification
-        let mut mock_client = MockRedisClient::new().zrangebyscore_ret(
-            "@posthog/quota-limits/feature_flag_requests",
-            limited_tokens.clone(),
-        );
+        let mut mock_client = MockRedisClient::new()
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/feature_flag_requests",
+                limited_tokens.clone(),
+            )
+            .zrangebyscore_ret(
+                "@posthog/quota-limits/recordings",
+                recordings_limited_tokens.clone(),
+            );
 
         // Add handling for token verification using HyperCache format
         for (token, team_id) in valid_tokens {

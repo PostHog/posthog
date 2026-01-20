@@ -2208,6 +2208,60 @@ async fn test_config_cache_miss_returns_minimal_fallback() -> Result<()> {
     Ok(())
 }
 
+/// Test that cache miss + quota limited scenario returns consistent response.
+///
+/// This verifies that when config cache misses AND session recordings are quota limited,
+/// the response includes both `sessionRecording: false` (from fallback) AND `quotaLimited: ["recordings"]`.
+/// The original implementation would have failed this test because cache miss returned early
+/// without checking quota limits, causing an inconsistent response.
+#[tokio::test]
+async fn test_config_cache_miss_with_recordings_quota_limited() -> Result<()> {
+    let token = "phc_test_cache_miss_quota".to_string();
+    let team_id = 12345;
+
+    // Enable session replay quota check
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.flags_session_replay_quota_check = true;
+
+    // Set up server with mock Redis:
+    // - Token is recordings-limited
+    // - NO config in hypercache (will cause cache miss)
+    let server = ServerHandle::for_config_with_mock_redis_and_recordings(
+        config,
+        vec![],                 // no feature flags limited
+        vec![token.clone()],    // recordings limited for this token
+        vec![(token.clone(), team_id)],
+    )
+    .await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user123",
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Verify fallback config fields are present (cache miss behavior)
+    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
+
+    // Critical assertion: quota_limited must include "recordings"
+    // This would have failed on the original implementation where cache miss
+    // returned early without applying quota limits
+    assert_eq!(
+        json_data.get("quotaLimited"),
+        Some(&json!(["recordings"])),
+        "Expected quotaLimited to contain 'recordings' on cache miss + quota limited scenario"
+    );
+
+    Ok(())
+}
+
 /// Test that empty config from HyperCache is handled correctly.
 #[tokio::test]
 async fn test_config_cache_empty_config() -> Result<()> {

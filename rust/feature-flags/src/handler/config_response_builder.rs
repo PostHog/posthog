@@ -14,7 +14,7 @@ use super::types::RequestContext;
 /// Build response by passing through cached config from Python's HyperCache.
 ///
 /// The config blob is passed through as-is without interpretation.
-/// Only session recording quota limiting is applied in Rust.
+/// Session recording quota limiting is applied in Rust using real-time checks.
 pub async fn build_response_from_cache(
     flags_response: FlagsResponse,
     context: &RequestContext,
@@ -26,26 +26,6 @@ pub async fn build_response_from_cache(
         return Ok(response);
     }
 
-    let cached_config =
-        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
-            Some(config) => config,
-            None => {
-                // Cache miss - Python hasn't populated the cache yet.
-                // Return minimal fallback config
-                tracing::warn!(
-                    team_id = team.id,
-                    api_token = %team.api_token,
-                    "Config cache miss - returning fallback config"
-                );
-
-                let has_flags = !response.flags.is_empty();
-                response.config = ConfigResponse::fallback(&team.api_token, has_flags);
-                return Ok(response);
-            }
-        };
-
-    response.config = ConfigResponse::from_value(cached_config.clone());
-
     let is_recordings_limited = if context.state.config.flags_session_replay_quota_check {
         context
             .state
@@ -55,6 +35,31 @@ pub async fn build_response_from_cache(
     } else {
         false
     };
+
+    let cached_config =
+        match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
+            Some(config) => config,
+            None => {
+                // Cache miss - return minimal fallback config with quota info
+                tracing::warn!(
+                    team_id = team.id,
+                    api_token = %team.api_token,
+                    "Config cache miss - returning fallback config"
+                );
+
+                let has_flags = !response.flags.is_empty();
+                response.config = ConfigResponse::fallback(&team.api_token, has_flags);
+
+                if is_recordings_limited {
+                    response.quota_limited =
+                        Some(vec![QuotaResource::Recordings.as_str().to_string()]);
+                }
+
+                return Ok(response);
+            }
+        };
+
+    response.config = ConfigResponse::from_value(cached_config.clone());
 
     // Real-time quota check takes precedence over cached values.
     if is_recordings_limited {
