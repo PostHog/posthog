@@ -22,14 +22,16 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
+from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.utils_cors import cors_response
 
+from products.product_tours.backend.constants import ProductTourEventName
 from products.product_tours.backend.models import ProductTour
 from products.product_tours.backend.prompts import TOUR_GENERATION_SYSTEM_PROMPT, TOUR_GENERATION_USER_PROMPT
 
@@ -139,6 +141,13 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
     internal_targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
+    creation_context = serializers.ChoiceField(
+        choices=["app", "toolbar"],
+        required=False,
+        write_only=True,
+        default="app",
+        help_text="Where the tour was created/updated from",
+    )
 
     class Meta:
         model = ProductTour
@@ -156,6 +165,7 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "archived",
+            "creation_context",
         ]
         read_only_fields = ["id", "internal_targeting_flag", "created_at", "created_by", "updated_at"]
 
@@ -177,6 +187,8 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         request = self.context["request"]
         team = self.context["get_team"]()
 
+        creation_context = validated_data.pop("creation_context", "app")
+
         validated_data["team"] = team
         validated_data["created_by"] = request.user
 
@@ -189,16 +201,44 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
         # Create linked surveys for any survey steps
         self._sync_survey_steps(instance)
 
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="created",
+            detail=Detail(name=instance.name),
+        )
+
+        report_user_action(
+            cast(User, request.user),
+            ProductTourEventName.CREATED,
+            {**instance.get_analytics_metadata(), "creation_context": creation_context},
+            team,
+        )
+
         return instance
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        request = self.context["request"]
+        team = self.context["get_team"]()
+        user = cast(User, request.user)
+
+        before_update = ProductTour.objects.get(pk=instance.pk)
+
+        creation_context = validated_data.pop("creation_context", "app")
+
         # Extract targeting_flag_filters before parent update
         # Use sentinel to distinguish "not provided" from "explicitly null"
         _NOT_PROVIDED = object()
         targeting_flag_filters = validated_data.pop("targeting_flag_filters", _NOT_PROVIDED)
 
         # Track what changed
+        before_start_date = instance.start_date
+        before_end_date = instance.end_date
         start_date_changed = "start_date" in validated_data and validated_data["start_date"] != instance.start_date
         end_date_changed = "end_date" in validated_data and validated_data["end_date"] != instance.end_date
         archived_changed = "archived" in validated_data and validated_data["archived"] != instance.archived
@@ -244,6 +284,32 @@ class ProductTourSerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # Sync linked surveys for any survey steps (create/update/end as needed)
         self._sync_survey_steps(instance, previous_content)
+
+        changes = changes_between("ProductTour", previous=before_update, current=instance)
+
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            item_id=str(instance.id),
+            scope="ProductTour",
+            activity="updated",
+            detail=Detail(changes=changes, name=instance.name),
+        )
+
+        analytics_metadata = {
+            **instance.get_analytics_metadata(),
+            "updated_by_creator": user == instance.created_by,
+            "creation_context": creation_context,
+        }
+
+        report_user_action(user, ProductTourEventName.UPDATED, analytics_metadata, team)
+
+        if before_start_date is None and instance.start_date is not None:
+            report_user_action(user, ProductTourEventName.LAUNCHED, analytics_metadata, team)
+        elif before_end_date is None and instance.end_date is not None:
+            report_user_action(user, ProductTourEventName.STOPPED, analytics_metadata, team)
 
         return instance
 
@@ -582,6 +648,13 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
             scope="ProductTour",
             activity="deleted",
             detail=Detail(name=instance.name),
+        )
+
+        report_user_action(
+            cast(User, self.request.user),
+            ProductTourEventName.DELETED,
+            instance.get_analytics_metadata(),
+            self.team,
         )
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
