@@ -37,19 +37,17 @@ test.describe('Logs', () => {
         test('service filter passes serviceNames to API', async ({ page }) => {
             // ARRANGE: Set up request interception that only captures requests with serviceNames
             // This ensures we capture the filter-triggered request, not the initial page load
-            const requestPromise = page.waitForRequest(
-                (req) => {
-                    if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
-                        return false
-                    }
-                    try {
-                        const body = req.postDataJSON()
-                        return body?.query?.serviceNames && body.query.serviceNames.length > 0
-                    } catch {
-                        return false
-                    }
+            const requestPromise = page.waitForRequest((req) => {
+                if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
+                    return false
                 }
-            )
+                try {
+                    const body = req.postDataJSON()
+                    return body?.query?.serviceNames && body.query.serviceNames.length > 0
+                } catch {
+                    return false
+                }
+            })
 
             // ACT: Click the service filter and select a value
             await page.getByTestId('logs-service-filter').click()
@@ -68,19 +66,17 @@ test.describe('Logs', () => {
         test('severity filter passes severityLevels to API', async ({ page }) => {
             // ARRANGE: Set up request interception that only captures requests with severityLevels
             // This ensures we capture the filter-triggered request, not the initial page load
-            const requestPromise = page.waitForRequest(
-                (req) => {
-                    if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
-                        return false
-                    }
-                    try {
-                        const body = req.postDataJSON()
-                        return body?.query?.severityLevels && body.query.severityLevels.length > 0
-                    } catch {
-                        return false
-                    }
+            const requestPromise = page.waitForRequest((req) => {
+                if (!req.url().includes('/logs/query') || req.method() !== 'POST') {
+                    return false
                 }
-            )
+                try {
+                    const body = req.postDataJSON()
+                    return body?.query?.severityLevels && body.query.severityLevels.length > 0
+                } catch {
+                    return false
+                }
+            })
 
             // ACT: Click the severity filter and select "Error"
             await page.getByTestId('logs-severity-filter').click()

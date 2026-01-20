@@ -359,6 +359,7 @@ export interface UserType extends UserBaseType {
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export type HedgehogColorOptions =

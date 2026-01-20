@@ -224,7 +224,7 @@ class UsageReportCounters:
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
-    logs_gb_in_period: float
+    logs_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -886,7 +886,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
 ) -> list[tuple[int, int]]:
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
-    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+    validity_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
 
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
@@ -2065,8 +2065,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
-        # decimal GB (not GiB) to match pricing; billing uses logs_bytes_in_period for precision
-        logs_gb_in_period=round(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) / 1_000_000_000, 3),
+        logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 

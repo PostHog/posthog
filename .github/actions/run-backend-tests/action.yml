@@ -200,21 +200,6 @@ runs:
         #   if: failure()
         #   uses: mxschmitt/action-tmate@v3
 
-        - name: Run /decide read replica tests
-          id: run-decide-read-replica-tests
-          if: ${{ inputs.segment == 'Core' && inputs.group == 1 && inputs.person-on-events != 'true' }}
-          env:
-              POSTHOG_DB_NAME: posthog
-              READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
-              POSTHOG_POSTGRES_READ_HOST: localhost
-              POSTHOG_DB_PASSWORD: posthog
-              POSTHOG_DB_USER: posthog
-          shell: bash
-          run: |
-              pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                  --durations=100 --durations-min=1.0 \
-                  $PYTEST_ARGS
-
         - name: Run Temporal tests
           id: run-temporal-tests
           if: ${{ inputs.segment == 'Temporal' }}

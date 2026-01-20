@@ -157,8 +157,8 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                     </div>
                 )}
                 <div>
-                    You can change organizations at any time by clicking on the dropdown at the top right corner of the
-                    navigation bar.
+                    You can change organizations at any time by clicking on the organization selector at the top left
+                    corner of the navigation bar.
                 </div>
                 <div>
                     {!acceptedInvite ? (

@@ -337,7 +337,7 @@ impl FeatureFlagMatcher {
 
         // Record when the optimization actually skips the lookup
         if request_is_optimizable && optimize_experience_continuity_lookups {
-            with_canonical_log(|log| log.hash_key_override_skipped = true);
+            with_canonical_log(|log| log.hash_key_override_status = Some("skipped"));
         }
 
         // Clone the request's hash_key_override before passing it to process_hash_key_override_if_needed
@@ -1691,7 +1691,6 @@ impl FeatureFlagMatcher {
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
-                with_canonical_log(|log| log.hash_key_override_attempted = true);
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -1748,9 +1747,16 @@ impl FeatureFlagMatcher {
             )
             .fin();
 
-        // Track success in canonical log
-        if hash_key_overrides.is_some() && !flag_hash_key_override_error {
-            with_canonical_log(|log| log.hash_key_override_succeeded = true);
+        // Track hash key override status in canonical log
+        if flag_hash_key_override_error {
+            with_canonical_log(|log| log.hash_key_override_status = Some("error"));
+        } else if let Some(ref overrides) = hash_key_overrides {
+            let status = if overrides.is_empty() {
+                "empty"
+            } else {
+                "found"
+            };
+            with_canonical_log(|log| log.hash_key_override_status = Some(status));
         }
 
         (hash_key_overrides, flag_hash_key_override_error)
