@@ -1243,6 +1243,9 @@ describe('Hog Executor', () => {
                     method: 'POST',
                 } as any
 
+                // Initialize vmState with empty stack for executeFetch
+                invocation.state.vmState = { stack: [] } as any
+
                 jest.mocked(fetch).mockResolvedValueOnce({
                     status,
                     text: () => Promise.resolve(JSON.stringify(responseBody)),
@@ -1415,6 +1418,9 @@ describe('Hog Executor', () => {
                     url: 'https://example.com/api',
                     method: 'POST',
                 } as any
+
+                // Initialize vmState with empty stack for executeFetch
+                invocation.state.vmState = { stack: [] } as any
 
                 jest.mocked(fetch).mockResolvedValueOnce({
                     status: 200,
