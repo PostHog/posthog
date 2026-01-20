@@ -13,7 +13,7 @@ import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicTy
 import type { oauthAuthorizeLogicType } from './oauthAuthorizeLogicType'
 
 export type OAuthAuthorizationFormValues = {
-    scoped_organizations: number[]
+    scoped_organizations: string[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
 }

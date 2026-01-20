@@ -5,9 +5,9 @@ import { IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
 
 import { SceneExport } from '../sceneTypes'
+import { OAuthScopeSelector } from './OAuthScopeSelector'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
@@ -94,7 +94,7 @@ export const OAuthAuthorize = (): JSX.Element => {
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
                     <div className="flex flex-col gap-4 sm:gap-6 bg-bg-light border border-border rounded p-4 sm:p-6 shadow">
-                        <ScopeAccessSelector
+                        <OAuthScopeSelector
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
