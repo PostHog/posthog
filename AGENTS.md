@@ -99,7 +99,7 @@ Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration
 
 ### Detailed documentation
 
-See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, examples, and ingestion layer setup
+IMPORTANT: Before creating or modifying ClickHouse migrations, read `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, examples, and ingestion layer setup.
 
 ## Important rules for Code Style
 
