@@ -158,9 +158,9 @@ const LogsFilterSearch = (): JSX.Element => {
             serviceNames: serviceNames,
         },
         onChange: (taxonomicGroup, value, item, originalQuery) => {
-            setVisible(false)
             if (item.value === undefined) {
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                setVisible(false)
                 return
             }
 
