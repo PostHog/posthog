@@ -307,7 +307,6 @@ posthog/caching/insight_caching_state.py:0: error: Argument "params" to "execute
 posthog/caching/insights_api.py:0: error: Unsupported operand types for >= ("datetime" and "None")  [operator]
 posthog/caching/warming.py:0: error: Argument 2 to "process_query_dict" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/clickhouse/client/tracing.py:0: error: Argument 2 to "set_attribute" of "Span" has incompatible type "Any | None"; expected "str | bool | int | float | Sequence[str] | Sequence[bool] | Sequence[int] | Sequence[float]"  [arg-type]
-posthog/dags/add_index_to_materialized_column.py:0: error: Missing positional argument "bootstrap_client" in call to "ClickhouseCluster"  [call-arg]
 posthog/dags/backfill_materialized_column.py:0: error: "str" has no attribute "strftime"  [attr-defined]
 posthog/dags/backfill_materialized_column.py:0: error: Argument 1 to "map_all_hosts_in_shards" of "ClickhouseCluster" has incompatible type "Mapping[int, Any]"; expected "dict[int, Callable[[Any], Never]]"  [arg-type]
 posthog/dags/backfill_materialized_column.py:0: error: Argument 1 to "map_any_host_in_shards" of "ClickhouseCluster" has incompatible type "Mapping[int, AlterTableMutationRunner]"; expected "dict[int, Callable[[Any], Never]]"  [arg-type]
