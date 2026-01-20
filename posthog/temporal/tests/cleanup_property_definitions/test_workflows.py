@@ -175,3 +175,63 @@ def test_cleanup_property_definitions_workflow_parse_inputs():
     assert result.pattern == "^foo_.*"
     assert result.property_type == "event"
     assert result.dry_run is False
+
+
+def test_cleanup_property_definitions_input_rejects_invalid_regex():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Invalid regex pattern"):
+        CleanupPropertyDefinitionsInput(
+            team_id=123,
+            pattern="[invalid(",
+            property_type="person",
+        )
+
+
+def test_cleanup_property_definitions_input_rejects_re2_incompatible_patterns():
+    from pydantic import ValidationError
+
+    # Backreferences not supported in RE2
+    with pytest.raises(ValidationError, match="backreferences"):
+        CleanupPropertyDefinitionsInput(
+            team_id=123,
+            pattern=r"(.)\1",  # backreference
+            property_type="person",
+        )
+
+    # Lookahead not supported in RE2
+    with pytest.raises(ValidationError, match="lookahead/lookbehind"):
+        CleanupPropertyDefinitionsInput(
+            team_id=123,
+            pattern=r"foo(?=bar)",  # positive lookahead
+            property_type="person",
+        )
+
+    # Lookbehind not supported in RE2
+    with pytest.raises(ValidationError, match="lookahead/lookbehind"):
+        CleanupPropertyDefinitionsInput(
+            team_id=123,
+            pattern=r"(?<=foo)bar",  # positive lookbehind
+            property_type="person",
+        )
+
+
+def test_cleanup_property_definitions_input_accepts_simple_patterns():
+    # These patterns should work in both PostgreSQL and ClickHouse RE2
+    valid_patterns = [
+        "^temp_.*",
+        "_test$",
+        "foo.*bar",
+        r"\d+_property",
+        "prefix_[a-z]+_suffix",
+        "^$",
+        ".*",
+    ]
+
+    for pattern in valid_patterns:
+        result = CleanupPropertyDefinitionsInput(
+            team_id=123,
+            pattern=pattern,
+            property_type="person",
+        )
+        assert result.pattern == pattern

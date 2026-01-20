@@ -3,6 +3,7 @@
 import pytest
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized_class
 
 from posthog.models import PropertyDefinition
 from posthog.temporal.cleanup_property_definitions.activities import (
@@ -21,8 +22,20 @@ from posthog.temporal.tests.cleanup_property_definitions.conftest import (
 )
 
 
+@parameterized_class(
+    ("property_type", "property_type_int"),
+    [
+        (PropertyDefinition.Type.EVENT, 1),
+        (PropertyDefinition.Type.PERSON, 2),
+        (PropertyDefinition.Type.GROUP, 3),
+        (PropertyDefinition.Type.SESSION, 4),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
 class TestDeletePropertyDefinitionsFromPostgres:
+    property_type: int
+    property_type_int: int
+
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
         self.team = team
@@ -39,7 +52,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
         ).delete()
 
     @pytest.mark.asyncio
-    async def test_deletes_matching_person_properties(self):
+    async def test_deletes_matching_properties(self):
         prop_names = [f"{self.prefix}_temp_prop_{i}" for i in range(3)]
         self.created_property_names.extend(prop_names)
 
@@ -49,7 +62,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
                 PropertyDefinition.objects.create(
                     team=self.team,
                     name=name,
-                    type=PropertyDefinition.Type.PERSON,
+                    type=self.property_type,
                 )
 
         await create_properties()
@@ -59,7 +72,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
             DeletePostgresPropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_temp_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
@@ -70,29 +83,36 @@ class TestDeletePropertyDefinitionsFromPostgres:
             return PropertyDefinition.objects.filter(
                 team=self.team,
                 name__startswith=self.prefix,
-                type=PropertyDefinition.Type.PERSON,
+                type=self.property_type,
             ).count()
 
         remaining = await verify_deleted()
         assert remaining == 0
 
     @pytest.mark.asyncio
-    async def test_does_not_delete_event_properties(self):
-        person_prop = f"{self.prefix}_person_prop"
-        event_prop = f"{self.prefix}_event_prop"
-        self.created_property_names.extend([person_prop, event_prop])
+    async def test_does_not_delete_other_property_types(self):
+        # Get a different property type to test isolation
+        other_type = (
+            PropertyDefinition.Type.EVENT
+            if self.property_type != PropertyDefinition.Type.EVENT
+            else PropertyDefinition.Type.PERSON
+        )
+
+        target_prop = f"{self.prefix}_target_prop"
+        other_prop = f"{self.prefix}_other_prop"
+        self.created_property_names.extend([target_prop, other_prop])
 
         @sync_to_async
         def create_properties():
             PropertyDefinition.objects.create(
                 team=self.team,
-                name=person_prop,
-                type=PropertyDefinition.Type.PERSON,
+                name=target_prop,
+                type=self.property_type,
             )
             PropertyDefinition.objects.create(
                 team=self.team,
-                name=event_prop,
-                type=PropertyDefinition.Type.EVENT,
+                name=other_prop,
+                type=other_type,
             )
 
         await create_properties()
@@ -102,22 +122,22 @@ class TestDeletePropertyDefinitionsFromPostgres:
             DeletePostgresPropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
-        # Should only delete the person property
+        # Should only delete the target property type
         assert result == 1
 
         @sync_to_async
-        def verify_event_remains():
+        def verify_other_remains():
             return PropertyDefinition.objects.filter(
                 team=self.team,
-                name=event_prop,
-                type=PropertyDefinition.Type.EVENT,
+                name=other_prop,
+                type=other_type,
             ).exists()
 
-        assert await verify_event_remains()
+        assert await verify_other_remains()
 
     @pytest.mark.asyncio
     async def test_returns_zero_when_no_matches(self):
@@ -126,7 +146,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
             DeletePostgresPropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern="^nonexistent_pattern_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
@@ -140,7 +160,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
                 DeletePostgresPropertyDefinitionsInput(
                     team_id=99999999,
                     pattern="^test_.*",
-                    property_type=PropertyDefinition.Type.PERSON,
+                    property_type=self.property_type,
                 ),
             )
 
@@ -162,12 +182,12 @@ class TestDeletePropertyDefinitionsFromPostgres:
             PropertyDefinition.objects.create(
                 team=self.team,
                 name=prop_name,
-                type=PropertyDefinition.Type.PERSON,
+                type=self.property_type,
             )
             PropertyDefinition.objects.create(
                 team=other_team,
                 name=prop_name,
-                type=PropertyDefinition.Type.PERSON,
+                type=self.property_type,
             )
 
         await create_properties()
@@ -177,7 +197,7 @@ class TestDeletePropertyDefinitionsFromPostgres:
             DeletePostgresPropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
@@ -201,8 +221,20 @@ class TestDeletePropertyDefinitionsFromPostgres:
         await cleanup()
 
 
+@parameterized_class(
+    ("property_type", "property_type_int"),
+    [
+        (PropertyDefinition.Type.EVENT, 1),
+        (PropertyDefinition.Type.PERSON, 2),
+        (PropertyDefinition.Type.GROUP, 3),
+        (PropertyDefinition.Type.SESSION, 4),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
 class TestDeletePropertyDefinitionsFromClickHouse:
+    property_type: int
+    property_type_int: int
+
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
         self.team = team
@@ -216,15 +248,15 @@ class TestDeletePropertyDefinitionsFromClickHouse:
         cleanup_ch_property_definitions(self.team.id, self.created_property_names)
 
     @pytest.mark.asyncio
-    async def test_deletes_matching_person_properties(self):
+    async def test_deletes_matching_properties(self):
         prop_names = [f"{self.prefix}_temp_prop_{i}" for i in range(3)]
         self.created_property_names.extend(prop_names)
 
         for name in prop_names:
-            insert_property_definition_to_ch(self.team.id, name, property_type=2)
+            insert_property_definition_to_ch(self.team.id, name, property_type=self.property_type_int)
 
         # Verify properties exist
-        before = get_ch_property_definitions(self.team.id, property_type=2)
+        before = get_ch_property_definitions(self.team.id, property_type=self.property_type_int)
         matching_before = [p for p in before if p["name"].startswith(self.prefix)]
         assert len(matching_before) == 3
 
@@ -233,43 +265,46 @@ class TestDeletePropertyDefinitionsFromClickHouse:
             DeleteClickHousePropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_temp_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
         # Verify properties are deleted
-        after = get_ch_property_definitions(self.team.id, property_type=2)
+        after = get_ch_property_definitions(self.team.id, property_type=self.property_type_int)
         matching_after = [p for p in after if p["name"].startswith(self.prefix)]
         assert len(matching_after) == 0
 
     @pytest.mark.asyncio
-    async def test_does_not_delete_event_properties(self):
-        person_prop = f"{self.prefix}_person_prop"
-        event_prop = f"{self.prefix}_event_prop"
-        self.created_property_names.extend([person_prop, event_prop])
+    async def test_does_not_delete_other_property_types(self):
+        # Get a different property type to test isolation
+        other_type = 1 if self.property_type_int != 1 else 2
 
-        insert_property_definition_to_ch(self.team.id, person_prop, property_type=2)
-        insert_property_definition_to_ch(self.team.id, event_prop, property_type=1)
+        target_prop = f"{self.prefix}_target_prop"
+        other_prop = f"{self.prefix}_other_prop"
+        self.created_property_names.extend([target_prop, other_prop])
+
+        insert_property_definition_to_ch(self.team.id, target_prop, property_type=self.property_type_int)
+        insert_property_definition_to_ch(self.team.id, other_prop, property_type=other_type)
 
         await self.activity_environment.run(
             delete_property_definitions_from_clickhouse,
             DeleteClickHousePropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
-        # Person property should be deleted
-        person_props = get_ch_property_definitions(self.team.id, property_type=2)
-        assert not any(p["name"] == person_prop for p in person_props)
+        # Target property should be deleted
+        target_props = get_ch_property_definitions(self.team.id, property_type=self.property_type_int)
+        assert not any(p["name"] == target_prop for p in target_props)
 
-        # Event property should remain
-        event_props = get_ch_property_definitions(self.team.id, property_type=1)
-        assert any(p["name"] == event_prop for p in event_props)
+        # Other property should remain
+        other_props = get_ch_property_definitions(self.team.id, property_type=other_type)
+        assert any(p["name"] == other_prop for p in other_props)
 
-        # Cleanup event property
-        cleanup_ch_property_definitions(self.team.id, [event_prop])
+        # Cleanup other property
+        cleanup_ch_property_definitions(self.team.id, [other_prop])
 
     @pytest.mark.asyncio
     async def test_handles_no_matching_properties(self):
@@ -279,7 +314,7 @@ class TestDeletePropertyDefinitionsFromClickHouse:
             DeleteClickHousePropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern="^nonexistent_pattern_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
@@ -296,24 +331,24 @@ class TestDeletePropertyDefinitionsFromClickHouse:
         prop_name = f"{self.prefix}_shared_prop"
         self.created_property_names.append(prop_name)
 
-        insert_property_definition_to_ch(self.team.id, prop_name, property_type=2)
-        insert_property_definition_to_ch(other_team.id, prop_name, property_type=2)
+        insert_property_definition_to_ch(self.team.id, prop_name, property_type=self.property_type_int)
+        insert_property_definition_to_ch(other_team.id, prop_name, property_type=self.property_type_int)
 
         await self.activity_environment.run(
             delete_property_definitions_from_clickhouse,
             DeleteClickHousePropertyDefinitionsInput(
                 team_id=self.team.id,
                 pattern=f"^{self.prefix}_.*",
-                property_type=PropertyDefinition.Type.PERSON,
+                property_type=self.property_type,
             ),
         )
 
         # This team's property should be deleted
-        this_team_props = get_ch_property_definitions(self.team.id, property_type=2)
+        this_team_props = get_ch_property_definitions(self.team.id, property_type=self.property_type_int)
         assert not any(p["name"] == prop_name for p in this_team_props)
 
         # Other team's property should remain
-        other_team_props = get_ch_property_definitions(other_team.id, property_type=2)
+        other_team_props = get_ch_property_definitions(other_team.id, property_type=self.property_type_int)
         assert any(p["name"] == prop_name for p in other_team_props)
 
         # Cleanup
