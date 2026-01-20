@@ -798,8 +798,7 @@ async def acount_failed_batch_export_runs(batch_export_id: UUID, last_n: int) ->
 
 
 def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
-    # default to UTC if no timezone is provided
-    timezone = batch_export.timezone or "UTC"
+    timezone = str(batch_export.timezone_info)
     # if daily or weekly interval, use ScheduleCalendarSpec so we can set the time of day to run (and ensure timezones
     # are respected)
     if batch_export.interval == "day":

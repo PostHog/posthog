@@ -21,6 +21,8 @@ def create_batch_export(
 ) -> BatchExport:
     """Create a BatchExport and its underlying Schedule."""
 
+    timezone = timezone or "UTC"
+
     # Convert offset_day and offset_hour to interval_offset
     if interval == "day":
         if offset_hour is not None:

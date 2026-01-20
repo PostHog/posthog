@@ -179,7 +179,13 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
         )
 
         schedule_handle = client.get_schedule_handle(inputs.schedule_id)
-        description = await schedule_handle.describe()
+        try:
+            description = await schedule_handle.describe()
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                raise TemporalScheduleNotFoundError(inputs.schedule_id)
+            else:
+                raise
 
         details = temporalio.activity.info().heartbeat_details
         if details:

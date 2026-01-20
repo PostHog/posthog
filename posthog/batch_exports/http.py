@@ -71,7 +71,7 @@ logger = structlog.get_logger(__name__)
 def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.datetime:
     """Validate and parse a date/datetime input as a proper dt.datetime.
 
-    If the interval is daily or weekly, we expect the input to be a date string.
+    If the interval is daily or weekly, we expect the input to be an ISO formatted date string.
     We then need to convert it to a datetime using the batch export's timezone and offset.
 
     For all other intervals, we expect the input to be an ISO formatted datetime string.
@@ -93,12 +93,12 @@ def validate_date_input(date_input: Any, batch_export: BatchExport) -> dt.dateti
             try:
                 parsed = dt.datetime.fromisoformat(date_input)
                 raise ValidationError(
-                    f"Input {date_input} is not a valid date string for a daily or weekly batch export. "
-                    "Daily or weekly batch export backfills expect a date string, not a datetime string."
+                    f"Input '{date_input}' is not a valid ISO formatted date. "
+                    "Daily or weekly batch export backfills expect only the date component, but a time was included."
                 )
             except (TypeError, ValueError):
                 pass
-            raise ValidationError(f"Input {date_input} is not a valid ISO formatted date.")
+            raise ValidationError(f"Input '{date_input}' is not a valid ISO formatted date.")
 
         if batch_export.interval == "week":
             # Validate that the provided date is on the correct day of the week, according to the batch export's day offset

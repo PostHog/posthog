@@ -67,7 +67,7 @@ export function BatchExportGeneralEditFields({
                                 Create in paused state
                                 <Tooltip
                                     title={
-                                        "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
+                                        "If selected, the batch export will be created, but no runs will be automatically triggered until it is resumed. Manual backfills can still be triggered even if the batch export is paused."
                                     }
                                 >
                                     <IconInfo className="text-lg text-secondary" />
