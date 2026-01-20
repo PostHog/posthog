@@ -165,13 +165,13 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-frontend-bundle-size'
                   properties: |
-                    {
-                      "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
-                      "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
-                      "sha": ${{ toJSON(github.sha) }},
-                      "pr_number": ${{ github.event.pull_request.number || 'null' }},
-                      "event_type": ${{ toJSON(github.event_name) }}
-                    }
+                      {
+                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }}
+                      }
 
     frontend-typescript-checks:
         name: Frontend typechecking
