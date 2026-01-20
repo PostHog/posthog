@@ -219,6 +219,7 @@ export const productToursLogic = kea<productToursLogicType>([
             promise,
         }),
         clearPendingScreenshotPromise: true,
+        setLaunchedForPreview: (value: boolean) => ({ value }),
     }),
 
     loaders(() => ({
@@ -354,6 +355,13 @@ export const productToursLogic = kea<productToursLogicType>([
                 selectTour: () => null,
             },
         ],
+        launchedForPreview: [
+            false,
+            {
+                setLaunchedForPreview: (_, { value }) => value,
+                selectTour: () => false,
+            },
+        ],
     }),
 
     forms(({ values, actions }) => ({
@@ -409,12 +417,12 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 const savedTour = await response.json()
-                const { apiURL } = values
+                const { uiHost } = values
 
                 lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
                     button: {
                         label: 'Open in PostHog',
-                        action: () => window.open(`${apiURL}${urls.productTour(savedTour.id)}`, '_blank'),
+                        action: () => window.open(`${uiHost}${urls.productTour(savedTour.id)}`, '_blank'),
                     },
                 })
                 actions.loadTours()
@@ -426,7 +434,7 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
 
     connect(() => ({
-        values: [toolbarConfigLogic, ['dataAttributes', 'apiURL', 'userIntent', 'productTourId', 'posthog']],
+        values: [toolbarConfigLogic, ['dataAttributes', 'uiHost', 'userIntent', 'productTourId', 'posthog']],
     })),
 
     selectors({
@@ -702,6 +710,17 @@ export const productToursLogic = kea<productToursLogicType>([
             productTours.previewTour(tour)
         },
         stopPreview: () => {
+            const { selectedTourId, tours, launchedForPreview } = values
+            const selectedTour = tours.find((t: ProductTour) => t.id === selectedTourId)
+            const isAnnouncement = selectedTour?.content?.type === 'announcement'
+
+            if (isAnnouncement) {
+                if (launchedForPreview) {
+                    window.close() // go back to posthog app
+                    return
+                }
+                actions.selectTour(null)
+            }
             toolbarLogic.actions.toggleMinimized(false)
         },
         updateRects: () => {
@@ -853,6 +872,11 @@ export const productToursLogic = kea<productToursLogicType>([
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-product-tour') {
                 actions.startCreation()
+                toolbarConfigLogic.actions.clearUserIntent()
+            } else if (userIntent === 'preview-product-tour' && productTourId) {
+                actions.setLaunchedForPreview(true)
+                actions.selectTour(productTourId)
+                actions.previewTour()
                 toolbarConfigLogic.actions.clearUserIntent()
             }
         },

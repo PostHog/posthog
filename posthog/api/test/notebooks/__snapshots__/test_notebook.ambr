@@ -129,6 +129,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -325,6 +327,9 @@
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
          "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -380,6 +385,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -500,7 +507,10 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -520,7 +530,10 @@
          "posthog_notebook"."created_at",
          "posthog_notebook"."created_by_id",
          "posthog_notebook"."last_modified_at",
-         "posthog_notebook"."last_modified_by_id"
+         "posthog_notebook"."last_modified_by_id",
+         "posthog_notebook"."kernel_cpu_cores",
+         "posthog_notebook"."kernel_memory_gb",
+         "posthog_notebook"."kernel_idle_timeout_seconds"
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
@@ -585,6 +598,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -706,6 +721,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -945,6 +962,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
