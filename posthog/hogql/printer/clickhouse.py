@@ -352,6 +352,17 @@ class ClickHousePrinter(HogQLPrinter):
         if isinstance(left_type, ast.PropertyType) and isinstance(node.right, ast.Constant):
             property_type = left_type
             pattern_expr = node.right
+        elif (
+            isinstance(node.left, ast.Call)
+            and node.left.name == "toString"
+            and len(node.left.args) == 1
+            and isinstance(node.right, ast.Constant)
+        ):
+            # Handle toString(properties.email) ilike '%pattern%'
+            inner_type = resolve_field_type(node.left.args[0])
+            if isinstance(inner_type, ast.PropertyType):
+                property_type = inner_type
+                pattern_expr = node.right
 
         if property_type is None or pattern_expr is None:
             return None

@@ -3475,6 +3475,21 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "%@posthog.com%"},
             )
+            # toString() wrapper should also use the optimization
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable(self) -> None:
+        # toString() wrapper should use ngram index optimization when available
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
 
     def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:
         # For non-nullable columns, NOT ILIKE uses raw column directly
