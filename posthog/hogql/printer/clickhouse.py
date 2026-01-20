@@ -373,7 +373,6 @@ class ClickHousePrinter(HogQLPrinter):
         return property_source
 
     def _get_string_pattern_constant(self, expr: ast.Expr) -> ast.Constant | None:
-        """Returns the expression if it's a string constant, otherwise None."""
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
             return expr
         return None
