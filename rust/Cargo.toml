@@ -37,6 +37,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "kafka-deduplicator",
+    "repartitioner",
 ]
 
 [workspace.lints.rust]

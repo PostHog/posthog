@@ -6973,6 +6973,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "repartitioner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.5",
+ "chrono",
+ "common-kafka",
+ "envconfig",
+ "futures",
+ "health",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "rdkafka",
+ "serde_json",
+ "serve-metrics",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "replace_with"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
