@@ -493,8 +493,7 @@ def register_files_with_ducklake(
 
         # Check if the DuckLake catalog is already attached in a robust way by querying DuckDB
         existing_catalogs = {
-            row[0]
-            for row in conn.execute("SELECT catalog_name FROM duckdb_catalog.get_catalogs()").fetchall()
+            row[0] for row in conn.execute("SELECT catalog_name FROM duckdb_catalog.get_catalogs()").fetchall()
         }
 
         if alias in existing_catalogs:
