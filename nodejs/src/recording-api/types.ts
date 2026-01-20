@@ -37,9 +37,9 @@ export abstract class BaseRecordingDecryptor {
 }
 
 export class SessionKeyDeletedError extends Error {
-    public readonly deletedAt: number
+    public readonly deletedAt?: number
 
-    constructor(sessionId: string, teamId: number, deletedAt: number) {
+    constructor(sessionId: string, teamId: number, deletedAt?: number) {
         super(`Session key has been deleted for session ${sessionId} team ${teamId}`)
         this.name = 'SessionKeyDeletedError'
         this.deletedAt = deletedAt

@@ -37,7 +37,7 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
 
     encryptBlockWithKey(sessionId: string, teamId: number, blockData: Buffer, sessionKey: SessionKey): Buffer {
         if (sessionKey.sessionState === 'deleted') {
-            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt ?? 0)
+            throw new SessionKeyDeletedError(sessionId, teamId, sessionKey.deletedAt)
         }
 
         if (sessionKey.sessionState === 'cleartext') {
