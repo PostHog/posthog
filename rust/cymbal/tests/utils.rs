@@ -48,12 +48,17 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
         .unwrap();
 
     let status = res.status();
+
     let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
         .await
         .unwrap();
+
     let body_string = String::from_utf8(body_bytes.to_vec()).unwrap();
 
+    dbg!(status, body_string.clone());
+
     // Deserialize the JSON into your struct
-    let body: T = serde_json::from_str(body_string.as_str()).unwrap();
+    let body: T = serde_json::from_str(body_string.as_str())
+        .expect("Failed to deserialize data: {body_string}");
     (status, body)
 }

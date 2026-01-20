@@ -28,7 +28,12 @@ async fn process_invalid_list(db: PgPool) {
         error: String,
     }
     let storage_bucket = "test-bucket".to_string();
-    let s3_client = MockS3Client::new();
+    let mut s3_client = MockS3Client::new();
+    s3_client
+        .expect_ping_bucket()
+        .with(predicate::eq(storage_bucket.clone()))
+        .returning(|_| Ok(()));
+
     let (status, body) = utils::get_response::<ProcessExceptionListError>(
         db,
         storage_bucket,
@@ -54,7 +59,12 @@ async fn process_invalid_list(db: PgPool) {
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn process_empty_list(db: PgPool) {
     let storage_bucket = "test-bucket".to_string();
-    let s3_client = MockS3Client::new();
+    let mut s3_client = MockS3Client::new();
+    s3_client
+        .expect_ping_bucket()
+        .with(predicate::eq(storage_bucket.clone()))
+        .returning(|_| Ok(()));
+
     let (status, body) = utils::get_response::<ExceptionList>(
         db,
         storage_bucket,
@@ -121,6 +131,11 @@ macro_rules! test_exception_list_processing {
             let mut s3_client = MockS3Client::new();
             let storage_bucket = "test-bucket".to_string();
 
+            s3_client
+                .expect_ping_bucket()
+                .with(predicate::eq(storage_bucket.clone()))
+                .returning(|_| Ok(()));
+
             $setup(db.clone(), storage_bucket.clone(), team_id, &mut s3_client).await;
 
             let (status, body) = utils::get_response::<ExceptionList>(
@@ -159,6 +174,7 @@ test_exception_list_processing!(
     "javascript_chunk_id",
     async |db: PgPool, storage_bucket: String, team_id: i32, s3_client: &mut MockS3Client| -> () {
         database_records(db.clone(), team_id, "1234").await;
+
         s3_client
             .expect_get()
             .with(predicate::eq(storage_bucket), predicate::eq("1234"))
