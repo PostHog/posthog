@@ -231,7 +231,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             // Check if this is an MCP server request with no scopes specified
             // Per MCP spec, when clients don't specify scopes, they should use all scopes_supported
             // from the Protected Resource Metadata. We default to MCP scopes for known MCP resources.
-            const isMcpResource = resourceParam?.includes('mcp.posthog.com')
+            let isMcpResource = false
+            if (resourceParam) {
+                try {
+                    const resourceUrl = new URL(resourceParam)
+                    // Strict hostname check to prevent URL manipulation attacks
+                    isMcpResource = resourceUrl.hostname === 'mcp.posthog.com'
+                } catch {
+                    // Invalid URL, not an MCP resource
+                }
+            }
             const scopesWereDefaulted = requestedScopes.length === 0
 
             let scopes: string[]
