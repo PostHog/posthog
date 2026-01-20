@@ -733,30 +733,17 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    // TODO: Once we remove FF, should add to the shortcuts list at the top of the component
-    if (
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    ) {
-        tabs.push({
-            key: 'sessions',
-            label: (
-                <>
-                    Sessions{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: (
-                <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsSessionsScene />
-                </LLMAnalyticsSetupPrompt>
-            ),
-            link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
-            'data-attr': 'sessions-tab',
-        })
-    }
+    tabs.push({
+        key: 'sessions',
+        label: 'Sessions',
+        content: (
+            <LLMAnalyticsSetupPrompt>
+                <LLMAnalyticsSessionsScene />
+            </LLMAnalyticsSetupPrompt>
+        ),
+        link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+        'data-attr': 'sessions-tab',
+    })
 
     // TODO: Once we are out of beta, should add to the shortcuts list at the top of the component
     tabs.push({
