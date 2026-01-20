@@ -25,8 +25,7 @@ async fn not_found() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "Not Found")
 }
 
-pub async fn start_server(config: &Config, context: Arc<AppContext>) -> () {
-    let config = config.clone();
+pub async fn start_server(config: Config, context: Arc<AppContext>) -> () {
     let router = Router::<Arc<AppContext>>::new()
         .route("/", get(index))
         .route(
