@@ -464,7 +464,7 @@ class OauthIntegration:
                 token_info_config_fields=[],  # Handled specially in integration_from_oauth_response
                 client_id=settings.ATLASSIAN_APP_CLIENT_ID,
                 client_secret=settings.ATLASSIAN_APP_CLIENT_SECRET,
-                scope="read:jira-work write:jira-work",
+                scope="read:jira-work write:jira-work offline_access",
                 id_path="cloud_id",
                 name_path="site_name",
             )
@@ -598,9 +598,12 @@ class OauthIntegration:
                         config["site_name"] = site.get("name")
                         config["site_url"] = site.get("url")
                     else:
-                        logger.warning(
+                        logger.error(
                             "Jira OAuth returned empty accessible resources array - user may not have access to any Jira sites",
                             kind=kind,
+                        )
+                        raise ValidationError(
+                            "No accessible Jira sites found. Please ensure your Atlassian account has access to at least one Jira site."
                         )
                 elif oauth_config.token_info_config_fields:
                     for field in oauth_config.token_info_config_fields:
@@ -1501,11 +1504,46 @@ class JiraIntegration:
 
     def site_url(self) -> str:
         """Get the Jira site URL from the integration config"""
-        return dot_get(self.integration.config, "site_url")
+        return dot_get(self.integration.config, "site_url") or ""
+
+    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
+        """Check if the Atlassian access token has expired or is close to expiring"""
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+
+        if not refresh_token:
+            return False
+
+        if not expires_in or not refreshed_at:
+            return False
+
+        # To be safe we refresh if it's halfway through the expiry
+        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
+
+        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
+
+    def refresh_access_token(self) -> None:
+        """Refresh the Atlassian access token using the refresh token"""
+        oauth_integration = OauthIntegration(self.integration)
+        oauth_integration.refresh_access_token()
+
+    def _ensure_token_valid(self) -> None:
+        """Proactively refresh token if it's close to expiring to avoid intermittent 401s"""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
         response = requests.get(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
             headers={
@@ -1520,6 +1558,11 @@ class JiraIntegration:
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
         cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
         title = config.get("title")
         description = config.get("description")
         project_key = config.get("project_key")
