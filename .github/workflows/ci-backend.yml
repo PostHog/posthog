@@ -458,6 +458,8 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               env:
+                  npm_config_node_gyp_force_process_config: true
+                  npm_config_tarball_retries: 5
                   npm_config_fetch_retries: 3
                   npm_config_fetch_retry_mintimeout: 10000
                   npm_config_fetch_retry_maxtimeout: 60000
