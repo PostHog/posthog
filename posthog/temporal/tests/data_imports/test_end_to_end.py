@@ -2959,7 +2959,7 @@ async def test_cdp_producer_push_to_s3(team, stripe_customer, mock_stripe_client
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "stripe.customer"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
     with mock.patch(
@@ -3011,7 +3011,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "stripe.customer"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "stripe.customer"}]},
     )
 
     with (
