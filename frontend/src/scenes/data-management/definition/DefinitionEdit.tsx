@@ -30,14 +30,14 @@ export const scene: SceneExport<DefinitionLogicProps> = {
 
 export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
-    const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogic(props))
+    const { definitionLoading, definitionMissing, isProperty } = useValues(definitionLogic(props))
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
     const { tags, tagsLoading } = useValues(tagsModel)
 
-    const allowVerification = hasTaxonomyFeatures && !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
+    const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
-    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in editDefinition
+    const showHiddenOption = 'hidden' in editDefinition
 
     if (definitionMissing) {
         return <NotFound object="event" />

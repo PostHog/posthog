@@ -118,7 +118,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         definition,
         localDefinition,
         type,
-        hasTaxonomyFeatures,
         isAction,
         isEvent,
         isCohort,
@@ -174,7 +173,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
-            {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
+            {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popover-tags"
                     tags={definition.tags}
@@ -479,7 +478,6 @@ function DefinitionEdit(): JSX.Element {
         localDefinition,
         definitionLoading,
         singularType,
-        hasTaxonomyFeatures,
         isViewable,
         hideView,
         type,
@@ -489,13 +487,12 @@ function DefinitionEdit(): JSX.Element {
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
-    if (!definition || !hasTaxonomyFeatures) {
+    if (!definition) {
         return <></>
     }
 
-    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in localDefinition
-    const allowVerification =
-        hasTaxonomyFeatures && !isCoreFilter(definition.name || '') && 'verified' in localDefinition
+    const showHiddenOption = 'hidden' in localDefinition
+    const allowVerification = !isCoreFilter(definition.name || '') && 'verified' in localDefinition
 
     return (
         <>

@@ -186,7 +186,6 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             (state, definition, localDefinition) =>
                 state === DefinitionPopoverState.Edit && !equal(definition, localDefinition),
         ],
-        hasTaxonomyFeatures: [() => [], () => true],
         isViewable: [
             (s) => [s.type],
             (type) => {

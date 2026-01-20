@@ -289,7 +289,6 @@ class EventDefinitionViewSet(
             if enterprise_event:
                 return enterprise_event
 
-            # Lazy-create enterprise row if it doesn't exist
             non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""

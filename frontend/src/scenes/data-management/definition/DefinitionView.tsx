@@ -79,17 +79,8 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
 
 export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionLogic(props)
-    const {
-        definition,
-        definitionLoading,
-        definitionMissing,
-        hasTaxonomyFeatures,
-        singular,
-        isEvent,
-        isProperty,
-        metrics,
-        metricsLoading,
-    } = useValues(logic)
+    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
+        useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -244,20 +235,18 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
             />
 
             <div className="deprecated-space-y-2">
-                {definition.description || isProperty || hasTaxonomyFeatures ? (
-                    <EditableField
-                        multiline
-                        name="description"
-                        markdown
-                        value={definition.description || ''}
-                        placeholder="Description (optional)"
-                        mode="view"
-                        data-attr="definition-description-view"
-                        className="definition-description"
-                        compactButtons
-                        maxLength={600}
-                    />
-                ) : null}
+                <EditableField
+                    multiline
+                    name="description"
+                    markdown
+                    value={definition.description || ''}
+                    placeholder="Description (optional)"
+                    mode="view"
+                    data-attr="definition-description-view"
+                    className="definition-description"
+                    compactButtons
+                    maxLength={600}
+                />
                 <ObjectTags
                     tags={definition.tags ?? []}
                     data-attr="definition-tags-view"

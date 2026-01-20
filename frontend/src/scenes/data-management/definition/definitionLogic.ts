@@ -111,7 +111,6 @@ export const definitionLogic = kea<definitionLogicType>([
         ],
     })),
     selectors({
-        hasTaxonomyFeatures: [() => [], () => true],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
         singular: [(s) => [s.isEvent], (isEvent): string => (isEvent ? 'event' : 'property')],
