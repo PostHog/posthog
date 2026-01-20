@@ -164,6 +164,31 @@ describe('MemoryCachedKeyStore', () => {
 
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
         })
+
+        it('should remove stale cache entry if getKey fails after successful delete', async () => {
+            // First, populate the cache
+            await cachedKeyStore.getKey('session-123', 1)
+            mockDelegate.getKey.mockClear()
+
+            // Verify cache is populated
+            await cachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+
+            // Now make getKey fail after deleteKey succeeds
+            mockDelegate.getKey.mockRejectedValue(new Error('Get failed after delete'))
+
+            const result = await cachedKeyStore.deleteKey('session-123', 1)
+
+            // deleteKey should still return true
+            expect(result).toBe(true)
+
+            // Cache should be cleared, so next getKey should call delegate
+            mockDelegate.getKey.mockResolvedValue(mockSessionKey)
+            mockDelegate.getKey.mockClear()
+
+            await cachedKeyStore.getKey('session-123', 1)
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+        })
     })
 
     describe('custom options', () => {
@@ -210,6 +235,7 @@ describe('RedisCachedKeyStore', () => {
         mockRedisClient = {
             get: jest.fn().mockResolvedValue(null),
             setex: jest.fn().mockResolvedValue('OK'),
+            del: jest.fn().mockResolvedValue(1),
         }
 
         mockRedisPool = {
@@ -387,6 +413,15 @@ describe('RedisCachedKeyStore', () => {
 
             await expect(cachedKeyStore.deleteKey('session-123', 1)).rejects.toThrow('Delete failed')
         })
+
+        it('should delete Redis cache entry if getKey fails after successful delete', async () => {
+            mockDelegate.getKey.mockRejectedValue(new Error('Get failed after delete'))
+
+            const result = await cachedKeyStore.deleteKey('session-123', 1)
+
+            expect(result).toBe(true)
+            expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
+        })
     })
 
     describe('stop', () => {
@@ -437,6 +472,7 @@ describe('Combined MemoryCachedKeyStore and RedisCachedKeyStore', () => {
         mockRedisClient = {
             get: jest.fn().mockResolvedValue(null),
             setex: jest.fn().mockResolvedValue('OK'),
+            del: jest.fn().mockResolvedValue(1),
         }
 
         mockRedisPool = {

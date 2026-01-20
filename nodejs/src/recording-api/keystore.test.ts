@@ -232,7 +232,28 @@ describe('KeyStore', () => {
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
-        it('should return deleted key if session was deleted', async () => {
+        it('should return deleted key with deletedAt if session was deleted', async () => {
+            const deletedAt = 1700000000
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    session_state: { S: 'deleted' },
+                    deleted_at: { N: String(deletedAt) },
+                },
+            })
+
+            const result = await keyStore.getKey('session-123', 1)
+
+            expect(result.plaintextKey).toEqual(Buffer.alloc(0))
+            expect(result.encryptedKey).toEqual(Buffer.alloc(0))
+            expect(result.nonce).toEqual(Buffer.alloc(0))
+            expect(result.sessionState).toBe('deleted')
+            expect(result.deletedAt).toBe(deletedAt)
+            expect(mockKMSClient.send).not.toHaveBeenCalled()
+        })
+
+        it('should return deleted key with undefined deletedAt if deleted_at is missing', async () => {
             ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
                 Item: {
                     session_id: { S: 'session-123' },
@@ -247,6 +268,7 @@ describe('KeyStore', () => {
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
             expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('deleted')
+            expect(result.deletedAt).toBeUndefined()
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
 
@@ -332,6 +354,24 @@ describe('KeyStore', () => {
                 await keyStore.deleteKey('session-123', 1)
             } catch (err) {
                 expect((err as SessionKeyDeletedError).deletedAt).toBe(deletedAt)
+            }
+        })
+
+        it('should throw SessionKeyDeletedError with undefined deletedAt if deleted_at is missing', async () => {
+            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
+                Item: {
+                    session_id: { S: 'session-123' },
+                    team_id: { N: '1' },
+                    session_state: { S: 'deleted' },
+                },
+            })
+
+            await expect(keyStore.deleteKey('session-123', 1)).rejects.toThrow(SessionKeyDeletedError)
+
+            try {
+                await keyStore.deleteKey('session-123', 1)
+            } catch (err) {
+                expect((err as SessionKeyDeletedError).deletedAt).toBeUndefined()
             }
         })
 

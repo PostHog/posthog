@@ -51,8 +51,12 @@ export class MemoryCachedKeyStore extends BaseKeyStore {
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
         const result = await this.delegate.deleteKey(sessionId, teamId)
         if (result) {
-            const deletedKey = await this.delegate.getKey(sessionId, teamId)
-            this.cache.set(this.cacheKey(sessionId, teamId), deletedKey)
+            try {
+                const deletedKey = await this.delegate.getKey(sessionId, teamId)
+                this.cache.set(this.cacheKey(sessionId, teamId), deletedKey)
+            } catch {
+                this.cache.delete(this.cacheKey(sessionId, teamId))
+            }
         }
         return result
     }
@@ -98,6 +102,15 @@ export class RedisCachedKeyStore extends BaseKeyStore {
         }
     }
 
+    private async deleteCached(sessionId: string, teamId: number): Promise<void> {
+        const client = await this.redisPool.acquire()
+        try {
+            await client.del(this.cacheKey(sessionId, teamId))
+        } finally {
+            await this.redisPool.release(client)
+        }
+    }
+
     async generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
         const key = await this.delegate.generateKey(sessionId, teamId)
         await this.setCached(sessionId, teamId, key)
@@ -118,8 +131,12 @@ export class RedisCachedKeyStore extends BaseKeyStore {
     async deleteKey(sessionId: string, teamId: number): Promise<boolean> {
         const result = await this.delegate.deleteKey(sessionId, teamId)
         if (result) {
-            const deletedKey = await this.delegate.getKey(sessionId, teamId)
-            await this.setCached(sessionId, teamId, deletedKey)
+            try {
+                const deletedKey = await this.delegate.getKey(sessionId, teamId)
+                await this.setCached(sessionId, teamId, deletedKey)
+            } catch {
+                await this.deleteCached(sessionId, teamId)
+            }
         }
         return result
     }
