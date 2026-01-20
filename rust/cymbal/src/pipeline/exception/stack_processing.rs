@@ -10,8 +10,7 @@ use crate::{
     frames::RawFrame,
     langs::java::RawJavaFrame,
     metric_consts::{
-        DART_EXCEPTION_REMAP_FAILED, DART_EXCEPTION_REMAP_SUCCESS, FINGERPRINT_BATCH_TIME,
-        FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_EXCEPTION_REMAP_FAILED,
+        FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION, JAVA_EXCEPTION_REMAP_FAILED,
     },
     symbol_store::{chunk_id::OrChunkId, dart_minified_names::lookup_minified_type, Catalog},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
@@ -249,23 +248,7 @@ async fn remap_dart_minified_exception_type(
 
     let minified_names = sourcemap.get_dart_minified_names()?;
 
-    if minified_names.is_empty() {
-        metrics::counter!(DART_EXCEPTION_REMAP_FAILED, "reason" => "no_minified_names")
-            .increment(1);
-        return None;
-    }
-
-    match lookup_minified_type(minified_names, exception_type) {
-        Some(original) => {
-            metrics::counter!(DART_EXCEPTION_REMAP_SUCCESS).increment(1);
-            Some(original)
-        }
-        None => {
-            metrics::counter!(DART_EXCEPTION_REMAP_FAILED, "reason" => "type_not_found")
-                .increment(1);
-            None
-        }
-    }
+    lookup_minified_type(minified_names, exception_type)
 }
 
 #[cfg(test)]
