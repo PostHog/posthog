@@ -7,11 +7,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { uuid } from 'lib/utils'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ProductTour,
@@ -290,6 +292,10 @@ export const productToursLogic = kea<productToursLogicType>([
                     name,
                     content: createDefaultAnnouncementContent(),
                 })
+                void addProductIntent({
+                    product_type: ProductKey.PRODUCT_TOURS,
+                    intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
+                })
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
             } catch {
@@ -301,6 +307,10 @@ export const productToursLogic = kea<productToursLogicType>([
                 const banner = await api.productTours.create({
                     name,
                     content: createDefaultBannerContent(),
+                })
+                void addProductIntent({
+                    product_type: ProductKey.PRODUCT_TOURS,
+                    intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
                 })
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))

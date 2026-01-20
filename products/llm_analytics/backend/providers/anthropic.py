@@ -17,6 +17,9 @@ class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
     TEMPERATURE: float = 0
+    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "claude-sonnet-4-5",
@@ -62,7 +65,11 @@ class AnthropicProvider:
         if not posthog_client:
             raise ValueError("PostHog client not found")
 
-        self.client = Anthropic(api_key=self.get_api_key(), posthog_client=posthog_client)
+        self.client = Anthropic(
+            api_key=self.get_api_key(),
+            posthog_client=posthog_client,
+            timeout=AnthropicConfig.TIMEOUT,
+        )
         self.validate_model(model_id)
         self.model_id = model_id
 

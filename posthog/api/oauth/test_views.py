@@ -2201,6 +2201,94 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
+    def test_self_introspection_succeeds_without_introspection_scope(self):
+        """A token can introspect itself without requiring the introspection scope."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
+
+    def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
+        """Self-introspection also works via GET method."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.client.get(
+            f"/oauth/introspect/?token={access_token.token}",
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+
+    def test_self_introspection_with_json_body_succeeds(self):
+        """Self-introspection works with JSON body."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.client.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            content_type="application/json",
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_self_introspection_with_expired_token_fails(self):
+        """An expired token cannot self-introspect."""
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+        access_token.expires = timezone.now() - timedelta(hours=1)
+        access_token.save()
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token.token},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+
+        # Falls back to standard behavior which requires introspection scope
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspecting_different_token_still_requires_introspection_scope(self):
+        """Introspecting a different token still requires the introspection scope."""
+        bearer_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        other_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": other_token.token},
+            headers={"Authorization": f"Bearer {bearer_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspecting_different_token_succeeds_with_introspection_scope(self):
+        """Introspecting a different token succeeds when bearer has introspection scope."""
+        bearer_token, _ = self._create_access_and_refresh_tokens(scopes="openid introspection")
+        other_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+
+        response = self.post(
+            "/oauth/introspect/",
+            {"token": other_token.token},
+            headers={"Authorization": f"Bearer {bearer_token.token}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["active"])
+        self.assertEqual(data["scope"], "openid user:read")
+
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):
     """Tests for OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
