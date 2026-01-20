@@ -2,7 +2,7 @@ from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_EVENT_PROPERTIES
 from posthog.models.event_properties.transformations import boolean_transform, numeric_transform, string_transform
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_SINGLE_SHARD_CLUSTER
 
 EVENT_PROPERTIES_TABLE = "event_properties"
 EVENT_PROPERTIES_SHARDED_TABLE = "sharded_event_properties"
@@ -85,7 +85,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         indexes=", " + EVENT_PROPERTIES_INDEXES,
         engine=ReplacingMergeTree(
             EVENT_PROPERTIES_SHARDED_TABLE,
-            replication_scheme=ReplicationScheme.SHARDED,
+            replication_scheme=ReplicationScheme.REPLICATED,
             ver="_timestamp",
         ),
     )
@@ -105,8 +105,7 @@ ENGINE = {engine}
         kafka_columns=KAFKA_COLUMNS_WITH_PARTITION,
         engine=Distributed(
             data_table=EVENT_PROPERTIES_SHARDED_TABLE,
-            cluster=CLICKHOUSE_CLUSTER,
-            sharding_key="sipHash64(distinct_id)",
+            cluster=CLICKHOUSE_SINGLE_SHARD_CLUSTER,
         ),
     )
 
