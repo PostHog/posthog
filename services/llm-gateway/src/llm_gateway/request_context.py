@@ -4,10 +4,14 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import structlog
+
 if TYPE_CHECKING:
     from llm_gateway.auth.models import AuthenticatedUser
     from llm_gateway.rate_limiting.runner import ThrottleRunner
     from llm_gateway.rate_limiting.throttles import ThrottleContext
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -53,9 +57,9 @@ def set_auth_user(user: AuthenticatedUser) -> None:
     auth_user_var.set(user)
 
 
-async def record_output_tokens(output_tokens: int) -> None:
-    """Record actual output tokens for rate limiting. Call after streaming completes."""
+async def record_cost(cost: float) -> None:
+    """Record cost for rate limiting. Call after response completes."""
     runner = throttle_runner_var.get()
     context = throttle_context_var.get()
     if runner and context:
-        await runner.record_output_tokens(context, output_tokens)
+        await runner.record_cost(context, cost)

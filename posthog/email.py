@@ -102,6 +102,9 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "personal_api_key_exposed": "45",
     "email_mfa_link": "48",
     "project_secret_api_key_exposed": "49",
+    "oauth_token_exposed": "50",
+    "passkey_added": "51",
+    "passkey_removed": "52",
 }
 
 

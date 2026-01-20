@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+const MIN_POSTHOG_JS_VERSION = '1.329.0'
 
 export function LogsCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -13,6 +15,17 @@ export function LogsCaptureSettings(): JSX.Element {
 
     return (
         <div>
+            <LemonBanner
+                type="info"
+                className="mb-4"
+                action={{
+                    children: 'View SDK docs',
+                    to: 'https://posthog.com/docs/libraries/js',
+                    targetBlank: true,
+                }}
+            >
+                This feature requires <code>posthog-js</code> version {MIN_POSTHOG_JS_VERSION} or higher.
+            </LemonBanner>
             <h3>Browser console logs capture</h3>
             <p>
                 Automatically capture browser session logs from your application and send them to the Logs product for

@@ -984,6 +984,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.setExpandedAttributeBreaksdowns(breakdowns)
         },
         zoomDateRange: ({ multiplier }) => {
+            posthog.capture('logs date range zoomed', {
+                direction: multiplier > 1 ? 'out' : 'in',
+                multiplier,
+            })
             const newDateRange = zoomDateRange(values.dateRange, multiplier)
             actions.setDateRange(newDateRange)
         },
