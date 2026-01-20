@@ -654,6 +654,142 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_organizations, scoped_organizations)
 
+    def test_full_oauth_flow_preserves_multiple_scoped_teams(self):
+        """Test that multiple teams can be selected and preserved through the OAuth flow."""
+        # Create another team for multi-select testing
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+        scoped_teams = [self.team.id, team2.id]
+
+        authorization_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": scoped_teams,
+        }
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            authorization_data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("code=", redirect_to)
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(sorted(grant.scoped_teams), sorted(scoped_teams))
+
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+        }
+
+        token_response = self.post("/oauth/token/", token_data)
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        self.assertIn("scoped_teams", token_response_data)
+        self.assertEqual(sorted(token_response_data["scoped_teams"]), sorted(scoped_teams))
+
+        access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
+        self.assertEqual(sorted(access_token.scoped_teams), sorted(scoped_teams))
+
+        refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
+        self.assertEqual(sorted(refresh_token.scoped_teams), sorted(scoped_teams))
+
+    def test_full_oauth_flow_preserves_multiple_scoped_organizations(self):
+        """Test that multiple organizations can be selected and preserved through the OAuth flow."""
+        from posthog.models import Organization, OrganizationMembership
+
+        # Create another organization and add the user as a member
+        org2 = Organization.objects.create(name="Test Org 2")
+        OrganizationMembership.objects.create(
+            user=self.user,
+            organization=org2,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        scoped_organizations = [str(self.organization.id), str(org2.id)]
+
+        authorization_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+            "scoped_organizations": scoped_organizations,
+        }
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            authorization_data,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        redirect_to = response.json()["redirect_to"]
+        self.assertIn("code=", redirect_to)
+        code = redirect_to.split("code=")[1].split("&")[0]
+
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(sorted(grant.scoped_organizations), sorted(scoped_organizations))
+
+        token_data = {
+            **self.base_token_body,
+            "code": code,
+        }
+
+        token_response = self.post("/oauth/token/", token_data)
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_response_data = token_response.json()
+
+        self.assertIn("scoped_organizations", token_response_data)
+        self.assertEqual(sorted(token_response_data["scoped_organizations"]), sorted(scoped_organizations))
+
+        access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
+        self.assertEqual(sorted(access_token.scoped_organizations), sorted(scoped_organizations))
+
+        refresh_token = OAuthRefreshToken.objects.get(token=token_response_data["refresh_token"])
+        self.assertEqual(sorted(refresh_token.scoped_organizations), sorted(scoped_organizations))
+
+    def test_introspection_returns_scoped_teams_and_organizations(self):
+        """Test that the introspection endpoint returns scoped_teams and scoped_organizations."""
+        scoped_teams = [self.team.id]
+
+        # Create token with team scope
+        authorization_data = {
+            **self.base_authorization_post_body,
+            "access_level": OAuthApplicationAccessLevel.TEAM.value,
+            "scoped_teams": scoped_teams,
+        }
+
+        response = self.client.post("/oauth/authorize/", authorization_data)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        access_token_value = token_response.json()["access_token"]
+
+        # Introspect the token
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+
+        introspect_response = self.post(
+            "/oauth/introspect/",
+            {"token": access_token_value},
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(introspect_response.status_code, status.HTTP_200_OK)
+        introspect_data = introspect_response.json()
+
+        self.assertTrue(introspect_data["active"])
+        self.assertIn("scoped_teams", introspect_data)
+        self.assertIn("scoped_organizations", introspect_data)
+        self.assertEqual(introspect_data["scoped_teams"], scoped_teams)
+        # For team-level access, scoped_organizations should be empty
+        self.assertEqual(introspect_data["scoped_organizations"], [])
+
     # OIDC tests
 
     def test_full_oidc_flow(self):
