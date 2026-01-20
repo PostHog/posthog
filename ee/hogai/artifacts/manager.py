@@ -23,7 +23,11 @@ from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
 
 
-class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManagerMixin, AssistantContextMixin):
+class ArtifactManager(
+    VisualizationArtifactManagerMixin,
+    NotebookArtifactManagerMixin,
+    AssistantContextMixin,
+):
     """
     Manages creation and retrieval of agent artifacts.
     """
@@ -178,10 +182,21 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
 
         return result
 
-    async def aget_conversation_artifacts(self) -> list[ArtifactMessage]:
+    async def aget_conversation_artifacts(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> tuple[list[ArtifactMessage], int]:
         """Get all artifacts created in a conversation, by the agent and subagents."""
+        offset = offset or 0
         conversation_id = cast(UUID, self._get_thread_id(self._config))
         artifacts = AgentArtifact.objects.filter(team=self._team, conversation_id=conversation_id)
+        count = await artifacts.acount()
+
+        if limit:
+            artifacts = artifacts[offset : offset + limit]
+        elif offset:
+            artifacts = artifacts[offset:]
 
         result: list[ArtifactMessage] = []
         async for artifact in artifacts:
@@ -204,7 +219,7 @@ class ArtifactManager(VisualizationArtifactManagerMixin, NotebookArtifactManager
                     content=content,
                 )
             )
-        return result
+        return result, count
 
     # -------------------------------------------------------------------------
     # Private helpers

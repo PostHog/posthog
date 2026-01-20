@@ -31,6 +31,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
 import { isCompareFilter, isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
@@ -172,6 +173,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 'setCompareFilter',
                 'loadPreset',
             ],
+            dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }),
+            ['cancelAllLoading'],
         ],
     })),
     actions({
@@ -2418,6 +2421,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
             },
             setProductTab: ({ tab }) => {
+                actions.cancelAllLoading()
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
                 }
