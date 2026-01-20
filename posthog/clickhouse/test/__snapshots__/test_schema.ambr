@@ -803,6 +803,38 @@
   
   '''
 # ---
+# name: test_create_table_query[distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.distinct_id_usage', '{replica}-{shard}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
+  
+  
+  '''
+# ---
+# name: test_create_table_query[distinct_id_usage_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS distinct_id_usage_mv
+  TO posthog_test.writable_distinct_id_usage
+  AS SELECT
+      team_id,
+      distinct_id,
+      toStartOfMinute(timestamp) AS minute,
+      1 AS event_count
+  FROM posthog_test.sharded_events
+  WHERE timestamp >= now() - INTERVAL 7 DAY
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_events_recent]
   '''
   
@@ -1142,7 +1174,7 @@
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
       , elements_chain_elements Array(Enum('a', 'button', 'form', 'input', 'select', 'textarea', 'label')) COMMENT 'column_materializer::elements_chain::elements'
-      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
+      , properties_group_custom Map(String, String), properties_group_ai Map(String, String), properties_group_ai_large Map(String, String), properties_group_feature_flags Map(String, String), person_properties_map_custom Map(String, String)
   
       
   , _timestamp DateTime
@@ -2722,6 +2754,37 @@
       
   '''
 # ---
+# name: test_create_table_query[property_definitions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`property_definitions`
+  (
+      -- Team and project relationships
+      team_id UInt32,
+      project_id UInt32 NULL,
+  
+      -- Core property fields
+      name String,
+      property_type String NULL,
+      event String NULL, -- Only null for non-event types
+      group_type_index UInt8 NULL,
+  
+      -- Type enum (1=event, 2=person, 3=group, 4=session)
+      type UInt8 DEFAULT 1,
+  
+      -- Metadata
+      last_seen_at DateTime,
+  
+      -- A composite version number that prioritizes property_type presence over timestamp
+      -- We negate isNull() so rows WITH property_type get higher preference
+      version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
+  ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[query_log_archive]
   '''
   
@@ -3952,11 +4015,17 @@
               CODEC(ZSTD(1))
           , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
               MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices',
+                  mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
+          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_ai_large Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_ai_large_keys_bf mapKeys(properties_group_ai_large) TYPE bloom_filter, INDEX properties_group_ai_large_values_bf mapValues(properties_group_ai_large) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key like '$feature/%',
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
@@ -5081,6 +5150,19 @@
   
   '''
 # ---
+# name: test_create_table_query[writable_distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'distinct_id_usage')
+  
+  '''
+# ---
 # name: test_create_table_query[writable_error_tracking_issue_fingerprint_overrides]
   '''
   
@@ -5943,6 +6025,23 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[distinct_id_usage]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distinct_id_usage
+  (
+      team_id Int64,
+      distinct_id String,
+      minute DateTime,
+      event_count UInt64
+  ) ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.distinct_id_usage', '{replica}-{shard}', (event_count))
+  
+  PARTITION BY toYYYYMMDD(minute)
+  ORDER BY (team_id, minute, distinct_id)
+  
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[error_tracking_issue_fingerprint_embeddings]
   '''
   
@@ -6402,6 +6501,37 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[property_definitions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`property_definitions`
+  (
+      -- Team and project relationships
+      team_id UInt32,
+      project_id UInt32 NULL,
+  
+      -- Core property fields
+      name String,
+      property_type String NULL,
+      event String NULL, -- Only null for non-event types
+      group_type_index UInt8 NULL,
+  
+      -- Type enum (1=event, 2=person, 3=group, 4=session)
+      type UInt8 DEFAULT 1,
+  
+      -- Metadata
+      last_seen_at DateTime,
+  
+      -- A composite version number that prioritizes property_type presence over timestamp
+      -- We negate isNull() so rows WITH property_type get higher preference
+      version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
+  ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[query_log_archive]
   '''
   
@@ -6707,11 +6837,17 @@
               CODEC(ZSTD(1))
           , INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter, INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter,             properties_group_ai Map(String, String)
               MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices',
+                  mapFilter((key, _) -> key LIKE '$ai_%' AND key NOT IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
-          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
+          , INDEX properties_group_ai_keys_bf mapKeys(properties_group_ai) TYPE bloom_filter, INDEX properties_group_ai_values_bf mapValues(properties_group_ai) TYPE bloom_filter,             properties_group_ai_large Map(String, String)
+              MATERIALIZED mapSort(
+                  mapFilter((key, _) -> key IN ('$ai_input', '$ai_input_state', '$ai_output', '$ai_output_choices', '$ai_output_state', '$ai_tools'),
+                  CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
+              )
+              CODEC(ZSTD(1))
+          , INDEX properties_group_ai_large_keys_bf mapKeys(properties_group_ai_large) TYPE bloom_filter, INDEX properties_group_ai_large_values_bf mapValues(properties_group_ai_large) TYPE bloom_filter,             properties_group_feature_flags Map(String, String)
               MATERIALIZED mapSort(
                   mapFilter((key, _) -> key like '$feature/%',
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))

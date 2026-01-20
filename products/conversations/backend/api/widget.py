@@ -78,6 +78,8 @@ class WidgetMessageView(APIView):
         distinct_id = serializer.validated_data["distinct_id"]
         message_content = serializer.validated_data["message"]
         traits = serializer.validated_data.get("traits", {})
+        session_id = serializer.validated_data.get("session_id")
+        session_context = serializer.validated_data.get("session_context", {})
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")
@@ -115,7 +117,7 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,
@@ -123,6 +125,8 @@ class WidgetMessageView(APIView):
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
+                session_id=session_id,
+                session_context=session_context,
             )
 
         # Create message

@@ -131,6 +131,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
@@ -457,17 +458,7 @@ class Database(BaseModel):
                 )
 
             # Temp until we migrate all table names in the DB to use dot notation
-            if warehouse_table.external_data_source:
-                source_type = warehouse_table.external_data_source.source_type
-                prefix = warehouse_table.external_data_source.prefix
-                if prefix is not None and isinstance(prefix, str) and prefix != "":
-                    table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                    table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
-                else:
-                    table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
-                    table_key = f"{source_type}.{table_name_stripped}".lower()
-            else:
-                table_key = warehouse_table.name
+            table_key = get_data_warehouse_table_name(warehouse_table.external_data_source, warehouse_table.name)
 
             if include_only and table_key not in include_only:
                 continue
@@ -1080,6 +1071,22 @@ class Database(BaseModel):
                     capture_exception(e)
 
         return database
+
+
+def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
+    if source:
+        source_type = source.source_type
+        prefix = source.prefix
+        if prefix is not None and isinstance(prefix, str) and prefix != "":
+            table_name_stripped = table_name.replace(f"{prefix}{source_type}_".lower(), "")
+            table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+        else:
+            table_name_stripped = table_name.replace(f"{source_type}_".lower(), "")
+            table_key = f"{source_type}.{table_name_stripped}".lower()
+    else:
+        table_key = table_name
+
+    return table_key
 
 
 def _use_person_properties_from_events(database: Database) -> None:
