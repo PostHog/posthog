@@ -5,14 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import {
-    DefaultEvaluationEnvironmentsResponse,
-    defaultEvaluationEnvironmentsLogic,
-} from './defaultEvaluationEnvironmentsLogic'
+import { DefaultEvaluationContextsResponse, defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 
-describe('defaultEvaluationEnvironmentsLogic', () => {
-    let logic: ReturnType<typeof defaultEvaluationEnvironmentsLogic.build>
-    let mockResponse: DefaultEvaluationEnvironmentsResponse
+describe('defaultEvaluationContextsLogic', () => {
+    let logic: ReturnType<typeof defaultEvaluationContextsLogic.build>
+    let mockResponse: DefaultEvaluationContextsResponse
 
     beforeEach(() => {
         mockResponse = {
@@ -54,21 +51,21 @@ describe('defaultEvaluationEnvironmentsLogic', () => {
         })
 
         initKeaTests()
-        logic = defaultEvaluationEnvironmentsLogic()
+        logic = defaultEvaluationContextsLogic()
     })
 
     afterEach(() => {
         logic?.unmount()
     })
 
-    describe('loading default evaluation environments', () => {
+    describe('loading default evaluation contexts', () => {
         it('should load empty state initially', async () => {
             logic.mount()
 
             await expectLogic(logic)
-                .toDispatchActions(['loadDefaultEvaluationEnvironments', 'loadDefaultEvaluationEnvironmentsSuccess'])
+                .toDispatchActions(['loadDefaultEvaluationContexts', 'loadDefaultEvaluationContextsSuccess'])
                 .toMatchValues({
-                    defaultEvaluationEnvironments: {
+                    defaultEvaluationContexts: {
                         default_evaluation_tags: [],
                         enabled: false,
                     },
@@ -119,7 +116,7 @@ describe('defaultEvaluationEnvironmentsLogic', () => {
 
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationEnvironmentsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess'])
 
             await expectLogic(logic, () => {
                 logic.actions.removeTag('production')
@@ -148,7 +145,7 @@ describe('defaultEvaluationEnvironmentsLogic', () => {
 
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationEnvironmentsSuccess']).toMatchValues({
+            await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess']).toMatchValues({
                 canAddMoreTags: true,
             })
 

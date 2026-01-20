@@ -20,6 +20,9 @@ export interface TwoFactorStatus {
     is_enabled: boolean
     backup_codes: string[]
     method: string | null
+    has_passkeys?: boolean
+    has_totp?: boolean
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export interface TwoFactorLogicProps {

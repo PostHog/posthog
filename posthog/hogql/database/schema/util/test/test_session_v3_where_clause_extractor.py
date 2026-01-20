@@ -7,7 +7,10 @@ from posthog.schema import SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    is_session_id_string_expr,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
@@ -30,6 +33,36 @@ def parse(
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed
+
+
+class TestIsSessionIdStringExpr(ClickhouseTestMixin, APIBaseTest):
+    def test_handles_select_query_alias_type_without_crashing(self):
+        # Regression test: is_session_id_string_expr should not crash when
+        # the field's table_type is a SelectQueryAliasType (which doesn't have
+        # a .table attribute)
+        team = self.team
+        modifiers = create_default_modifiers_for_team(team)
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            enable_select_queries=True,
+            modifiers=modifiers,
+        )
+
+        # Create a field with FieldType where table_type is SelectQueryAliasType
+        select_query_type = ast.SelectQueryType(
+            columns={"session_id": ast.StringType()},
+        )
+        select_query_alias_type = ast.SelectQueryAliasType(
+            alias="subquery",
+            select_query_type=select_query_type,
+        )
+        field_type = ast.FieldType(name="session_id", table_type=select_query_alias_type)
+        field = ast.Field(chain=["subquery", "session_id"], type=field_type)
+
+        # This should return False without raising AttributeError
+        result = is_session_id_string_expr(field, context)
+        assert result is False
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -453,5 +486,25 @@ where `$start_timestamp` >= now() - toIntervalDay(7)
     from sessions
     where session_id == '01995624-6a63-7cc4-800c-f5a45d99fa9b'
     """
+        )
+        assert self.generalize_sql(actual) == self.snapshot
+
+    def test_select_query_alias_type_does_not_crash(self):
+        # Regression test: queries with aliased subqueries should not crash when
+        # the where clause extractor encounters a SelectQueryAliasType (which
+        # doesn't have a .table attribute)
+        actual = self.print_query(
+            """
+SELECT
+    subquery.session_id
+FROM (
+    SELECT
+        session_id,
+        $start_timestamp
+    FROM sessions
+    WHERE $start_timestamp >= '2024-01-01'
+) AS subquery
+WHERE subquery.session_id = '0199a58b-fdf2-785c-b6e3-6ba32b2380cf'
+"""
         )
         assert self.generalize_sql(actual) == self.snapshot

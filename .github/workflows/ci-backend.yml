@@ -207,6 +207,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |
@@ -757,6 +759,8 @@ jobs:
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
@@ -810,7 +814,7 @@ jobs:
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  sudo apt-get install unzip cmake curl uuid pkg-config
                   curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
@@ -1157,6 +1161,8 @@ jobs:
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  workspaces: rust
 
             - name: Install sqlx-cli
               run: |
