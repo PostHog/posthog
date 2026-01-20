@@ -549,25 +549,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance: DataWarehouseSavedQuery = self.get_object()
+        from products.data_modeling.backend.services.saved_query_dag_sync import (
+            HasDependentsError,
+            delete_node_from_dag,
+        )
 
+        instance: DataWarehouseSavedQuery = self.get_object()
         if instance.managed_viewset is not None:
             raise serializers.ValidationError(
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
-
-        # Check for dependents before deleting
         try:
-            from products.data_modeling.backend.services.saved_query_dag_sync import (
-                HasDependentsError,
-                delete_node_from_dag,
-            )
-
             delete_node_from_dag(instance)
-        except HasDependentsError as e:
+        except HasDependentsError:
             raise serializers.ValidationError(
-                f"Cannot delete this view because other views depend on it: {', '.join(e.dependent_names)}. "
-                "Delete or update those views first."
+                "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
         except Exception as e:
             capture_exception(e)
