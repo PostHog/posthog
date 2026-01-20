@@ -72,7 +72,10 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     return (
         <div className="min-h-full overflow-y-auto">
-            <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
+            <div
+                className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6"
+                style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom, 0px))' }}
+            >
                 <div className="text-center mb-4 sm:mb-8">
                     <h2 className="text-xl sm:text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
