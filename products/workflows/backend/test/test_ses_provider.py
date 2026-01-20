@@ -183,6 +183,9 @@ class TestSESProvider(TestCase):
             }
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
 
+
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
-        # Should return verified status with no DNS records needed
-        assert result == {"status": "success", "dnsRecords": []}
+        # Should return verified status with DNS records
+        assert result["status"] == "success"
+        assert len(result["dnsRecords"]) > 0  # Records are now always returned
+
