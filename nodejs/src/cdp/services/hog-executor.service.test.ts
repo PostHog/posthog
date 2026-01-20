@@ -1479,6 +1479,7 @@ describe('Hog Executor', () => {
                 })
 
                 const invocation = createExampleInvocation(hogFunction, {
+                    inputs: {}, // Set inputs so globals references invocation.state.globals
                     push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
                 })
 
@@ -1530,6 +1531,7 @@ describe('Hog Executor', () => {
                 })
 
                 const invocation = createExampleInvocation(hogFunction, {
+                    inputs: {}, // Set inputs so globals references invocation.state.globals
                     push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
                 })
 
@@ -1604,6 +1606,7 @@ describe('Hog Executor', () => {
                 })
 
                 const invocation = createExampleInvocation(hogFunction, {
+                    inputs: {}, // Set inputs so globals references invocation.state.globals
                     push_subscriptions: [{ id: 'sub-1' }, { id: 'sub-2' }],
                 })
 
