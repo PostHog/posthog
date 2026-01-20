@@ -107,7 +107,7 @@ fn test_exclude() {
         &None,
     )
     .expect("Failed to read pairs");
-    assert_eq!(pairs.len(), 4);
+    assert_eq!(pairs.len(), 5);
     assert!(pairs
         .iter()
         .map(|pair| &pair.source.inner.path)
