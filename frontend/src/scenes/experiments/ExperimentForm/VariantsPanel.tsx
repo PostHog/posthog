@@ -158,7 +158,12 @@ export function VariantsPanel({
                             onChange={handleFeatureFlagSelection}
                             inputTransform={(value) => value.replace(/\s+/g, '-')}
                             allowCustomValues
-                            formatCreateLabel={(input) => `${input} (new entry)`}
+                            formatCreateLabel={(input) => (
+                                <span>
+                                    {input}
+                                    <span className="text-muted italic"> (new entry)</span>
+                                </span>
+                            )}
                             loading={featureFlagsLoading}
                             disabled={disabled}
                             fullWidth

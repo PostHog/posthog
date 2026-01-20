@@ -65,8 +65,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     allowCustomValues?: boolean
     /** Disable editing functionality (hides edit icons) while still allowing custom values */
     disableEditing?: boolean
-    /** Format the label for custom values, e.g. appending " (new)". Receives the input string and returns the formatted label. */
-    formatCreateLabel?: (input: string) => string
+    /** Format the label for custom values. Supports text (e.g. appending " (new entry)") and html. */
+    formatCreateLabel?: (input: string) => React.ReactNode
     /** Transform input value as user types, e.g. normalization like replacing spaces with dashes. */
     inputTransform?: (input: string) => string
     emptyStateComponent?: React.ReactNode
