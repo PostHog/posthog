@@ -4,9 +4,11 @@ from posthog.test.base import BaseTest
 from products.data_modeling.backend.models import Edge, Node
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
+    HasDependentsError,
     delete_node_from_dag,
     get_conflict_dag_id,
     get_dag_id,
+    get_dependent_saved_queries,
     sync_saved_query_to_dag,
     update_node_type,
 )
@@ -243,6 +245,99 @@ class TestDeleteNodeFromDag(BaseTest):
         # shouldn't raise
         delete_node_from_dag(saved_query)
 
+    def test_delete_raises_error_when_has_dependents(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream)
+        with self.assertRaises(HasDependentsError):
+            delete_node_from_dag(upstream)
+
+    def test_delete_succeeds_when_no_dependents(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+        delete_node_from_dag(upstream)
+        self.assertEqual(Node.objects.filter(saved_query=upstream).count(), 0)
+
+
+@pytest.mark.django_db
+class TestGetDependents(BaseTest):
+    def test_get_dependents_returns_empty_when_no_dependents(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(saved_query)
+        dependents = get_dependent_saved_queries(saved_query)
+        self.assertEqual(dependents, [])
+
+    def test_get_dependents_returns_immediate_dependents(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+        downstream1 = DataWarehouseSavedQuery.objects.create(
+            name="downstream1",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream1)
+        downstream2 = DataWarehouseSavedQuery.objects.create(
+            name="downstream2",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream2)
+        dependents = get_dependent_saved_queries(upstream)
+        dependent_names = {d.name for d in dependents}
+        self.assertEqual(len(dependents), 2)
+        self.assertIn("downstream1", dependent_names)
+        self.assertIn("downstream2", dependent_names)
+
+    def test_get_dependents_excludes_deleted_views(self):
+        upstream = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream)
+        downstream = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(downstream)
+        # soft delete the downstream view
+        downstream.deleted = True
+        downstream.save()
+        dependents = get_dependent_saved_queries(upstream)
+        self.assertEqual(dependents, [])
+
+    def test_get_dependents_returns_empty_when_no_node(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        # no node exists
+        dependents = get_dependent_saved_queries(saved_query)
+        self.assertEqual(dependents, [])
+
 
 @pytest.mark.django_db
 class TestUpdateNodeType(BaseTest):
@@ -254,12 +349,9 @@ class TestUpdateNodeType(BaseTest):
         )
         node = sync_saved_query_to_dag(saved_query)
         self.assertEqual(node.type, NodeType.VIEW)
-
         update_node_type(saved_query, NodeType.MAT_VIEW)
-
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.MAT_VIEW)
-
         update_node_type(saved_query, NodeType.VIEW)
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.VIEW)

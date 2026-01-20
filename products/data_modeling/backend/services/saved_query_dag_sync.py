@@ -6,6 +6,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
@@ -41,74 +42,66 @@ def resolve_dependency_to_node(
     database: Database,
 ) -> Node:
     """
-    Resolve a dependency name to a Node.
+    Resolve a dependency name to a Node following HogQL's resolution priority.
 
-    Resolution order (same as get_or_create_query_parent_paths in modeling.py):
-    1. Check if it's a SavedQuery name -> return existing VIEW/MATVIEW node
-    2. Check if it's a DataWarehouseTable -> return/create TABLE node
-    3. Check if it's a PostHog table (events, persons, etc.) -> return/create TABLE node
-    4. Raise UnknownParentError if not found
+    Creates TABLE nodes as needed for warehouse and PostHog system tables.
+    For SavedQuery views and matviews, we only find existing nodes or error.
 
-    Side Effects:
-    - calling this may or may not create nodes for dwh tables or posthog tables. it will NEVER create
-      nodes for views or matviews
+    Resolution order:
+    1. PostHog system table (events, persons, etc.)
+    2. SavedQuery view or matview
+    3. DataWarehouse table (postgres, stripe, etc.)
+
+    Raises UnknownParentError if the dependency cannot be resolved.
     """
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
-    # 1. saved query aka view / matview (should raise if Node not found - indicates query references non-existent node)
-    try:
-        saved_query = (
-            DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=dependency_name).get()
-        )
-        node_type = NodeType.MAT_VIEW if saved_query.is_materialized else NodeType.VIEW
-        return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name, type=node_type)
-    except DataWarehouseSavedQuery.DoesNotExist:
-        pass
-    # 2. warehouse source table
+    # get hogql's understanding of this table
     try:
         table = database.get_table(dependency_name)
-        if isinstance(table, HogQLDataWarehouseTable):
-            if table.table_id:
-                warehouse_table = (
-                    DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, id=table.table_id).get()
-                )
-            else:
-                warehouse_table = (
-                    DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
-                )
-            # first try to find by warehouse_table_id
-            node = Node.objects.filter(
-                team=team, dag_id=dag_id, type=NodeType.TABLE, properties__warehouse_table_id=str(warehouse_table.id)
-            ).first()
-            if node:
-                return node
-            # otherwise get or create by name
-            node, _ = Node.objects.get_or_create(
-                team=team,
-                dag_id=dag_id,
-                name=dependency_name,
-                type=NodeType.TABLE,
-                defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+    except QueryError:
+        raise UnknownParentError(dependency_name, "")
+    # ephemeral view
+    if isinstance(table, HogQLSavedQuery):
+        saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)
+        return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name)
+
+    # table in s3
+    if isinstance(table, HogQLDataWarehouseTable):
+        if table.table_id:
+            saved_query = (
+                DataWarehouseSavedQuery.objects.filter(team=team, table_id=table.table_id).exclude(deleted=True).first()
             )
-            return node
-    except (DataWarehouseTable.DoesNotExist, QueryError):
-        pass
-    # 3. posthog system table
-    try:
-        database.get_table(dependency_name)
-        # if we haven't returned or errored by this point, this is a posthog system table
+            # matview
+            if saved_query:
+                return Node.objects.get(team=team, dag_id=dag_id, saved_query=saved_query, name=dependency_name)
+            # warehouse table
+            warehouse_table = (
+                DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
+            )
+        else:
+            warehouse_table = (
+                DataWarehouseTable.objects.filter(team=team, name=dependency_name).exclude(deleted=True).first()
+            )
+        if not warehouse_table:
+            raise UnknownParentError(dependency_name, "")
         node, _ = Node.objects.get_or_create(
             team=team,
             dag_id=dag_id,
             name=dependency_name,
             type=NodeType.TABLE,
-            defaults={"properties": {"origin": "posthog"}},
+            defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
         )
         return node
-    except QueryError:
-        pass
-    # 4. unknown parent
-    raise UnknownParentError(dependency_name, "")
+    # system table
+    node, _ = Node.objects.get_or_create(
+        team=team,
+        dag_id=dag_id,
+        name=dependency_name,
+        type=NodeType.TABLE,
+        defaults={"properties": {"origin": "posthog"}},
+    )
+    return node
 
 
 def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | None:
@@ -138,8 +131,8 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
     # determine node type based on materialization status (fk to datawarehouse table)
     node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
     target, _ = Node.objects.get_or_create(
-        saved_query=saved_query,
         team=team,
+        saved_query=saved_query,
         dag_id=dag_id,
         defaults={"name": saved_query.name, "type": node_type},
     )
@@ -148,7 +141,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
 
     database = Database.create_for(team=team)
     # clear previous incoming edges, dependencies may have changed
-    Edge.objects.filter(target=target).delete()
+    Edge.objects.filter(team=team, target=target).delete()
 
     unresolved = []
     for dependency_name in dependencies:
@@ -201,15 +194,42 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
     return target
 
 
+class HasDependentsError(Exception):
+    """Raised when attempting to delete a saved query that has dependents."""
+
+    pass
+
+
+def get_dependent_saved_queries(saved_query: "DataWarehouseSavedQuery") -> list["DataWarehouseSavedQuery"]:
+    """
+    Get SavedQueries that depend on this one (immediate dependents only).
+
+    Returns a list of DataWarehouseSavedQuery objects that have edges pointing
+    from this saved query's node (i.e., they reference this view in their query).
+    """
+    node = Node.objects.filter(team=saved_query.team, saved_query=saved_query).first()
+    if not node:
+        return []
+    deps = Node.objects.filter(
+        team=saved_query.team,
+        incoming_edges__source=node,
+        saved_query__isnull=False,
+    ).select_related("saved_query")
+    return [d.saved_query for d in deps if d.saved_query and not d.saved_query.deleted]
+
+
 def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     """
-    Delete the Node for a SavedQuery (cascades to Edges via on_delete=CASCADE).
+    Delete the Node for a SavedQuery (cascades to edges)
 
     Must be called BEFORE soft_delete() due to on_delete=PROTECT on the saved_query FK.
     """
-    Node.objects.filter(saved_query=saved_query).delete()
+    deps = get_dependent_saved_queries(saved_query)
+    if deps:
+        raise HasDependentsError("Node cannot be deleted because it has dependents")
+    Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
     """Update a Node's type to MAT_VIEW when materialized."""
-    Node.objects.filter(saved_query=saved_query).update(type=type)
+    Node.objects.filter(team=saved_query.team, saved_query=saved_query).update(type=type)

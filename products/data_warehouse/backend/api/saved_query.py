@@ -556,19 +556,27 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
 
+        # Check for dependents before deleting
+        try:
+            from products.data_modeling.backend.services.saved_query_dag_sync import (
+                HasDependentsError,
+                delete_node_from_dag,
+            )
+
+            delete_node_from_dag(instance)
+        except HasDependentsError as e:
+            raise serializers.ValidationError(
+                f"Cannot delete this view because other views depend on it: {', '.join(e.dependent_names)}. "
+                "Delete or update those views first."
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to delete node for saved query", saved_query_name=instance.name)
+
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
         ).exclude(deleted=True):
             join.soft_delete()
-
-        # delete data modeling Node (cascades to Edges) (doesn't fail)
-        try:
-            from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
-
-            delete_node_from_dag(instance)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to delete node for saved query", saved_query_name=instance.name)
 
         instance.revert_materialization()
         instance.soft_delete()
