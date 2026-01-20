@@ -6,14 +6,23 @@ from pathlib import Path
 from unittest import TestCase
 
 from infi.clickhouse_orm.utils import import_submodules
+from parameterized import parameterized
 
 from posthog.clickhouse.client.connection import NodeRole
 
+MIGRATION_PACKAGES = [
+    ("main", "posthog.clickhouse.migrations", Path(__file__).parent.parent / "migrations"),
+    ("logs", "posthog.clickhouse.migrations_logs", Path(__file__).parent.parent / "migrations_logs"),
+]
+
 
 class TestUniqueMigrationPrefixes(TestCase):
-    def test_migration_prefixes_are_unique(self):
+    @parameterized.expand(MIGRATION_PACKAGES)
+    def test_migration_prefixes_are_unique(self, name: str, package_name: str, migrations_dir: Path):
         """Test that no two migration files have the same numeric prefix."""
-        migrations_dir = Path(__file__).parent.parent
+        if not migrations_dir.exists():
+            self.skipTest(f"Migrations directory does not exist: {migrations_dir}")
+
         migration_files = [f for f in os.listdir(migrations_dir) if f.endswith(".py") and f != "__init__.py"]
 
         # Extract prefixes and group by prefix
@@ -23,8 +32,8 @@ class TestUniqueMigrationPrefixes(TestCase):
             match = re.match(r"^(\d+)_(.+)\.py$", migration_file)
             if match:
                 prefix = match.group(1)
-                # Skip files with prefix less than 0083
-                if int(prefix) <= 83:
+                # For main cluster, skip files with prefix less than 0083 (legacy)
+                if name == "main" and int(prefix) <= 83:
                     continue
                 prefix_to_files[prefix].append(migration_file)
 
@@ -32,7 +41,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         duplicates = {prefix: files for prefix, files in prefix_to_files.items() if len(files) > 1}
 
         if duplicates:
-            error_message = "Found migration files with duplicate prefixes:\n"
+            error_message = f"Found migration files with duplicate prefixes in {name} cluster:\n"
             for prefix, files in duplicates.items():
                 error_message += f"  Prefix {prefix}:\n"
                 for file in files:
@@ -41,15 +50,18 @@ class TestUniqueMigrationPrefixes(TestCase):
 
             self.fail(error_message)
 
-    def test_max_migration_txt_is_valid(self):
+    @parameterized.expand(MIGRATION_PACKAGES)
+    def test_max_migration_txt_is_valid(self, name: str, package_name: str, migrations_dir: Path):
         """Test that max_migration.txt exists and points to the latest migration."""
-        migrations_dir = Path(__file__).parent.parent / "migrations"
+        if not migrations_dir.exists():
+            self.skipTest(f"Migrations directory does not exist: {migrations_dir}")
+
         max_migration_txt = migrations_dir / "max_migration.txt"
 
         # Check that max_migration.txt exists
         self.assertTrue(
             max_migration_txt.exists(),
-            "max_migration.txt does not exist in clickhouse/migrations/. "
+            f"max_migration.txt does not exist in {migrations_dir}. "
             "This file is required to prevent migration conflicts.",
         )
 
@@ -61,7 +73,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         self.assertEqual(
             len(lines),
             1,
-            f"max_migration.txt contains {len(lines)} lines but should contain exactly 1. "
+            f"max_migration.txt in {name} cluster contains {len(lines)} lines but should contain exactly 1. "
             "This may be the result of a git merge. Fix the file to contain only the name "
             "of the latest migration.",
         )
@@ -72,7 +84,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         max_migration_file = migrations_dir / f"{max_migration_name}.py"
         self.assertTrue(
             max_migration_file.exists(),
-            f"max_migration.txt points to {max_migration_name!r} but that file doesn't exist. "
+            f"max_migration.txt in {name} cluster points to {max_migration_name!r} but that file doesn't exist. "
             "Update max_migration.txt to point to the latest migration.",
         )
 
@@ -93,7 +105,7 @@ class TestUniqueMigrationPrefixes(TestCase):
         self.assertEqual(
             max_migration_name,
             latest_migration,
-            f"max_migration.txt contains {max_migration_name!r} but the latest migration "
+            f"max_migration.txt in {name} cluster contains {max_migration_name!r} but the latest migration "
             f"is {latest_migration!r}. Update max_migration.txt to contain {latest_migration!r}.",
         )
 
@@ -121,12 +133,16 @@ class TestUniqueMigrationPrefixes(TestCase):
 
         return errors
 
-    def test_alter_on_replicated_tables_has_correct_flag(self):
+    @parameterized.expand(
+        [
+            ("main", "posthog.clickhouse.migrations", 150),
+            ("logs", "posthog.clickhouse.migrations_logs", 1),
+        ]
+    )
+    def test_alter_on_replicated_tables_has_correct_flag(self, name: str, package_name: str, min_migration_number: int):
         """Test that ALTER TABLE on replicated non-sharded tables uses is_alter_on_replicated_table=True."""
-        MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
-
         # Load all migration modules
-        modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
+        modules = import_submodules(package_name)
 
         violations = []
 
@@ -135,10 +151,9 @@ class TestUniqueMigrationPrefixes(TestCase):
             if not re.match(r"^\d+_", migration_name):
                 continue
 
-            # Skip migrations before 0150 (validation applies to new migrations only)
-            # Migrations 0083-0150 may not follow this rule as they were created before this validation
+            # Skip migrations before the minimum number (validation applies to new migrations only)
             migration_number = int(re.match(r"^(\d+)_", migration_name).group(1))  # type: ignore[union-attr]
-            if migration_number < 150:
+            if migration_number < min_migration_number:
                 continue
 
             # Get operations from the module
@@ -178,7 +193,7 @@ class TestUniqueMigrationPrefixes(TestCase):
                     )
 
         if violations:
-            error_message = "Found ALTER TABLE statements with some incorrect arguments:\n\n"
+            error_message = f"Found ALTER TABLE statements with incorrect arguments in {name} cluster:\n\n"
 
             for v in violations:
                 error_message += f"Migration: {v['migration']}\n"

@@ -251,6 +251,9 @@ CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.geten
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
+CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "logs")
+CLICKHOUSE_LOGS_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_MIGRATIONS_CLUSTER", "logs")
+CLICKHOUSE_LOGS_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_LOGS_MIGRATIONS_HOST", CLICKHOUSE_LOGS_CLUSTER_HOST)
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
 
 # Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
@@ -294,6 +297,15 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+# HTTP URL for logs cluster migrations
+_logs_http_protocol = "http://"
+_logs_http_port = "8123"
+if CLICKHOUSE_LOGS_CLUSTER_SECURE:
+    _logs_http_protocol = "https://"
+    _logs_http_port = "8443"
+
+CLICKHOUSE_LOGS_HTTP_URL: str = f"{_logs_http_protocol}{CLICKHOUSE_LOGS_CLUSTER_HOST}:{_logs_http_port}/"
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)

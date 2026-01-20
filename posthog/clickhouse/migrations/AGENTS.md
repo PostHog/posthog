@@ -350,3 +350,65 @@ operations = [
 ```
 
 See migration 0153 for a complete example.
+
+# Multiple clusters
+
+PostHog supports migrations on multiple ClickHouse clusters. Each cluster has its own migration directory with independent numbering.
+
+## Available clusters
+
+| Cluster        | Directory                             | Package                              | Command                                              |
+| -------------- | ------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Main (default) | `posthog/clickhouse/migrations/`      | `posthog.clickhouse.migrations`      | `python manage.py migrate_clickhouse`                |
+| Logs           | `posthog/clickhouse/migrations_logs/` | `posthog.clickhouse.migrations_logs` | `python manage.py migrate_clickhouse --cluster=logs` |
+
+## Running migrations
+
+```bash
+# Main cluster (default)
+python manage.py migrate_clickhouse
+
+# Logs cluster
+python manage.py migrate_clickhouse --cluster=logs
+
+# With other options
+python manage.py migrate_clickhouse --cluster=logs --plan
+python manage.py migrate_clickhouse --cluster=logs --check
+```
+
+## Creating migrations for logs cluster
+
+1. Create migration files in `posthog/clickhouse/migrations_logs/` directory
+2. Use `run_sql_on_logs_cluster()` instead of `run_sql_with_exceptions()`:
+
+```python
+from posthog.clickhouse.client.migration_tools import run_sql_on_logs_cluster
+from posthog.clickhouse.client.connection import NodeRole
+
+operations = [
+    run_sql_on_logs_cluster(
+        """
+        CREATE TABLE IF NOT EXISTS my_logs_table (...)
+        """,
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ),
+]
+```
+
+3. Update `posthog/clickhouse/migrations_logs/max_migration.txt` with the new migration name
+
+## Configuration
+
+The logs cluster connection is configured via environment variables:
+
+| Variable                             | Default                        | Description             |
+| ------------------------------------ | ------------------------------ | ----------------------- |
+| `CLICKHOUSE_LOGS_CLUSTER_HOST`       | `localhost`                    | Logs cluster host       |
+| `CLICKHOUSE_LOGS_CLUSTER_PORT`       | `9000`                         | Logs cluster port       |
+| `CLICKHOUSE_LOGS_CLUSTER_USER`       | `default`                      | Logs cluster username   |
+| `CLICKHOUSE_LOGS_CLUSTER_PASSWORD`   | (empty)                        | Logs cluster password   |
+| `CLICKHOUSE_LOGS_DATABASE`           | `default`                      | Logs cluster database   |
+| `CLICKHOUSE_LOGS_CLUSTER_SECURE`     | `false` (dev)                  | Use HTTPS               |
+| `CLICKHOUSE_LOGS_CLUSTER`            | `posthog_logs`                 | Cluster name            |
+| `CLICKHOUSE_LOGS_MIGRATIONS_CLUSTER` | `posthog_logs_migrations`      | Migrations cluster name |
+| `CLICKHOUSE_LOGS_MIGRATIONS_HOST`    | `CLICKHOUSE_LOGS_CLUSTER_HOST` | Migrations host         |
