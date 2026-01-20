@@ -137,7 +137,13 @@
                     <tbody>
                         <tr>
                             <td><a href="/admin/posthog/oauthaccesstoken/{{ oauth_access_token_object.id }}/change/">OAuth Access Token</a></td>
-                            <td><a href="/admin/posthog/user/{{ oauth_access_token_object.user.id }}/change/">{{ oauth_access_token_object.user.email }}</a></td>
+                            <td>
+                                {% if oauth_access_token_object.user %}
+                                <a href="/admin/posthog/user/{{ oauth_access_token_object.user.id }}/change/">{{ oauth_access_token_object.user.email }}</a>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if oauth_access_token_object.application %}
                                 <a href="/admin/posthog/oauthapplication/{{ oauth_access_token_object.application.id }}/change/">{{ oauth_access_token_object.application.name }}</a>
@@ -175,7 +181,13 @@
                     <tbody>
                         <tr>
                             <td><a href="/admin/posthog/oauthrefreshtoken/{{ oauth_refresh_token_object.id }}/change/">OAuth Refresh Token</a></td>
-                            <td><a href="/admin/posthog/user/{{ oauth_refresh_token_object.user.id }}/change/">{{ oauth_refresh_token_object.user.email }}</a></td>
+                            <td>
+                                {% if oauth_refresh_token_object.user %}
+                                <a href="/admin/posthog/user/{{ oauth_refresh_token_object.user.id }}/change/">{{ oauth_refresh_token_object.user.email }}</a>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
                             <td>
                                 {% if oauth_refresh_token_object.application %}
                                 <a href="/admin/posthog/oauthapplication/{{ oauth_refresh_token_object.application.id }}/change/">{{ oauth_refresh_token_object.application.name }}</a>
