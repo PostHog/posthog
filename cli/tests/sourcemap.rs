@@ -162,6 +162,42 @@ fn test_index_inject() {
 }
 
 #[test]
+fn test_index_inject_retains_extension_fields() {
+    let case_path = get_case_path("index_map_with_extension");
+    let mut pairs =
+        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
+    let current_pair = pairs.first_mut().expect("Failed to get first pair");
+
+    assert!(current_pair
+        .sourcemap
+        .inner
+        .content
+        .fields
+        .contains_key("x_custom_extension_field"));
+
+    let chunk_id = "00000-00000-00000";
+    current_pair
+        .add_chunk_id(chunk_id.to_string())
+        .expect("Failed to set chunk ID");
+
+    // Extension field should be retained after flattening
+    assert!(
+        current_pair
+            .sourcemap
+            .inner
+            .content
+            .fields
+            .contains_key("x_custom_extension_field"),
+        "Extension field should be retained after flattening index map"
+    );
+
+    // Should still be parseable as a valid flattened sourcemap
+    let bytes = serde_json::to_string(&current_pair.sourcemap.inner.content).unwrap();
+    let _ = sourcemap::SourceMap::from_slice(bytes.as_bytes())
+        .expect("Failed to parse as a flattened sourcemap");
+}
+
+#[test]
 fn test_pair_remove() {
     let case_path = get_case_path("inject");
     let mut pairs =
