@@ -45,11 +45,30 @@ class CostThrottle(Throttle):
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
-        limit, _ = self._get_limit_and_window(context)
+        limit, window = self._get_limit_and_window(context)
 
         current = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        logger.debug(
+            "cost_throttle_check",
+            scope=self.scope,
+            key=key,
+            current_cost=current,
+            limit=limit,
+            window_seconds=window,
+            ttl_seconds=ttl,
+            remaining=limit - current,
+        )
         if current >= limit:
             retry_after = await limiter.get_ttl(key)
+            logger.warning(
+                "cost_throttle_exceeded",
+                scope=self.scope,
+                key=key,
+                current_cost=current,
+                limit=limit,
+                retry_after=retry_after,
+            )
             return ThrottleResult.deny(
                 detail=self._get_limit_exceeded_detail(),
                 scope=self.scope,
@@ -62,7 +81,21 @@ class CostThrottle(Throttle):
             return
         limiter = self._get_limiter(context)
         key = self._get_cache_key(context)
+        limit, window = self._get_limit_and_window(context)
         await limiter.incr(key, cost)
+        new_total = await limiter.get_current(key)
+        ttl = await limiter.get_ttl(key)
+        logger.debug(
+            "cost_throttle_recorded",
+            scope=self.scope,
+            key=key,
+            cost=cost,
+            new_total=new_total,
+            limit=limit,
+            window_seconds=window,
+            ttl_seconds=ttl,
+            remaining=limit - new_total,
+        )
 
 
 class ProductCostThrottle(CostThrottle):
@@ -110,3 +143,9 @@ class UserCostThrottle(CostThrottle):
         window = settings.default_user_cost_window_seconds
         team_mult = self._get_team_multiplier(context)
         return base_limit * team_mult, window
+
+    async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+        settings = get_settings()
+        if settings.user_cost_limits_disabled:
+            return ThrottleResult.allow()
+        return await super().allow_request(context)
