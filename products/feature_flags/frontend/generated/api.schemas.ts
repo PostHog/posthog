@@ -139,9 +139,6 @@ export interface FeatureFlagApi {
     readonly updated_at: string | null
     version?: number
     readonly last_modified_by: UserBasicApi
-    readonly is_simple_flag: boolean
-    /** @nullable */
-    readonly rollout_percentage: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: string
@@ -229,9 +226,6 @@ export interface PatchedFeatureFlagApi {
     readonly updated_at?: string | null
     version?: number
     readonly last_modified_by?: UserBasicApi
-    readonly is_simple_flag?: boolean
-    /** @nullable */
-    readonly rollout_percentage?: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set?: string
