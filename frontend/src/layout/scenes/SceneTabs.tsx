@@ -140,7 +140,7 @@ export function SceneTabs(): JSX.Element {
                                 <div className="flex-1" />
                                 <AppShortcut
                                     name="OpenSidePanel"
-                                    keybind={[keyBinds.newTab]}
+                                    keybind={[keyBinds.openSidePanel]}
                                     intent="Open side panel"
                                     interaction="click"
                                 >
@@ -156,6 +156,7 @@ export function SceneTabs(): JSX.Element {
                                             }
                                         }}
                                         tooltip={sidePanelOpen ? 'Close side panel' : 'Open side panel'}
+                                        tooltipPlacement="bottom-end"
                                         tooltipCloseDelayMs={0}
                                         buttonProps={{
                                             iconOnly: true,
