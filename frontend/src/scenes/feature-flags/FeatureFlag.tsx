@@ -461,7 +461,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     )
                                 }}
                             </LemonField>
-                            {isNewFeatureFlag && (
+                            {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
                                 <LemonField name="_should_create_usage_dashboard">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -1388,17 +1388,29 @@ function FeatureFlagRollout({
                                 </span>
                             ) : (
                                 <>
-                                    {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                    {multivariateEnabled ? (
-                                        <>
-                                            <strong>a variant key</strong> according to the below distribution
-                                        </>
-                                    ) : (
-                                        <strong>
-                                            <code>true</code>
-                                        </strong>
-                                    )}{' '}
-                                    <span>if they match one or more release condition groups.</span>
+                                    <div>
+                                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                        {multivariateEnabled ? (
+                                            <>
+                                                <strong>a variant key</strong> according to the below distribution
+                                            </>
+                                        ) : (
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                        )}{' '}
+                                        if they match one or more release condition groups.
+                                        {multivariateEnabled && (
+                                            <>
+                                                {' '}
+                                                Otherwise, the feature flag will evaluate to{' '}
+                                                <strong>
+                                                    <code>false</code>
+                                                </strong>
+                                                .
+                                            </>
+                                        )}
+                                    </div>
                                 </>
                             )}
                         </div>

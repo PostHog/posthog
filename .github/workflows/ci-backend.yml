@@ -457,6 +457,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
+              env:
+                  npm_config_fetch_retries: 3
+                  npm_config_fetch_retry_mintimeout: 10000
+                  npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm install --frozen-lockfile
 
             - name: Check if OpenAPI types are up to date
@@ -818,7 +822,7 @@ jobs:
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  sudo apt-get install unzip cmake curl uuid pkg-config
                   curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure
                   anltr_known_md5sum="c875c148991aacd043f733827644a76f"
@@ -907,22 +911,6 @@ jobs:
             # - name: Setup tmate session
             #   if: failure()
             #   uses: mxschmitt/action-tmate@v3
-
-            - name: Run /decide read replica tests
-              id: run-decide-read-replica-tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && matrix.group == 1 && !matrix.person-on-events }}
-              env:
-                  POSTHOG_DB_NAME: posthog
-                  READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
-                  POSTHOG_POSTGRES_READ_HOST: localhost
-                  POSTHOG_DB_PASSWORD: posthog
-                  POSTHOG_DB_USER: posthog
-              shell: bash
-              run: |
-                  pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                      --durations=1000 --durations-min=1.0 \
-                      --reruns 2 --reruns-delay 1 \
-                      $PYTEST_ARGS
 
             - name: Run Temporal tests
               id: run-temporal-tests

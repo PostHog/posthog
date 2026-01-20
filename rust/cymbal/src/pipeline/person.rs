@@ -80,7 +80,7 @@ pub async fn add_person_properties(
         let person = handle
             .await
             .expect("Task completes")
-            .map_err(|e| (val.indices[0], e.into()))?;
+            .map_err(|e| (val.indices[0], Arc::new(e.into())))?;
 
         persons_lut.insert(distinct_id, person);
     }
@@ -107,7 +107,7 @@ pub async fn add_person_properties(
         event.person_created_at = Some(format_ch_datetime(person.created_at));
         event.person_id = Some(person.uuid.to_string());
         event.person_properties =
-            Some(serde_json::to_string(&person.properties).map_err(|e| (i, e.into()))?);
+            Some(serde_json::to_string(&person.properties).map_err(|e| (i, Arc::new(e.into())))?);
     }
 
     Ok(events)

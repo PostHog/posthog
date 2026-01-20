@@ -43,6 +43,7 @@ from posthog.helpers.two_factor_session import set_two_factor_verified_in_sessio
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +52,7 @@ WEBAUTHN_REGISTRATION_CHALLENGE_KEY = "webauthn_registration_challenge"
 WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY = "webauthn_registration_credential_id"
 WEBAUTHN_VERIFICATION_CHALLENGE_KEY = "webauthn_verification_challenge"
 WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
+WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 CHALLENGE_TIMEOUT_MS = 300000  # 5 minutes
 SUPPORTED_PUB_KEY_ALGS = [
     COSEAlgorithmIdentifier.ECDSA_SHA_512,
@@ -259,6 +261,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
         Uses WebauthnBackend to verify the credential and authenticate the user.
         """
+
         challenge = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
         request.session.save()
 
@@ -472,6 +475,10 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         try:
             credential = WebauthnCredential.objects.get(pk=pk, user=user)
+
+            if credential.verified:
+                send_passkey_removed_email.delay(user.id)
+
             credential.delete()
             logger.info("webauthn_credential_deleted", user_id=user.pk, credential_id=pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -603,6 +610,8 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             credential.verified = True
             credential.counter = verification.new_sign_count
             credential.save()
+
+            send_passkey_added_email.delay(user.id)
 
             logger.info("webauthn_credential_verify_complete", user_id=user.pk, credential_id=credential.pk)
 
