@@ -5,10 +5,12 @@ use crate::{
     },
     config_cache::get_cached_config,
     handler::session_recording::on_permitted_domain,
+    metrics::consts::TOMBSTONE_COUNTER,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use limiters::redis::QuotaResource;
+use metrics::counter;
 use serde_json::{json, Value};
 
 use super::types::RequestContext;
@@ -40,7 +42,25 @@ pub async fn build_response_from_cache(
 
     let mut cached_config =
         match get_cached_config(&context.state.config_hypercache_reader, &team.api_token).await {
-            Some(config) => config,
+            Some(Value::Object(map)) => Value::Object(map),
+            Some(_) => {
+                // Cached value is not a JSON object - this should never happen
+                // Python always writes config as a JSON object to hypercache
+                tracing::warn!(
+                    team_id = team.id,
+                    api_token = %team.api_token,
+                    "Config cache returned non-object value - returning fallback config"
+                );
+                counter!(
+                    TOMBSTONE_COUNTER,
+                    "namespace" => "feature_flags",
+                    "operation" => "config_cache_non_object",
+                    "component" => "config_response_builder",
+                )
+                .increment(1);
+
+                return Ok(apply_fallback_config(response, team, is_recordings_limited));
+            }
             None => {
                 // Cache miss - return minimal fallback config with quota info
                 tracing::warn!(
@@ -49,15 +69,7 @@ pub async fn build_response_from_cache(
                     "Config cache miss - returning fallback config"
                 );
 
-                let has_flags = !response.flags.is_empty();
-                response.config = ConfigResponse::fallback(&team.api_token, has_flags);
-
-                if is_recordings_limited {
-                    response.quota_limited =
-                        Some(vec![QuotaResource::Recordings.as_str().to_string()]);
-                }
-
-                return Ok(response);
+                return Ok(apply_fallback_config(response, team, is_recordings_limited));
             }
         };
 
@@ -82,6 +94,22 @@ pub async fn build_response_from_cache(
     );
 
     Ok(response)
+}
+
+/// Apply fallback config when cache is unavailable or returns unexpected data.
+fn apply_fallback_config(
+    mut response: FlagsResponse,
+    team: &Team,
+    is_recordings_limited: bool,
+) -> FlagsResponse {
+    let has_flags = !response.flags.is_empty();
+    response.config = ConfigResponse::fallback(&team.api_token, has_flags);
+
+    if is_recordings_limited {
+        response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()]);
+    }
+
+    response
 }
 
 /// Set quota_limited to include "recordings" when recordings are quota limited.
