@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { IconCheck, IconCheckCircle, IconWarning } from '@posthog/icons'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -95,16 +96,10 @@ export const OAuthAuthorize = (): JSX.Element => {
                 )}
 
                 {scopesWereDefaulted && isMcpResource && (
-                    <div
-                        role="status"
-                        className="flex items-center gap-2 p-3 mb-4 bg-side border border-border rounded text-sm"
-                    >
-                        <IconWarning className="text-muted-alt shrink-0" />
-                        <span>
-                            <strong>No permissions requested.</strong> This application didn't request specific
-                            permissions. Showing all permissions supported by this resource.
-                        </span>
-                    </div>
+                    <LemonBanner type="info" className="mb-4">
+                        <strong>No permissions requested.</strong> This application didn't request specific permissions.
+                        Showing all permissions supported by this resource.
+                    </LemonBanner>
                 )}
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
