@@ -1,0 +1,17 @@
+# CI marker targets for target-determinator
+#
+# These targets don't actually run tests - they're markers that
+# target-determinator uses to determine which CI jobs need to run.
+#
+# When legacy code changes, target-determinator outputs //ci:legacy_pytest,
+# which CI interprets as "run the legacy pytest matrix".
+
+sh_test(
+    name = "legacy_pytest",
+    srcs = ["run_legacy_pytest.sh"],
+    data = [
+        "//posthog:legacy_srcs",
+        "//products:legacy_product_srcs",
+    ],
+    tags = ["manual"],  # Don't run with `bazel test //...`
+)

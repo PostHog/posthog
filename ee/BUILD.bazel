@@ -1,0 +1,16 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+# Enterprise edition code - part of core posthog infrastructure.
+py_library(
+    name = "ee",
+    srcs = glob(
+        ["**/*.py"],
+        exclude = [
+            "**/test_*.py",
+            "**/*_test.py",
+            "**/tests/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+    deps = ["//common/bazel:third_party"],
+)
