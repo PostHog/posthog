@@ -12,11 +12,12 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -220,7 +221,23 @@ export const MaxInstance = React.memo(function MaxInstance({
                             tooltipPlacement="bottom-end"
                         />
                     )}
-                    {!isAIOnlyMode && (
+                    {isRemovingSidePanelFlag ? (
+                        <Link
+                            buttonProps={{
+                                iconOnly: true,
+                            }}
+                            to={urls.ai(conversationId ?? undefined)}
+                            onClick={() => {
+                                closeSidePanel()
+                                newInternalTab(urls.ai(conversationId ?? undefined))
+                            }}
+                            target="_blank"
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        >
+                            <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </Link>
+                    ) : (
                         <LemonButton
                             size="small"
                             sideIcon={<IconExpand45 />}
