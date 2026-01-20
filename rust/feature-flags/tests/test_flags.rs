@@ -2228,8 +2228,8 @@ async fn test_config_cache_miss_with_recordings_quota_limited() -> Result<()> {
     // - NO config in hypercache (will cause cache miss)
     let server = ServerHandle::for_config_with_mock_redis_and_recordings(
         config,
-        vec![],                 // no feature flags limited
-        vec![token.clone()],    // recordings limited for this token
+        vec![],              // no feature flags limited
+        vec![token.clone()], // recordings limited for this token
         vec![(token.clone(), team_id)],
     )
     .await;

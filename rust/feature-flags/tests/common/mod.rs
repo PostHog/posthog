@@ -52,9 +52,9 @@ impl ServerHandle {
     #[allow(dead_code)]
     pub async fn for_config_with_mock_redis_and_recordings(
         config: Config,
-        limited_tokens: Vec<String>,           // feature flags limited
+        limited_tokens: Vec<String>,            // feature flags limited
         recordings_limited_tokens: Vec<String>, // session recordings limited
-        valid_tokens: Vec<(String, i32)>,      // (token, team_id) pairs
+        valid_tokens: Vec<(String, i32)>,       // (token, team_id) pairs
     ) -> ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
