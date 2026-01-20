@@ -136,9 +136,9 @@ async def _handle_streaming_request(
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
-                    LLM_TIME_TO_FIRST_TOKEN.labels(
-                        provider=provider_config.name, model=model, product=product
-                    ).observe(time_to_first)
+                    LLM_TIME_TO_FIRST_TOKEN.labels(provider=provider_config.name, model=model, product=product).observe(
+                        time_to_first
+                    )
                 yield chunk
 
         except asyncio.CancelledError:

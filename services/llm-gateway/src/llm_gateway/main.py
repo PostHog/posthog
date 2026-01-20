@@ -135,7 +135,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info(
         "product_cost_limits_configured",
-        limits={k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds} for k, v in settings.product_cost_limits.items()},
+        limits={
+            k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds}
+            for k, v in settings.product_cost_limits.items()
+        },
         default_user_limit_usd=settings.default_user_cost_limit_usd,
         default_user_window_seconds=settings.default_user_cost_window_seconds,
     )
