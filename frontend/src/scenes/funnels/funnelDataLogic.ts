@@ -36,7 +36,6 @@ import {
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import {
-    TIME_INTERVAL_BOUNDS,
     aggregateBreakdownResult,
     aggregationLabelForHogQL,
     flattenedStepsByBreakdown,
@@ -98,11 +97,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         setHiddenLegendBreakdowns: (hiddenLegendBreakdowns: string[]) => ({ hiddenLegendBreakdowns }),
         toggleLegendBreakdownVisibility: (breakdown: string) => ({ breakdown }),
         setBreakdownSortOrder: (breakdownSortOrder: (string | number)[]) => ({ breakdownSortOrder }),
-        setConversionWindowInterval: (funnelWindowInterval: number) => ({ funnelWindowInterval }),
-        setConversionWindowUnit: (funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit) => ({
-            funnelWindowIntervalUnit,
-        }),
-        commitConversionWindow: true,
     }),
 
     reducers({
@@ -116,18 +110,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             [] as (string | number)[],
             {
                 setBreakdownSortOrder: (_, { breakdownSortOrder }) => breakdownSortOrder,
-            },
-        ],
-        conversionWindowInterval: [
-            null as number | null,
-            {
-                setConversionWindowInterval: (_, { funnelWindowInterval }) => funnelWindowInterval,
-            },
-        ],
-        conversionWindowUnit: [
-            null as FunnelConversionWindowTimeUnit | null,
-            {
-                setConversionWindowUnit: (_, { funnelWindowIntervalUnit }) => funnelWindowIntervalUnit,
             },
         ],
     }),
@@ -444,7 +426,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         conversionWindow: [
             (s) => [s.funnelsFilter],
-            (funnelsFilter): Required<FunnelConversionWindow> => {
+            (funnelsFilter): FunnelConversionWindow => {
                 const { funnelWindowInterval, funnelWindowIntervalUnit } = funnelsFilter || {}
                 return {
                     funnelWindowInterval: funnelWindowInterval || 14,
@@ -579,33 +561,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             values.hiddenLegendBreakdowns?.includes(breakdown)
                 ? actions.setHiddenLegendBreakdowns(values.hiddenLegendBreakdowns.filter((b) => b !== breakdown))
                 : actions.setHiddenLegendBreakdowns([...(values.hiddenLegendBreakdowns || []), breakdown])
-        },
-        commitConversionWindow: () => {
-            const { conversionWindowInterval, conversionWindowUnit, conversionWindow } = values
-            const unit = conversionWindowUnit ?? conversionWindow.funnelWindowIntervalUnit
-            const rawInterval = conversionWindowInterval ?? conversionWindow.funnelWindowInterval
-
-            if (!rawInterval) {
-                actions.setConversionWindowInterval(conversionWindow.funnelWindowInterval)
-                return
-            }
-
-            const [min, max] = TIME_INTERVAL_BOUNDS[unit]
-            const interval = Math.min(Math.max(rawInterval, min), max)
-
-            if (interval !== rawInterval) {
-                actions.setConversionWindowInterval(interval)
-            }
-
-            if (
-                interval !== conversionWindow.funnelWindowInterval ||
-                unit !== conversionWindow.funnelWindowIntervalUnit
-            ) {
-                actions.updateInsightFilter({
-                    funnelWindowInterval: interval,
-                    funnelWindowIntervalUnit: unit,
-                })
-            }
         },
     })),
 ])

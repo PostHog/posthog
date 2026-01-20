@@ -1,5 +1,4 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
-import posthog from 'posthog-js'
+import { actions, kea, path, reducers } from 'kea'
 
 import type { logsViewerSettingsLogicType } from './logsViewerSettingsLogicType'
 
@@ -41,17 +40,5 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
-    })),
-
-    listeners(() => ({
-        setTimezone: ({ timezone }) => {
-            posthog.capture('logs setting changed', { setting: 'timezone', value: timezone })
-        },
-        setWrapBody: ({ wrapBody }) => {
-            posthog.capture('logs setting changed', { setting: 'wrap_body', value: wrapBody })
-        },
-        setPrettifyJson: ({ prettifyJson }) => {
-            posthog.capture('logs setting changed', { setting: 'prettify_json', value: prettifyJson })
-        },
     })),
 ])

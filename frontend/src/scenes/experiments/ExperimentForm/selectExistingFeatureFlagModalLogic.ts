@@ -49,7 +49,6 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         closeSelectExistingFeatureFlagModal: true,
         setFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({ filters, replace }),
         resetFilters: true,
-        loadFeatureFlagsForAutocomplete: true,
     }),
 
     reducers({
@@ -84,9 +83,6 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         },
         openSelectExistingFeatureFlagModal: () => {
             actions.reportExperimentFeatureFlagModalOpened()
-            actions.loadFeatureFlags()
-        },
-        loadFeatureFlagsForAutocomplete: () => {
             actions.loadFeatureFlags()
         },
         loadCurrentTeamSuccess: () => {
@@ -127,7 +123,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                 }
 
                 // Add evaluation tags filter if required by team
-                if (currentTeam?.require_evaluation_contexts) {
+                if (currentTeam?.require_evaluation_environment_tags) {
                     params.has_evaluation_tags = true
                 }
 
@@ -166,7 +162,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
         isEvaluationTagsRequired: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.require_evaluation_contexts || false,
+            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
         ],
     }),
 ])

@@ -11,9 +11,9 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clusterDetailLogicType } from './clusterDetailLogicType'
-import { NOISE_CLUSTER_ID, OUTLIER_COLOR, TRACES_PER_PAGE } from './constants'
+import { NOISE_CLUSTER_ID, TRACES_PER_PAGE } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
-import { Cluster, ClusterItemInfo, ClusteringLevel, TraceSummary, getTimestampBoundsFromRunId } from './types'
+import { Cluster, ClusterTraceInfo, TraceSummary, getTimestampBoundsFromRunId } from './types'
 
 export interface ClusterDetailLogicProps {
     runId: string
@@ -22,21 +22,13 @@ export interface ClusterDetailLogicProps {
 
 export interface TraceWithSummary {
     traceId: string
-    traceInfo: ClusterItemInfo
+    traceInfo: ClusterTraceInfo
     summary?: TraceSummary
-}
-
-export interface ClusterData {
-    cluster: Cluster
-    runTimestamp: string
-    windowStart: string
-    windowEnd: string
-    clusteringLevel: ClusteringLevel
 }
 
 export interface ScatterDataset {
     label: string
-    data: Array<{ x: number; y: number; traceId?: string; generationId?: string; timestamp?: string }>
+    data: Array<{ x: number; y: number; traceId?: string; timestamp?: string }>
     backgroundColor: string
     borderColor: string
     borderWidth: number
@@ -44,6 +36,8 @@ export interface ScatterDataset {
     pointHoverRadius: number
     pointStyle?: 'circle' | 'crossRot'
 }
+
+const OUTLIER_COLOR = '#888888'
 
 export const clusterDetailLogic = kea<clusterDetailLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusterDetailLogic']),
@@ -80,12 +74,11 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
     loaders(({ props }) => ({
         clusterData: [
-            null as ClusterData | null,
+            null as { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null,
             {
                 loadClusterData: async () => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
 
-                    // Query both trace and generation cluster events
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -93,18 +86,15 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                                 JSONExtractString(properties, '$ai_window_start') as window_start,
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
                                 JSONExtractRaw(properties, '$ai_clusters') as clusters,
-                                timestamp,
-                                JSONExtractString(properties, '$ai_clustering_level') as clustering_level
+                                timestamp
                             FROM events
-                            WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
+                            WHERE event = '$ai_trace_clusters'
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
                             LIMIT 1
                         `,
-                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' },
-                        // Run IDs and bounds are in UTC, so compare timestamps in UTC
-                        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
+                        { productKey: 'llm_analytics', scene: 'LLMAnalyticsCluster' }
                     )
 
                     if (!response.results?.length) {
@@ -126,15 +116,11 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         return null
                     }
 
-                    // Default to 'trace' for backwards compatibility
-                    const clusteringLevel = (row[5] as ClusteringLevel) || 'trace'
-
                     return {
                         cluster,
                         runTimestamp: row[4],
                         windowStart: row[1],
                         windowEnd: row[2],
-                        clusteringLevel,
                     }
                 },
             },
@@ -144,24 +130,30 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
     selectors({
         cluster: [
             (s) => [s.clusterData],
-            (clusterData: ClusterData | null): Cluster | null => clusterData?.cluster || null,
+            (
+                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+            ): Cluster | null => clusterData?.cluster || null,
         ],
 
         runTimestamp: [
             (s) => [s.clusterData],
-            (clusterData: ClusterData | null): string => clusterData?.runTimestamp || '',
+            (
+                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+            ): string => clusterData?.runTimestamp || '',
         ],
 
         windowStart: [
             (s) => [s.clusterData],
-            (clusterData: ClusterData | null): string => clusterData?.windowStart || '',
+            (
+                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+            ): string => clusterData?.windowStart || '',
         ],
 
-        windowEnd: [(s) => [s.clusterData], (clusterData: ClusterData | null): string => clusterData?.windowEnd || ''],
-
-        clusteringLevel: [
+        windowEnd: [
             (s) => [s.clusterData],
-            (clusterData: ClusterData | null): ClusteringLevel => clusterData?.clusteringLevel || 'trace',
+            (
+                clusterData: { cluster: Cluster; runTimestamp: string; windowStart: string; windowEnd: string } | null
+            ): string => clusterData?.windowEnd || '',
         ],
 
         isOutlierCluster: [
@@ -178,13 +170,10 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
                 const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
-                const tracePoints = Object.entries(cluster.traces).map(([itemKey, traceInfo]) => ({
+                const tracePoints = Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
                     x: traceInfo.x,
                     y: traceInfo.y,
-                    // Use explicit trace_id/generation_id from backend if available
-                    // Fall back to itemKey for backwards compatibility
-                    traceId: traceInfo.trace_id || itemKey,
-                    generationId: traceInfo.generation_id,
+                    traceId,
                     timestamp: traceInfo.timestamp,
                 }))
 
@@ -226,7 +215,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     return []
                 }
                 return Object.entries(cluster.traces)
-                    .sort(([, a], [, b]) => (a as ClusterItemInfo).rank - (b as ClusterItemInfo).rank)
+                    .sort(([, a], [, b]) => (a as ClusterTraceInfo).rank - (b as ClusterTraceInfo).rank)
                     .map(([traceId]) => traceId)
             },
         ],
@@ -302,7 +291,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         setPage: async () => {
             // Load trace summaries for the current page
             const traceIds = values.paginatedTraceIds
-            const { windowStart, windowEnd, clusteringLevel } = values
+            const { windowStart, windowEnd } = values
 
             if (!windowStart || !windowEnd) {
                 return
@@ -311,13 +300,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
             actions.setTraceSummariesLoading(true)
 
             try {
-                const summaries = await loadTraceSummaries(
-                    traceIds,
-                    values.traceSummaries,
-                    windowStart,
-                    windowEnd,
-                    clusteringLevel
-                )
+                const summaries = await loadTraceSummaries(traceIds, values.traceSummaries, windowStart, windowEnd)
                 actions.setTraceSummaries(summaries)
             } catch (error) {
                 console.error('Failed to load trace summaries:', error)

@@ -38,7 +38,6 @@ export const userLogic = kea<userLogicType>([
         deleteUser: true,
         updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
-        updateDataPipelineErrorThreshold: (threshold: number) => ({ threshold }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -297,21 +296,6 @@ export const userLogic = kea<userLogicType>([
                     project_weekly_digest_disabled: projectWeeklyDigestSettings,
                 },
             })
-        },
-        updateDataPipelineErrorThreshold: async ({ threshold }, breakpoint) => {
-            await breakpoint(500)
-
-            if (isNaN(threshold) || threshold < 0 || threshold > 100) {
-                return
-            }
-
-            values.user?.notification_settings &&
-                actions.updateUser({
-                    notification_settings: {
-                        ...values.user?.notification_settings,
-                        data_pipeline_error_threshold: threshold / 100,
-                    },
-                })
         },
     })),
     selectors({

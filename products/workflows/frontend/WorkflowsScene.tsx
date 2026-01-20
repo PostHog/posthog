@@ -1,4 +1,5 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -7,9 +8,6 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -34,14 +32,12 @@ const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as 
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
 
 export type WorkflowsSceneProps = {
-    tab?: WorkflowsSceneTab
-    tabId?: string
+    tab: WorkflowsSceneTab
 }
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
     props({} as WorkflowsSceneProps),
     path(() => ['scenes', 'workflows', 'workflowSceneLogic']),
-    tabAwareScene(),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
@@ -56,22 +52,19 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            (s) => [s.currentTab],
-            (currentTab): Breadcrumb[] => {
+            (_, p) => [p.tab],
+            (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: [Scene.Workflows, currentTab],
-                        name: capitalizeFirstLetter(currentTab.replaceAll('_', ' ')),
+                        key: [Scene.Workflows, tab],
+                        name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
                         iconType: 'workflows',
                     },
                 ]
             },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
-        setCurrentTab: () => [urls.workflows(values.currentTab)],
-    })),
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         return {
             [urls.workflows()]: () => {
                 if (values.currentTab !== 'workflows') {
@@ -94,11 +87,10 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
     logic: workflowSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
-    productKey: ProductKey.WORKFLOWS,
 }
 
-export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic(props))
+export function WorkflowsScene(): JSX.Element {
+    const { currentTab } = useValues(workflowSceneLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
     const { showNewWorkflowModal } = useActions(newWorkflowLogic)
@@ -139,7 +131,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable {...props} />,
+            content: <WorkflowsTable />,
             link: urls.workflows(),
         },
         {

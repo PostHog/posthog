@@ -4,7 +4,6 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { CustomerProfileScope, GroupTypeIndex } from '~/types'
 
@@ -12,33 +11,32 @@ import { customerProfileConfigLogic } from './customerProfileConfigLogic'
 import type { customerProfileLogicType } from './customerProfileLogicType'
 
 export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
-    { type: NotebookNodeType.Person, attrs: { title: 'Info' } },
+    { type: 'ph-person', attrs: { title: 'Info' } },
     // FIXME: Map bg image is broken
-    // { type: NotebookNodeType.Map, attrs: { title: 'Map' } },
-    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
-    { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related groups' } },
+    // { type: 'ph-map', attrs: { title: 'Map' } },
+    { type: 'ph-person-properties', attrs: { title: 'Properties' } },
+    { type: 'ph-related-groups', attrs: { title: 'Related groups' } },
 ]
 
 export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
-    { type: NotebookNodeType.UsageMetrics, index: 0, attrs: { title: 'Usage metrics' } },
-    { type: NotebookNodeType.PersonFeed, index: 1, attrs: { title: 'Session feed' } },
-    { type: NotebookNodeType.LLMTrace, index: 2, attrs: { title: 'LLM traces' } },
-    { type: NotebookNodeType.ZendeskTickets, index: 3, attrs: { title: 'Zendesk tickets' } },
-    { type: NotebookNodeType.Issues, index: 4, attrs: { title: 'Issues' } },
+    { type: 'ph-usage-metrics', index: 0, attrs: { title: 'Usage metrics' } },
+    { type: 'ph-person-feed', index: 1, attrs: { title: 'Session feed' } },
+    { type: 'ph-llm-trace', index: 2, attrs: { title: 'LLM traces' } },
+    { type: 'ph-zendesk-tickets', index: 3, attrs: { title: 'Zendesk tickets' } },
+    { type: 'ph-issues', index: 4, attrs: { title: 'Issues' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
-    { type: NotebookNodeType.Group, attrs: { title: 'Info' } },
-    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
-    { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related people', type: 'person' } },
+    { type: 'ph-group', attrs: { title: 'Info' } },
+    { type: 'ph-group-properties', attrs: { title: 'Properties' } },
+    { type: 'ph-related-groups', attrs: { title: 'Related people', type: 'person' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
-    { type: NotebookNodeType.UsageMetrics, index: 0, attrs: { title: 'Usage metrics' } },
-    { type: NotebookNodeType.Query, index: 1, attrs: { title: 'Events' } },
-    { type: NotebookNodeType.LLMTrace, index: 2, attrs: { title: 'LLM traces' } },
-    { type: NotebookNodeType.ZendeskTickets, index: 3, attrs: { title: 'Zendesk tickets' } },
-    { type: NotebookNodeType.Issues, index: 4, attrs: { title: 'Issues' } },
+    { type: 'ph-usage-metrics', index: 0, attrs: { title: 'Usage metrics' } },
+    { type: 'ph-llm-trace', index: 1, attrs: { title: 'LLM traces' } },
+    { type: 'ph-zendesk-tickets', index: 2, attrs: { title: 'Zendesk tickets' } },
+    { type: 'ph-issues', index: 3, attrs: { title: 'Issues' } },
 ]
 
 export type CustomerProfileAttrs = {
@@ -272,15 +270,15 @@ export function addPersonAttrsToNode({ attrs, node, children = [] }: AddAttrsToN
     const nodeId = `${node.type}-${personId}`
 
     switch (node.type) {
-        case NotebookNodeType.UsageMetrics:
-        case NotebookNodeType.LLMTrace:
-        case NotebookNodeType.ZendeskTickets:
-        case NotebookNodeType.Issues:
+        case 'ph-usage-metrics':
+        case 'ph-llm-trace':
+        case 'ph-zendesk-tickets':
+        case 'ph-issues':
             return {
                 ...node,
                 attrs: { ...node.attrs, nodeId, personId, children },
             }
-        case NotebookNodeType.PersonFeed:
+        case 'ph-person-feed':
             return {
                 ...node,
                 attrs: {
@@ -293,13 +291,13 @@ export function addPersonAttrsToNode({ attrs, node, children = [] }: AddAttrsToN
                     children,
                 },
             }
-        case NotebookNodeType.Person:
-        case NotebookNodeType.PersonProperties:
+        case 'ph-person':
+        case 'ph-person-properties':
             return {
                 ...node,
                 attrs: { ...node.attrs, nodeId, id: personId, distinctId, children },
             }
-        case NotebookNodeType.RelatedGroups:
+        case 'ph-related-groups':
             return {
                 ...node,
                 attrs: {
@@ -321,9 +319,9 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
     const nodeId = `${node.type}-${groupKey}-${groupTypeIndex}`
 
     switch (node.type) {
-        case NotebookNodeType.UsageMetrics:
-        case NotebookNodeType.LLMTrace:
-        case NotebookNodeType.Issues:
+        case 'ph-usage-metrics':
+        case 'ph-llm-trace':
+        case 'ph-issues':
             return {
                 ...node,
                 attrs: {
@@ -334,13 +332,13 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     children,
                 },
             }
-        case NotebookNodeType.ZendeskTickets:
+        case 'ph-zendesk-tickets':
             return {
                 ...node,
                 attrs: { ...node.attrs, nodeId, groupKey, children },
             }
-        case NotebookNodeType.Group:
-        case NotebookNodeType.RelatedGroups:
+        case 'ph-group':
+        case 'ph-related-groups':
             return {
                 ...node,
                 attrs: {
@@ -351,7 +349,7 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     children,
                 },
             }
-        case NotebookNodeType.GroupProperties:
+        case 'ph-group-properties':
             return {
                 ...node,
                 attrs: {
@@ -360,13 +358,6 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                 },
             }
         default:
-            return {
-                ...node,
-                attrs: {
-                    ...node.attrs,
-                    nodeId,
-                    children,
-                },
-            }
+            return node
     }
 }

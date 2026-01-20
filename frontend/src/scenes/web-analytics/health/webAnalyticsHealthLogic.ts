@@ -403,6 +403,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadWebAnalyticsHealthStatus()
+        actions.loadHasReverseProxy()
     }),
 ])
 

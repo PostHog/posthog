@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
@@ -80,7 +79,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
 
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
                 actions.createEvaluationSuccess(response)
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
             } catch (error) {
                 console.error('Failed to create evaluation:', error)
             }

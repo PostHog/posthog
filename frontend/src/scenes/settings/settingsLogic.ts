@@ -69,7 +69,6 @@ export const settingsLogic = kea<settingsLogicType>([
         closeCompactNavigation: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
-        toggleGroupCollapse: (group: string) => ({ group }),
         loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
     }),
 
@@ -131,16 +130,6 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectSection: (state, { level }) => ({
                     ...state,
                     [level]: false,
-                }),
-            },
-        ],
-
-        collapsedGroups: [
-            {} as Record<string, boolean>,
-            {
-                toggleGroupCollapse: (state, { group }) => ({
-                    ...state,
-                    [group]: !state[group],
                 }),
             },
         ],

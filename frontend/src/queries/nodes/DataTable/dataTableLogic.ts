@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -107,17 +108,30 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, (_, props) => props.context],
+            (s) => [
+                s.sourceKind,
+                s.orderBy,
+                s.response,
+                s.columnsInQuery,
+                s.columnsInResponse,
+                (_, props) => props.context,
+            ],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
+                columnsInQuery: HogQLExpression[],
                 columnsInResponse: string[] | null,
                 context: QueryContext<DataTableNode> | undefined
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const queryResponse = response as AnyResponseType
                     if (queryResponse) {
+                        // must be loading
+                        if (!equal(columnsInQuery, columnsInResponse)) {
+                            return []
+                        }
+
                         let results: any[] | null = []
                         if ('results' in queryResponse) {
                             results = queryResponse.results
@@ -222,7 +236,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPersistentColumnConfigurator: query.showPersistentColumnConfigurator ?? false,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
-                        showTableViews: query.showTableViews ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:
@@ -232,7 +245,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showResultsTable: query.showResultsTable ?? true,
                         showRecordingColumn: query.showRecordingColumn ?? false,
                         showSourceQueryOptions: query.showSourceQueryOptions ?? true,
-                        showCount: query.showCount ?? false,
                     }),
                 }
             },

@@ -82,7 +82,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
-        addConditionSet: (sortKey?: string) => ({ sortKey }),
+        addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
         moveConditionSetUp: (index: number) => ({ index }),
@@ -151,13 +151,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ],
                 }
             },
-            addConditionSet: (state, { sortKey }) => {
+            addConditionSet: (state) => {
                 if (!state) {
                     return state
                 }
                 const groups = [
                     ...(state?.groups || []),
-                    { properties: [], rollout_percentage: 0, variant: null, sort_key: sortKey ?? uuidv4() },
+                    { properties: [], rollout_percentage: undefined, variant: null, sort_key: uuidv4() },
                 ]
                 return { ...state, groups }
             },

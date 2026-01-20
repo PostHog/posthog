@@ -7,7 +7,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -232,9 +231,7 @@ export interface ProductToursFilters {
 
 export const productToursLogic = kea<productToursLogicType>([
     path(['scenes', 'product-tours', 'productToursLogic']),
-    connect(() => ({
-        actions: [eventUsageLogic, ['reportProductTourCreated', 'reportProductTourListViewed']],
-    })),
+    connect(() => ({})),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setFilters: (filters: Partial<ProductToursFilters>) => ({ filters }),
@@ -299,7 +296,6 @@ export const productToursLogic = kea<productToursLogicType>([
                     product_type: ProductKey.PRODUCT_TOURS,
                     intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
                 })
-                actions.reportProductTourCreated(announcement, 'app')
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(announcement.id, 'edit=true&tab=steps'))
             } catch {
@@ -316,15 +312,11 @@ export const productToursLogic = kea<productToursLogicType>([
                     product_type: ProductKey.PRODUCT_TOURS,
                     intent_context: ProductIntentContext.PRODUCT_TOUR_CREATED,
                 })
-                actions.reportProductTourCreated(banner, 'app')
                 actions.loadProductTours()
                 router.actions.push(urls.productTour(banner.id, 'edit=true&tab=steps'))
             } catch {
                 lemonToast.error('Failed to create banner')
             }
-        },
-        loadProductToursSuccess: () => {
-            actions.reportProductTourListViewed()
         },
     })),
     selectors({

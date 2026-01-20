@@ -131,7 +131,6 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                         time_in_recording: dayjs(values.currentTimestamp).toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
-                    slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
                 playerCommentModel.actions.commentEdited(props.recordingId)
             } finally {
@@ -176,7 +175,6 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                         time_in_recording: dateForTimestamp.toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
-                    slug: `/replay/${props.recordingId}#panel=discussion`,
                 }
 
                 if (commentId) {

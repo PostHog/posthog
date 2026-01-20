@@ -28,8 +28,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
         showSaveAsTemplateModal: true,
         hideSaveAsTemplateModal: true,
         updateTemplate: (workflowTemplate: HogFlowTemplate) => ({ workflowTemplate }),
-        showTemplateJsonModal: true,
-        hideTemplateJsonModal: true,
     }),
     forms(({ actions, values, props }) => ({
         templateForm: {
@@ -37,7 +35,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: '',
                 description: '',
                 image_url: null as string | null,
-                tags: [] as string[],
                 scope: 'team' as 'team' | 'global',
             },
             errors: ({ name }: { name: string }) => ({
@@ -47,7 +44,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 name: string
                 description: string
                 image_url: string | null
-                tags: string[]
                 scope: 'team' | 'global'
             }) => {
                 const workflow = values.workflow
@@ -63,7 +59,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                             name: formValues.name || workflow.name || '',
                             description: formValues.description || workflow.description || '',
                             image_url: formValues.image_url || undefined,
-                            tags: formValues.tags,
                             scope: formValues.scope || undefined,
                         }
 
@@ -90,7 +85,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: formValues.name || workflow.name || '',
                         description: formValues.description || workflow.description || '',
                         image_url: formValues.image_url || undefined,
-                        tags: formValues.tags,
                         scope,
                     })
                     lemonToast.success('Workflow template created')
@@ -112,13 +106,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                 submitTemplateFormSuccess: () => false,
             },
         ],
-        templateJsonModalVisible: [
-            false,
-            {
-                showTemplateJsonModal: () => true,
-                hideTemplateJsonModal: () => false,
-            },
-        ],
     }),
     selectors({
         isEditMode: [
@@ -129,41 +116,19 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
             () => [(_, props: WorkflowTemplateLogicProps) => props],
             (props: WorkflowTemplateLogicProps): string | undefined => props.editTemplateId,
         ],
-        templateJson: [
-            (s) => [s.workflow, s.templateForm],
-            (workflow, templateForm): string => {
-                if (!workflow) {
-                    return ''
-                }
-                const template = {
-                    ...workflow,
-                    name: templateForm.name || workflow.name || '',
-                    description: templateForm.description || workflow.description || '',
-                    image_url: templateForm.image_url || undefined,
-                    tags: templateForm.tags,
-                    scope: templateForm.scope || undefined,
-                }
-                const { status, ...templateWithoutStatus } = template
-                return JSON.stringify(templateWithoutStatus, null, 2)
-            },
-        ],
     }),
     listeners(({ actions, values, props }) => ({
-        showTemplateJsonModal: () => {
-            actions.hideSaveAsTemplateModal()
-        },
         showSaveAsTemplateModal: async () => {
             const workflow = values.workflow
             if (workflow) {
                 if (props.editTemplateId) {
-                    // In edit mode, use workflow values for name/description, but load template for image_url, tags, and scope
+                    // In edit mode, use workflow values for name/description, but load template for image_url and scope
                     try {
                         const template = await api.hogFlowTemplates.getHogFlowTemplate(props.editTemplateId)
                         actions.setTemplateFormValues({
                             name: workflow.name,
                             description: workflow.description || '', // Use current workflow description
                             image_url: template.image_url || null,
-                            tags: template.tags,
                             scope: template.scope || 'team',
                         })
                     } catch (e: any) {
@@ -177,7 +142,6 @@ export const workflowTemplateLogic = kea<workflowTemplateLogicType>([
                         name: workflow.name || '',
                         description: workflow.description || '',
                         image_url: null,
-                        tags: [],
                         scope: 'team',
                     })
                 }

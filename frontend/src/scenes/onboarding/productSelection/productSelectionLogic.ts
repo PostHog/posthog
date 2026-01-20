@@ -283,10 +283,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             if (aiRecommendation) {
                 actions.setRecommendationSource('ai')
 
-                let products = mapAIProductsToProductKeys(aiRecommendation.products)
-                if (products.length === 0) {
-                    products = [ProductKey.PRODUCT_ANALYTICS]
-                }
+                const products = mapAIProductsToProductKeys(aiRecommendation.products)
                 actions.setSelectedProducts(products)
                 actions.setStep('product_selection')
 

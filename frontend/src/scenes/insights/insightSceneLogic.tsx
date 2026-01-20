@@ -247,9 +247,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.sceneSource,
             ],
             (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
-                const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
-                    ...(dashboardId !== null
+                    ...(dashboardId !== null && dashboardName
                         ? [
                               {
                                   key: Scene.Dashboards,
@@ -259,7 +258,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                               },
                               {
                                   key: Scene.Dashboard,
-                                  name: dashboardLabel,
+                                  name: dashboardName,
                                   path: urls.dashboard(dashboardId),
                                   iconType: 'dashboard' as FileSystemIconType,
                               },

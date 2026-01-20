@@ -17,7 +17,6 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { handleApprovalRequired } from 'lib/approvals/utils'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -33,6 +32,7 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/con
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -74,7 +74,7 @@ import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/fronten
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
-import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
+import { defaultEvaluationEnvironmentsLogic } from './defaultEvaluationEnvironmentsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 
@@ -100,13 +100,15 @@ export const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+        groups: [{ properties: [], rollout_percentage: undefined, variant: null }],
         multivariate: null,
         payloads: {},
     },
     deleted: false,
     active: true,
     created_by: null,
+    is_simple_flag: false,
+    rollout_percentage: null,
     ensure_experience_continuity: false,
     experiment_set: null,
     features: [],
@@ -114,7 +116,6 @@ export const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],
-    evaluation_tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
@@ -122,6 +123,7 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
+    evaluation_tags: [],
     _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
@@ -132,14 +134,9 @@ const NEW_VARIANT = {
 const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     variants: [
         {
-            key: 'control',
+            key: '',
             name: '',
-            rollout_percentage: 50,
-        },
-        {
-            key: 'test',
-            name: '',
-            rollout_percentage: 50,
+            rollout_percentage: 100,
         },
     ],
 }
@@ -318,8 +315,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['currentOrganization'],
             enabledFeaturesLogic,
             ['featureFlags as enabledFeatures'],
-            defaultEvaluationContextsLogic,
-            ['defaultEvaluationContexts'],
+            defaultEvaluationEnvironmentsLogic,
+            ['defaultEvaluationEnvironments'],
         ],
         actions: [
             featureFlagsLogic,
@@ -328,8 +325,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
-            defaultEvaluationContextsLogic,
-            ['loadDefaultEvaluationContexts'],
+            defaultEvaluationEnvironmentsLogic,
+            ['loadDefaultEvaluationEnvironments'],
         ],
     })),
     actions({
@@ -378,9 +375,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
         }) => payload,
-        // V2 form UI actions
-        setShowImplementation: (show: boolean) => ({ show }),
-        setOpenVariants: (openVariants: string[]) => ({ openVariants }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -693,19 +687,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     changeType === ScheduledChangeOperationType.UpdateStatus ? state : null,
             },
         ],
-        // V2 form UI state
-        showImplementation: [
-            false,
-            {
-                setShowImplementation: (_, { show }) => show,
-            },
-        ],
-        openVariants: [
-            [] as string[],
-            {
-                setOpenVariants: (_, { openVariants }) => openVariants,
-            },
-        ],
     }),
     sharedListeners(({ values, actions }) => ({
         checkDependentFlagsAndConfirm: async (payload: {
@@ -791,6 +772,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         deleted,
                         active,
                         created_by,
+                        is_simple_flag,
                         experiment_set,
                         features,
                         surveys,
@@ -839,22 +821,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         throw e
                     }
                 }
-                // For new flags, load default evaluation contexts and set default tags
+                // For new flags, load default evaluation environments and set default tags
                 if (props.id === 'new') {
-                    // Only load and apply default evaluation contexts if BOTH conditions are met:
+                    // Only load and apply default evaluation environments if BOTH conditions are met:
                     // 1. The feature flag is enabled globally
-                    // 2. The team has enabled default evaluation contexts
+                    // 2. The team has enabled default evaluation environments
                     const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
-                    const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
+                    const isTeamEnabled = values.currentTeam?.default_evaluation_environments_enabled
 
                     if (isFeatureEnabled && isTeamEnabled) {
                         try {
-                            actions.loadDefaultEvaluationContexts()
+                            actions.loadDefaultEvaluationEnvironments()
                         } catch (error) {
-                            // If loading default evaluation contexts fails, continue with empty tags
-                            console.warn('Failed to load default evaluation contexts:', error)
+                            // If loading default evaluation environments fails, continue with empty tags
+                            console.warn('Failed to load default evaluation environments:', error)
                         }
-                        const defaultEnvs = values.defaultEvaluationContexts
+                        const defaultEnvs = values.defaultEvaluationEnvironments
                         const defaultTags = defaultEnvs?.default_evaluation_tags || []
 
                         return {
@@ -908,9 +890,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             cachedFlag &&
                             JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
                         ) {
-                            globalSetupLogic
+                            activationLogic
                                 .findMounted()
-                                ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
+                                ?.actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
                         }
 
                         savedFlag = await api.update(
@@ -1210,12 +1192,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         submitFeatureFlagFailure: async () => {
             scrollToFormError()
         },
-        updateFeatureFlagActiveFailure: ({ errorObject }) => {
+        updateFeatureFlagActiveFailure: ({ error, errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 return
             }
 
-            // For non-approval errors, let the global error handler show the toast to avoid duplicates
+            lemonToast.error(`Failed to toggle flag: ${error}`)
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1223,32 +1205,17 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
-
-            // Collect all completed setup tasks
-            const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
-
-            if (featureFlag.filters?.payloads && Object.keys(featureFlag.filters.payloads).length > 0) {
-                completedTasks.push(SetupTaskId.SetUpFlagPayloads)
-            }
-
-            if (featureFlag.filters?.multivariate) {
-                completedTasks.push(SetupTaskId.CreateMultivariateFlag)
-            }
-
-            if (featureFlag.evaluation_runtime && featureFlag.evaluation_runtime !== FeatureFlagEvaluationRuntime.ALL) {
-                completedTasks.push(SetupTaskId.SetUpFlagEvaluationRuntimes)
-            }
-
-            // Set all completed tasks at once to avoid conflicts
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: ({ error, errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 // Redirect to detail page so user can see the CR banner
                 router.actions.replace(urls.featureFlag(values.featureFlag.id))
                 actions.editFeatureFlag(false)
                 return
             }
+
+            lemonToast.error(`Failed to save flag: ${error}`)
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
@@ -1703,7 +1670,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadFeatureFlag()
             actions.loadFeatureFlagStatus()
         } else if (props.id === 'new') {
-            // Load default evaluation contexts for new flags
+            // Load default evaluation environments for new flags
             actions.loadFeatureFlag()
         }
     }),

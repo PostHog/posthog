@@ -15,7 +15,6 @@ import { urls } from 'scenes/urls'
 import { SSOProvider } from '~/types'
 
 import type { loginLogicType } from './loginLogicType'
-import { twoFactorResetLogic } from './twoFactorResetLogic'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -148,22 +147,16 @@ export const loginLogic = kea<loginLogicType>([
             }),
             submit: async ({ email, password }, breakpoint) => {
                 breakpoint()
-                // Clear any previous passkey errors when submitting with password
-                actions.clearGeneralError()
                 try {
                     return await api.create<any>('api/login', { email, password })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        const next: string | undefined = router.values.searchParams.next
-                        const searchParams: Record<string, any> = next ? { next } : {}
-                        if (next && next.startsWith('/reset_2fa')) {
-                            // Reset the cached validation state so it re-validates after redirect
-                            twoFactorResetLogic.actions.resetState()
-                            router.actions.push(next, searchParams)
-                        } else {
-                            router.actions.push(urls.login2FA(), searchParams)
+                        const searchParams: Record<string, any> = {}
+                        if (router.values.searchParams.next) {
+                            searchParams.next = router.values.searchParams.next
                         }
+                        router.actions.push(urls.login2FA(), searchParams)
                         throw e
                     }
                     if (code === 'email_mfa_required') {
@@ -191,7 +184,7 @@ export const loginLogic = kea<loginLogicType>([
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-        precheckSuccess: async (_, breakpoint) => {
+        precheckSuccess: async () => {
             const { precheckResponse } = values
             // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
             if (
@@ -199,10 +192,8 @@ export const loginLogic = kea<loginLogicType>([
                 precheckResponse.webauthn_credentials.length > 0 &&
                 !precheckResponse.sso_enforcement
             ) {
-                breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('./passkeyLogic')
-                breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }
         },

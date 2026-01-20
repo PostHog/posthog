@@ -50,7 +50,6 @@ import {
     PythonKernelExecuteResponse,
     buildPythonExecutionError,
     buildPythonExecutionResult,
-    buildPythonExecutionRunning,
 } from './pythonExecution'
 
 export type PythonRunMode = 'auto' | 'cell_upstream' | 'cell' | 'cell_downstream'
@@ -354,99 +353,20 @@ const runPythonCell = async ({
 }: RunPythonCellParams): Promise<{ executed: boolean; execution: PythonExecutionResult | null }> => {
     setPythonRunLoading(true)
     try {
-        let stdout = ''
-        let stderr = ''
-        let executionResult: PythonExecutionResult | null = null
-        let kernelResponse: PythonKernelExecuteResponse | null = null
-        let didFail = false
-        const codeHash = hashCodeForString(code)
+        const execution = (await api.notebooks.kernelExecute(notebookId, {
+            code,
+            return_variables: exportedGlobals.length > 0,
+        })) as PythonKernelExecuteResponse
 
+        const executionResult = buildPythonExecutionResult(execution, exportedGlobals)
+        const runtimeSandboxId = execution.kernel_runtime?.sandbox_id ?? executionSandboxId
         updateAttributes({
-            pythonExecution: buildPythonExecutionRunning(exportedGlobals),
-            pythonExecutionCodeHash: codeHash,
-            pythonExecutionSandboxId: executionSandboxId,
+            pythonExecution: executionResult,
+            pythonExecutionCodeHash: hashCodeForString(code),
+            pythonExecutionSandboxId: runtimeSandboxId,
         })
-
-        await api.notebooks.kernelExecuteStream(
-            notebookId,
-            {
-                code,
-                return_variables: exportedGlobals.length > 0,
-            },
-            {
-                onMessage: (event) => {
-                    if (event.event === 'stdout') {
-                        const payload = JSON.parse(event.data) as { text?: string }
-                        stdout = `${stdout}${payload.text ?? ''}`
-                        updateAttributes({
-                            pythonExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
-                        })
-                        return
-                    }
-                    if (event.event === 'stderr') {
-                        const payload = JSON.parse(event.data) as { text?: string }
-                        stderr = `${stderr}${payload.text ?? ''}`
-                        updateAttributes({
-                            pythonExecution: buildPythonExecutionRunning(exportedGlobals, stdout, stderr),
-                        })
-                        return
-                    }
-                    if (event.event === 'error') {
-                        const payload = JSON.parse(event.data) as { error?: string }
-                        const message = payload.error ?? 'Failed to run Python cell.'
-                        executionResult = buildPythonExecutionError(message, exportedGlobals)
-                        didFail = true
-                        updateAttributes({
-                            pythonExecution: executionResult,
-                            pythonExecutionCodeHash: codeHash,
-                            pythonExecutionSandboxId: executionSandboxId,
-                        })
-                        return
-                    }
-                    if (event.event === 'result') {
-                        kernelResponse = JSON.parse(event.data) as PythonKernelExecuteResponse
-                        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-                        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
-                        updateAttributes({
-                            pythonExecution: executionResult,
-                            pythonExecutionCodeHash: codeHash,
-                            pythonExecutionSandboxId: runtimeSandboxId,
-                        })
-                    }
-                },
-                onError: (error) => {
-                    const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
-                    executionResult = buildPythonExecutionError(message, exportedGlobals)
-                    didFail = true
-                    updateAttributes({
-                        pythonExecution: executionResult,
-                        pythonExecutionCodeHash: codeHash,
-                        pythonExecutionSandboxId: executionSandboxId,
-                    })
-                    throw error
-                },
-            }
-        )
-
-        if (!executionResult && kernelResponse) {
-            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-        }
-
-        if (!executionResult) {
-            throw new Error('Python execution did not return a result.')
-        }
-
-        return { executed: !didFail, execution: executionResult }
+        return { executed: true, execution: executionResult }
     } catch (error) {
-        if (error instanceof Error && error.message === 'Python execution did not return a result.') {
-            const executionResult = buildPythonExecutionError(error.message, exportedGlobals)
-            updateAttributes({
-                pythonExecution: executionResult,
-                pythonExecutionCodeHash: hashCodeForString(code),
-                pythonExecutionSandboxId: executionSandboxId,
-            })
-            return { executed: false, execution: executionResult }
-        }
         const message = error instanceof Error ? error.message : 'Failed to run Python cell.'
         const executionResult = buildPythonExecutionError(message, exportedGlobals)
         updateAttributes({
@@ -473,37 +393,20 @@ const runDuckSqlCell = async ({
     const resolvedReturnVariable = resolveDuckSqlReturnVariable(returnVariable)
     const executionCode = buildDuckSqlCode(code, returnVariable, pageSize)
     try {
-        let executionResult: PythonExecutionResult | null = null
-        let kernelResponse: PythonKernelExecuteResponse | null = null
-        const codeHash = hashCodeForString(`${code}\n${resolvedReturnVariable}`)
-        const exportedGlobals = [{ name: resolvedReturnVariable, type: 'DataFrame' }]
-
-        updateAttributes({
-            duckExecution: buildPythonExecutionRunning(exportedGlobals),
-            duckExecutionCodeHash: codeHash,
-            duckExecutionSandboxId: executionSandboxId,
-        })
-
-        kernelResponse = (await api.notebooks.kernelExecute(notebookId, {
+        const execution = (await api.notebooks.kernelExecute(notebookId, {
             code: executionCode,
             return_variables: true,
         })) as PythonKernelExecuteResponse
-        executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-        const runtimeSandboxId = kernelResponse.kernel_runtime?.sandbox_id ?? executionSandboxId
+
+        const executionResult = buildPythonExecutionResult(execution, [
+            { name: resolvedReturnVariable, type: 'DataFrame' },
+        ])
+        const runtimeSandboxId = execution.kernel_runtime?.sandbox_id ?? executionSandboxId
         updateAttributes({
             duckExecution: executionResult,
-            duckExecutionCodeHash: codeHash,
+            duckExecutionCodeHash: hashCodeForString(`${code}\n${resolvedReturnVariable}`),
             duckExecutionSandboxId: runtimeSandboxId,
         })
-
-        if (!executionResult && kernelResponse) {
-            executionResult = buildPythonExecutionResult(kernelResponse, exportedGlobals)
-        }
-
-        if (!executionResult) {
-            throw new Error('DuckDB execution did not return a result.')
-        }
-
         return { executed: true, execution: executionResult }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to run SQL (duckdb) query.'

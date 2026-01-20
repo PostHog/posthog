@@ -1,14 +1,13 @@
+import { JSONContent } from '@tiptap/core'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import { findElement } from 'posthog-js/dist/element-inference'
+import { findElement, getElementPath } from 'posthog-js/dist/element-inference'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils'
-import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { prepareStepForRender, prepareStepsForRender } from 'scenes/product-tours/editor/generateStepHtml'
-import { createDefaultStep, getDefaultStepContent } from 'scenes/product-tours/stepUtils'
 import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -21,20 +20,43 @@ import {
     ProductTourProgressionTriggerType,
     ProductTourStep,
     ProductTourStepType,
+    ProductTourSurveyQuestion,
+    ScreenPosition,
     StepOrderVersion,
+    SurveyPosition,
 } from '~/types'
 
 import { inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
-import { PRODUCT_TOURS_SIDEBAR_TRANSITION_MS, captureAndUploadElementScreenshot } from './utils'
+import { ElementScreenshot, captureAndUploadElementScreenshot, captureScreenshot, getElementMetadata } from './utils'
+
+const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
+
+export type AIGenerationStep = 'idle' | 'capturing' | 'analyzing' | 'generating' | 'done' | 'error'
 
 /**
  * Editor state machine - explicit states instead of multiple boolean flags.
  *
  * - idle: Default state, no hover effects, step badges visible. Cmd/ctrl+click passes through.
  * - selecting: User is picking an element from the page. Hover highlighting active.
+ * - editing: User is editing a step's content. Editor panel is open.
  */
-export type EditorState = { mode: 'idle' } | { mode: 'selecting'; stepIndex: number }
+export type EditorState =
+    | { mode: 'idle' }
+    | { mode: 'selecting'; stepIndex: number }
+    | { mode: 'editing'; stepIndex: number; stepType: ProductTourStepType }
+
+function saveRecentGoal(goal: string): void {
+    try {
+        const stored = localStorage.getItem(RECENT_GOALS_KEY)
+        const goals: string[] = stored ? JSON.parse(stored) : []
+        const filtered = goals.filter((g) => g !== goal)
+        filtered.unshift(goal)
+        localStorage.setItem(RECENT_GOALS_KEY, JSON.stringify(filtered.slice(0, 5)))
+    } catch {
+        // Ignore localStorage errors
+    }
+}
 
 export interface TourStep extends ProductTourStep {
     /** Local-only: reference to DOM element, not persisted */
@@ -45,13 +67,6 @@ export interface TourForm {
     id?: string
     name: string
     steps: TourStep[]
-}
-
-export const PRODUCT_TOURS_MIN_JS_VERSION = '1.324.0'
-
-export function hasMinProductToursVersion(version: string): boolean {
-    const [major, minor] = version.split('.').map(Number)
-    return major > 1 || (major === 1 && minor >= 324)
 }
 
 function newTour(): TourForm {
@@ -77,50 +92,39 @@ function isToolbarElement(element: HTMLElement): boolean {
     return toolbar?.contains(element) ?? false
 }
 
-export function hasValidSelector(step: TourStep): boolean {
-    if (step.type !== 'element') {
-        return true
-    }
-    if (step.useManualSelector && !step.selector) {
-        return false
-    }
-    if (!step.useManualSelector && !step.inferenceData) {
-        return false
-    }
-    return true
-}
-
 /** Get the DOM element for a step, checking cached ref is still valid */
-export function getStepElement(step: TourStep): HTMLElement | null {
+export function getStepElement(step: TourStep, options?: { logInference?: boolean }): HTMLElement | null {
     if (step.element && document.body.contains(step.element)) {
         return step.element
     }
 
-    const useManualSelector = step.useManualSelector ?? false
+    const result = step.selector ? (document.querySelector(step.selector) as HTMLElement | null) : null
 
-    if (useManualSelector) {
-        if (!step.selector) {
-            return null
-        }
-        try {
-            return document.querySelector(step.selector) as HTMLElement | null
-        } catch {
-            return null
-        }
+    if (options?.logInference) {
+        // try finding element with inference, log the results
+        const inferredResult = step.inferenceData?.autoData ? findElement(step.inferenceData) : null
+        toolbarPosthogJS.capture('element inference debug', {
+            selector: step.selector ?? null,
+            autoDataPresent: !!step.inferenceData?.autoData,
+            normalFound: !!result,
+            inferenceFound: !!inferredResult,
+            elementsMatch: result === inferredResult,
+            ...(!!result && {
+                normalElement: getElementMetadata(result),
+            }),
+            ...(!!inferredResult && {
+                inferredElement: getElementMetadata(inferredResult),
+            }),
+            ...(result !== inferredResult && {
+                mismatchPaths: {
+                    normal: result ? getElementPath(result) : null,
+                    inferred: inferredResult ? getElementPath(inferredResult) : null,
+                },
+            }),
+        })
     }
 
-    if (!step.inferenceData) {
-        if (!step.selector) {
-            return null
-        }
-        try {
-            return document.querySelector(step.selector) as HTMLElement | null
-        } catch {
-            return null
-        }
-    }
-
-    return findElement(step.inferenceData)
+    return result
 }
 
 /** Check if steps have changed compared to the latest version in history */
@@ -164,40 +168,58 @@ export const productToursLogic = kea<productToursLogicType>([
 
         // Step actions
         addStep: (stepType: ProductTourStepType) => ({ stepType }),
+        editStep: (index: number) => ({ index }),
+        changeStepElement: true,
         selectElement: (element: HTMLElement) => ({ element }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         clearSelectedElement: true,
+        confirmStep: (
+            content: JSONContent | null,
+            selector?: string,
+            survey?: ProductTourSurveyQuestion,
+            progressionTrigger?: ProductTourProgressionTriggerType,
+            maxWidth?: number,
+            modalPosition?: ScreenPosition
+        ) => ({ content, selector, survey, progressionTrigger, maxWidth, modalPosition }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
-
-        // Step configuration
-        setStepTargetingMode: (index: number, useManual: boolean) => ({ index, useManual }),
-        updateStepSelector: (index: number, selector: string) => ({ index, selector }),
-        updateStepProgressionTrigger: (index: number, trigger: ProductTourProgressionTriggerType) => ({
-            index,
-            trigger,
-        }),
 
         // Tour CRUD
         selectTour: (id: string | null) => ({ id }),
         newTour: true,
         saveTour: true,
-        saveAndEditInPostHog: true,
-        deleteTour: (id: string) => ({ id }),
-
-        // Preview
         previewTour: true,
         startPreviewMode: true,
         stopPreview: true,
-        setLaunchedFromMainApp: (value: boolean) => ({ value }),
+        deleteTour: (id: string) => ({ id }),
 
         updateRects: true,
 
-        // Expanded step tracking
-        setExpandedStepIndex: (index: number | null) => ({ index }),
+        // Goal modal
+        openGoalModal: true,
+        closeGoalModal: true,
+        startFromGoalModal: true,
 
-        // Sidebar transition state (hide highlights during animation)
-        setSidebarTransitioning: (transitioning: boolean) => ({ transitioning }),
+        // AI generation
+        setAIGoal: (goal: string) => ({ goal }),
+        generateWithAI: true,
+        generateWithAISuccess: (steps: Array<{ selector?: string; content: JSONContent }>, name?: string) => ({
+            steps,
+            name,
+        }),
+        generateWithAIFailure: (error: string) => ({ error }),
+        setAIGenerationStep: (step: AIGenerationStep) => ({ step }),
+
+        // Creation
+        startCreation: true,
+        setCachedScreenshot: (screenshot: string | null) => ({ screenshot }),
+
+        setPendingScreenshotPromise: (stepIndex: number, promise: Promise<ElementScreenshot | null>) => ({
+            stepIndex,
+            promise,
+        }),
+        clearPendingScreenshotPromise: true,
+        setLaunchedForPreview: (value: boolean) => ({ value }),
     }),
 
     loaders(() => ({
@@ -265,7 +287,7 @@ export const productToursLogic = kea<productToursLogicType>([
             {
                 selectElement: (_, { element }) => element,
                 clearSelectedElement: () => null,
-                setEditorState: () => null,
+                setEditorState: (state, { state: newState }) => (newState.mode === 'editing' ? state : null),
                 cancelEditing: () => null,
                 hideButtonProductTours: () => null,
             },
@@ -276,35 +298,68 @@ export const productToursLogic = kea<productToursLogicType>([
                 updateRects: (state) => state + 1,
             },
         ],
-        expandedStepIndex: [
-            null as number | null,
+        goalModalOpen: [
+            false,
             {
-                setExpandedStepIndex: (_, { index }) => index,
+                openGoalModal: () => true,
+                closeGoalModal: () => false,
+                startFromGoalModal: () => false,
+            },
+        ],
+        aiGoal: [
+            '',
+            {
+                setAIGoal: (_, { goal }) => goal,
+                selectTour: () => '',
+            },
+        ],
+        aiGenerating: [
+            false,
+            {
+                generateWithAI: () => true,
+                generateWithAISuccess: () => false,
+                generateWithAIFailure: () => false,
+            },
+        ],
+        aiGenerationStep: [
+            'idle' as AIGenerationStep,
+            {
+                generateWithAI: () => 'capturing' as AIGenerationStep,
+                setAIGenerationStep: (_, { step }) => step,
+                generateWithAISuccess: () => 'done' as AIGenerationStep,
+                generateWithAIFailure: () => 'error' as AIGenerationStep,
+                selectTour: () => 'idle' as AIGenerationStep,
+            },
+        ],
+        aiError: [
+            null as string | null,
+            {
+                generateWithAI: () => null,
+                generateWithAIFailure: (_, { error }) => error,
                 selectTour: () => null,
-                newTour: () => null,
-                removeStep: () => null,
             },
         ],
-        sidebarTransitioning: [
-            false,
+        cachedScreenshot: [
+            null as string | null,
             {
-                setSidebarTransitioning: (_, { transitioning }) => transitioning,
-                selectTour: () => true,
+                setCachedScreenshot: (_, { screenshot }) => screenshot,
+                selectTour: () => null,
             },
         ],
-        pendingEditInPostHog: [
+        pendingScreenshotPromise: [
+            null as { stepIndex: number; promise: Promise<ElementScreenshot | null> } | null,
+            {
+                setPendingScreenshotPromise: (_, { stepIndex, promise }) => ({ stepIndex, promise }),
+                clearPendingScreenshotPromise: () => null,
+                cancelEditing: () => null,
+                selectTour: () => null,
+            },
+        ],
+        launchedForPreview: [
             false,
             {
-                saveAndEditInPostHog: () => true,
+                setLaunchedForPreview: (_, { value }) => value,
                 selectTour: () => false,
-                submitTourFormFailure: () => false,
-            },
-        ],
-        launchedFromMainApp: [
-            false,
-            {
-                setLaunchedFromMainApp: (_, { value }) => value,
-                selectTour: (state, { id }) => (id === null ? false : state),
             },
         ],
     }),
@@ -312,7 +367,7 @@ export const productToursLogic = kea<productToursLogicType>([
     forms(({ values, actions }) => ({
         tourForm: {
             defaults: { name: '', steps: [] } as TourForm,
-            errors: ({ name, id, steps }) => {
+            errors: ({ name, id }) => {
                 if (!name || !name.length) {
                     return { name: 'Must name this tour' }
                 }
@@ -323,12 +378,6 @@ export const productToursLogic = kea<productToursLogicType>([
                 if (isDuplicate) {
                     return { name: 'A tour with this name already exists' }
                 }
-
-                const stepErrors = steps.map((s) => (hasValidSelector(s) ? {} : { selector: 'Missing selector' }))
-                if (stepErrors.some((e) => Object.keys(e).length > 0)) {
-                    return { steps: stepErrors }
-                }
-
                 return {}
             },
             submit: async (formValues) => {
@@ -353,7 +402,6 @@ export const productToursLogic = kea<productToursLogicType>([
                         steps: stepsForApi,
                         step_order_history: stepOrderHistory,
                     },
-                    creation_context: 'toolbar',
                 }
                 const url = isUpdate
                     ? `/api/projects/@current/product_tours/${id}/`
@@ -369,23 +417,14 @@ export const productToursLogic = kea<productToursLogicType>([
                 }
 
                 const savedTour = await response.json()
-                const { uiHost, pendingEditInPostHog, launchedFromMainApp } = values
+                const { uiHost } = values
 
-                if (pendingEditInPostHog) {
-                    const editUrl = `${uiHost}${urls.productTour(savedTour.id, 'edit=true&tab=steps')}`
-                    if (launchedFromMainApp) {
-                        window.location.href = editUrl
-                    } else {
-                        window.open(editUrl, '_blank')
-                    }
-                } else {
-                    lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(`${uiHost}${urls.productTour(savedTour.id)}`, '_blank'),
-                        },
-                    })
-                }
+                lemonToast.success(isUpdate ? 'Tour updated' : 'Tour created', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(`${uiHost}${urls.productTour(savedTour.id)}`, '_blank'),
+                    },
+                })
                 actions.loadTours()
                 // Close the editing bar after successful save
                 actions.selectTour(null)
@@ -415,9 +454,15 @@ export const productToursLogic = kea<productToursLogicType>([
             },
         ],
         isSelecting: [(s) => [s.editorState], (editorState) => editorState.mode === 'selecting'],
-        selectingStepIndex: [
+        isEditing: [(s) => [s.editorState], (editorState) => editorState.mode === 'editing'],
+        editingStepIndex: [
             (s) => [s.editorState],
-            (editorState): number | null => (editorState.mode === 'selecting' ? editorState.stepIndex : null),
+            (editorState): number | null =>
+                editorState.mode === 'editing' || editorState.mode === 'selecting' ? editorState.stepIndex : null,
+        ],
+        editingStepType: [
+            (s) => [s.editorState],
+            (editorState): ProductTourStepType | null => (editorState.mode === 'editing' ? editorState.stepType : null),
         ],
         hoverElementRect: [
             (s) => [s.hoverElement, s.rectUpdateCounter],
@@ -437,24 +482,16 @@ export const productToursLogic = kea<productToursLogicType>([
                 return getRectForElement(selectedElement)
             },
         ],
-        stepCount: [(s) => [s.tourForm], (tourForm) => tourForm?.steps?.length ?? 0],
-        expandedStepRect: [
-            (s) => [s.expandedStepIndex, s.tourForm, s.rectUpdateCounter, s.editorState],
-            (expandedStepIndex, tourForm, _, editorState): ElementRect | null => {
-                if (editorState.mode === 'selecting') {
+        editingStep: [
+            (s) => [s.editingStepIndex, s.tourForm],
+            (editingStepIndex, tourForm): TourStep | null => {
+                if (editingStepIndex === null) {
                     return null
                 }
-                if (expandedStepIndex === null || !tourForm?.steps) {
-                    return null
-                }
-                const step = tourForm.steps[expandedStepIndex]
-                if (!step || step.type !== 'element') {
-                    return null
-                }
-                const element = getStepElement(step)
-                return element ? getRectForElement(element) : null
+                return tourForm?.steps?.[editingStepIndex] ?? null
             },
         ],
+        stepCount: [(s) => [s.tourForm], (tourForm) => tourForm?.steps?.length ?? 0],
     }),
 
     subscriptions(({ actions }) => ({
@@ -473,48 +510,128 @@ export const productToursLogic = kea<productToursLogicType>([
     listeners(({ actions, values }) => ({
         addStep: ({ stepType }) => {
             const nextIndex = values.tourForm?.steps?.length ?? 0
-            toolbarPosthogJS.capture(ProductTourEvent.STEP_ADDED, {
-                step_type: stepType,
-                step_index: nextIndex,
-                tour_id: values.tourForm?.id ?? null,
-            })
             if (stepType === 'element') {
+                // Element steps need element selection first
                 actions.setEditorState({ mode: 'selecting', stepIndex: nextIndex })
             } else {
-                const steps = [...(values.tourForm?.steps || [])]
-                const newStep = createDefaultStep(stepType) as TourStep
-                steps.push(newStep)
-                actions.setTourFormValue('steps', steps)
-                actions.setExpandedStepIndex(nextIndex)
+                // Modal/survey steps go directly to editing
+                actions.setEditorState({ mode: 'editing', stepIndex: nextIndex, stepType })
             }
         },
-        selectElement: async ({ element }) => {
+        editStep: ({ index }) => {
+            const step = values.tourForm?.steps?.[index]
+            if (!step) {
+                return
+            }
+
+            // For element steps, try to find and highlight the element
+            if (step.type === 'element') {
+                const element = getStepElement(step, { logInference: true })
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    actions.selectElement(element)
+                } else {
+                    // Element not found - clear so editor shows centered with warning
+                    actions.clearSelectedElement()
+                }
+            }
+
+            actions.setEditorState({ mode: 'editing', stepIndex: index, stepType: step.type })
+        },
+        changeStepElement: () => {
+            // Re-enter selecting mode for the current step
+            const { editorState } = values
+            if (editorState.mode === 'editing') {
+                actions.setEditorState({ mode: 'selecting', stepIndex: editorState.stepIndex })
+            }
+        },
+        selectElement: ({ element }) => {
             const { editorState, tourForm, dataAttributes } = values
             if (editorState.mode !== 'selecting') {
                 return
             }
 
             const { stepIndex } = editorState
+            const isChangingExistingStep = tourForm && stepIndex < (tourForm.steps?.length ?? 0)
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
+
             const inferenceData = inferSelector(element)?.selector
-            const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
+
+            const screenshotPromise = captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
                 return null
             })
 
-            const steps = [...(tourForm?.steps || [])]
+            if (isChangingExistingStep) {
+                const steps = [...(tourForm.steps || [])]
+                steps[stepIndex] = {
+                    ...steps[stepIndex],
+                    selector,
+                    element,
+                    screenshotMediaId: undefined,
+                    inferenceData,
+                }
+                actions.setTourFormValue('steps', steps)
+                actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
+                actions.setEditorState({ mode: 'editing', stepIndex, stepType: 'element' })
+            } else {
+                actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
+                actions.setEditorState({
+                    mode: 'editing',
+                    stepIndex,
+                    stepType: 'element',
+                })
+            }
+        },
+        confirmStep: async ({
+            content,
+            selector: selectorOverride,
+            survey,
+            progressionTrigger,
+            maxWidth,
+            modalPosition,
+        }) => {
+            const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
+            if (editorState.mode !== 'editing' || !tourForm) {
+                return
+            }
+
+            const { stepIndex, stepType } = editorState
+            const steps = [...(tourForm.steps || [])]
             const existingStep = stepIndex < steps.length ? steps[stepIndex] : null
+
+            // For element steps, use selector from UI (which handles all derivation logic)
+            // Preserve existing selector if none provided (e.g., editing content only)
+            const selector = stepType === 'element' ? (selectorOverride ?? existingStep?.selector) : undefined
+            // Reuse stored inferenceData if element hasn't changed, otherwise recalculate
+            const inferenceData =
+                stepType === 'element' && selectedElement
+                    ? selectedElement === existingStep?.element
+                        ? existingStep?.inferenceData
+                        : inferSelector(selectedElement)?.selector
+                    : undefined
+
+            let screenshotMediaId: string | undefined = existingStep?.screenshotMediaId
+            if (stepType === 'element' && pendingScreenshotPromise?.stepIndex === stepIndex) {
+                const screenshot = await pendingScreenshotPromise.promise
+                if (screenshot) {
+                    screenshotMediaId = screenshot.mediaId
+                }
+                actions.clearPendingScreenshotPromise()
+            }
 
             const newStep: TourStep = {
                 id: existingStep?.id ?? uuid(),
-                type: 'element',
+                type: stepType,
                 selector,
-                content: existingStep?.content ?? getDefaultStepContent(),
-                element,
-                inferenceData,
-                useManualSelector: false,
-                progressionTrigger: existingStep?.progressionTrigger ?? 'button',
-                ...(screenshot ? { screenshotMediaId: screenshot.mediaId } : {}),
+                content,
+                element: selectedElement ?? existingStep?.element,
+                inferenceData: inferenceData ?? existingStep?.inferenceData,
+                ...(survey ? { survey } : {}),
+                ...(progressionTrigger ? { progressionTrigger } : {}),
+                ...(maxWidth ? { maxWidth } : {}),
+                ...(screenshotMediaId ? { screenshotMediaId } : {}),
+                ...(stepType !== 'element' ? { modalPosition: modalPosition ?? SurveyPosition.MiddleCenter } : {}),
             }
 
             if (stepIndex < steps.length) {
@@ -525,80 +642,14 @@ export const productToursLogic = kea<productToursLogicType>([
 
             actions.setTourFormValue('steps', steps)
             actions.setEditorState({ mode: 'idle' })
-            actions.setExpandedStepIndex(stepIndex)
         },
         removeStep: ({ index }) => {
             if (values.tourForm) {
-                const removedStep = values.tourForm.steps?.[index]
-                toolbarPosthogJS.capture(ProductTourEvent.STEP_REMOVED, {
-                    step_type: removedStep?.type ?? null,
-                    step_index: index,
-                    tour_id: values.tourForm.id ?? null,
-                    remaining_steps: (values.tourForm.steps?.length ?? 1) - 1,
-                })
                 const steps = [...(values.tourForm.steps || [])]
                 steps.splice(index, 1)
                 actions.setTourFormValue('steps', steps)
                 actions.setEditorState({ mode: 'idle' })
             }
-        },
-        setStepTargetingMode: ({ index, useManual }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || step.type !== 'element') {
-                return
-            }
-
-            if (useManual) {
-                // switching from auto -> manual, wipe inference data and screenshot.
-                // this prevents stale data down the line
-                steps[index] = {
-                    ...step,
-                    useManualSelector: true,
-                    inferenceData: undefined,
-                    screenshotMediaId: undefined,
-                    element: undefined,
-                }
-            } else {
-                // switching from manual -> auto: wipe selector data, prompt for re-selection
-                steps[index] = {
-                    ...step,
-                    useManualSelector: false,
-                    selector: undefined,
-                    inferenceData: undefined,
-                    screenshotMediaId: undefined,
-                    element: undefined,
-                }
-                actions.setEditorState({ mode: 'selecting', stepIndex: index })
-            }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepSelector: ({ index, selector }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step || step.type !== 'element') {
-                return
-            }
-            steps[index] = { ...step, selector, element: undefined }
-            actions.setTourFormValue('steps', steps)
-        },
-        updateStepProgressionTrigger: ({ index, trigger }) => {
-            if (!values.tourForm) {
-                return
-            }
-            const steps = [...(values.tourForm.steps || [])]
-            const step = steps[index]
-            if (!step) {
-                return
-            }
-            steps[index] = { ...step, progressionTrigger: trigger }
-            actions.setTourFormValue('steps', steps)
         },
         newTour: () => {
             toolbarLogic.actions.setVisibleMenu('none')
@@ -611,16 +662,8 @@ export const productToursLogic = kea<productToursLogicType>([
         saveTour: () => {
             actions.submitTourForm()
         },
-        saveAndEditInPostHog: () => {
-            actions.submitTourForm()
-        },
         previewTour: () => {
             const { tourForm, posthog, selectedTourId, tours } = values
-            if (posthog?.version && !hasMinProductToursVersion(posthog.version)) {
-                lemonToast.error(`Requires posthog-js ${PRODUCT_TOURS_MIN_JS_VERSION}+`)
-                return
-            }
-
             if (!tourForm || !posthog?.productTours) {
                 lemonToast.error('Unable to preview tour')
                 return
@@ -645,10 +688,6 @@ export const productToursLogic = kea<productToursLogicType>([
             }
 
             // Validation passed - now enter preview mode
-            toolbarPosthogJS.capture(ProductTourEvent.PREVIEW_STARTED, {
-                tour_id: tourForm.id ?? null,
-                step_count: tourForm.steps.length,
-            })
             actions.startPreviewMode()
             toolbarLogic.actions.toggleMinimized(true)
 
@@ -668,18 +707,15 @@ export const productToursLogic = kea<productToursLogicType>([
                 appearance: existingTour?.content?.appearance,
             }
 
-            // wait for sidebar animation - gross, sorry :(
-            setTimeout(() => {
-                productTours.previewTour(tour)
-            }, PRODUCT_TOURS_SIDEBAR_TRANSITION_MS + 50)
+            productTours.previewTour(tour)
         },
         stopPreview: () => {
-            const { selectedTourId, tours, launchedFromMainApp } = values
+            const { selectedTourId, tours, launchedForPreview } = values
             const selectedTour = tours.find((t: ProductTour) => t.id === selectedTourId)
             const isAnnouncement = selectedTour?.content?.type === 'announcement'
 
             if (isAnnouncement) {
-                if (launchedFromMainApp) {
+                if (launchedForPreview) {
                     window.close() // go back to posthog app
                     return
                 }
@@ -688,9 +724,9 @@ export const productToursLogic = kea<productToursLogicType>([
             toolbarLogic.actions.toggleMinimized(false)
         },
         updateRects: () => {
-            // if in selecting mode: try to find + highlight element
+            // When editing an element step, check if selected element is still valid
             const { editorState, selectedElement, tourForm } = values
-            if (editorState.mode === 'selecting') {
+            if (editorState.mode === 'editing' && editorState.stepType === 'element') {
                 const selectedElementValid = selectedElement && document.body.contains(selectedElement)
 
                 if (!selectedElementValid) {
@@ -725,17 +761,120 @@ export const productToursLogic = kea<productToursLogicType>([
         hideButtonProductTours: () => {
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'product-tours', enabled: false })
         },
+        generateWithAI: async () => {
+            const steps = values.tourForm?.steps ?? []
+            const nonSurveySteps = steps.filter((step) => step.type !== 'survey')
+
+            if (nonSurveySteps.length === 0) {
+                lemonToast.error('Add at least one element before generating')
+                actions.generateWithAIFailure('No elements selected')
+                return
+            }
+
+            try {
+                actions.setAIGenerationStep('capturing')
+                let screenshot = values.cachedScreenshot
+                if (!screenshot) {
+                    try {
+                        screenshot = await captureScreenshot()
+                    } catch (e) {
+                        console.warn('[AI Generate] Failed to capture screenshot:', e)
+                    }
+                }
+
+                actions.setAIGenerationStep('analyzing')
+                const elements = nonSurveySteps.map((step) => {
+                    let metadata = { selector: step.selector, tag: 'unknown', text: '', attributes: {} }
+                    if (step.element && document.body.contains(step.element)) {
+                        metadata = {
+                            ...getElementMetadata(step.element),
+                            selector: step.selector,
+                        }
+                    } else if (step.selector) {
+                        const el = document.querySelector(step.selector) as HTMLElement | null
+                        if (el) {
+                            metadata = {
+                                ...getElementMetadata(el),
+                                selector: step.selector,
+                            }
+                        }
+                    }
+                    return metadata
+                })
+
+                actions.setAIGenerationStep('generating')
+                const response = await toolbarFetch('/api/projects/@current/product_tours/generate/', 'POST', {
+                    screenshot,
+                    elements,
+                    goal: values.aiGoal,
+                })
+
+                if (!response.ok) {
+                    const error = await response.json()
+                    throw new Error(error.error || 'Failed to generate tour content')
+                }
+
+                const data = await response.json()
+
+                if (values.aiGoal.trim()) {
+                    saveRecentGoal(values.aiGoal.trim())
+                }
+
+                actions.generateWithAISuccess(data.steps, data.name)
+            } catch (e) {
+                const message = e instanceof Error ? e.message : 'Failed to generate tour content'
+                lemonToast.error(message)
+                actions.generateWithAIFailure(message)
+            }
+        },
+        generateWithAISuccess: ({ steps: generatedSteps, name }) => {
+            if (name) {
+                actions.setTourFormValue('name', name)
+            }
+
+            const currentSteps = [...(values.tourForm?.steps ?? [])]
+            let aiStepIndex = 0
+            currentSteps.forEach((step, i) => {
+                if (step.type === 'survey') {
+                    return
+                }
+                if (aiStepIndex < generatedSteps.length) {
+                    const aiStep = generatedSteps[aiStepIndex]
+                    currentSteps[i] = { ...currentSteps[i], content: aiStep.content }
+                    aiStepIndex++
+                }
+            })
+
+            actions.setTourFormValue('steps', currentSteps)
+            lemonToast.success('Tour content generated!')
+        },
+        startCreation: () => {
+            toolbarLogic.actions.setVisibleMenu('none')
+            actions.openGoalModal()
+        },
+        startFromGoalModal: async () => {
+            actions.newTour()
+            if (values.aiGoal.trim()) {
+                actions.setTourFormValue('name', values.aiGoal.trim())
+            }
+
+            try {
+                const screenshot = await captureScreenshot().catch(() => null)
+                actions.setCachedScreenshot(screenshot)
+            } catch (e) {
+                console.warn('[Creation] Failed to capture screenshot:', e)
+            }
+        },
         loadToursSuccess: () => {
             const { userIntent, productTourId } = values
             if (userIntent === 'edit-product-tour' && productTourId) {
-                actions.setLaunchedFromMainApp(true)
                 actions.selectTour(productTourId)
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'add-product-tour') {
-                actions.newTour()
+                actions.startCreation()
                 toolbarConfigLogic.actions.clearUserIntent()
             } else if (userIntent === 'preview-product-tour' && productTourId) {
-                actions.setLaunchedFromMainApp(true)
+                actions.setLaunchedForPreview(true)
                 actions.selectTour(productTourId)
                 actions.previewTour()
                 toolbarConfigLogic.actions.clearUserIntent()
@@ -781,6 +920,11 @@ export const productToursLogic = kea<productToursLogicType>([
             }
 
             cache.onClick = (e: MouseEvent): void => {
+                // Cmd/ctrl+click always passes through (for click-through navigation)
+                if (e.metaKey || e.ctrlKey) {
+                    return
+                }
+
                 if (values.isPreviewing) {
                     return
                 }
@@ -810,8 +954,7 @@ export const productToursLogic = kea<productToursLogicType>([
                         if (stepElement && (stepElement === target || stepElement.contains(target))) {
                             e.preventDefault()
                             e.stopPropagation()
-                            actions.setExpandedStepIndex(i)
-                            stepElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            actions.editStep(i)
                             return
                         }
                     }

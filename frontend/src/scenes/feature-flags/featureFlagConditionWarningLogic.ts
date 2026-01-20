@@ -1,9 +1,8 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { kea, key, path, props, selectors } from 'kea'
 
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { AnyPropertyFilter, CohortType, FeatureFlagEvaluationRuntime, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagEvaluationRuntime } from '~/types'
 
 import type { featureFlagConditionWarningLogicType } from './featureFlagConditionWarningLogicType'
 
@@ -20,64 +19,37 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({} as FeatureFlagConditionWarningLogicProps),
     key((props) => JSON.stringify(props.properties)),
-    connect({
-        values: [cohortsModel, ['cohortsById']],
-    }),
 
     selectors({
         warning: [
-            (s, p) => [s.cohortsById, p.properties, p.evaluationRuntime],
-            (
-                cohortsById: Partial<Record<string | number, CohortType>>,
-                properties: AnyPropertyFilter[],
-                evaluationRuntime: FeatureFlagEvaluationRuntime
-            ): string | undefined => {
-                // Local evaluation is only relevant for server-side SDKs, so only show the warning
-                // for flags that can be evaluated server-side (ALL or SERVER)
-                if (evaluationRuntime === FeatureFlagEvaluationRuntime.CLIENT) {
+            (_, p) => [p.properties, p.evaluationRuntime],
+            (properties: AnyPropertyFilter[], evaluationRuntime: FeatureFlagEvaluationRuntime): string | undefined => {
+                if (evaluationRuntime === FeatureFlagEvaluationRuntime.SERVER) {
                     return
                 }
 
-                const issues: string[] = []
-
+                const unsupportedFeatures = new Set<string>()
                 properties.forEach((property) => {
-                    if (isPropertyFilterWithOperator(property) && property.operator === 'is_not_set') {
-                        issues.push('is_not_set operator')
-                    }
-
-                    if (property.type === PropertyFilterType.Cohort) {
-                        const cohortId = property.value
-                        // Try both numeric and string keys since cohort IDs can be stored as either type
-                        const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
-                        if (cohort?.is_static) {
-                            issues.push('static cohorts')
-                        }
-                    }
-
                     if (isPropertyFilterWithOperator(property) && property.operator === 'regex') {
                         const pattern = String(property.value)
 
                         if (REGEX_LOOKAHEAD.test(pattern)) {
-                            issues.push('lookahead in regex')
+                            unsupportedFeatures.add('lookahead')
                         }
 
                         if (REGEX_LOOKBEHIND.test(pattern)) {
-                            issues.push('lookbehind in regex')
+                            unsupportedFeatures.add('lookbehind')
                         }
 
                         if (REGEX_BACKREFERENCE.test(pattern)) {
-                            issues.push('backreferences in regex')
+                            unsupportedFeatures.add('backreferences')
                         }
                     }
                 })
 
-                if (issues.length === 0) {
-                    return undefined
-                }
-
-                const uniqueIssues = [...new Set(issues)]
-
-                return uniqueIssues.join(', ')
+                return unsupportedFeatures.size > 0
+                    ? `This flag cannot be evaluated in client environments. Release conditions contain unsupported regex patterns (${Array.from(unsupportedFeatures).join(', ')}).`
+                    : undefined
             },
         ],
     }),

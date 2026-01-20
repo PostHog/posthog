@@ -162,7 +162,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         item_context: itemContext,
                         source_comment: values.replyingCommentId ?? undefined,
                         mentions,
-                        slug: discussionsSlug(props.scope, props.item_id),
+                        slug: discussionsSlug(),
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -195,7 +195,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         rich_content,
                         content: textContent,
                         mentions: newMentions,
-                        slug: discussionsSlug(props.scope, props.item_id),
+                        slug: discussionsSlug(),
                     })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },

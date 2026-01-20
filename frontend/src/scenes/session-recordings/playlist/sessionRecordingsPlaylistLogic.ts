@@ -7,13 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import {
-    formatPropertyLabel,
-    isAnyPropertyfilter,
-    isHogQLPropertyFilter,
-    normalizePropertyFilterValue,
-} from 'lib/components/PropertyFilters/utils'
+import { formatPropertyLabel, isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
@@ -31,6 +25,7 @@ import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     NodeKind,
@@ -40,14 +35,12 @@ import {
     VALID_RECORDING_ORDERS,
 } from '~/queries/schema/schema-general'
 import {
-    AnyPropertyFilter,
     FilterLogicalOperator,
     FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
     PropertyFilterType,
-    PropertyFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
@@ -252,43 +245,6 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
-/**
- * Normalizes a single property filter's value if it has a multi-select operator.
- */
-function normalizePropertyFilter<T extends { operator?: unknown; value?: unknown; type?: unknown }>(filter: T): T {
-    if (
-        !filter ||
-        typeof filter !== 'object' ||
-        !('operator' in filter) ||
-        !('value' in filter) ||
-        ('type' in filter && filter.type === 'cohort')
-    ) {
-        return filter
-    }
-    const normalizedValue = normalizePropertyFilterValue(
-        filter.value as PropertyFilterValue,
-        filter.operator as PropertyOperator | null
-    )
-    if (normalizedValue !== filter.value) {
-        return { ...filter, value: normalizedValue }
-    }
-    return filter
-}
-
-/**
- * Normalizes properties array inside an event or action filter.
- * Returns the filter with normalized properties, or the original if no changes needed.
- */
-function normalizeFilterWithNestedProperties<T extends { properties?: AnyPropertyFilter[] }>(filter: T): T {
-    if (!filter.properties || !Array.isArray(filter.properties)) {
-        return filter
-    }
-    const normalizedProperties = filter.properties.map((prop) => normalizePropertyFilter(prop) as AnyPropertyFilter)
-    // Only create new object if something changed
-    const hasChanges = normalizedProperties.some((prop, i) => prop !== filter.properties![i])
-    return hasChanges ? { ...filter, properties: normalizedProperties } : filter
-}
-
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
     const filters = filtersFromUniversalFilterGroups(universalFilters)
 
@@ -313,9 +269,9 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     filters.forEach((f) => {
         if (isEventFilter(f)) {
-            events.push(normalizeFilterWithNestedProperties(f))
+            events.push(f)
         } else if (isActionFilter(f)) {
-            actions.push(normalizeFilterWithNestedProperties(f))
+            actions.push(f)
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
         } else if (isHogQLPropertyFilter(f)) {
@@ -332,34 +288,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     comment_text = f
                 }
             } else {
-                // Normalize filter value to ensure multi-select operators have array values
-                // Skip cohort filters as they have a different value type (number)
-                const normalizedValue =
-                    f.type !== 'cohort' ? normalizePropertyFilterValue(f.value, f.operator) : f.value
-
-                // Debug logging for replay filter value type investigation
-                // TODO: Remove after debugging
-                if (
-                    f.type === 'feature' ||
-                    (f.type === 'event' && typeof f.key === 'string' && f.key.includes('$feature'))
-                ) {
-                    posthog.capture('debug_replay_filter_value_type', {
-                        filter_type: f.type,
-                        filter_key: f.key,
-                        original_value: f.value,
-                        normalized_value: normalizedValue,
-                        value_type: typeof f.value,
-                        is_array: Array.isArray(f.value),
-                        operator: f.operator,
-                    })
-                }
-
-                // Only create a new object if the value actually changed
-                if (normalizedValue !== f.value) {
-                    properties.push({ ...f, value: normalizedValue } as AnyPropertyFilter)
-                } else {
-                    properties.push(f)
-                }
+                properties.push(f)
             }
         }
     })
@@ -1064,7 +993,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadSessionRecordings('older')
             }
 
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
         },
 
         setHideViewedRecordings: () => {

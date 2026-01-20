@@ -80,7 +80,7 @@ export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
-    key((props) => `hog-flow-editor-${props.id}-${props.tabId}`),
+    key((props) => `${props.id}`),
     connect((props: WorkflowLogicProps) => ({
         values: [
             workflowLogic(props),

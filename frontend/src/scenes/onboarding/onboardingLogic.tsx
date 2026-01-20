@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { QUICK_START_PARAM } from 'lib/components/ProductSetup/globalSetupLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -12,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -35,6 +34,7 @@ export interface OnboardingLogicProps {
 }
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
+    [OnboardingStepKey.AI_CONSENT]: 'PostHog AI',
     [OnboardingStepKey.LINK_DATA]: 'Import data',
 }
 
@@ -55,35 +55,24 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type OnboardingStepType = OnboardingStepElement
 
 export const getOnboardingCompleteRedirectUri = (productKey: ProductKey): string => {
-    let baseUrl: string
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            baseUrl = urls.insightOptions()
-            break
+            return urls.insightNew()
         case ProductKey.WEB_ANALYTICS:
-            baseUrl = urls.webAnalytics()
-            break
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
-            baseUrl = urls.replay()
-            break
+            return urls.replay()
         case ProductKey.FEATURE_FLAGS:
-            baseUrl = urls.featureFlag('new')
-            break
+            return urls.featureFlag('new')
         case ProductKey.SURVEYS:
-            baseUrl = urls.surveyTemplates()
-            break
+            return urls.surveyTemplates()
         case ProductKey.ERROR_TRACKING:
-            baseUrl = urls.errorTracking()
-            break
+            return urls.errorTracking()
         case ProductKey.LLM_ANALYTICS:
-            baseUrl = urls.llmAnalyticsDashboard()
-            break
+            return urls.llmAnalyticsDashboard()
         default:
-            baseUrl = urls.default()
+            return urls.default()
     }
-
-    // Append quickstart param to open the quick start popover after onboarding
-    return `${baseUrl}?${QUICK_START_PARAM}=true`
 }
 
 export const onboardingLogic = kea<onboardingLogicType>([
@@ -268,6 +257,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
+        isFirstProductOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                )
+            },
+        ],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {
@@ -333,6 +330,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         [productKey]: true,
                     },
                 })
+            }
+
+            if (values.isFirstProductOnboarding && !values.modalMode) {
+                // Because the side panel opening has its own actionToUrl,
+                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
+                setTimeout(() => {
+                    actions.openSidePanel(SidePanelTab.Activation)
+                }, 100)
             }
         },
         skipOnboarding: () => {

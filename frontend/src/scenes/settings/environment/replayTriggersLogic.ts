@@ -178,6 +178,10 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         ],
     }),
     selectors({
+        remoteUrlTriggerConfig: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.session_recording_url_trigger_config,
+        ],
         isAddUrlTriggerConfigFormVisible: [
             (s) => [s.editUrlTriggerIndex],
             (editUrlTriggerIndex) => editUrlTriggerIndex === -1,

@@ -30,20 +30,21 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     selectors({
         breadcrumbs: [
             (s) => [s.selectedLevel, s.selectedSectionId, s.sections],
-            (selectedLevel, selectedSectionId, sections): Breadcrumb[] => {
-                const sectionName = selectedSectionId
-                    ? sections.find((x) => x.id === selectedSectionId)?.title
-                    : capitalizeFirstLetter(selectedLevel)
-
-                return [
-                    {
-                        key: Scene.Settings,
-                        name: sectionName ? `Settings - ${sectionName}` : 'Settings',
-                        path: urls.settings(selectedSectionId || selectedLevel),
-                        iconType: 'settings',
-                    },
-                ]
-            },
+            (selectedLevel, selectedSectionId, sections): Breadcrumb[] => [
+                {
+                    key: Scene.Settings,
+                    name: `Settings`,
+                    path: urls.settings('project'),
+                    iconType: 'dashboard',
+                },
+                {
+                    key: [Scene.Settings, selectedSectionId || selectedLevel],
+                    name: selectedSectionId
+                        ? sections.find((x) => x.id === selectedSectionId)?.title
+                        : capitalizeFirstLetter(selectedLevel),
+                    iconType: 'dashboard',
+                },
+            ],
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

@@ -5,11 +5,32 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
-import { getPasskeyErrorMessage } from './passkeys/utils'
+
+const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
+    NotAllowedError: 'Operation was cancelled or timed out.',
+    InvalidStateError: 'This passkey is already registered.',
+    SecurityError: 'Security error occurred. Please try again.',
+    AbortError: 'Operation was cancelled.',
+}
+
+function getPasskeyErrorMessage(error: any, defaultMessage: string): string {
+    if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
+        return WEBAUTHN_ERROR_MESSAGES[error.name]
+    }
+
+    if (error?.detail) {
+        return error.detail
+    }
+
+    if (error?.message) {
+        return error.message
+    }
+
+    return defaultMessage
+}
 
 export interface PasskeyCredential {
     id: number
@@ -29,7 +50,6 @@ export interface RegistrationBeginResponse {
     excludeCredentials: PublicKeyCredentialDescriptorJSON[]
     authenticatorSelection: { residentKey: string; userVerification: string }
     attestation: string
-    already_registered?: boolean
 }
 
 export interface RegistrationCompleteResponse {
@@ -51,7 +71,7 @@ export type RegistrationStep = 'idle' | 'registering' | 'verifying' | 'complete'
 export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     path(['scenes', 'settings', 'user', 'passkeySettingsLogic']),
     connect({
-        actions: [userLogic, ['loadUser'], twoFactorLogic, ['loadStatus']],
+        actions: [userLogic, ['loadUser']],
     }),
     actions({
         beginRegistration: (label: string) => ({ label }),
@@ -226,7 +246,6 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         lemonToast.success('Passkey added successfully!')
                         actions.loadPasskeys()
                         actions.loadUser()
-                        actions.loadStatus()
 
                         return null
                     } catch (e: any) {
@@ -243,11 +262,9 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     listeners(({ actions }) => ({
         deletePasskeySuccess: () => {
             actions.loadUser()
-            actions.loadStatus()
         },
         verifyPasskeySuccess: () => {
             actions.loadUser()
-            actions.loadStatus()
         },
     })),
 ])

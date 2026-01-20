@@ -1,16 +1,4 @@
-import {
-    BindLogic,
-    actions,
-    kea,
-    key,
-    path,
-    props,
-    reducers,
-    selectors,
-    useActions,
-    useMountedLogic,
-    useValues,
-} from 'kea'
+import { actions, kea, key, path, props, reducers, selectors, useActions, useMountedLogic, useValues } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
@@ -128,9 +116,9 @@ export const scene: SceneExport = {
     }),
 }
 
-function BatchExportSceneHeader(): JSX.Element {
-    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic)
-    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic)
+function BatchExportSceneHeader({ logicProps }: { logicProps: BatchExportConfigurationLogicProps }): JSX.Element {
+    const { configuration, batchExportConfigLoading } = useValues(batchExportConfigurationLogic(logicProps))
+    const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigurationLogic(logicProps))
 
     return (
         <>
@@ -192,31 +180,9 @@ export function BatchExportSceneContent({
 }): JSX.Element {
     const { currentTab } = useValues(logic)
     const { setCurrentTab } = useActions(logic)
+    const { id, service } = logicProps
 
-    return (
-        <BindLogic logic={batchExportConfigurationLogic} props={logicProps}>
-            <BatchExportSceneContentInner
-                currentTab={currentTab}
-                setCurrentTab={setCurrentTab}
-                id={logicProps.id}
-                service={logicProps.service}
-            />
-        </BindLogic>
-    )
-}
-
-function BatchExportSceneContentInner({
-    currentTab,
-    setCurrentTab,
-    id,
-    service,
-}: {
-    currentTab: BatchExportSceneTab
-    setCurrentTab: (tab: BatchExportSceneTab) => void
-    id: string | null
-    service: BatchExportService['type'] | null
-}): JSX.Element {
-    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic)
+    const { batchExportConfig, loading } = useValues(batchExportConfigurationLogic(logicProps))
 
     if (loading && !batchExportConfig) {
         return (
@@ -277,7 +243,7 @@ function BatchExportSceneContentInner({
 
     return (
         <SceneContent>
-            <BatchExportSceneHeader />
+            <BatchExportSceneHeader logicProps={logicProps} />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )

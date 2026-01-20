@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { Tick } from 'lib/Chart'
 import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
@@ -29,7 +30,7 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     dashboardId: DashboardType['id'] | undefined
     insightNumericId: QueryBasedInsightModel['id'] | 'new'
     dates: string[]
-    ticks: { value: number }[]
+    ticks: Tick[]
 }
 
 export function determineAnnotationsDateGroup(
@@ -94,7 +95,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     })),
     actions({
         createAnnotation: (annotationData: AnnotationDataWithoutInsight) => ({ annotationData }),
-        activateDate: (date: Dayjs) => ({ date }),
+        activateDate: (date: Dayjs, badgeElement: HTMLButtonElement) => ({ date, badgeElement }),
         deactivateDate: true,
         lockDate: true,
         unlockDate: true,
@@ -113,8 +114,12 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             null as Dayjs | null,
             {
                 activateDate: (_, { date }) => date,
-                deactivateDate: () => null,
-                closePopover: () => null,
+            },
+        ],
+        activeBadgeElement: [
+            null as HTMLButtonElement | null,
+            {
+                activateDate: (_, { badgeElement }) => badgeElement,
             },
         ],
         isDateLocked: [

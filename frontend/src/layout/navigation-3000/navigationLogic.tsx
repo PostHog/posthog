@@ -346,14 +346,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
-        zenModeFromUrl: [
-            () => [router.selectors.searchParams],
-            (searchParams): boolean => {
-                // Enable zen mode via ?zen or ?zen=true or ?zen=1
-                const zenParam = searchParams?.zen
-                return zenParam !== undefined && zenParam !== 'false' && zenParam !== '0'
-            },
-        ],
         mode: [
             (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
             (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
@@ -782,13 +774,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 item.ref?.current?.focus()
             } else {
                 props.inputElement?.focus()
-            }
-        },
-        zenModeFromUrl: (zenModeFromUrl: boolean) => {
-            // Enable zen mode when URL parameter is present (e.g., ?zen or ?zen=true)
-            // Only enable, never disable from URL - user can manually disable
-            if (zenModeFromUrl && !values.zenMode) {
-                actions.setZenMode(true)
             }
         },
     })),

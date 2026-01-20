@@ -289,10 +289,7 @@ export const iframedToolbarBrowserLogic = kea<iframedToolbarBrowserLogicType>([
                 }
             }
 
-            cache.disposables.add(() => {
-                window.addEventListener('message', onIframeMessage, false)
-                return () => window.removeEventListener('message', onIframeMessage, false)
-            }, 'iframeMessageListener')
+            window.addEventListener('message', onIframeMessage, false)
             // We call init in case the toolbar got there first (unlikely)
             init()
         },
