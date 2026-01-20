@@ -633,6 +633,15 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DOCS_URLS_BY_TAB: Record<string, string> = {
+    traces: 'https://posthog.com/docs/llm-analytics/traces',
+    generations: 'https://posthog.com/docs/llm-analytics/generations',
+    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
+    errors: 'https://posthog.com/docs/llm-analytics/errors',
+    evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
+}
+
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -865,7 +874,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     actions={
                         <>
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/installation"
+                                to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                                 type="secondary"
                                 targetBlank
                                 size="small"
