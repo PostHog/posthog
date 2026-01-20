@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
-import { isDefinitionStale } from 'lib/utils/definitions'
+import { hasRecentAIEvents } from 'lib/utils/aiEventsUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -34,7 +34,6 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EventDefinitionType,
     HogQLMathType,
     InsightShortId,
     PropertyFilterType,
@@ -407,21 +406,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     }),
 
     loaders(() => ({
-        hasSentAiGenerationEvent: {
+        hasSentAiEvent: {
             __default: undefined as boolean | undefined,
             loadAIEventDefinition: async (): Promise<boolean> => {
-                const aiGenerationDefinition = await api.eventDefinitions.list({
-                    event_type: EventDefinitionType.Event,
-                    search: '$ai_generation',
-                })
-
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const definition = aiGenerationDefinition.results.find((r) => r.name === '$ai_generation')
-                if (definition && !isDefinitionStale(definition)) {
-                    return true
-                }
-                return false
+                return hasRecentAIEvents()
             },
         },
 
