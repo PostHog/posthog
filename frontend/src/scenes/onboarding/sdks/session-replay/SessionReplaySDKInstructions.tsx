@@ -52,7 +52,7 @@ export function AdvertiseMobileReplay({
     context,
     sdkKey,
 }: {
-    context: 'product-analytics-onboarding' | 'flags-onboarding'
+    context: 'product-analytics-onboarding' | 'flags-onboarding' | 'experiments-onboarding'
     sdkKey: SDKKey
 }): JSX.Element {
     let platform = 'Mobile'
