@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from llm_gateway.rate_limiting.cost_refresh import CostRefreshService
 
 class TestCostRefreshService:
     @pytest.fixture(autouse=True)
-    def reset_singleton(self) -> None:
+    def reset_singleton(self) -> Iterator[None]:
         CostRefreshService.reset_instance()
         yield
         CostRefreshService.reset_instance()

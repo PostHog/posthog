@@ -61,4 +61,4 @@ class TopKCounter:
             self._gauge.labels(label=label).set(self._values[label])
 
     def get(self, label: str) -> float:
-        return self._values.get(str(label), 0.0)
+        return self._values.get(label, 0.0)

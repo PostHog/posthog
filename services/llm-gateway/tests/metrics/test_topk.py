@@ -40,11 +40,6 @@ class TestTopKCounter:
         counter.inc("label_a", -5.0)
         assert counter.get("label_a") == 0.0
 
-    def test_inc_converts_int_label_to_string(self, counter: TopKCounter) -> None:
-        counter.inc(123, 10.0)
-        assert counter.get("123") == 10.0
-        assert counter.get(123) == 10.0
-
     def test_exports_up_to_k_labels(self, counter: TopKCounter) -> None:
         counter.inc("a", 1.0)
         counter.inc("b", 2.0)
