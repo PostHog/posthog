@@ -213,13 +213,35 @@ jobs:
                   docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
                   bin/check_kafka_clickhouse_up
 
-            - name: Set up databases
+            - name: Check for migrations in this PR
+              id: check_migrations
+              if: github.event_name == 'pull_request'
+              run: |
+                  if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Set up databases (fast path - restore schema)
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+              run: |
+                  bin/hogli db:download-schema
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
+                  pnpm --filter=@posthog/nodejs setup:test
 
+            - name: Set up databases (slow path - run migrations)
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'true'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: pnpm --filter=@posthog/nodejs setup:test
 
             - name: Test with Jest
