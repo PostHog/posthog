@@ -51,7 +51,12 @@ class Conversation(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
-    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
+    title = models.CharField(
+        null=True,
+        blank=True,
+        help_text="Title of the conversation.",
+        max_length=TITLE_MAX_LENGTH,
+    )
     is_internal = models.BooleanField(
         null=True,
         default=False,
@@ -83,7 +88,11 @@ class ConversationCheckpoint(UUIDTModel):
         help_text='Checkpoint namespace. Denotes the path to the subgraph node the checkpoint originates from, separated by `|` character, e.g. `"child|grandchild"`. Defaults to "" (root graph).',
     )
     parent_checkpoint = models.ForeignKey(
-        "self", null=True, on_delete=models.CASCADE, related_name="children", help_text="Parent checkpoint ID."
+        "self",
+        null=True,
+        on_delete=models.CASCADE,
+        related_name="children",
+        help_text="Parent checkpoint ID.",
     )
     checkpoint = models.JSONField(null=True, help_text="Serialized checkpoint data.")
     metadata = models.JSONField(null=True, help_text="Serialized checkpoint metadata.")
@@ -155,7 +164,10 @@ class CoreMemory(UUIDTModel):
         SKIPPED = "skipped", "Skipped"
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE)
-    text = models.TextField(default="", help_text="Dumped core memory where facts are separated by newlines.")
+    text = models.TextField(
+        default="",
+        help_text="Dumped core memory where facts are separated by newlines.",
+    )
     initial_text = models.TextField(default="", help_text="Scraped memory about the business.")
     scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
@@ -178,7 +190,10 @@ class CoreMemory(UUIDTModel):
 
     @property
     def is_scraping_finished(self) -> bool:
-        return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
+        return self.scraping_status in [
+            CoreMemory.ScrapingStatus.COMPLETED,
+            CoreMemory.ScrapingStatus.SKIPPED,
+        ]
 
     async def aappend_question_to_initial_text(self, text: str):
         if self.initial_text != "":

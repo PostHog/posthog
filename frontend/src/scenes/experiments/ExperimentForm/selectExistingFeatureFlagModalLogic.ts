@@ -123,7 +123,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                 }
 
                 // Add evaluation tags filter if required by team
-                if (currentTeam?.require_evaluation_environment_tags) {
+                if (currentTeam?.require_evaluation_contexts) {
                     params.has_evaluation_tags = true
                 }
 
@@ -162,7 +162,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
         isEvaluationTagsRequired: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
+            (currentTeam) => currentTeam?.require_evaluation_contexts || false,
         ],
     }),
 ])

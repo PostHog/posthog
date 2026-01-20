@@ -47,10 +47,15 @@ class NotificationSetting(Enum):
     PLUGIN_DISABLED = "plugin_disabled"
     ERROR_TRACKING_ISSUE_ASSIGNED = "error_tracking_issue_assigned"
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
+    PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
 
 
 NotificationSettingType = Literal[
-    "weekly_project_digest", "plugin_disabled", "error_tracking_issue_assigned", "discussions_mentioned"
+    "weekly_project_digest",
+    "plugin_disabled",
+    "error_tracking_issue_assigned",
+    "discussions_mentioned",
+    "project_api_key_exposed",
 ]
 
 
@@ -79,6 +84,24 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
             memberships_to_email.append(membership)
 
     return memberships_to_email
+
+
+def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
+    """
+    Get members to notify for a data pipeline error, respecting threshold.
+
+    Args:
+        team: The team that owns the pipeline
+        failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        List of organization memberships to notify
+    """
+    members_to_notify = get_members_to_notify(team, "plugin_disabled")
+
+    return [
+        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
+    ]
 
 
 def should_send_notification(
@@ -124,10 +147,38 @@ def should_send_notification(
     elif notification_type == NotificationSetting.DISCUSSIONS_MENTIONED.value:
         return settings.get(notification_type, True)
 
+    elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
+        return settings.get(notification_type, True)
+
     # The below typeerror is ignored because we're currently handling the notification
     # types above, so technically it's unreachable. However if another is added but
     # not handled in this function, we want this as a fallback.
     return True  # type: ignore
+
+
+def should_send_pipeline_error_notification(
+    user: User,
+    failure_rate: float = 1.0,
+) -> bool:
+    """
+    Determines if a data pipeline error notification should be sent to a user.
+
+    Args:
+        user: The user to check settings for
+        failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
+
+    Returns:
+        bool: True if the notification should be sent, False otherwise
+    """
+    settings = user.notification_settings
+
+    # Check threshold - if threshold is 0.0, notify on any failure
+    threshold = settings.get("data_pipeline_error_threshold", 0.0)
+    if threshold == 0.0:
+        return True
+
+    # If threshold > 0.0, only notify if failure rate exceeds threshold
+    return failure_rate > threshold
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -286,7 +337,7 @@ def send_fatal_plugin_error(
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -314,8 +365,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    # We re-use the setting as it is the same from a user perspective
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -333,6 +383,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
+    failure_rate: float = 1.0,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -346,7 +397,7 @@ def send_batch_export_run_failure(
     )
     team: Team = batch_export_run.batch_export.team
 
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
         return
 
@@ -470,6 +521,40 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
         campaign_key=f"2fa_disabled_{user.uuid}-{timezone.now().timestamp()}",
         template_name="2fa_disabled",
         subject="You've disabled 2FA protection",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_passkey_added_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"passkey_added_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="passkey_added",
+        subject="A passkey was added to your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_passkey_removed_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"passkey_removed_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="passkey_removed",
+        subject="A passkey was removed from your account",
         template_context={
             "user_name": user.first_name,
             "user_email": user.email,
@@ -983,4 +1068,39 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
         },
     )
     message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_project_secret_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    team = Team.objects.select_related("organization").get(pk=team_id)
+    memberships_to_email = get_members_to_notify(team, NotificationSetting.PROJECT_API_KEY_EXPOSED.value)
+
+    # Filter to admins since they can rotate keys
+    memberships_to_email = [m for m in memberships_to_email if m.level >= OrganizationMembership.Level.ADMIN]
+
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"project-secret-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
+        # TODO rename when Project Secret API Keys are launched
+        # subject=f"Project secret API key has been exposed for {team.name}",
+        subject=f"Feature Flags Secure API key has been exposed for {team.name}",
+        template_name="project_secret_api_key_exposed",
+        template_context={
+            # "preheader": "Project secret API key has been exposed",
+            "preheader": "Feature Flags Secure API key has been exposed",
+            "project_name": team.name,
+            "more_info": more_info,
+            "mask_value": mask_value,
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
     message.send()

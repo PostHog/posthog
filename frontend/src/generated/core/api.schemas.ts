@@ -2441,7 +2441,7 @@ export interface AnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name: string | null
     /** @nullable */
@@ -2480,7 +2480,7 @@ export interface PatchedAnnotationApi {
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
-    readonly dashboard_id?: number | null
+    dashboard_id?: number | null
     /** @nullable */
     readonly dashboard_name?: string | null
     /** @nullable */
@@ -2581,6 +2581,10 @@ export interface CohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
     readonly is_calculating: boolean
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -2681,6 +2685,10 @@ export interface PatchedCohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version?: number | null
+    /** @nullable */
+    readonly pending_version?: number | null
     readonly is_calculating?: boolean
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -2944,6 +2952,7 @@ export const ModelNameEnumApi = {
  * * `daily` - daily
  * `weekly` - weekly
  * `monthly` - monthly
+ * `yearly` - yearly
  */
 export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
 
@@ -2952,6 +2961,7 @@ export const RecurrenceIntervalEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
+    yearly: 'yearly',
 } as const
 
 export interface ScheduledChangeApi {
@@ -3242,6 +3252,8 @@ export interface UserApi {
     /** @nullable */
     readonly is_impersonated_until: string | null
     /** @nullable */
+    readonly is_impersonated_read_only: boolean | null
+    /** @nullable */
     readonly sensitive_session_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
@@ -3263,6 +3275,11 @@ export interface UserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export interface PaginatedUserListApi {
@@ -3306,6 +3323,8 @@ export interface PatchedUserApi {
     /** @nullable */
     readonly is_impersonated_until?: string | null
     /** @nullable */
+    readonly is_impersonated_read_only?: boolean | null
+    /** @nullable */
     readonly sensitive_session_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
@@ -3327,6 +3346,11 @@ export interface PatchedUserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export type EnvironmentsDashboardsListParams = {

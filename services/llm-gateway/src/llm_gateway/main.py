@@ -16,21 +16,16 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from llm_gateway.analytics import init_analytics_service, shutdown_analytics_service
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
+from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
-from llm_gateway.rate_limiting.model_throttles import (
-    ProductModelInputTokenThrottle,
-    ProductModelOutputTokenThrottle,
-    UserModelInputTokenThrottle,
-    UserModelOutputTokenThrottle,
-)
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.rate_limiting.tokenizer import TokenCounter
-from llm_gateway.request_context import set_request_id
+from llm_gateway.request_context import RequestContext, set_request_context
 
 
 def configure_logging() -> None:
@@ -64,7 +59,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
-        set_request_id(request_id)
+        set_request_context(RequestContext(request_id=request_id))
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
@@ -129,28 +124,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
-    app.state.token_counter = TokenCounter()
-
-    output_throttles = [
-        ProductModelOutputTokenThrottle(redis=app.state.redis),
-        UserModelOutputTokenThrottle(redis=app.state.redis),
-    ]
-    app.state.output_throttles = output_throttles
-
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            ProductModelInputTokenThrottle(redis=app.state.redis),
-            UserModelInputTokenThrottle(redis=app.state.redis),
-            *output_throttles,
+            ProductCostThrottle(redis=app.state.redis),
+            UserCostThrottle(redis=app.state.redis),
         ]
     )
     logger.info("Throttle runner initialized")
 
-    init_analytics_service()
+    init_callbacks()
+
+    ensure_costs_fresh()
+    logger.info("Model costs initialized")
 
     yield
-
-    shutdown_analytics_service()
 
     if app.state.redis:
         await app.state.redis.aclose()

@@ -2,9 +2,11 @@ import base64
 from hashlib import sha256
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
 
 import requests
+import structlog
 import posthoganalytics
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
@@ -20,8 +22,12 @@ from rest_framework.views import APIView
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.models import Team
 from posthog.models.personal_api_key import find_personal_api_key
+from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.tasks.email import send_personal_api_key_exposed
+from posthog.tasks.email import send_personal_api_key_exposed, send_project_secret_api_key_exposed
+from posthog.utils import get_instance_region
+
+logger = structlog.get_logger(__name__)
 
 GITHUB_KEYS_URI = "https://api.github.com/meta/public_keys/secret_scanning"
 TWENTY_FOUR_HOURS = 60 * 60 * 24
@@ -42,6 +48,43 @@ GITHUB_TYPE_FOR_PROJECT_SECRET = "posthog_personal_api_key"
 
 class SignatureVerificationError(Exception):
     pass
+
+
+def relay_to_eu(raw_body: str, kid: str, sig: str) -> list[dict] | None:
+    """Relay request to EU. Returns EU results or None on failure."""
+    # Prevent infinite loop if someone accidentally configures relay URL in EU
+    if get_instance_region() == "EU":
+        return None
+
+    url = settings.GITHUB_SECRET_ALERT_RELAY_URL
+    if not url:
+        return None
+    try:
+        resp = requests.post(
+            url,
+            data=raw_body,
+            headers={
+                "Content-Type": "application/json",
+                "Github-Public-Key-Identifier": kid,
+                "Github-Public-Key-Signature": sig,
+            },
+            # GitHub expects a response w/in 30 seconds, so EU gets half that
+            timeout=15,
+        )
+        resp.raise_for_status()
+        posthoganalytics.capture(
+            distinct_id=None,
+            event="github_secret_alert_relay_success",
+        )
+        return resp.json()
+    except Exception as e:
+        logger.warning("Failed to relay GitHub secret alert to EU", error=str(e))
+        posthoganalytics.capture(
+            distinct_id=None,
+            event="github_secret_alert_relay_failure",
+            properties={"error": str(e)},
+        )
+        return None
 
 
 def verify_github_signature(payload: str, kid: str, sig: str) -> None:
@@ -166,12 +209,14 @@ class SecretAlert(APIView):
         items = secret_alert.validated_data
 
         results = []
+        pending_events = []
         for item in items:
             # Strip whitespace from token in case GitHub sends it with extra formatting
             token = item["token"].strip()
+            token_sha256 = sha256(token.encode("utf-8")).hexdigest()
 
             result = {
-                "token_hash": sha256(token.encode("utf-8")).hexdigest(),
+                "token_hash": token_sha256,
                 "token_type": item["type"],
                 "label": "false_positive",
             }
@@ -181,21 +226,24 @@ class SecretAlert(APIView):
                 "token_length": len(token),
                 "token_prefix": token[:8],
                 "token_suffix": token[-4:],
+                "token_sha256": token_sha256,
             }
 
-            # GitHub sends "posthog_feature_flags_secure_api_key" for personal API keys
+            local_found = False
+
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 key_lookup = find_personal_api_key(token)
-                posthoganalytics.capture(
-                    distinct_id=None,
-                    event="github_secret_alert",
-                    properties={
+                local_found = key_lookup is not None
+
+                pending_events.append(
+                    {
                         "type": "personal_api_key",
                         "source": item["source"],
                         "url": item["url"],
-                        "found": key_lookup is not None,
+                        "found": local_found,
+                        "token_hash": token_sha256,
                         **token_debug,
-                    },
+                    }
                 )
 
                 if key_lookup is not None:
@@ -212,35 +260,68 @@ class SecretAlert(APIView):
                     serializer.roll(key)
                     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
-            # GitHub sends "posthog_personal_api_key" for project secret tokens
             elif item["type"] == GITHUB_TYPE_FOR_PROJECT_SECRET:
-                found = False
                 try:
-                    _ = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
-                    found = True
-                    # TODO send email to team members
+                    team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                    local_found = True
                     result["label"] = "true_positive"
 
                     PROJECT_SECRET_API_KEY_LEAKED_COUNTER.inc()
 
+                    more_info = f"This key was detected by GitHub at {item['url']}."
+                    send_project_secret_api_key_exposed(team.id, mask_key_value(token), more_info)
+
                 except Team.DoesNotExist:
                     pass
 
-                posthoganalytics.capture(
-                    distinct_id=None,
-                    event="github_secret_alert",
-                    properties={
+                pending_events.append(
+                    {
                         "type": "project_secret_api_key",
                         "source": item["source"],
                         "url": item["url"],
-                        "found": found,
+                        "found": local_found,
+                        "token_hash": token_sha256,
                         **token_debug,
-                    },
+                    }
                 )
 
             else:
                 raise ValidationError(detail="Unexpected alert type")
 
             results.append(result)
+
+        # GitHub's secret scanning program only supports a single webhook endpoint, so we
+        # receive all alerts in US and relay to EU synchronously when needed. We only relay
+        # false positives (keys not found locally) since true positives are already handled.
+        # This must complete within GitHub's 30-second timeout, hence EU gets 15s.
+        eu_found_hashes: set[str] = set()
+        has_false_positives = any(r["label"] == "false_positive" for r in results)
+        if has_false_positives:
+            eu_results = relay_to_eu(raw_body, kid, sig)
+            if eu_results:
+                eu_by_hash = {r["token_hash"]: r for r in eu_results}
+                for r in results:
+                    eu_r = eu_by_hash.get(r["token_hash"])
+                    if eu_r and eu_r["label"] == "true_positive":
+                        r["label"] = "true_positive"
+                        eu_found_hashes.add(r["token_hash"])
+
+        # Capture events with correct key_found_region.
+        # Don't capture events from the EU, otherwise we'll double count events (US and EU)
+        if get_instance_region() != "EU":
+            for event_data in pending_events:
+                token_hash = event_data.pop("token_hash")
+
+                if token_hash in eu_found_hashes:
+                    event_data["key_found_region"] = "EU"
+                    event_data["found"] = True
+                elif event_data["found"]:
+                    event_data["key_found_region"] = get_instance_region()
+
+                posthoganalytics.capture(
+                    distinct_id=None,
+                    event="github_secret_alert",
+                    properties=event_data,
+                )
 
         return Response(results)

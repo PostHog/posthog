@@ -37,8 +37,8 @@ import {
     SurveyMatchType,
 } from '~/types'
 
-import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
+import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
 import { productTourLogic } from './productTourLogic'
 import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 
@@ -106,7 +106,10 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <EditInToolbarButton tourId={id} />
+                        <ProductToursToolbarButton
+                            tourId={id}
+                            mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
+                        />
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
