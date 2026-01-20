@@ -375,6 +375,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 return
             }
 
+            // Clear previous errors before validation is triggered
+            actions.setExperimentErrors({})
+
             // Validate using canSubmitExperiment
             if (!values.canSubmitExperiment) {
                 // Set field errors
