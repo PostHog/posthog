@@ -318,11 +318,13 @@ class TestSignupAPI(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            # Use a different email to ensure we're testing permission denial,
+            # not email uniqueness validation
             response = self.client.post(
                 "/api/signup/",
                 {
                     "first_name": "Jane",
-                    "email": "hedgehog2@posthog.com",
+                    "email": "hedgehog3@posthog.com",
                     "password": VALID_TEST_PASSWORD,
                 },
             )
@@ -1126,7 +1128,8 @@ class TestSignupAPI(APIBaseTest):
             self.assertEqual(response_data["redirect_url"], "/next_path")
 
     @pytest.mark.skip_on_multitenancy
-    def test_signup_rate_limit_by_ip(self):
+    @patch("posthog.rate_limit.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limit_by_ip(self, mock_get_ip):
         """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
@@ -1143,7 +1146,6 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                     "organization_name": f"Org{i}",
                 },
-                headers={"x-forwarded-for": "192.168.1.100"},
             )
 
             if i < 5:
@@ -1168,21 +1170,23 @@ class TestSignupAPI(APIBaseTest):
         # Test that different IPs can each make 5 signups
         for ip_suffix in range(2):
             ip = f"192.168.1.{100 + ip_suffix}"
-            for i in range(5):
-                response = self.client.post(
-                    "/api/signup/",
-                    {
-                        "first_name": f"User{ip_suffix}_{i}",
-                        "email": f"user{ip_suffix}_{i}@example.com",
-                        "password": VALID_TEST_PASSWORD,
-                        "organization_name": f"Org{ip_suffix}_{i}",
-                    },
-                    headers={"x-forwarded-for": ip},
-                )
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed")
-                # Clean up the created org and user to allow next signup
-                Organization.objects.filter(for_internal_metrics=False).delete()
-                User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
+            with patch("posthog.rate_limit.get_ip_address", return_value=ip):
+                for i in range(5):
+                    response = self.client.post(
+                        "/api/signup/",
+                        {
+                            "first_name": f"User{ip_suffix}_{i}",
+                            "email": f"user{ip_suffix}_{i}@example.com",
+                            "password": VALID_TEST_PASSWORD,
+                            "organization_name": f"Org{ip_suffix}_{i}",
+                        },
+                    )
+                    self.assertEqual(
+                        response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed"
+                    )
+                    # Clean up the created org and user to allow next signup
+                    Organization.objects.filter(for_internal_metrics=False).delete()
+                    User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
 
 
 class TestInviteSignupAPI(APIBaseTest):

@@ -789,7 +789,12 @@ def prepare_toolbar_preloaded_flags(request):
             distinct_id=distinct_id,
             groups={},
         )
-        flags = result.get("flags", {})
+        flags = {
+            flag_key: (
+                flag_data.get("variant") if flag_data.get("variant") is not None else flag_data.get("enabled", False)
+            )
+            for flag_key, flag_data in result.get("flags", {}).items()
+        }
 
         key = secrets.token_urlsafe(16)
         cache_key = f"toolbar_flags_{key}"

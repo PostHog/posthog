@@ -44,8 +44,8 @@ def get_flags_from_service(
         ...     distinct_id="user_123",
         ...     groups={"company": "acme"}
         ... )
-        >>> flags = response.get("flags", {})
-        >>> if flags.get("new-feature"):
+        >>> flags_data = response.get("flags", {})
+        >>> if flags_data.get("new-feature", {}).get("enabled"):
         ...     # Feature is enabled
     """
     flags_service_url = getattr(settings, "FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
