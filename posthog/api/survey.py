@@ -500,6 +500,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "shuffleOptions",
                 "descriptionContentType",
                 "skipSubmitButton",
+                "optional",
+                "display",
+                "isNpsQuestion",
             ]:
                 if field in raw_question:
                     cleaned_question[field] = raw_question[field]
@@ -544,11 +547,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 cleaned_translations = self._validate_question_translations(raw_question["translations"], index)
 
                 # Validate choices array length matches if present
-                original_choices = raw_question.get("choices")
+                original_choices = cleaned_question.get("choices")
                 for lang_code, translation_data in cleaned_translations.items():
                     if "choices" in translation_data:
                         # Reject choices in translation if original question doesn't have choices
-                        if "choices" not in raw_question or not isinstance(original_choices, list):
+                        if "choices" not in cleaned_question or not isinstance(original_choices, list):
                             raise serializers.ValidationError(
                                 f"Question {index + 1}: Translation '{lang_code}' has choices field but original question does not have choices"
                             )
