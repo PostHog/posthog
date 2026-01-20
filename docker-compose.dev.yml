@@ -44,6 +44,10 @@ services:
                         path /capture*
                     }
 
+                    @capture-logs {
+                        path /i/v1/logs
+                    }
+
                     @flags {
                         path /flags
                         path /flags*
@@ -62,6 +66,10 @@ services:
 
                     handle @capture {
                         reverse_proxy capture:3307
+                    }
+
+                    handle @capture-logs {
+                        reverse_proxy capture-logs:4318
                     }
 
                     handle @replay-capture {
@@ -140,7 +148,7 @@ services:
             - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./docker/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
-            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/user_scripts/latest_user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
         extra_hosts:
             - 'host.docker.internal:host-gateway'

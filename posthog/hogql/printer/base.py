@@ -1350,16 +1350,21 @@ class HogQLPrinter(Visitor[str]):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, int | float | str):
-                raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")
             if isinstance(value, bool):
                 pairs.append(f"{key}={1 if value else 0}")
             elif isinstance(value, int) or isinstance(value, float):
                 pairs.append(f"{key}={value}")
-            else:
+            elif isinstance(value, list):
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
+                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
+            elif isinstance(value, str):
                 pairs.append(f"{key}={self._print_escaped_string(value)}")
+            else:
+                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None

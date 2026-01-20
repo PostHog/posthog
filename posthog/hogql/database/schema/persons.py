@@ -54,6 +54,34 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
+    """
+    Check if an expression references a virtual field that requires a joined table.
+    Virtual fields like $virt_mrr require the revenue_analytics joined table to be resolved,
+    and cannot be used directly in the raw_persons argMax optimization.
+    """
+    if isinstance(expr, ast.Field):
+        # Check if the field chain contains a virtual field that requires revenue analytics
+        for chain_item in expr.chain:
+            if isinstance(chain_item, str) and chain_item.startswith("$virt_"):
+                # Currently, all $virt_ fields that require joins are revenue analytics fields
+                if chain_item in ("$virt_mrr", "$virt_revenue"):
+                    return True
+    elif isinstance(expr, ast.Call):
+        # Check arguments of function calls recursively
+        for arg in expr.args:
+            if _is_virtual_field_requiring_join(arg):
+                return True
+    elif hasattr(expr, "left") and hasattr(expr, "right"):
+        # Check binary operations (comparisons, arithmetic, etc.)
+        return _is_virtual_field_requiring_join(expr.left) or _is_virtual_field_requiring_join(expr.right)
+    elif hasattr(expr, "expr"):
+        # Check wrapped expressions (aliases, etc.)
+        return _is_virtual_field_requiring_join(expr.expr)
+
+    return False
+
+
 def select_from_persons_table(
     join_or_table: LazyJoinToAdd | LazyTableToAdd,
     context: HogQLContext,
@@ -143,10 +171,17 @@ def select_from_persons_table(
             right_select = cast(ast.SelectQuery, compare.right)
             if node.order_by:
                 right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
+
+                order_by_without_virtual_fields = []
                 for order_by in right_select.order_by:
-                    order_by.expr = ast.Call(
-                        name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
-                    )
+                    # Skip virtual field order_by expressions - they'll be handled by the outer query as they require
+                    # a join with revenue analytics table
+                    if not _is_virtual_field_requiring_join(order_by.expr):
+                        order_by.expr = ast.Call(
+                            name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
+                        )
+                        order_by_without_virtual_fields.append(order_by)
+                right_select.order_by = order_by_without_virtual_fields
 
             # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
             if node.limit:

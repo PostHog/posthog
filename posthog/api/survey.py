@@ -404,7 +404,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         linked_flag = None
         if linked_flag_id:
             try:
-                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id, team_id=self.context["team_id"])
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
 
