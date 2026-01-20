@@ -47,6 +47,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         requiredAccessLevel,
         authorizationComplete,
         scopesWereDefaulted,
+        isMcpResource,
     } = useValues(oauthAuthorizeLogic)
     const { cancel, submitOauthAuthorization } = useActions(oauthAuthorizeLogic)
 
@@ -93,7 +94,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                     </div>
                 )}
 
-                {scopesWereDefaulted && (
+                {scopesWereDefaulted && isMcpResource && (
                     <div
                         role="status"
                         className="flex items-center gap-2 p-3 mb-4 bg-side border border-border rounded text-sm"

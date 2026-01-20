@@ -80,6 +80,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setScopes: (scopes: string[]) => ({ scopes }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
+        setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
@@ -137,6 +138,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setScopesWereDefaulted: (_, { scopesWereDefaulted }) => scopesWereDefaulted,
+            },
+        ],
+        isMcpResource: [
+            false,
+            {
+                setIsMcpResource: (_, { isMcpResource }) => isMcpResource,
             },
         ],
         isCanceling: [
@@ -259,6 +266,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
 
             actions.setScopes(scopes)
             actions.setScopesWereDefaulted(scopesWereDefaulted)
+            actions.setIsMcpResource(isMcpResource)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()
             actions.loadAllTeams()
