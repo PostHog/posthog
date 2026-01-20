@@ -234,7 +234,6 @@ async fn remap_dart_minified_exception_type(
     team_id: i32,
     catalog: &Catalog,
 ) -> Option<String> {
-    // Find a JS frame with a chunk_id to use for looking up the sourcemap
     let chunk_id = frames.iter().find_map(|frame| match frame {
         RawFrame::JavaScriptWeb(js_frame) => js_frame.chunk_id.clone(),
         RawFrame::JavaScriptNode(node_frame) => node_frame.chunk_id.clone(),
@@ -242,14 +241,12 @@ async fn remap_dart_minified_exception_type(
         _ => None,
     })?;
 
-    // Look up the sourcemap using the chunk_id (it may already be cached from frame resolution)
     let sourcemap = catalog
         .smp
         .lookup(team_id, OrChunkId::ChunkId(chunk_id))
         .await
         .ok()?;
 
-    // Get the dart2js minified names from the sourcemap
     let minified_names = sourcemap.get_dart_minified_names()?;
 
     if minified_names.is_empty() {
