@@ -79,15 +79,11 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
 
         where = ast.And(exprs=list(where_exprs)) if where_exprs else None
 
-        # Handle aggregation vs regular queries differently
+        order_by: list[ast.OrderExpr] = []
+
         if self.is_aggregation_query:
-            # For aggregation queries: simple select, no complex column logic
             select_exprs = [parse_expr(col) for col in self.columns]
 
-            # No ordering for count queries (or simple default)
-            order_by = []
-
-            # Use simplified groups table reference for aggregations
             return ast.SelectQuery(
                 select=select_exprs,
                 select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
@@ -95,8 +91,6 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                 order_by=order_by,
             )
         else:
-            # Existing complex query logic for regular group listings
-            order_by: list[ast.OrderExpr] = []
             similarity_order = None
 
             if self.query.search is not None and self.query.search != "":
