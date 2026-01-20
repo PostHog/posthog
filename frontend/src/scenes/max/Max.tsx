@@ -53,7 +53,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'posthog-ai' }))
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isRemovingSidePanelMax = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -76,7 +76,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    if (isAiUx) {
+    if (isRemovingSidePanelMax) {
         return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 

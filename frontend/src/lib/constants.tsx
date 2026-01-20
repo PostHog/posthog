@@ -169,10 +169,9 @@ export const FEATURE_FLAGS = {
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
 
     // UX flags, used to control the UX of the app
-    AI_UX: 'ai-ux-improvements', // small improvements to the ai experience, this is released to team
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
-    UX_REMOVE_SIDEPANEL_MAX: 'ux-remove-sidepanel-max', // used to remove the sidepanel from the max experience
+    UX_REMOVE_SIDEPANEL_MAX: 'ux-remove-sidepanel-max', // building on UX_REMOVE_SIDEPANEL, remove all instances of open sidepanel, maxtool still opens it for now
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
