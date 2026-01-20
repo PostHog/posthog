@@ -2504,6 +2504,7 @@ dependencies = [
  "common-redis",
  "common-types",
  "envconfig",
+ "futures",
  "health",
  "hogvm",
  "httpmock",
