@@ -3475,7 +3475,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "%@posthog.com%"},
             )
-            # toString() wrapper should also use the optimization
+            # should also work if wrapped with toString()
             self._test_materialized_column_comparison(
                 "ilike(toString(properties.test_prop), '%@gmail.com%')",
                 f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
@@ -3486,13 +3486,20 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         # toString() wrapper should use ngram index optimization when available
         with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
             self._test_materialized_column_comparison(
+                "ilike(properties.test_prop, '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
                 "ilike(toString(properties.test_prop), '%@gmail.com%')",
                 f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
                 {"hogql_val_0": "%@gmail.com%"},
             )
 
     def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
-        # Numeric properties should not use the toString optimization - fall back to default handling
+        # Numeric properties should not use the ILIKE optimization - fall back to default handling
         PropertyDefinition.objects.create(
             team=self.team,
             project=self.team.project,
@@ -3501,9 +3508,14 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             type=PropertyDefinition.Type.EVENT,
         )
         with materialized("events", "test_numeric_prop", is_nullable=False) as mat_col:
-            # The optimization should not apply because the property is configured as Numeric.
-            # PropertySwapper converts numeric properties to accurateCastOrNull(...), so the
-            # toString() now wraps a Call node (not a property) and our optimization doesn't apply.
+            # Direct property access: optimization skipped, PropertySwapper wraps in accurateCastOrNull
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_numeric_prop, '%123%')",
+                f"ifNull(ilike(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
+            # With toString() wrapper: same behavior, optimization not applied
             self._test_materialized_column_comparison(
                 "ilike(toString(properties.test_numeric_prop), '%123%')",
                 f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",

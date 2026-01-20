@@ -324,7 +324,9 @@ class ClickHousePrinter(HogQLPrinter):
         """
         Extracts a PrintableMaterializedColumn from an expression if it's a simple string property access.
 
-        Handles both direct property access (properties.email) and toString(properties.email) wrapper.
+        String properties can have their mat col returned even if they are wrapped in a toString() call. Sometimes this
+        wrapping is added for safety (as users can change the type of key properties), but this should not prevent us
+        from doing optimisations that are safe..
         Returns None if the expression is not a valid string property access or doesn't have a
         materialized column.
         """
@@ -336,19 +338,17 @@ class ClickHousePrinter(HogQLPrinter):
             property_type = expr_type
         # Check for toString(properties.X) wrapper
         elif isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            inner_type = resolve_field_type(expr.args[0])
-            if isinstance(inner_type, ast.PropertyType) and len(inner_type.chain) == 1:
-                # Check if property is configured as a non-string type
-                # Non-string properties would have been wrapped in type conversion by PropertySwapper,
-                # but we check the configured type as a safety measure
-                property_name = str(inner_type.chain[0])
-                prop_info = (
-                    self.context.property_swapper.event_properties.get(property_name)
-                    if self.context.property_swapper
-                    else None
-                )
-                configured_type = prop_info.get("type") if prop_info else None
-                if configured_type is None or configured_type == "String":
+            # Unwrap Alias if present to check the actual structure
+            inner_expr = expr.args[0]
+            if isinstance(inner_expr, ast.Alias):
+                inner_expr = inner_expr.expr
+            # Only match if the inner expression is a direct Field access, not a Call
+            # (e.g., we want toString(properties.X), not toString(toFloat(properties.X)))
+            # This ensures we don't apply the optimization when PropertySwapper has wrapped
+            # the property in a type conversion function
+            if isinstance(inner_expr, ast.Field):
+                inner_type = resolve_field_type(inner_expr)
+                if isinstance(inner_type, ast.PropertyType) and len(inner_type.chain) == 1:
                     property_type = inner_type
 
         if property_type is None:
@@ -357,6 +357,13 @@ class ClickHousePrinter(HogQLPrinter):
         # Only optimize simple property access (not chained like properties.foo.bar)
         if len(property_type.chain) != 1:
             return None
+
+        # Check if this property has a non-string type defined - if so, skip the optimization
+        property_name = str(property_type.chain[0])
+        if self.context.property_swapper is not None:
+            prop_info = self.context.property_swapper.event_properties.get(property_name)
+            if prop_info is not None and prop_info.get("type") not in (None, "String"):
+                return None
 
         # Check if this property uses an individually materialized column (not a property group)
         property_source = self._get_materialized_property_source_for_property_type(property_type)
