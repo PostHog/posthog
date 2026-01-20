@@ -1,9 +1,12 @@
+import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconArrowLeft, IconEye, IconPlus, IconShield, IconTarget, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { JudgeHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -161,13 +164,46 @@ export function EvaluationTemplatesScene(): JSX.Element {
     )
 }
 
+interface EmptyStateVariant {
+    title: string
+    description: string
+    showHog: boolean
+}
+
+const EMPTY_STATE_VARIANTS: Record<string, EmptyStateVariant> = {
+    control: {
+        title: 'Create your first evaluation',
+        description: 'Select a pre-configured template to get started quickly, or create your own from scratch.',
+        showHog: false,
+    },
+    'test-b': {
+        title: 'Create your first evaluation',
+        description:
+            'Automatically score your LLM outputs for quality, safety, and accuracy. Choose a template or build your own.',
+        showHog: true,
+    },
+    'test-c': {
+        title: 'Catch issues before your users do',
+        description:
+            'Set up automated evaluations to monitor your LLM outputs for quality, safety, and accuracy in real-time.',
+        showHog: true,
+    },
+}
+
 export function EvaluationTemplatesEmptyState(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const experimentVariant = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT]
+    const variant =
+        typeof experimentVariant === 'string' && experimentVariant in EMPTY_STATE_VARIANTS
+            ? EMPTY_STATE_VARIANTS[experimentVariant]
+            : EMPTY_STATE_VARIANTS['control']
+
     return (
         <TemplateGrid
-            title="Create your first evaluation"
-            description="Automatically score your LLM outputs for quality, safety, and accuracy. Choose a template or build your own."
+            title={variant.title}
+            description={variant.description}
             showBackButton={false}
-            showHog
+            showHog={variant.showHog}
             learnMoreUrl="https://posthog.com/docs/llm-analytics/evaluations"
             minHeight="60vh"
         />
