@@ -40,6 +40,16 @@ jobs:
               with:
                   python-version: '3.12'
 
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
+              with:
+                  enable-cache: true
+                  version: 0.9.9
+
+            - name: Install python dependencies
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
             - name: Sync ClickHouse versions
               id: sync-versions
               env:
