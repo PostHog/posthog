@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ReplayInactivityPeriod } from '~/queries/schema/schema-general'
 import { SessionPlayerState } from '~/types'
@@ -23,6 +23,8 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
 
     // Track when recording playback started
     const recordingPlaybackStartTime = useRef<number | null>(null)
+    // Track how much time passed since the first playback started (state for re-renders)
+    const [timePassedSinceFirstPlayback, setTimePassedSinceFirstPlayback] = useState<number | null>(null)
     // Track which segments we've already processed to avoid duplicates
     const processedSegmentTimestamps = useRef<Set<number>>(new Set())
 
@@ -60,6 +62,16 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
             recordingPlaybackStartTime.current = performance.now()
         }
     }, [currentPlayerState])
+
+    // Update elapsed time display every second
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (recordingPlaybackStartTime.current !== null) {
+                setTimePassedSinceFirstPlayback((performance.now() - recordingPlaybackStartTime.current) / 1000)
+            }
+        }, 1000)
+        return () => clearInterval(interval)
+    }, [])
 
     // Update period's recording_ts_from_s when segment changes
     useEffect(() => {
@@ -107,6 +119,11 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
             <span>
                 <span className="font-bold">REC_T:</span> {currentPlayerTimeSeconds}
             </span>
+            {timePassedSinceFirstPlayback !== null && (
+                <span>
+                    <span className="font-bold">VIDEO_T:</span> {timePassedSinceFirstPlayback.toFixed(0)}
+                </span>
+            )}
             {/* Using shorter message to allow more space for the URL */}
             {endReached ? (
                 <span className="font-bold text-green-400">[RECORDING ENDED]</span>
