@@ -2665,6 +2665,37 @@
       
   '''
 # ---
+# name: test_create_table_query[property_definitions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`property_definitions`
+  (
+      -- Team and project relationships
+      team_id UInt32,
+      project_id UInt32 NULL,
+  
+      -- Core property fields
+      name String,
+      property_type String NULL,
+      event String NULL, -- Only null for non-event types
+      group_type_index UInt8 NULL,
+  
+      -- Type enum (1=event, 2=person, 3=group, 4=session)
+      type UInt8 DEFAULT 1,
+  
+      -- Metadata
+      last_seen_at DateTime,
+  
+      -- A composite version number that prioritizes property_type presence over timestamp
+      -- We negate isNull() so rows WITH property_type get higher preference
+      version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
+  ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
+  SETTINGS index_granularity = 8192
+  
+  '''
+# ---
 # name: test_create_table_query[query_log_archive]
   '''
   
@@ -6320,6 +6351,37 @@
   PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, plugin_id, plugin_config_id, timestamp)
   
   SETTINGS index_granularity=512
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[property_definitions]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`property_definitions`
+  (
+      -- Team and project relationships
+      team_id UInt32,
+      project_id UInt32 NULL,
+  
+      -- Core property fields
+      name String,
+      property_type String NULL,
+      event String NULL, -- Only null for non-event types
+      group_type_index UInt8 NULL,
+  
+      -- Type enum (1=event, 2=person, 3=group, 4=session)
+      type UInt8 DEFAULT 1,
+  
+      -- Metadata
+      last_seen_at DateTime,
+  
+      -- A composite version number that prioritizes property_type presence over timestamp
+      -- We negate isNull() so rows WITH property_type get higher preference
+      version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
+  ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
+  SETTINGS index_granularity = 8192
   
   '''
 # ---

@@ -78,6 +78,8 @@ class WidgetMessageView(APIView):
         distinct_id = serializer.validated_data["distinct_id"]
         message_content = serializer.validated_data["message"]
         traits = serializer.validated_data.get("traits", {})
+        session_id = serializer.validated_data.get("session_id")
+        session_context = serializer.validated_data.get("session_context", {})
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")
@@ -106,9 +108,24 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
+                # Update session data if provided
+                if session_id:
+                    ticket.session_id = session_id
+                if session_context:
+                    ticket.session_context.update(session_context)
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.save(
+                    update_fields=[
+                        "distinct_id",
+                        "anonymous_traits",
+                        "session_id",
+                        "session_context",
+                        "unread_team_count",
+                        "updated_at",
+                    ]
+                )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
@@ -123,6 +140,8 @@ class WidgetMessageView(APIView):
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
+                session_id=session_id,
+                session_context=session_context,
             )
 
         # Create message

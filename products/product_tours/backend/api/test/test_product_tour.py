@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -8,11 +9,13 @@ from rest_framework import status
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.surveys.survey import Survey
 
+from products.product_tours.backend.constants import ProductTourEventName
 from products.product_tours.backend.models import ProductTour
 
 
 class TestProductTour(APIBaseTest):
-    def test_can_create_product_tour(self):
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_can_create_product_tour(self, mock_report):
         response = self.client.post(
             f"/api/projects/{self.team.id}/product_tours/",
             data={
@@ -37,6 +40,14 @@ class TestProductTour(APIBaseTest):
         assert response_data["name"] == "Onboarding tour"
         assert response_data["created_by"]["id"] == self.user.id
 
+        mock_report.assert_called_once()
+        call_args = mock_report.call_args
+        assert call_args[0][0] == self.user
+        assert call_args[0][1] == ProductTourEventName.CREATED
+        assert call_args[0][2]["tour_id"] == response_data["id"]
+        assert call_args[0][2]["tour_name"] == "Onboarding tour"
+        assert call_args[0][2]["creation_context"] == "app"
+
     def test_can_list_product_tours(self):
         ProductTour.objects.create(
             team=self.team,
@@ -56,7 +67,8 @@ class TestProductTour(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response_data["results"]) == 2
 
-    def test_can_update_product_tour(self):
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_can_update_product_tour(self, mock_report):
         tour = ProductTour.objects.create(
             team=self.team,
             name="Original name",
@@ -72,23 +84,35 @@ class TestProductTour(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Updated name"
 
-    def test_delete_archives_tour(self):
+        mock_report.assert_called_once()
+        call_args = mock_report.call_args
+        assert call_args[0][1] == ProductTourEventName.UPDATED
+        assert call_args[0][2]["tour_name"] == "Updated name"
+
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_delete_archives_tour(self, mock_report):
         tour = ProductTour.objects.create(
             team=self.team,
             name="To be archived",
             content={"steps": []},
             created_by=self.user,
         )
+        tour_id = str(tour.id)
 
         response = self.client.delete(f"/api/projects/{self.team.id}/product_tours/{tour.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Tour should be archived, not deleted
-        tour = ProductTour.all_objects.get(id=tour.id)
+        tour = ProductTour.all_objects.get(id=tour_id)
         assert tour.archived
 
         # Should not appear in normal list
-        assert not ProductTour.objects.filter(id=tour.id).exists()
+        assert not ProductTour.objects.filter(id=tour_id).exists()
+
+        mock_report.assert_called_once()
+        call_args = mock_report.call_args
+        assert call_args[0][1] == ProductTourEventName.DELETED
+        assert call_args[0][2]["tour_id"] == tour_id
 
     def test_announcement_cannot_have_multiple_steps(self):
         response = self.client.post(
@@ -157,6 +181,122 @@ class TestProductTour(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_launched_event_captured_when_start_date_set(self, mock_report):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Tour to launch",
+            content={"steps": []},
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"start_date": timezone.now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Should have two calls: UPDATED and LAUNCHED
+        assert mock_report.call_count == 2
+        call_events = [call[0][1] for call in mock_report.call_args_list]
+        assert ProductTourEventName.UPDATED in call_events
+        assert ProductTourEventName.LAUNCHED in call_events
+
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_stopped_event_captured_when_end_date_set(self, mock_report):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Running tour",
+            content={"steps": []},
+            created_by=self.user,
+            start_date=timezone.now(),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/product_tours/{tour.id}/",
+            data={"end_date": timezone.now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # Should have two calls: UPDATED and STOPPED
+        assert mock_report.call_count == 2
+        call_events = [call[0][1] for call in mock_report.call_args_list]
+        assert ProductTourEventName.UPDATED in call_events
+        assert ProductTourEventName.STOPPED in call_events
+
+    @patch("products.product_tours.backend.api.product_tour.report_user_action")
+    def test_creation_context_from_toolbar(self, mock_report):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/product_tours/",
+            data={
+                "name": "Toolbar tour",
+                "content": {"steps": []},
+                "creation_context": "toolbar",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        mock_report.assert_called_once()
+        call_args = mock_report.call_args
+        assert call_args[0][2]["creation_context"] == "toolbar"
+
+
+class TestProductTourAnalyticsMetadata(APIBaseTest):
+    @parameterized.expand(
+        [
+            # (content, expected_metadata_subset)
+            (
+                {"steps": []},
+                {"step_count": 0, "has_url_condition": False, "has_selector_condition": False},
+            ),
+            (
+                {"steps": [{"id": "1"}], "conditions": {"url": "https://example.com"}},
+                {"step_count": 1, "has_url_condition": True},
+            ),
+            (
+                {"steps": [], "conditions": {"selector": "#my-element"}},
+                {"has_selector_condition": True},
+            ),
+            (
+                {"steps": [], "conditions": {"actions": {"values": [{"id": 1}]}}},
+                {"has_action_triggers": True},
+            ),
+            (
+                {"steps": [], "conditions": {"events": {"values": [{"id": "event_1"}]}}},
+                {"has_event_triggers": True},
+            ),
+            (
+                {},
+                {"step_count": 0, "has_url_condition": False, "has_action_triggers": False},
+            ),
+        ]
+    )
+    def test_get_analytics_metadata(self, content, expected_subset):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Metadata test tour",
+            content=content,
+            created_by=self.user,
+        )
+        metadata = tour.get_analytics_metadata()
+
+        for key, value in expected_subset.items():
+            assert metadata[key] == value, f"Expected {key}={value}, got {metadata[key]}"
+
+    def test_get_analytics_metadata_with_empty_content(self):
+        tour = ProductTour.objects.create(
+            team=self.team,
+            name="Empty content tour",
+            content={},
+            created_by=self.user,
+        )
+        metadata = tour.get_analytics_metadata()
+        assert metadata["step_count"] == 0
+        assert metadata["has_url_condition"] is False
 
 
 class TestProductTourLinkedSurveys(APIBaseTest):

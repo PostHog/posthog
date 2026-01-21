@@ -2,7 +2,6 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
-#include <boost/algorithm/string.hpp>
 #include <sstream>
 #include <string>
 
@@ -882,7 +881,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       tokens.push_back("ASOF");
     }
     tokens.push_back("INNER");
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT(JoinOpLeftRight) {
@@ -911,7 +910,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->ASOF()) {
       tokens.push_back("ASOF");
     }
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT(JoinOpFull) {
@@ -928,7 +927,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->ANY()) {
       tokens.push_back("ANY");
     }
-    return boost::algorithm::join(tokens, " ");
+    return join(tokens, " ");
   }
 
   VISIT_UNSUPPORTED(JoinOpCross)
@@ -1119,8 +1118,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       throw ParsingError("A ColumnExprAlias must have the alias in some form");
     }
 
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(alias)) !=
-        RESERVED_KEYWORDS.end()) {
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
       throw SyntaxError("\"" + alias + "\" cannot be an alias or identifier, as it's a reserved keyword");
     }
 
@@ -1799,7 +1797,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (table.size() == 0 && nested.size() > 0) {
       string text = ctx->getText();
-      boost::algorithm::to_lower(text);
+      to_lower(text);
       if (!text.compare("true")) {
         Json json = Json::object();
         json["node"] = "Constant";
@@ -1861,8 +1859,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
   VISIT(TableExprAlias) {
     auto alias_ctx = ctx->alias();
     string alias = any_cast<string>(alias_ctx ? visit(alias_ctx) : visit(ctx->identifier()));
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(alias)) !=
-        RESERVED_KEYWORDS.end()) {
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(alias)) != RESERVED_KEYWORDS.end()) {
       throw SyntaxError("ALIAS is a reserved keyword");
     }
 
@@ -1938,7 +1935,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
 
     string text = ctx->getText();
-    boost::algorithm::to_lower(text);
+    to_lower(text);
 
     if (text.find("inf") != string::npos || text.find("nan") != string::npos) {
       // Handle special number cases (infinity and NaN)
@@ -1988,8 +1985,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(Alias) {
     string text = ctx->getText();
-    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), boost::algorithm::to_lower_copy(text)) !=
-        RESERVED_KEYWORDS.end()) {
+    if (find(RESERVED_KEYWORDS.begin(), RESERVED_KEYWORDS.end(), to_lower_copy(text)) != RESERVED_KEYWORDS.end()) {
       throw SyntaxError("ALIAS is a reserved keyword");
     }
     return text;

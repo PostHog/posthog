@@ -4,9 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 
 import { customerAnalyticsDashboardEventsLogic } from '../scenes/CustomerAnalyticsConfigurationScene/events/customerAnalyticsDashboardEventsLogic'
 
@@ -24,12 +22,12 @@ export function ConfigureWithAIButton({
     children,
     ...props
 }: ConfigureWithAIButtonProps): JSX.Element {
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openAi } = useOpenAi()
     const { addEventToHighlight } = useActions(customerAnalyticsDashboardEventsLogic)
     const { reportCustomerAnalyticsDashboardConfigureEventWithAIClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
-        openSidePanel(SidePanelTab.Max, prompt)
+        openAi(prompt)
         if (eventToHighlight) {
             addEventToHighlight(eventToHighlight)
         }

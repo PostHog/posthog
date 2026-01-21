@@ -35,6 +35,12 @@ export interface Ticket {
     last_message_text: string | null
     unread_team_count: number
     unread_customer_count: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
 }
 
 export interface ConversationTicket {
@@ -46,6 +52,12 @@ export interface ConversationTicket {
     message_count: number
     created_at: string
     unread_count?: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
 }
 
 export interface ConversationMessage {

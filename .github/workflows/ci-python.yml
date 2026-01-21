@@ -55,6 +55,8 @@ jobs:
                         - 'bin/**'
                         # LLM Gateway service
                         - 'services/llm-gateway/**/*.py'
+                        # GitHub scripts
+                        - '.github/scripts/**/*.py'
 
     code-quality:
         needs: changes
@@ -159,6 +161,11 @@ jobs:
               shell: bash
               run: |
                   pytest bin/test/test_find_python_dependencies.py -v
+
+            - name: Run sync_clickhouse script tests
+              shell: bash
+              run: |
+                  pytest .github/scripts/test_sync_clickhouse.py -v
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'
