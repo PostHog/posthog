@@ -10,6 +10,7 @@ load_from:
     #    - python_module: posthog.dags.locations.revenue_analytics
     #    - python_module: posthog.dags.locations.shared
     #    - python_module: posthog.dags.locations.clickhouse
+    #    - python_module: posthog.dags.locations.billing
 
     # These dags are loaded in local dev
     - python_module: posthog.dags.locations.analytics_platform

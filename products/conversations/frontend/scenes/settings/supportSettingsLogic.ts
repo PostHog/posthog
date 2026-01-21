@@ -24,6 +24,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
+        setGreetingInputValue: (value: string | null) => ({ value }),
+        saveGreetingText: true,
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -65,6 +67,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 saveDomain: () => '',
                 cancelDomainEdit: () => '',
                 setIsAddingDomain: () => '',
+            },
+        ],
+        greetingInputValue: [
+            null as string | null,
+            {
+                setGreetingInputValue: (_, { value }) => value,
             },
         ],
     }),
@@ -112,6 +120,20 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         startEditDomain: ({ index }) => {
             actions.setEditingDomainIndex(index)
             actions.setDomainInputValue(values.conversationsDomains[index])
+        },
+        saveGreetingText: () => {
+            if (!values.greetingInputValue?.trim()) {
+                return
+            }
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    widget_greeting_text: values.greetingInputValue,
+                },
+            })
+        },
+        updateCurrentTeamSuccess: () => {
+            actions.setGreetingInputValue(null)
         },
     })),
 ])
