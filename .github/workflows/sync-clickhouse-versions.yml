@@ -32,6 +32,8 @@ jobs:
               with:
                   app-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: posthog
 
             - uses: actions/checkout@v6
               with:
