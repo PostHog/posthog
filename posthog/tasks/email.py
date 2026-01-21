@@ -807,30 +807,47 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
         memberships_to_email = [test_membership]
         logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
 
-    campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
+    all_functions = digest_data["functions"]
+    date_suffix = timezone.now().strftime("%Y-%m-%d")
+    emails_sent = 0
 
-    # Sort functions by failure rate descending (highest first)
-    sorted_functions = sorted(
-        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
-    )
-
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"Data Pipeline Failures Alert for {team.name}",
-        template_name="hog_functions_daily_digest",
-        template_context={
-            "team": team,
-            "functions": sorted_functions,
-            "site_url": settings.SITE_URL,
-        },
-    )
-
-    # Add recipients (either filtered list for test override or full list for normal flow)
+    # Send a unique email to each member with functions filtered by their threshold
     for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
+        user = membership.user
 
-    message.send()
-    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
+        # Filter functions based on user's threshold
+        # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
+        user_functions = [
+            f
+            for f in all_functions
+            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
+        ]
+
+        # Skip this user if no functions exceed their threshold
+        if len(user_functions) == 0:
+            continue
+
+        # Sort functions by failure rate descending (highest first)
+        sorted_functions = sorted(user_functions, key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True)
+
+        campaign_key = f"hog_functions_daily_digest_{team_id}_{user.uuid}_{date_suffix}"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Data Pipeline Failures Alert for {team.name}",
+            template_name="hog_functions_daily_digest",
+            template_context={
+                "team": team,
+                "functions": sorted_functions,
+                "site_url": settings.SITE_URL,
+            },
+        )
+
+        message.add_user_recipient(user)
+        message.send()
+        emails_sent += 1
+
+    logger.info(f"Sent HogFunctions digest email to {emails_sent} members for team {team_id}")
 
 
 @shared_task(ignore_result=True)
