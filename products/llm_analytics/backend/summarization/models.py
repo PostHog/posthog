@@ -13,6 +13,7 @@ class SummarizationProvider(StrEnum):
 class OpenAIModel(StrEnum):
     """Supported OpenAI models for summarization."""
 
+    GPT_5_MINI = "gpt-5-mini"
     GPT_4_1_MINI = "gpt-4.1-mini"
     GPT_4O_MINI = "gpt-4o-mini"
     GPT_4O = "gpt-4o"
