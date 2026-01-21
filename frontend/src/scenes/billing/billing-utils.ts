@@ -570,7 +570,7 @@ export function getUsageLimitConsequence(productName: string): string {
 /**
  * Build a consolidated message for products that have exceeded their usage limits
  */
-export function buildUsageLimitExceededMessage(products: Array<{ name: string; subscribed: boolean }>): {
+export function buildUsageLimitExceededMessage(products: Array<{ name: string; subscribed: boolean | null }>): {
     title: string
     message: string
 } {
@@ -579,7 +579,7 @@ export function buildUsageLimitExceededMessage(products: Array<{ name: string; s
     }
 
     const productNames = products.map((p) => p.name)
-    const allSubscribed = products.every((p) => p.subscribed)
+    const allSubscribed = products.every((p) => p.subscribed === true)
 
     // Build consequence message, deduplicating common consequences
     const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
@@ -605,7 +605,7 @@ export function buildUsageLimitApproachingMessage(
     }
 
     const usageDetails = products.map((p) => {
-        const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
+        const percentage = (p.percentage_usage * 100).toFixed(2)
         const usageKey = p.usage_key?.toLowerCase() || 'usage'
         return `${percentage}% of your ${usageKey} allocation`
     })
