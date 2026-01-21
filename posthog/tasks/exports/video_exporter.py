@@ -298,6 +298,31 @@ def detect_inactivity_periods(
         return None
 
 
+def detect_recording_ended(page: Page, max_wait_ms: int) -> None:
+    """Detect if the recording has ended."""
+    try:
+        logger.debug("video_exporter.waiting_for_recording_ended_global")
+        recording_ended = page.wait_for_function(
+            """
+            () => {
+                const r = (window).__POSTHOG_RECORDING_ENDED__;
+                return Boolean(r);
+            }
+            """,
+            timeout=max_wait_ms,
+        ).json_value()
+        logger.debug("video_exporter.recording_ended_detected", recording_ended=recording_ended)
+        return None
+    except PlaywrightTimeoutError:
+        logger.exception("video_exporter.recording_ended_detection_failed")
+        # If exceeded safety timeout, continue with the recorded video
+        pass
+    # Unexpected error
+    except Exception as e:
+        logger.exception("video_exporter.recording_ended_detection_failed", error=str(e))
+        raise
+
+
 def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
     """
     the export function might choose to change the playback speed
@@ -414,16 +439,16 @@ def record_replay_to_file(
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
-            # Record for actual_duration (shorter if sped up)
-            actual_duration = opts.recording_duration / playback_speed
-            page.wait_for_timeout(int(actual_duration * 1000))
-            video = page.video
-
             # Collect data on inactivity periods and store in the exported asset
             inactivity_periods = detect_inactivity_periods(page=page)
 
-            # Stop the recording
+            # Wait for playback to reach the end, with session_duration as safety timeout
+            max_wait_ms = int((opts.recording_duration / playback_speed) * 1000)
+            detect_recording_ended(page=page, max_wait_ms=max_wait_ms)
+
+            # Stop the recording, either after detecting end or reaching safety timeout
             page.close()
+            video = page.video
             if video is None:
                 raise RuntimeError("Playwright did not produce a video. Ensure record_video_dir is set.")
 

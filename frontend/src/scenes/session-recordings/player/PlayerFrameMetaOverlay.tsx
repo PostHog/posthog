@@ -14,7 +14,7 @@ declare global {
 }
 
 export function PlayerFrameMetaOverlay(): JSX.Element | null {
-    const { logicProps, currentURL, currentPlayerTime, currentSegment, endReached } =
+    const { logicProps, currentURL, currentPlayerTimeSeconds, currentSegment, endReached } =
         useValues(sessionRecordingPlayerLogic)
 
     // Load pre-processed segments
@@ -44,7 +44,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         window.__POSTHOG_INACTIVITY_PERIODS__ = periods
     }, [recordingSegments])
 
-    if (!currentURL || currentPlayerTime === undefined) {
+    if (!currentURL || currentPlayerTimeSeconds === undefined) {
         return null
     }
 
@@ -56,7 +56,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
                 <span className="font-bold">URL:</span> {currentURL}
             </span>
             <span>
-                <span className="font-bold">REC_T:</span> {Math.floor(currentPlayerTime / 1000)}
+                <span className="font-bold">REC_T:</span> {currentPlayerTimeSeconds}
             </span>
             {/* Using shorter message to allow more space for the URL */}
             {endReached ? (
