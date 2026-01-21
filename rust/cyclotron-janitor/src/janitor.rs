@@ -172,6 +172,7 @@ fn aggregated_delete_to_app_metric2(delete: AggregatedDelete) -> AppMetric2 {
     let kind = match delete.state.as_str() {
         "completed" => AppMetric2Kind::Success,
         "failed" => AppMetric2Kind::Failure,
+        "canceled" => AppMetric2Kind::Canceled,
         _ => AppMetric2Kind::Unknown,
     };
 
