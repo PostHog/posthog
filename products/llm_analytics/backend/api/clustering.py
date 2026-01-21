@@ -215,8 +215,8 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             trace_filters=trace_filters,
         )
 
-        # Generate unique workflow ID
-        workflow_id = f"clustering-{self.team_id}-manual-{int(time.time() * 1000)}"
+        # Generate unique workflow ID (follows naming convention from trace_clustering constants)
+        workflow_id = f"llma-trace-clustering-manual-{self.team_id}-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:

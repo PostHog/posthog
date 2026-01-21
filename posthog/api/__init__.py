@@ -54,6 +54,7 @@ from products.llm_analytics.backend.api import (
     EvaluationConfigViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsClusteringRunViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMAnalyticsTranslateViewSet,
@@ -1128,6 +1129,13 @@ environments_router.register(
     r"llm_analytics/evaluation_config",
     EvaluationConfigViewSet,
     "environment_llm_analytics_evaluation_config",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/clustering_runs",
+    LLMAnalyticsClusteringRunViewSet,
+    "environment_llm_analytics_clustering_runs",
     ["team_id"],
 )
 
