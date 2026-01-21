@@ -8,6 +8,7 @@ from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 
+import requests
 import structlog
 from prometheus_client import Counter
 
@@ -295,8 +296,9 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
     if not template:
         logger.info("GeoIP template not found in DB, attempting to sync")
         try:
+            timeout_seconds = 30
             # gets templates from node-land (including geo-ip)
-            response = get_hog_function_templates()
+            response = get_hog_function_templates(timeout_seconds=timeout_seconds)
             if response.status_code == 200:
                 templates = response.json()
                 for template_data in templates:
@@ -304,6 +306,12 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                         # sync template to db, which returns the created template
                         template = sync_template_to_db(template_data)
                         break
+        except requests.exceptions.Timeout:
+            logger.exception(
+                f"Timeout after {timeout_seconds} seconds while syncing GeoIP template from Node.js"
+                "Is the Node.js server running? You can skip this by setting DISABLE_MMDB=1",
+                team_id=instance.id,
+            )
         except Exception as e:
             logger.exception(
                 "Failed to sync GeoIP template from Node.js",

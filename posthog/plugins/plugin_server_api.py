@@ -102,8 +102,8 @@ def validate_messaging_preferences_token(token: str) -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/messaging/validate_preferences_token/{token}")
 
 
-def get_hog_function_templates() -> requests.Response:
-    return requests.get(CDP_API_URL + f"/api/hog_function_templates")
+def get_hog_function_templates(timeout_seconds: int | None = None) -> requests.Response:
+    return requests.get(CDP_API_URL + "/api/hog_function_templates", timeout=timeout_seconds)
 
 
 def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
