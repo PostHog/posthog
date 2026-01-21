@@ -62,7 +62,15 @@ export const MetricsPanel = ({
 
     return (
         <div>
-            {showNewExperimentFormLayout && <div className="font-semibold mb-4">Metrics</div>}
+            {showNewExperimentFormLayout && (
+                <>
+                    <div className="font-semibold mb-2">Metrics</div>
+                    <div className="text-muted mb-4">
+                        Add at least one primary metric to launch an experiment. You can always add or remove metrics
+                        later.
+                    </div>
+                </>
+            )}
 
             {primaryMetrics.length > 0 ? (
                 <MetricList
