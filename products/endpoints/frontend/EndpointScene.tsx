@@ -16,10 +16,10 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { EndpointSceneHeader } from './EndpointHeader'
-import { EndpointQuery } from './EndpointQuery'
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
+import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 

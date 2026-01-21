@@ -1,5 +1,5 @@
 import {
-    type PublicKeyCredentialDescriptorJSON,
+    type PublicKeyCredentialRequestOptionsJSON,
     type UserVerificationRequirement,
     startAuthentication,
 } from '@simplewebauthn/browser'
@@ -23,22 +23,9 @@ export interface ReauthenticationForm {
     token?: string
 }
 
-export interface Passkey2FABeginResponse {
-    challenge: string
-    timeout: number
-    rpId: string
-    allowCredentials: PublicKeyCredentialDescriptorJSON[]
-    userVerification: string
-}
-
 export interface TwoFAMethodsResponse {
     has_totp: boolean
     has_passkeys: boolean
-}
-
-interface WebAuthnError {
-    name?: string
-    detail?: string
 }
 
 const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
@@ -103,38 +90,29 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             {
                 beginPasskey2FA: async (_, breakpoint) => {
                     breakpoint()
-                    try {
-                        // Step 1: Get authentication options from server
-                        const beginResponse = await api.create<Passkey2FABeginResponse>('api/login/2fa/passkey/begin/')
 
-                        // Step 2: Use SimpleWebAuthn to get assertion from authenticator
-                        const assertion = await startAuthentication({
-                            optionsJSON: {
-                                challenge: beginResponse.challenge,
-                                timeout: beginResponse.timeout,
-                                rpId: beginResponse.rpId,
-                                allowCredentials: beginResponse.allowCredentials,
-                                userVerification: beginResponse.userVerification as UserVerificationRequirement,
-                            },
-                        })
+                    // Step 1: Get authentication options from server
+                    const beginResponse =
+                        await api.create<PublicKeyCredentialRequestOptionsJSON>('api/login/2fa/passkey/begin/')
 
-                        // Step 3: Send assertion to server to complete 2FA
-                        await api.create('api/login/token', {
-                            credential_id: assertion.id,
-                            response: assertion.response,
-                        })
+                    // Step 2: Use SimpleWebAuthn to get assertion from authenticator
+                    const assertion = await startAuthentication({
+                        optionsJSON: {
+                            challenge: beginResponse.challenge,
+                            timeout: beginResponse.timeout,
+                            rpId: beginResponse.rpId,
+                            allowCredentials: beginResponse.allowCredentials,
+                            userVerification: beginResponse.userVerification as UserVerificationRequirement,
+                        },
+                    })
 
-                        return null
-                    } catch (e: unknown) {
-                        // Don't show error for user cancellations
-                        if (e && typeof e === 'object' && 'name' in e) {
-                            const errorName = (e as WebAuthnError).name
-                            if (errorName !== 'NotAllowedError' && errorName !== 'AbortError') {
-                                // Error will be handled by form error handling
-                            }
-                        }
-                        throw e
-                    }
+                    // Step 3: Send assertion to server to complete 2FA
+                    await api.create('api/login/token', {
+                        credential_id: assertion.id,
+                        response: assertion.response,
+                    })
+
+                    return null
                 },
             },
         ],

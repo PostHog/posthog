@@ -13,7 +13,6 @@ import {
 
 import { debounce } from 'lib/utils'
 
-import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../index'
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
 type CanvasEventWithTime = eventWithTime & {
@@ -315,8 +314,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
                     const attr = canvasElement.attributes[i]
                     el.setAttribute(attr.name, attr.value)
                 }
-
-                canvasElement.style.backgroundImage = PLACEHOLDER_SVG_DATA_IMAGE_URL
 
                 // Store the image but don't replace the canvas yet
                 containers.set(id, el)

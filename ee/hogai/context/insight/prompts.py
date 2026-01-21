@@ -6,6 +6,12 @@ Insight ID: {{{insight_id}}}
 {{#insight_description}}
 Description: {{{insight_description}}}
 {{/insight_description}}
+{{#insight_url}}
+Insight URL: {{{insight_url}}}
+{{/insight_url}}
+{{^insight_url}}
+This insight cannot be accessed via a URL.
+{{/insight_url}}
 {{#query_schema}}
 
 Query schema:
@@ -21,14 +27,14 @@ Query schema:
 
 
 QUERY_RESULTS_PROMPT = """
-Here is the results table of the {{{query_kind}}} created to answer your latest question:
+Here is the results table of the {{{query_kind}}} insight:
 
 ```
 {{{results}}}
 ```
 
 {{#insight_schema}}
-Here is the generated insight schema used to retrieve the results above:
+Here is the insight schema used to retrieve the results above:
 ```json
 {{{insight_schema}}}
 ```
@@ -41,7 +47,6 @@ Assume currency values are in {{currency}} and ALWAYS include the proper prefix 
 {{/currency}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
 Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
-This insight cannot be accessed via a URL.
 {{/include_url_reminder}}
 </system_reminder>
 """.strip()

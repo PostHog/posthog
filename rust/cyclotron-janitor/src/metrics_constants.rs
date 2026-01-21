@@ -4,6 +4,7 @@ pub const RUN_ENDS: &str = "cyclotron_janitor_run_ends";
 
 pub const COMPLETED_COUNT: &str = "cyclotron_janitor_completed_jobs";
 pub const FAILED_COUNT: &str = "cyclotron_janitor_failed_jobs";
+pub const CANCELED_COUNT: &str = "cyclotron_janitor_canceled_jobs";
 pub const CLEANUP_TIME: &str = "cyclotron_janitor_completed_failed_jobs_cleanup_ms";
 
 pub const POISONED_COUNT: &str = "cyclotron_janitor_poison_pills";

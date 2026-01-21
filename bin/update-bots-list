@@ -7,7 +7,7 @@ set -e
 
 # Configuration
 GITHUB_URL="https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips"
-TARGET_FILE="plugin-server/assets/bot-ips.txt"
+TARGET_FILE="nodejs/assets/bot-ips.txt"
 
 # Get the directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

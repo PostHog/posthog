@@ -29,6 +29,9 @@ export interface PrecheckResponseType {
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
 }
 
+// Routes that should be handled by Django, not the React router
+const BACKEND_ONLY_ROUTES = ['/login/vercel/continue', '/oauth/authorize']
+
 export function handleLoginRedirect(): void {
     let nextURL = '/'
     try {
@@ -43,6 +46,13 @@ export function handleLoginRedirect(): void {
     } catch {
         // do nothing
     }
+
+    // Check if this is a backend-only route that shouldn't go through the React router
+    if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
     router.actions.replace(nextURL)
 }
@@ -144,7 +154,11 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
-                        router.actions.push(urls.login2FA())
+                        const searchParams: Record<string, any> = {}
+                        if (router.values.searchParams.next) {
+                            searchParams.next = router.values.searchParams.next
+                        }
+                        router.actions.push(urls.login2FA(), searchParams)
                         throw e
                     }
                     if (code === 'email_mfa_required') {
@@ -172,7 +186,7 @@ export const loginLogic = kea<loginLogicType>([
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
-        precheckSuccess: async () => {
+        precheckSuccess: async (_, breakpoint) => {
             const { precheckResponse } = values
             // Auto-trigger passkey prompt if user has passkeys and SSO is not enforced
             if (
@@ -180,8 +194,10 @@ export const loginLogic = kea<loginLogicType>([
                 precheckResponse.webauthn_credentials.length > 0 &&
                 !precheckResponse.sso_enforcement
             ) {
+                breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('./passkeyLogic')
+                breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }
         },

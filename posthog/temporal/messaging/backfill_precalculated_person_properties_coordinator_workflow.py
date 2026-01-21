@@ -1,3 +1,4 @@
+import json
 import math
 import datetime as dt
 import dataclasses
@@ -83,9 +84,17 @@ async def get_person_count_activity(
 
     query_params = {"team_id": inputs.team_id}
 
+    # Execute query using async ClickHouse client
     async with get_client(team_id=inputs.team_id) as client:
-        async for row in client.stream_query_as_jsonl(query, query_parameters=query_params):
-            return PersonCountResult(count=int(row["count"]))
+        response = await client.read_query(query, query_parameters=query_params)
+        for line in response.decode("utf-8").splitlines():
+            if line.strip():
+                try:
+                    row = json.loads(line)
+                    return PersonCountResult(count=int(row["count"]))
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    LOGGER.exception("Failed to parse person count result", line=line)
+                    raise
 
     return PersonCountResult(count=0)
 

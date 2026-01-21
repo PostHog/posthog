@@ -812,7 +812,7 @@ class TestHyperCacheETag(HyperCacheTestBase):
         # Make 5 sequential requests with same ETag
         for i in range(5):
             data, returned_etag, modified = self.hypercache.get_if_none_match(self.team_id, etag)
-            assert modified is False, f"Request {i+1} should return not modified"
+            assert modified is False, f"Request {i + 1} should return not modified"
             assert returned_etag == etag
             assert data is None
 

@@ -13,10 +13,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.batch_exports.models import BatchExportRun
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 from ee.billing.billing_manager import BillingManager
 
@@ -446,5 +449,228 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             logger.exception("Error retrieving job statistics", exc_info=e)
             return Response(
                 {"error": "An error occurred retrieving job statistics"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(methods=["GET"], detail=False)
+    def data_health_issues(self, request: Request, **kwargs) -> Response:
+        """
+        Returns failed/disabled data pipeline items for the Pipeline status side panel.
+        Includes: materializations, syncs, sources, destinations, and transformations.
+        """
+        try:
+            results = []
+
+            # Get failed materializations from DataWarehouseSavedQuery
+            failed_materializations = DataWarehouseSavedQuery.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+            ).filter(
+                Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False)
+            )
+
+            for query in failed_materializations:
+                results.append(
+                    {
+                        "id": str(query.id),
+                        "name": query.name,
+                        "type": "materialized_view",
+                        "status": "failed",
+                        "error": query.latest_error,
+                        "failed_at": query.last_run_at.isoformat() if query.last_run_at else None,
+                        "url": f"/data-warehouse/view/{query.id}",
+                    }
+                )
+
+            # Get failed or disabled syncs from ExternalDataSchema
+            problem_syncs = (
+                ExternalDataSchema.objects.filter(
+                    team_id=self.team_id,
+                    deleted=False,
+                )
+                .filter(
+                    Q(status=ExternalDataSchema.Status.FAILED)
+                    | Q(should_sync=False, latest_error__isnull=False)
+                    | Q(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+                )
+                .select_related("source")
+            )
+
+            for schema in problem_syncs:
+                sync_status = "failed"
+                if not schema.should_sync:
+                    sync_status = "disabled"
+                elif schema.status == ExternalDataSchema.Status.BILLING_LIMIT_REACHED:
+                    sync_status = "billing_limit"
+
+                results.append(
+                    {
+                        "id": str(schema.id),
+                        "name": schema.name,
+                        "type": "external_data_sync",
+                        "source_type": schema.source.source_type if schema.source else None,
+                        "status": sync_status,
+                        "error": schema.latest_error,
+                        "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+                        "url": f"/data-warehouse/sources/{schema.source_id}" if schema.source_id else None,
+                    }
+                )
+
+            # Get sources with Error status
+            error_sources = ExternalDataSource.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                status=ExternalDataSource.Status.ERROR,
+            )
+
+            for source in error_sources:
+                results.append(
+                    {
+                        "id": str(source.id),
+                        "name": source.source_type,
+                        "type": "source",
+                        "source_type": source.source_type,
+                        "status": "failed",
+                        "error": None,
+                        "failed_at": source.updated_at.isoformat() if source.updated_at else None,
+                        "url": f"/data-warehouse/sources/{source.id}",
+                    }
+                )
+
+            # Get failed batch exports
+            # get latest run per export, then filter for failures
+            latest_run_ids = (
+                BatchExportRun.objects.filter(
+                    batch_export__team_id=self.team_id,
+                    batch_export__deleted=False,
+                )
+                .order_by("batch_export_id", "-created_at")
+                .distinct("batch_export_id")
+                .values_list("id", flat=True)
+            )
+
+            failed_runs = BatchExportRun.objects.filter(
+                id__in=latest_run_ids,
+                status__in=[
+                    BatchExportRun.Status.FAILED,
+                    BatchExportRun.Status.FAILED_RETRYABLE,
+                    BatchExportRun.Status.TIMEDOUT,
+                    BatchExportRun.Status.TERMINATED,
+                ],
+            ).select_related("batch_export")
+
+            for run in failed_runs:
+                results.append(
+                    {
+                        "id": str(run.batch_export.id),
+                        "name": run.batch_export.name,
+                        "type": "destination",
+                        "status": "failed",
+                        "error": run.latest_error,
+                        "failed_at": run.finished_at.isoformat() if run.finished_at else None,
+                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                    }
+                )
+
+            # Get transformations with issues
+            transformations = HogFunction.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                type=HogFunctionType.TRANSFORMATION,
+                enabled=True,
+            )
+
+            for transformation in transformations:
+                try:
+                    status_data = transformation.status
+                    state = status_data.get("state", 0)
+                    if state in [
+                        HogFunctionState.DISABLED.value,
+                        HogFunctionState.DEGRADED.value,
+                        HogFunctionState.FORCEFULLY_DISABLED.value,
+                        HogFunctionState.FORCEFULLY_DEGRADED.value,
+                    ]:
+                        status_label = (
+                            "disabled"
+                            if state
+                            in [
+                                HogFunctionState.DISABLED.value,
+                                HogFunctionState.FORCEFULLY_DISABLED.value,
+                            ]
+                            else "degraded"
+                        )
+                        error_msg = status_data.get("error") or "Transformation experiencing issues"
+                        results.append(
+                            {
+                                "id": str(transformation.id),
+                                "name": transformation.name or "Untitled",
+                                "type": "transformation",
+                                "status": status_label,
+                                "error": error_msg,
+                                "failed_at": transformation.updated_at.isoformat()
+                                if transformation.updated_at
+                                else None,
+                                "url": f"/pipeline/transformations/hog-{transformation.id}/configuration",
+                            }
+                        )
+                except Exception as e:
+                    logger.warning(f"Error processing transformation {transformation.id}", exc_info=e)
+
+            # Get destinations with issues
+            hog_destinations = HogFunction.objects.filter(
+                team_id=self.team_id,
+                deleted=False,
+                type__in=[HogFunctionType.DESTINATION, HogFunctionType.SITE_DESTINATION],
+                enabled=True,
+            )
+
+            for destination in hog_destinations:
+                try:
+                    status_data = destination.status
+                    state = status_data.get("state", 0)
+                    if state in [
+                        HogFunctionState.DISABLED.value,
+                        HogFunctionState.DEGRADED.value,
+                        HogFunctionState.FORCEFULLY_DISABLED.value,
+                        HogFunctionState.FORCEFULLY_DEGRADED.value,
+                    ]:
+                        status_label = (
+                            "disabled"
+                            if state
+                            in [
+                                HogFunctionState.DISABLED.value,
+                                HogFunctionState.FORCEFULLY_DISABLED.value,
+                            ]
+                            else "degraded"
+                        )
+                        error_msg = status_data.get("error") or "Destination experiencing issues"
+                        results.append(
+                            {
+                                "id": str(destination.id),
+                                "name": destination.name or "Untitled",
+                                "type": "destination",
+                                "status": status_label,
+                                "error": error_msg,
+                                "failed_at": destination.updated_at.isoformat() if destination.updated_at else None,
+                                "url": f"/pipeline/destinations/hog-{destination.id}/configuration",
+                            }
+                        )
+                except Exception as e:
+                    logger.warning("Error processing destination", destination_id=destination.id, exc_info=e)
+
+            # Sort by failed_at descending with None values last
+            results.sort(key=lambda x: (x["failed_at"] is not None, x["failed_at"] or ""), reverse=True)
+
+            return Response(
+                {
+                    "results": results,
+                    "count": len(results),
+                }
+            )
+
+        except Exception as e:
+            logger.exception("Error retrieving data health issues", exc_info=e)
+            return Response(
+                {"error": "An error occurred retrieving data health issues"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

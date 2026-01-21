@@ -158,7 +158,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = urls.useCaseSelection()
+            window.location.href = urls.onboarding()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')

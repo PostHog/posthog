@@ -404,10 +404,15 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: descriptions }
     },
 
+    // Logs
+    logs_settings: () => {
+        return { description: [<>updated logs settings</>] }
+    },
+
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
     feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
-    default_evaluation_environments_enabled: createBooleanToggleHandler('default evaluation environments'),
+    default_evaluation_contexts_enabled: createBooleanToggleHandler('default evaluation contexts'),
 
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
@@ -438,7 +443,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
-    require_evaluation_environment_tags: createBooleanToggleHandler('require evaluation environment tags'),
+    require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -719,6 +724,12 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
     core_events_config: coreEventsConfigurationDescriber,
+
+    // Conversations
+    conversations_enabled: createBooleanToggleHandler('conversations'),
+    conversations_settings: () => {
+        return { description: [<>updated conversations settings</>] }
+    },
 
     // should never come from the backend
     created_at: () => null,

@@ -392,8 +392,8 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 const isEditMode = values.isEditMode
 
                 // Make experiment eligible for timeseries
-                const statsConfig = {
-                    ...values.experiment?.stats_config,
+                const schedulingConfig = {
+                    ...values.experiment?.scheduling_config,
                     timeseries: true,
                 }
 
@@ -414,7 +414,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const experimentPayload: Experiment = {
                     ...values.experiment,
-                    stats_config: statsConfig,
+                    scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
                 }
 
@@ -425,7 +425,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     const filteredPayload = {
                         ...filterExperimentForUpdate(experimentPayload),
                         // Ensure these are always included for update
-                        stats_config: statsConfig,
+                        scheduling_config: schedulingConfig,
                         saved_metrics_ids: savedMetrics,
                     }
                     response = (await api.update(

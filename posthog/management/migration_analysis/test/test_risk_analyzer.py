@@ -536,6 +536,19 @@ class TestRunSQLOperations:
         assert "not valid" in risk.reason.lower()
         assert risk.guidance and "not valid" in risk.guidance.lower()
 
+    def test_run_sql_temp_table_on_commit_drop_not_flagged(self):
+        """Test CREATE TEMP TABLE ... ON COMMIT DROP - should NOT be flagged as dangerous DROP."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="CREATE TEMP TABLE tmp_batch (id uuid) ON COMMIT DROP;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should NOT be blocked - ON COMMIT DROP is temp table cleanup, not dangerous
+        assert risk.level != RiskLevel.BLOCKED
+        assert "drop" not in risk.reason.lower() or "dangerous" not in risk.reason.lower()
+
     def test_run_sql_alter_table_drop_column_if_exists(self):
         """Test ALTER TABLE DROP COLUMN IF EXISTS - should be dangerous (score 5), not confused with DROP TABLE."""
         op = create_mock_operation(
@@ -648,11 +661,10 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        # DROP INDEX without CONCURRENTLY is dangerous (score 5)
-        # Note: This is NOT a table drop, so it stays at score 5
-        assert risk.score == 5
-        assert risk.level == RiskLevel.BLOCKED
-        assert "dangerous" in risk.reason.lower()
+        # DROP INDEX is not as dangerous as DROP TABLE/COLUMN - falls through to generic review
+        # It's reversible (can recreate index) and doesn't cause data loss
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
 
 
 class TestDropTableValidation:
@@ -1418,7 +1430,7 @@ class TestCombinationRisks:
         # Message should be specific about DDL + schema operations
         ddl_warnings = [r for r in migration_risk.combination_risks if "RunSQL DDL and Django schema operations" in r]
         assert len(ddl_warnings) == 1, (
-            f"Should warn about DDL mixed with schema operations. " f"Got warnings: {migration_risk.combination_risks}"
+            f"Should warn about DDL mixed with schema operations. Got warnings: {migration_risk.combination_risks}"
         )
 
     def test_create_model_with_add_index_safe(self):

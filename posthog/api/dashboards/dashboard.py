@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
+from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.utils.timezone import now
@@ -13,6 +13,7 @@ import structlog
 import pydantic_core
 import posthoganalytics
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -523,13 +524,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
         if delete_related_insights:
-            insights_to_update = []
-            for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.count() == 1:
-                    insight.deleted = True
-                    insights_to_update.append(insight)
+            # Count only non-deleted tiles. Note: deleted is nullable, so we exclude deleted=True
+            # rather than filtering for deleted=False (which would miss deleted=None)
+            insight_ids_to_delete = list(
+                instance.tiles.filter(insight__isnull=False)
+                .annotate(
+                    insight_tile_count=Count(
+                        "insight__dashboard_tiles",
+                        filter=~Q(insight__dashboard_tiles__deleted=True),
+                    )
+                )
+                .filter(insight_tile_count=1)
+                .values_list("insight_id", flat=True)
+            )
 
-            Insight.objects.bulk_update(insights_to_update, ["deleted"])
+            if insight_ids_to_delete:
+                Insight.objects.filter(id__in=insight_ids_to_delete).update(deleted=True)
+
         DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
@@ -578,13 +589,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
         # Use the specified layout size to get the correct order for the current viewport
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
@@ -611,6 +616,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return {**validated_data, "creation_mode": "default"}
 
 
+@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

@@ -23,6 +23,7 @@ import {
     DataWarehouseNode,
     EventsNode,
     FileSystemIconType,
+    GroupNode,
     HogQLQuery,
     HogQLVariable,
     InsightVizNode,
@@ -39,6 +40,7 @@ import {
     isDataTableNode,
     isDataWarehouseNode,
     isEventsNode,
+    isGroupNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
@@ -73,6 +75,25 @@ export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | nu
     )
 }
 
+export const formatEventName = (name: string | undefined | null): string | undefined => {
+    if (!name) {
+        return
+    }
+
+    // Handle comma-separated event keys (e.g., "$pageview, $exception" from GroupNode)
+    if (name.includes(',')) {
+        return name
+            .split(',')
+            .map((eventName) => {
+                const trimmed = eventName.trim()
+                return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmed]?.label || trimmed
+            })
+            .join(', ')
+    }
+
+    return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[name]?.label || name
+}
+
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
     isCustom = true
@@ -92,20 +113,35 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(node?.custom_name)
     let name = ensureStringIsNotBlank(node?.name)
-    if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
+
+    // Handle GroupNode: format comma-separated event names
+    if (isGroupNode(node) && name) {
+        const eventNames = name.split(',').map((eventName) => {
+            const trimmedName = eventName.trim()
+            return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmedName]?.label || trimmedName
+        })
+        name = eventNames.join(', ')
+    } else if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
         name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
     }
+
     if (isEventsNode(node) && node.event === null) {
         name = 'All events'
     }
 
-    const id = isDataWarehouseNode(node) ? node.table_name : isEventsNode(node) ? node.event : node.id
+    const id = isDataWarehouseNode(node)
+        ? node.table_name
+        : isEventsNode(node)
+          ? node.event
+          : isGroupNode(node)
+            ? undefined
+            : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
@@ -337,7 +373,10 @@ export function formatBreakdownLabel(
         return `${formattedBucketStart} – ${formattedBucketEnd}`
     }
 
-    if (breakdownFilter?.breakdown_type === 'cohort') {
+    const breakdownType =
+        multipleBreakdownIndex != null ? breakdownFilter?.breakdowns?.[multipleBreakdownIndex]?.type : null
+
+    if (breakdownFilter?.breakdown_type === 'cohort' || breakdownType === 'cohort') {
         if (breakdown_value === 'all' || breakdown_value === 0) {
             return 'All Users'
         }

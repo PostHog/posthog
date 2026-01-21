@@ -6,8 +6,12 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
-import { TZLabelProps } from 'lib/components/TZLabel'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { TZLabelProps } from 'lib/components/TZLabel'
+import { DetectiveHog } from 'lib/components/hedgehogs'
+
+import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowHeader'
@@ -17,7 +21,7 @@ import {
     getMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 interface VirtualizedLogsListProps {
     dataSource: ParsedLogMessage[]
@@ -26,10 +30,14 @@ interface VirtualizedLogsListProps {
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
     showPinnedWithOpacity?: boolean
+    disableCursor?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
+    onExpandTimeRange?: () => void
+    orderBy?: LogsOrderBy
+    onChangeOrderBy?: (orderBy: LogsOrderBy) => void
 }
 
 export function VirtualizedLogsList({
@@ -39,10 +47,14 @@ export function VirtualizedLogsList({
     prettifyJson,
     tzLabelFormat,
     showPinnedWithOpacity = false,
+    disableCursor = false,
     fixedHeight,
     disableInfiniteScroll = false,
     hasMoreLogsToLoad = false,
     onLoadMore,
+    onExpandTimeRange,
+    orderBy,
+    onChangeOrderBy,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         tabId,
@@ -50,11 +62,14 @@ export function VirtualizedLogsList({
         expandedLogIds,
         cursorIndex,
         recomputeRowHeightsRequest,
+        scrollToCursorRequest,
         attributeColumns,
         attributeColumnWidths,
         selectedLogIds,
         selectedCount,
         prettifiedLogIds,
+        linkToLogId,
+        logsCount,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
@@ -68,7 +83,12 @@ export function VirtualizedLogsList({
         clearSelection,
         selectLogRange,
         togglePrettifyLog,
+        setFocused,
+        setCursorToLogId,
     } = useActions(logsViewerLogic)
+    const { openLogDetails } = useActions(logDetailsModalLogic)
+
+    const containerRef = useRef<HTMLDivElement>(null)
 
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic({ tabId }))
     const { setContainerWidth } = useActions(virtualizedLogsListLogic({ tabId }))
@@ -91,6 +111,15 @@ export function VirtualizedLogsList({
             }),
         []
     )
+
+    // Position cursor at linked log when deep linking (URL -> cursor)
+    useEffect(() => {
+        if (!disableCursor && linkToLogId && logsCount > 0) {
+            setCursorToLogId(linkToLogId)
+            containerRef.current?.focus()
+            containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+    }, [disableCursor, linkToLogId, logsCount, setCursorToLogId])
 
     // Handle recompute requests from child components (via the logic)
     const lastRecomputeTimestampRef = useRef<number>(0)
@@ -128,39 +157,27 @@ export function VirtualizedLogsList({
         }
     }, [loading, dataSource.length, cache])
 
-    // Scroll to cursor when it changes (but not when data length changes from pagination)
-    const prevCursorIndexRef = useRef<number | null>(cursorIndex)
+    // Scroll to cursor when requested (subscription fires when cursorIndex changes)
     useEffect(() => {
-        const cursorChanged = cursorIndex !== prevCursorIndexRef.current
-        prevCursorIndexRef.current = cursorIndex
-
-        if (cursorChanged && cursorIndex !== null && dataSource.length > 0) {
+        if (!disableCursor && cursorIndex !== null) {
             listRef.current?.scrollToRow(cursorIndex)
-            // Double scroll after two animation frames to ensure row measurement is complete
-            let raf1: number | null = null
-            let raf2: number | null = null
-            raf1 = requestAnimationFrame(() => {
-                raf2 = requestAnimationFrame(() => {
-                    listRef.current?.scrollToRow(cursorIndex)
-                })
+            const raf = requestAnimationFrame(() => {
+                listRef.current?.scrollToRow(cursorIndex)
             })
-            return () => {
-                if (raf1 !== null) {
-                    cancelAnimationFrame(raf1)
-                }
-                if (raf2 !== null) {
-                    cancelAnimationFrame(raf2)
-                }
-            }
+            return () => cancelAnimationFrame(raf)
         }
-    }, [cursorIndex, dataSource.length])
+    }, [disableCursor, scrollToCursorRequest, cursorIndex])
 
     const handleRowsRendered = ({ stopIndex }: { stopIndex: number }): void => {
-        if (disableInfiniteScroll) {
-            return
-        }
-        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, loading)) {
+        if (!disableInfiniteScroll && shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, loading)) {
             onLoadMore?.()
+        }
+    }
+
+    const handleLogRowClick = (log: ParsedLogMessage, index: number): void => {
+        openLogDetails(log)
+        if (!disableCursor) {
+            userSetCursorIndex(index)
         }
     }
 
@@ -168,7 +185,6 @@ export function VirtualizedLogsList({
         (rowWidth?: number) =>
             ({ index, key, style, parent }: ListRowProps): JSX.Element => {
                 const log = dataSource[index]
-                const isExpanded = !!expandedLogIds[log.uuid]
 
                 return (
                     <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
@@ -181,8 +197,8 @@ export function VirtualizedLogsList({
                                 <LogRow
                                     log={log}
                                     logIndex={index}
-                                    isAtCursor={index === cursorIndex}
-                                    isExpanded={isExpanded}
+                                    isAtCursor={!disableCursor && index === cursorIndex}
+                                    isExpanded={!!expandedLogIds[log.uuid]}
                                     pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
@@ -190,7 +206,7 @@ export function VirtualizedLogsList({
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
                                     onToggleExpand={() => toggleExpandLog(log.uuid)}
-                                    onSetCursor={() => userSetCursorIndex(index)}
+                                    onClick={() => handleLogRowClick(log, index)}
                                     rowWidth={rowWidth}
                                     attributeColumns={attributeColumns}
                                     attributeColumnWidths={attributeColumnWidths}
@@ -216,11 +232,13 @@ export function VirtualizedLogsList({
             pinnedLogs,
             cache,
             showPinnedWithOpacity,
+            disableCursor,
             wrapBody,
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
             toggleExpandLog,
+            openLogDetails,
             userSetCursorIndex,
             attributeColumns,
             attributeColumnWidths,
@@ -233,13 +251,31 @@ export function VirtualizedLogsList({
     )
 
     if (dataSource.length === 0 && !loading) {
-        return <div className="p-4 text-muted text-center">No logs to display</div>
+        return (
+            <div className="flex flex-col items-center gap-3 p-8 text-center h-full min-h-40">
+                <DetectiveHog className="w-32 h-32" />
+                <div>
+                    <h4 className="font-semibold m-0">No logs found</h4>
+                    <p className="text-muted text-sm mt-1 mb-0 max-w-80">
+                        Try adjusting your filters, expanding the time range, or checking that your app is sending logs.
+                    </p>
+                    <Link to="https://posthog.com/docs/logs/" target="_blank">
+                        View documentation
+                    </Link>
+                </div>
+                {onExpandTimeRange && (
+                    <LemonButton type="secondary" size="small" onClick={onExpandTimeRange}>
+                        Expand time range
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
 
     // Fixed height mode for pinned logs
     if (fixedHeight !== undefined) {
         return (
-            <div style={{ height: fixedHeight }} className="flex flex-col">
+            <div style={{ height: fixedHeight }} className="flex flex-col bg-bg-light border rounded overflow-hidden">
                 <AutoSizer disableHeight>
                     {({ width }) => {
                         if (width !== autosizerWidthRef.current) {
@@ -260,6 +296,8 @@ export function VirtualizedLogsList({
                                     totalCount={dataSource.length}
                                     onSelectAll={() => selectAll(dataSource)}
                                     onClearSelection={clearSelection}
+                                    orderBy={orderBy}
+                                    onChangeOrderBy={onChangeOrderBy}
                                 />
                                 <List
                                     ref={listRef}
@@ -282,7 +320,13 @@ export function VirtualizedLogsList({
     }
 
     return (
-        <div className="h-full flex-1 flex flex-col">
+        <div
+            tabIndex={0}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            ref={containerRef}
+            className="gap-2 min-h-0 outline-none focus:ring-1 focus:ring-border-bold focus:ring-offset-1 h-full flex-1 flex flex-col bg-bg-light border rounded overflow-hidden"
+        >
             <AutoSizer>
                 {({ width, height }) => {
                     if (width !== autosizerWidthRef.current) {
@@ -304,6 +348,8 @@ export function VirtualizedLogsList({
                                 totalCount={dataSource.length}
                                 onSelectAll={() => selectAll(dataSource)}
                                 onClearSelection={clearSelection}
+                                orderBy={orderBy}
+                                onChangeOrderBy={onChangeOrderBy}
                             />
                             <List
                                 ref={listRef}

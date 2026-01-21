@@ -33,9 +33,6 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 
-WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
-WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
-
 
 def get_webauthn_rp_id() -> str:
     """Get the Relying Party ID from SITE_URL."""
@@ -49,14 +46,6 @@ def get_webauthn_rp_origin() -> str:
     if parsed.port and parsed.port not in (80, 443):
         return f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
     return f"{parsed.scheme}://{parsed.hostname}"
-
-
-def webauthn_handle_to_user_id(handle: bytes) -> int | None:
-    """Convert a WebAuthn user handle back to a user ID."""
-    try:
-        return int(handle.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -561,6 +550,31 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+class WidgetAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticate widget requests via conversations_settings.widget_public_token.
+    This provides team-level authentication only. User-level scoping
+    is enforced via widget_session_id validation in each endpoint.
+    """
+
+    def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
+        """
+        Returns (None, team) on success.
+        No user object since this is public widget auth.
+        """
+        token = request.headers.get("X-Conversations-Token")
+        if not token:
+            return None  # Let other authenticators try
+
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
+
+        return (None, team)
+
+
 def authenticate_secondarily(endpoint):
     """
     DEPRECATED: Used for supporting legacy endpoints not on DRF.
@@ -609,12 +623,11 @@ class WebauthnBackend(BaseBackend):
         Authenticate a user via WebAuthn.
 
         Verifies the WebAuthn assertion and returns the authenticated user.
-        Uses credential_id-first lookup to support passkeys registered during signup
-        with temporary user handles.
 
         Args:
             request: The HTTP request object
             credential_id: The base64url-encoded credential ID (rawId)
+            challenge: The base64url-encoded challenge
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:
@@ -630,8 +643,7 @@ class WebauthnBackend(BaseBackend):
             # Decode credential ID
             credential_id_bytes = base64url_to_bytes(credential_id)
 
-            # Credential-first lookup: find credential by credential_id (unique across all users)
-            # This supports passkeys registered during signup with temporary user handles
+            # Find the credential
             credential = (
                 WebauthnCredential.objects.filter(credential_id=credential_id_bytes, verified=True)
                 .select_related("user")
@@ -639,11 +651,10 @@ class WebauthnBackend(BaseBackend):
             )
 
             if not credential:
-                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id[:20])
+                structlog_logger.warning("webauthn_login_credential_not_found", credential_id=credential_id)
                 return None
 
             user = credential.user
-
             # Check if user is active
             if not user.is_active:
                 structlog_logger.warning("webauthn_login_user_inactive", user_id=user.pk)
@@ -683,7 +694,10 @@ class WebauthnBackend(BaseBackend):
             return None
 
     def get_user(self, user_id: int) -> Optional[User]:
-        """Get a user by their primary key."""
+        """Get a user by their primary key.
+
+        Required by Django's authentication system to load the user on subsequent requests.
+        """
         try:
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:

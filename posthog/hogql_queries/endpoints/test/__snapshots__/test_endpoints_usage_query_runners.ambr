@@ -1,0 +1,263 @@
+# serializer version: 1
+# name: TestEndpointsUsageOverviewQueryRunner.test_overview_query_sql
+  '''
+  SELECT count() AS total_requests,
+         sum(read_bytes) AS total_bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS total_cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         quantile(0.95)(query_duration_ms) AS p95_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate,
+         countIf(endsWith(name, '_materialized')) AS materialized_requests,
+         countIf(not(endsWith(name, '_materialized'))) AS inline_requests
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageOverviewQueryRunner.test_overview_query_with_endpoint_filter_sql
+  '''
+  SELECT count() AS total_requests,
+         sum(read_bytes) AS total_bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS total_cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         quantile(0.95)(query_duration_ms) AS p95_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate,
+         countIf(endsWith(name, '_materialized')) AS materialized_requests,
+         countIf(not(endsWith(name, '_materialized'))) AS inline_requests
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), or(equals(name, 'my-endpoint'), equals(name, 'my-endpoint_materialized')), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageOverviewQueryRunner.test_overview_query_with_materialization_filter_sql
+  '''
+  SELECT count() AS total_requests,
+         sum(read_bytes) AS total_bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS total_cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         quantile(0.95)(query_duration_ms) AS p95_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate,
+         countIf(endsWith(name, '_materialized')) AS materialized_requests,
+         countIf(not(endsWith(name, '_materialized'))) AS inline_requests
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), like(name, '%_materialized'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_by_api_key_sql
+  '''
+  SELECT api_key_label AS api_key,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY api_key_label
+  ORDER BY requests DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_by_endpoint_sql
+  '''
+  SELECT replaceRegexpOne(name, '_materialized$', '') AS endpoint,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY replaceRegexpOne(name, '_materialized$', '')
+  ORDER BY requests DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_by_materialization_type_sql
+  '''
+  SELECT if(endsWith(name, '_materialized'), 'Materialized execution', 'Direct execution') AS execution_type,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY if(endsWith(name, '_materialized'), 'Materialized execution', 'Direct execution')
+  ORDER BY requests DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_by_status_sql
+  '''
+  SELECT if(equals(exception_code, 0), 'success', 'error') AS status,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY if(equals(exception_code, 0), 'success', 'error')
+  ORDER BY requests DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_with_materialization_filter_sql
+  '''
+  SELECT replaceRegexpOne(name, '_materialized$', '') AS endpoint,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')), not(like(name, '%_materialized')))
+  GROUP BY replaceRegexpOne(name, '_materialized$', '')
+  ORDER BY requests DESC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_with_order_by_sql
+  '''
+  SELECT replaceRegexpOne(name, '_materialized$', '') AS endpoint,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY replaceRegexpOne(name, '_materialized$', '')
+  ORDER BY bytes_read ASC
+  LIMIT 100
+  OFFSET 0
+  '''
+# ---
+# name: TestEndpointsUsageTableQueryRunner.test_table_query_with_pagination_sql
+  '''
+  SELECT replaceRegexpOne(name, '_materialized$', '') AS endpoint,
+         count() AS requests,
+         sum(read_bytes) AS bytes_read,
+         divide(sum(cpu_microseconds), 1000000) AS cpu_seconds,
+         avg(query_duration_ms) AS avg_query_duration_ms,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS error_rate
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY replaceRegexpOne(name, '_materialized$', '')
+  ORDER BY requests DESC
+  LIMIT 50
+  OFFSET 25
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_bytes_read_metric_sql
+  '''
+  SELECT event_date AS date,
+         sum(read_bytes) AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_cpu_seconds_metric_sql
+  '''
+  SELECT event_date AS date,
+         divide(sum(cpu_microseconds), 1000000) AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_error_rate_metric_sql
+  '''
+  SELECT event_date AS date,
+         divide(countIf(notEquals(exception_code, 0)), count()) AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_hourly_interval_sql
+  '''
+  SELECT toStartOfHour(event_time) AS date,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 12:59:59.999999')))
+  GROUP BY toStartOfHour(event_time)
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_requests_metric_sql
+  '''
+  SELECT event_date AS date,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_weekly_interval_sql
+  '''
+  SELECT toStartOfWeek(event_date) AS date,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2023-12-16 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY toStartOfWeek(event_date)
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_with_endpoint_breakdown_sql
+  '''
+  SELECT event_date AS date,
+         replaceRegexpOne(name, '_materialized$', '') AS breakdown,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date,
+           replaceRegexpOne(name, '_materialized$', '')
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_with_materialization_breakdown_sql
+  '''
+  SELECT event_date AS date,
+         if(endsWith(name, '_materialized'), 'Materialized execution', 'Direct execution') AS breakdown,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date,
+           if(endsWith(name, '_materialized'), 'Materialized execution', 'Direct execution')
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---
+# name: TestEndpointsUsageTrendsQueryRunner.test_trends_query_with_status_breakdown_sql
+  '''
+  SELECT event_date AS date,
+         if(equals(exception_code, 0), 'success', 'error') AS breakdown,
+         count() AS value
+  FROM query_log
+  WHERE and(equals(is_personal_api_key_request, true), isNotNull(name), notEquals(name, ''), match(query_log.endpoint, '^/api/(environments|projects)/[0-9]+/endpoints/[^/]+/run/?$'), greaterOrEquals(event_date, toDateTime('2024-01-08 00:00:00.000000')), lessOrEquals(event_date, toDateTime('2024-01-15 23:59:59.999999')))
+  GROUP BY event_date,
+           if(equals(exception_code, 0), 'success', 'error')
+  ORDER BY date ASC
+  LIMIT 50000
+  '''
+# ---

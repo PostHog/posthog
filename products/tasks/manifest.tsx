@@ -1,6 +1,8 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -45,6 +47,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Tasks',
+            intents: [ProductKey.TASKS],
             category: 'Unreleased',
             type: 'task',
             href: urls.taskTracker(),

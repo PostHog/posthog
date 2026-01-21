@@ -26,7 +26,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.auth import OAuthAccessTokenAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -576,6 +576,67 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("No passkeys found", response.json()["error"])
 
+    def test_login_with_passkeys_disabled_for_2fa_succeeds(self):
+        """Test that login succeeds when passkeys exist but are disabled for 2FA"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        # Create passkey but don't enable it for 2FA
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Ensure passkeys are disabled for 2FA (default is False)
+        self.user.passkeys_enabled_for_2fa = False
+        self.user.save()
+
+        # Login should succeed without requiring 2FA
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        # Verify we're logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+    def test_passkey_2fa_begin_requires_passkeys_enabled_for_2fa(self):
+        """Test that passkey 2FA begin fails if passkeys are disabled for 2FA"""
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        # Create passkey but don't enable it for 2FA
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test-credential-id",
+            label="Test Passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Ensure passkeys are disabled for 2FA (default is False)
+        self.user.passkeys_enabled_for_2fa = False
+        self.user.save()
+
+        # Create a 2FA session by setting up TOTP
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+
+        TOTPDevice.objects.create(user=self.user, name="default", key=random_hex(), digits=6)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
+
+        # Try to begin passkey 2FA - should fail because passkeys are disabled for 2FA
+        response = self.client.post("/api/login/2fa/passkey/begin/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Passkeys are not enabled for 2FA", response.json()["error"])
+
     @patch("posthog.api.authentication.verify_authentication_response")
     def test_passkey_2fa_begin_returns_options(self, mock_verify):
         """Test that passkey 2FA begin returns authentication options"""
@@ -593,9 +654,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal", "hybrid"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -644,6 +708,9 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # Create new 2FA session
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -693,9 +760,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -748,9 +818,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -788,9 +861,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -868,9 +944,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["usb"],
             verified=True,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -940,9 +1019,12 @@ class TestTwoFactorAPI(APIBaseTest):
             transports=["internal"],
             verified=False,
         )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
 
         # First authenticate with username/password to create session
-        # When user has passkeys, login requires 2FA
+        # When user has passkeys enabled for 2FA, login requires 2FA
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "2fa_required")
@@ -958,6 +1040,65 @@ class TestTwoFactorAPI(APIBaseTest):
         self.assertIn(bytes_to_base64url(credential1.credential_id), credential_ids)
         self.assertIn(bytes_to_base64url(credential2.credential_id), credential_ids)
         self.assertNotIn(bytes_to_base64url(b"credential-3"), credential_ids)
+
+    def test_passkey_2fa_rejects_credential_from_different_user(self):
+        """Test that passkey 2FA fails when using a credential belonging to another user"""
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        # Create a passkey for the test user
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"user1-credential",
+            label="User 1 Passkey",
+            public_key=b"user1-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+        # Enable passkeys for 2FA
+        self.user.passkeys_enabled_for_2fa = True
+        self.user.save()
+
+        # Create another user with their own passkey
+        other_user = User.objects.create_and_join(self.organization, "other_user@posthog.com", self.CONFIG_PASSWORD)
+        other_credential = WebauthnCredential.objects.create(
+            user=other_user,
+            credential_id=b"other-user-credential",
+            label="Other User Passkey",
+            public_key=b"other-user-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        # First authenticate with username/password to create session
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(response.json()["code"], "2fa_required")
+
+        # Begin passkey 2FA to get challenge
+        begin_response = self.client.post("/api/login/2fa/passkey/begin/")
+        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+
+        # Try to complete with the other user's credential ID
+        response = self.client.post(
+            "/api/login/token",
+            {
+                "credential_id": bytes_to_base64url(other_credential.credential_id),
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "2fa_invalid_passkey")
 
 
 class TestPasswordResetAPI(APIBaseTest):

@@ -10,15 +10,15 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
+import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
-    ActionsNode,
+    AnyEntityNode,
     CalendarHeatmapFilter,
-    DataWarehouseNode,
-    EventsNode,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightQueryNode,
     InsightVizNode,
     LifecycleFilter,
@@ -42,6 +42,7 @@ import {
     getShowValuesOnSeries,
     isDataTableNode,
     isDataVisualizationNode,
+    isEndpointsUsageQuery,
     isFunnelsQuery,
     isHogQuery,
     isInsightQueryWithBreakdown,
@@ -76,12 +77,13 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
-        Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
-        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
+    extends Omit<Partial<TrendsQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<FunnelsQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<RetentionQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
-        Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
-        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
+        Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
+    series?: (AnyEntityNode | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
@@ -91,9 +93,9 @@ export interface QueryPropertyCache
 }
 
 const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode | DataWarehouseNode,
+    entity: AnyEntityNode | GroupNode,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
+): AnyEntityNode | GroupNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -111,9 +113,9 @@ const cleanSeriesEntityMath = (
 }
 
 const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
+    series: (AnyEntityNode | GroupNode)[],
     mathAvailability: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+): (AnyEntityNode | GroupNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -229,10 +231,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
-                if (activeView === InsightType.JSON) {
+                if (activeView === InsightType.JSON && !isEndpointsUsageQuery(query)) {
                     // only display this tab when it is selected by the provided insight query
                     // don't display it otherwise... humans shouldn't be able to click to select this tab
                     // it only opens when you click the <OpenEditorButton/>
+                    // EndpointsUsage queries should not appear in the insight editor at all
                     const humanFriendlyQueryKind: string | null =
                         typeof query?.kind === 'string'
                             ? identifierToHuman(query.kind.replace(/(Node|Query)$/g, ''), 'title')
@@ -342,15 +345,24 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
-            if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(cache.series.slice(0, 1), MathAvailability.None)
+            if (isTrendsQuery(mergedQuery)) {
+                // Trends supports GroupNode, keep series as-is
+                mergedQuery.series = cleanSeriesMath(cache.series, MathAvailability.All) as TrendsQuery['series']
             } else {
-                const mathAvailability = isTrendsQuery(mergedQuery)
-                    ? MathAvailability.All
-                    : isStickinessQuery(mergedQuery)
-                      ? MathAvailability.ActorsOnly
-                      : MathAvailability.None
-                mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
+                // Expand GroupNodes for insight types that don't support them
+                const expandedSeries = expandGroupNodes(cache.series)
+
+                if (isLifecycleQuery(mergedQuery)) {
+                    mergedQuery.series = cleanSeriesMath(
+                        expandedSeries.slice(0, 1),
+                        MathAvailability.None
+                    ) as LifecycleQuery['series']
+                } else {
+                    const mathAvailability = isStickinessQuery(mergedQuery)
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.None
+                    mergedQuery.series = cleanSeriesMath(expandedSeries, mathAvailability) as typeof mergedQuery.series
+                }
             }
         }
         // else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {

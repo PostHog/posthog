@@ -54,7 +54,7 @@ class TestScheduleIntegration(BaseTest):
             feature_flag=flag_ended,
             start_date=datetime.datetime.now(),
             end_date=datetime.datetime.now(),  # Has end date - should be excluded
-            stats_config={"timeseries": True},
+            scheduling_config={"timeseries": True},
         )
         ExperimentToSavedMetric.objects.create(experiment=exp_ended, saved_metric=saved_metric)
 
@@ -64,7 +64,7 @@ class TestScheduleIntegration(BaseTest):
             team=team,
             feature_flag=flag_no_timeseries,
             start_date=datetime.datetime.now(),
-            stats_config={"timeseries": False},  # Timeseries disabled - should be excluded
+            scheduling_config={"timeseries": False},  # Timeseries disabled - should be excluded
         )
         ExperimentToSavedMetric.objects.create(experiment=exp_no_timeseries, saved_metric=saved_metric)
 
@@ -74,7 +74,7 @@ class TestScheduleIntegration(BaseTest):
             team=team,
             feature_flag=flag_valid,
             start_date=datetime.datetime.now(),
-            stats_config={"timeseries": True},  # This one should be included
+            scheduling_config={"timeseries": True},  # This one should be included
         )
         ExperimentToSavedMetric.objects.create(experiment=exp_valid, saved_metric=saved_metric)
 

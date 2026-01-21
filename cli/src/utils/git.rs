@@ -38,28 +38,25 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
 }
 
 fn get_git_info_from_vercel() -> Option<GitInfo> {
-    if std::env::var("VERCEL").ok()? != "1" {
-        return None;
-    }
+    get_env_variable("VERCEL")?;
 
-    let branch = std::env::var("VERCEL_GIT_COMMIT_REF").ok()?;
-    let commit_id = std::env::var("VERCEL_GIT_COMMIT_SHA").ok()?;
+    let branch = get_env_variable("VERCEL_GIT_COMMIT_REF")?;
+    let commit_id = get_env_variable("VERCEL_GIT_COMMIT_SHA")?;
+    let repo_slug = get_env_variable("VERCEL_GIT_REPO_SLUG")?;
 
-    let remote_url = build_vercel_remote_url();
-    let repo_name = std::env::var("VERCEL_GIT_REPO_SLUG").ok();
+    let remote_url = build_vercel_remote_url(&repo_slug);
 
     Some(GitInfo {
         remote_url,
-        repo_name,
+        repo_name: Some(repo_slug),
         branch,
         commit_id,
     })
 }
 
-fn build_vercel_remote_url() -> Option<String> {
-    let provider = std::env::var("VERCEL_GIT_PROVIDER").ok()?;
-    let owner = std::env::var("VERCEL_GIT_REPO_OWNER").ok()?;
-    let slug = std::env::var("VERCEL_GIT_REPO_SLUG").ok()?;
+fn build_vercel_remote_url(repo_slug: &String) -> Option<String> {
+    let provider = get_env_variable("VERCEL_GIT_PROVIDER")?;
+    let owner = get_env_variable("VERCEL_GIT_REPO_OWNER")?;
 
     let base_url = match provider.as_str() {
         "github" => "https://github.com",
@@ -68,7 +65,7 @@ fn build_vercel_remote_url() -> Option<String> {
         _ => return None,
     };
 
-    Some(format!("{base_url}/{owner}/{slug}.git"))
+    Some(format!("{base_url}/{owner}/{repo_slug}.git"))
 }
 
 fn find_git_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
@@ -190,4 +187,12 @@ fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
     }
 
     anyhow::bail!("Could not determine commit ID")
+}
+
+fn get_env_variable(name: &str) -> Option<String> {
+    let env_variable = std::env::var(name).ok()?.trim().to_string();
+    match env_variable.as_ref() {
+        "" => None,
+        _ => Some(env_variable),
+    }
 }

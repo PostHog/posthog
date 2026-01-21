@@ -12,8 +12,9 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { appLogic } from 'scenes/appLogic'
@@ -32,6 +33,7 @@ import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { Thread } from './Thread'
+import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
@@ -50,6 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -70,6 +73,10 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                 </div>
             </SceneContent>
         )
+    }
+
+    if (isRemovingSidePanelMaxFlag) {
+        return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 
     return <MaxInstance tabId={tabId ?? ''} />
@@ -99,6 +106,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
     const { exitAIOnlyMode } = useActions(appLogic)
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -123,11 +131,12 @@ export const MaxInstance = React.memo(function MaxInstance({
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
                         )}
                     >
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <div className="flex-1 items-center justify-center flex flex-col gap-3 relative z-50">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
+
+                        {!isRemovingSidePanelMaxFlag && <HistoryPreview sidePanel={sidePanel} />}
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -211,7 +220,22 @@ export const MaxInstance = React.memo(function MaxInstance({
                             tooltipPlacement="bottom-end"
                         />
                     )}
-                    {!isAIOnlyMode && (
+                    {isRemovingSidePanelMaxFlag ? (
+                        <Link
+                            buttonProps={{
+                                iconOnly: true,
+                            }}
+                            to={urls.ai(conversationId ?? undefined)}
+                            onClick={() => {
+                                closeSidePanel()
+                            }}
+                            target="_blank"
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        >
+                            <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </Link>
+                    ) : (
                         <LemonButton
                             size="small"
                             sideIcon={<IconExpand45 />}

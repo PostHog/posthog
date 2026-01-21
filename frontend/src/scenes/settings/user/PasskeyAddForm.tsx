@@ -1,14 +1,76 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheckCircle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { passkeySettingsLogic } from './passkeySettingsLogic'
 
-export function PasskeyAddForm(): JSX.Element {
+function RegistrationBanners(): JSX.Element | null {
     const { registrationStep, error } = useValues(passkeySettingsLogic)
-    const { beginRegistration, clearError } = useActions(passkeySettingsLogic)
+    const { clearError } = useActions(passkeySettingsLogic)
+
+    if (!error && registrationStep !== 'complete' && registrationStep !== 'verifying') {
+        return null
+    }
+
+    return (
+        <>
+            {error && (
+                <LemonBanner type="error" onClose={clearError}>
+                    {error}
+                </LemonBanner>
+            )}
+
+            {registrationStep === 'complete' && (
+                <LemonBanner type="success">Passkey added and verified successfully!</LemonBanner>
+            )}
+
+            {registrationStep === 'verifying' && (
+                <LemonBanner type="info" icon={<Spinner />}>
+                    Please verify your passkey to complete registration...
+                </LemonBanner>
+            )}
+        </>
+    )
+}
+
+export function PasskeyAddFormEmpty(): JSX.Element {
+    const { registrationStep } = useValues(passkeySettingsLogic)
+    const { beginRegistration } = useActions(passkeySettingsLogic)
+
+    const handleAddPasskey = (): void => {
+        beginRegistration('My Passkey')
+    }
+
+    const isRegistering = registrationStep === 'registering' || registrationStep === 'verifying'
+
+    return (
+        <div className="flex flex-col items-start space-y-4">
+            <div className="w-full">
+                <RegistrationBanners />
+            </div>
+
+            <div>
+                <p className="text-muted mb-4 max-w-lg">
+                    Passkeys provide a faster, more seamless sign-in experience. Use your device's biometric
+                    authentication or a security key to sign in without passwords.
+                </p>
+                <LemonButton
+                    type="primary"
+                    onClick={handleAddPasskey}
+                    loading={isRegistering}
+                    disabledReason={isRegistering ? 'Registration in progress...' : undefined}
+                >
+                    {registrationStep === 'verifying' ? 'Verifying...' : 'Add passkey'}
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function PasskeyAddForm(): JSX.Element {
+    const { registrationStep } = useValues(passkeySettingsLogic)
+    const { beginRegistration } = useActions(passkeySettingsLogic)
 
     const [newPasskeyLabel, setNewPasskeyLabel] = useState('')
 
@@ -22,20 +84,7 @@ export function PasskeyAddForm(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            {error && (
-                <LemonBanner type="error" onClose={clearError}>
-                    {error}
-                </LemonBanner>
-            )}
-
-            {registrationStep === 'complete' && (
-                <LemonBanner type="success">
-                    <div className="flex items-center gap-2">
-                        <IconCheckCircle className="text-success" />
-                        Passkey added and verified successfully!
-                    </div>
-                </LemonBanner>
-            )}
+            <RegistrationBanners />
 
             <div className="flex gap-2 items-end">
                 <div className="flex-1">
@@ -58,15 +107,6 @@ export function PasskeyAddForm(): JSX.Element {
                     {registrationStep === 'verifying' ? 'Verifying...' : 'Add passkey'}
                 </LemonButton>
             </div>
-
-            {registrationStep === 'verifying' && (
-                <LemonBanner type="info">
-                    <div className="flex items-center gap-2">
-                        <Spinner />
-                        Please verify your passkey to complete registration...
-                    </div>
-                </LemonBanner>
-            )}
         </div>
     )
 }

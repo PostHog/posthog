@@ -46,7 +46,9 @@ class VerificationResult:
     expiry_missing_fixed: int = 0
     fix_failed: int = 0
     errors: int = 0
+    skipped_for_grace_period: int = 0
     fixed_team_ids: list[int] = field(default_factory=list)
+    skipped_team_ids: list[int] = field(default_factory=list)
 
     @property
     def total_fixed(self) -> int:
@@ -60,6 +62,16 @@ class VerificationResult:
             return str(self.fixed_team_ids)
         truncated = self.fixed_team_ids[:MAX_FIXED_TEAM_IDS_TO_LOG]
         remaining = len(self.fixed_team_ids) - MAX_FIXED_TEAM_IDS_TO_LOG
+        return f"{truncated} ... and {remaining} more"
+
+    def formatted_skipped_team_ids(self) -> str:
+        """Format skipped_team_ids for logging: first 10 with '... and N more' if truncated."""
+        if not self.skipped_team_ids:
+            return "[]"
+        if len(self.skipped_team_ids) <= MAX_FIXED_TEAM_IDS_TO_LOG:
+            return str(self.skipped_team_ids)
+        truncated = self.skipped_team_ids[:MAX_FIXED_TEAM_IDS_TO_LOG]
+        remaining = len(self.skipped_team_ids) - MAX_FIXED_TEAM_IDS_TO_LOG
         return f"{truncated} ... and {remaining} more"
 
 
@@ -226,6 +238,15 @@ def _verify_and_fix_batch(
     # Batch-check expiry tracking
     expiry_status = batch_check_expiry_tracking(teams, config)
 
+    # Batch-check which teams should skip fixes (e.g., grace period for recently updated flags)
+    # This is done once per batch to avoid N+1 queries
+    team_ids_to_skip_fix: set[int] = set()
+    if config.get_team_ids_to_skip_fix_fn:
+        try:
+            team_ids_to_skip_fix = config.get_team_ids_to_skip_fix_fn([t.id for t in teams])
+        except Exception as e:
+            logger.warning("Batch skip-fix check failed, proceeding without skips", error=str(e))
+
     # Partition teams into full verification vs fast-path empty check
     teams_for_full_check, teams_for_empty_check = _partition_teams_for_verification(
         teams, team_ids_needing_full_verification, config
@@ -243,7 +264,9 @@ def _verify_and_fix_batch(
     for team in teams_for_empty_check:
         result.total += 1
         try:
-            _verify_empty_cache_team(team, config, cache_batch_data, expiry_status, cache_type, result)
+            _verify_empty_cache_team(
+                team, config, cache_batch_data, expiry_status, cache_type, result, team_ids_to_skip_fix
+            )
         except Exception as e:
             result.errors += 1
             logger.exception("Error verifying team (empty check)", team_id=team.id, error=str(e))
@@ -274,6 +297,19 @@ def _verify_and_fix_batch(
                 issue_type = "expiry_missing"
 
         if issue_type:
+            # Check if we should skip fixing (e.g., grace period for recently updated flags)
+            if team.id in team_ids_to_skip_fix:
+                result.skipped_for_grace_period += 1
+                if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
+                    result.skipped_team_ids.append(team.id)
+                logger.debug(
+                    "Skipping fix due to grace period",
+                    team_id=team.id,
+                    issue_type=issue_type,
+                    cache_type=cache_type,
+                )
+                continue
+
             _fix_and_record(
                 team=team,
                 config=config,
@@ -292,6 +328,7 @@ def _verify_empty_cache_team(
     expiry_status: dict | None,
     cache_type: str,
     result: VerificationResult,
+    team_ids_to_skip_fix: set[int],
 ) -> None:
     """
     Fast-path verification for teams expected to have empty cache values.
@@ -327,6 +364,19 @@ def _verify_empty_cache_team(
             issue_type = "expiry_missing"
 
     if issue_type:
+        # Check if we should skip fixing (e.g., grace period for recently updated flags)
+        if team.id in team_ids_to_skip_fix:
+            result.skipped_for_grace_period += 1
+            if len(result.skipped_team_ids) < MAX_FIXED_TEAM_IDS_TO_LOG:
+                result.skipped_team_ids.append(team.id)
+            logger.debug(
+                "Skipping fix due to grace period",
+                team_id=team.id,
+                issue_type=issue_type,
+                cache_type=cache_type,
+            )
+            return
+
         _fix_and_record(
             team=team,
             config=config,
@@ -427,18 +477,24 @@ def _run_verification_for_cache(
 
     duration = time.time() - start_time
 
-    logger.info(
-        f"Completed {cache_type} cache verification",
-        cache_type=cache_type,
-        teams_verified=result.total,
-        teams_fixed=result.total_fixed,
-        cache_miss_fixed=result.cache_miss_fixed,
-        cache_mismatch_fixed=result.cache_mismatch_fixed,
-        expiry_missing_fixed=result.expiry_missing_fixed,
-        fix_failures=result.fix_failed,
-        errors=result.errors,
-        fixed_team_ids=result.formatted_fixed_team_ids(),
-        duration_seconds=duration,
-    )
+    log_kwargs: dict = {
+        "cache_type": cache_type,
+        "teams_verified": result.total,
+        "teams_fixed": result.total_fixed,
+        "cache_miss_fixed": result.cache_miss_fixed,
+        "cache_mismatch_fixed": result.cache_mismatch_fixed,
+        "expiry_missing_fixed": result.expiry_missing_fixed,
+        "fix_failures": result.fix_failed,
+        "errors": result.errors,
+        "fixed_team_ids": result.formatted_fixed_team_ids(),
+        "duration_seconds": duration,
+    }
+
+    # Only include skipped info if there were skips (keeps logs clean for caches without grace period)
+    if result.skipped_for_grace_period > 0:
+        log_kwargs["skipped_for_grace_period"] = result.skipped_for_grace_period
+        log_kwargs["skipped_team_ids"] = result.formatted_skipped_team_ids()
+
+    logger.info(f"Completed {cache_type} cache verification", **log_kwargs)
 
     return result

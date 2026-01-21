@@ -40,6 +40,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
+    SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
+    SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import(
@@ -49,7 +52,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
-    EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
@@ -79,6 +81,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMAnalyticsEvaluationTemplates: () =>
         import('../../products/llm_analytics/frontend/evaluations/EvaluationTemplates'),
     LLMAnalyticsPrompt: () => import('../../products/llm_analytics/frontend/prompts/LLMPromptScene'),
+    LLMAnalyticsCluster: () => import('../../products/llm_analytics/frontend/clusters/LLMAnalyticsClusterScene'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
@@ -100,6 +103,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/support/tickets': ['SupportTickets', 'supportTickets'],
+    '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+    '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
@@ -137,6 +143,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/prompts': ['LLMAnalytics', 'llmAnalyticsPrompts'],
     '/llm-analytics/prompts/:id': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
+    '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId/:clusterId': ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
@@ -163,6 +172,7 @@ export const productRedirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
+    '/support': '/support/tickets',
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(`/llm-analytics`, searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -204,6 +214,9 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Action',
         iconType: 'action',
     },
+    SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
+    SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         defaultDocsPath: '/docs/customer-analytics',
         projectBased: true,
@@ -253,13 +266,6 @@ export const productConfiguration: Record<string, any> = {
         defaultDocsPath: '/docs/endpoints',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
-    },
-    EndpointsUsage: {
-        projectBased: true,
-        name: 'Endpoints usage',
-        activityScope: 'Endpoints',
-        layout: 'app-container',
-        iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     ErrorTracking: {
@@ -355,6 +361,12 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/llm-analytics/installation',
     },
+    LLMAnalyticsCluster: {
+        projectBased: true,
+        name: 'LLM analytics cluster',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/llm-analytics/installation',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -363,6 +375,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
         defaultDocsPath: '/docs/logs',
+        changelogTeamSlug: 'Logs',
     },
     ManagedMigration: { name: 'Managed migrations', projectBased: true },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
@@ -395,6 +408,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
     },
     TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
+    Toolbar: {
+        name: 'Toolbar',
+        projectBased: true,
+        description: 'PostHog toolbar launches PostHog right in your app or website.',
+        iconType: 'toolbar',
+    },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -425,6 +444,10 @@ export const productUrls = {
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
+    supportDashboard: (): string => '/support',
+    supportTickets: (): string => '/support/tickets',
+    supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+    supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
@@ -443,14 +466,36 @@ export const productUrls = {
     endpoints: (): string => '/endpoints',
     endpoint: (name: string): string => `/endpoints/${name}`,
     endpointsUsage: (params?: {
+        endpointFilter?: string[]
         dateFrom?: string
         dateTo?: string
-        requestNameBreakdownEnabled?: string
-        requestNameFilter?: string[]
+        materializationType?: 'materialized' | 'inline'
+        interval?: string
+        breakdownBy?: string
     }): string => {
-        const queryParams = new URLSearchParams(params as Record<string, string>)
-        const stringifiedParams = queryParams.toString()
-        return `/endpoints/usage${stringifiedParams ? `?${stringifiedParams}` : ''}`
+        if (!params) {
+            return '/endpoints/usage'
+        }
+        const searchParams: Record<string, string> = {}
+        if (params.endpointFilter?.length) {
+            searchParams.endpointFilter = params.endpointFilter.join(',')
+        }
+        if (params.dateFrom) {
+            searchParams.dateFrom = params.dateFrom
+        }
+        if (params.dateTo) {
+            searchParams.dateTo = params.dateTo
+        }
+        if (params.materializationType) {
+            searchParams.materializationType = params.materializationType
+        }
+        if (params.interval) {
+            searchParams.interval = params.interval
+        }
+        if (params.breakdownBy) {
+            searchParams.breakdownBy = params.breakdownBy
+        }
+        return combineUrl('/endpoints/usage', searchParams).url
     },
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string => combineUrl('/error_tracking/configuration', params).url,
@@ -535,6 +580,10 @@ export const productUrls = {
     llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
     llmAnalyticsPrompt: (id: string): string => `/llm-analytics/prompts/${id}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
+    llmAnalyticsClusters: (runId?: string): string =>
+        runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
+    llmAnalyticsCluster: (runId: string, clusterId: number): string =>
+        `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
@@ -634,6 +683,7 @@ export const productUrls = {
         return `/replay/${id}`
     },
     replayFilePlayback: (): string => '/replay/file-playback',
+    replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
@@ -641,8 +691,10 @@ export const productUrls = {
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
+    surveyWizard: (id: string = 'new'): string => `/surveys/guided/${id}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    toolbarLaunch: (): string => '/toolbar',
     userInterviews: (): string => '/user_interviews',
     userInterview: (id: string): string => `/user_interviews/${id}`,
     webAnalytics: (): string => `/web`,
@@ -650,6 +702,7 @@ export const productUrls = {
     webAnalyticsPageReports: (): string => `/web/page-reports`,
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
+    webAnalyticsLive: (): string => `/web/live`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -980,6 +1033,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: `Data pipelines`,
+        intents: [ProductKey.PIPELINE_DESTINATIONS, ProductKey.PIPELINE_TRANSFORMATIONS, ProductKey.SITE_APPS],
         category: 'Tools',
         type: 'hog_function',
         iconType: 'data_pipeline',
@@ -1024,7 +1078,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1096,6 +1150,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'LLMAnalyticsEvaluation',
             'LLMAnalyticsEvaluationTemplates',
             'LLMAnalyticsPrompt',
+            'LLMAnalyticsCluster',
         ],
     },
     {
@@ -1128,7 +1183,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
-        flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
         tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
@@ -1147,6 +1201,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Notebooks',
+        intents: [ProductKey.NOTEBOOKS],
         category: 'Tools',
         type: 'notebook',
         iconType: 'notebook',
@@ -1167,6 +1222,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Product tours',
+        intents: [ProductKey.PRODUCT_TOURS],
         category: 'Behavior',
         type: 'product_tour',
         href: urls.productTours(),
@@ -1206,7 +1262,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'session_replay',
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         sceneKey: 'Replay',
-        sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback'],
+        sceneKeys: ['Replay', 'ReplaySingle', 'ReplaySettings', 'ReplayPlaylist', 'ReplayFilePlayback', 'ReplayKiosk'],
+    },
+    {
+        path: 'Support',
+        intents: [ProductKey.CONVERSATIONS],
+        category: 'Unreleased',
+        href: urls.supportTickets(),
+        type: 'conversations',
+        flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
+        tags: ['alpha'],
+        iconType: 'conversations',
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        sceneKey: 'SupportTickets',
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
     {
         path: 'Surveys',
@@ -1221,6 +1290,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Tasks',
+        intents: [ProductKey.TASKS],
         category: 'Unreleased',
         type: 'task',
         href: urls.taskTracker(),
@@ -1230,6 +1300,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
         sceneKey: 'TaskTracker',
         sceneKeys: ['TaskTracker', 'TaskDetail'],
+    },
+    {
+        path: 'Toolbar',
+        intents: [ProductKey.TOOLBAR],
+        href: urls.toolbarLaunch(),
+        type: 'toolbar',
+        category: 'Tools',
+        iconType: 'toolbar',
+        sceneKey: 'Toolbar',
+        sceneKeys: ['Toolbar'],
     },
     {
         path: 'User interviews',
@@ -1260,8 +1340,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.workflows(),
         type: 'workflows',
         category: 'Tools',
-        tags: ['beta'],
-        flag: FEATURE_FLAGS.WORKFLOWS,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',
@@ -1337,7 +1415,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
         tags: ['beta'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
+        sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
     {
         path: 'Event definitions',
@@ -1404,6 +1482,17 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.dataPipelines('sources'),
         sceneKey: 'DataPipelines',
         sceneKeys: ['DataPipelines'],
+    },
+    {
+        path: 'Support',
+        category: 'Unreleased',
+        iconType: 'conversations' as FileSystemIconType,
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        href: urls.supportTickets(),
+        sceneKey: 'SupportTickets',
+        flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
+        tags: ['alpha'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
     },
     {
         path: `Transformations`,

@@ -51,7 +51,9 @@ def _create_agent_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team, user=user, node_path=node_path, context_manager=context_manager, state=AssistantState(messages=[])
+    )
 
     # Use the mode manager's node property which calls configure()
     return mode_manager.node
@@ -68,7 +70,13 @@ def _create_agent_tools_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
 
     # Use the mode manager's tools_node property which calls configure()
     return mode_manager.tools_node
@@ -189,7 +197,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="xyz",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         )
                     ],
@@ -209,7 +217,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         {
                             "id": "xyz",
-                            "name": "create_and_query_insight",
+                            "name": "create_insight",
                             "args": {},
                         }
                     ],
@@ -236,13 +244,13 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                         # This tool call has a response
                         AssistantToolCall(
                             id="xyz1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         ),
                         # This tool call has no response and should be filtered out
                         AssistantToolCall(
                             id="xyz2",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={},
                         ),
                     ],
@@ -516,7 +524,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                         tool_calls=[
                             {
                                 "id": "tool-1",
-                                "name": "create_and_query_insight",
+                                "name": "create_insight",
                                 "args": {"query_description": "test"},
                             }
                         ],
@@ -585,7 +593,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="tool-1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "test"},
                         )
                     ],
@@ -617,17 +625,17 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                     tool_calls=[
                         AssistantToolCall(
                             id="tool-1",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "trends"},
                         ),
                         AssistantToolCall(
                             id="tool-2",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "funnel"},
                         ),
                         AssistantToolCall(
                             id="tool-3",
-                            name="create_and_query_insight",
+                            name="create_insight",
                             args={"query_description": "retention"},
                         ),
                     ],
@@ -644,7 +652,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         for i, send in enumerate(result):
             self.assertIsInstance(send, Send)
             self.assertEqual(send.node, AssistantNodeName.ROOT_TOOLS)
-            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i+1}")
+            self.assertEqual(send.arg.root_tool_call_id, f"tool-{i + 1}")
 
     def test_get_updated_agent_mode(self):
         node = _create_agent_node(self.team, self.user)

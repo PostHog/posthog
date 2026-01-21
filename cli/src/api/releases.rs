@@ -73,10 +73,11 @@ impl ReleaseBuilder {
             project: info.repo_name,
         }
     }
+
     pub fn with_git(&mut self, info: GitInfo) -> &mut Self {
         if !self.has_project() {
-            if let Some(url) = &info.remote_url {
-                self.with_project(url);
+            if let Some(name) = &info.repo_name {
+                self.with_project(name);
             }
         }
         if !self.has_version() {

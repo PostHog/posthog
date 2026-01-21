@@ -5,32 +5,11 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { passkeySettingsLogicType } from './passkeySettingsLogicType'
-
-const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
-    NotAllowedError: 'Operation was cancelled or timed out.',
-    InvalidStateError: 'This passkey is already registered.',
-    SecurityError: 'Security error occurred. Please try again.',
-    AbortError: 'Operation was cancelled.',
-}
-
-function getPasskeyErrorMessage(error: any, defaultMessage: string): string {
-    if (error?.name && WEBAUTHN_ERROR_MESSAGES[error.name]) {
-        return WEBAUTHN_ERROR_MESSAGES[error.name]
-    }
-
-    if (error?.detail) {
-        return error.detail
-    }
-
-    if (error?.message) {
-        return error.message
-    }
-
-    return defaultMessage
-}
+import { getPasskeyErrorMessage } from './passkeys/utils'
 
 export interface PasskeyCredential {
     id: number
@@ -52,6 +31,12 @@ export interface RegistrationBeginResponse {
     attestation: string
 }
 
+export interface RegistrationCompleteResponse {
+    success: boolean
+    message: string
+    credential_id: string
+}
+
 export interface VerificationBeginResponse {
     challenge: string
     timeout: number
@@ -65,7 +50,7 @@ export type RegistrationStep = 'idle' | 'registering' | 'verifying' | 'complete'
 export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     path(['scenes', 'settings', 'user', 'passkeySettingsLogic']),
     connect({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser'], twoFactorLogic, ['loadStatus']],
     }),
     actions({
         beginRegistration: (label: string) => ({ label }),
@@ -101,6 +86,7 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                 setError: (_, { error }) => error,
                 clearError: () => null,
                 beginRegistration: () => null,
+                verifyPasskeySuccess: () => null,
             },
         ],
         deleteModalId: [
@@ -203,16 +189,23 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 3: Send attestation to server
-                        await api.create('api/webauthn/register/complete', {
-                            ...attestation,
-                            label,
-                        })
+                        const { credential_id: credentialId } = await api.create<RegistrationCompleteResponse>(
+                            'api/webauthn/register/complete',
+                            {
+                                ...attestation,
+                                label,
+                            }
+                        )
+
+                        // Load passkeys so the new passkey appears in the list even if verification fails
+                        actions.loadPasskeys()
 
                         // Step 4: Begin verification
                         actions.setRegistrationStep('verifying')
 
-                        const verifyResponse =
-                            await api.create<VerificationBeginResponse>('api/webauthn/register/verify')
+                        const verifyResponse = await api.create<VerificationBeginResponse>(
+                            `api/webauthn/credentials/${credentialId}/verify`
+                        )
 
                         // Step 5: Verify with authenticator
                         const assertion = await startAuthentication({
@@ -226,17 +219,20 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
                         })
 
                         // Step 6: Complete verification
-                        await api.create('api/webauthn/register/verify_complete', assertion)
+                        await api.create(`api/webauthn/credentials/${credentialId}/verify_complete`, assertion)
 
                         actions.setRegistrationStep('complete')
                         lemonToast.success('Passkey added successfully!')
                         actions.loadPasskeys()
                         actions.loadUser()
+                        actions.loadStatus()
 
                         return null
                     } catch (e: any) {
                         actions.setRegistrationStep('idle')
                         actions.setError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                        // Load passkeys in case the passkey was created but verification failed
+                        actions.loadPasskeys()
                         throw e
                     }
                 },
@@ -246,9 +242,11 @@ export const passkeySettingsLogic = kea<passkeySettingsLogicType>([
     listeners(({ actions }) => ({
         deletePasskeySuccess: () => {
             actions.loadUser()
+            actions.loadStatus()
         },
         verifyPasskeySuccess: () => {
             actions.loadUser()
+            actions.loadStatus()
         },
     })),
 ])

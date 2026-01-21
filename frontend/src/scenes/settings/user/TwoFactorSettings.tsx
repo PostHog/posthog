@@ -1,32 +1,43 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconCopy, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconCopy, IconInfo, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSwitch, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { UserType } from '~/types'
+
 export function TwoFactorSettings(): JSX.Element {
-    const { user } = useValues(userLogic)
     const { status, isDisable2FAModalOpen, isBackupCodesModalOpen } = useValues(twoFactorLogic)
 
     const { updateUser } = useActions(userLogic)
     const { loadMemberUpdates } = useActions(membersLogic)
-    const { generateBackupCodes, disable2FA, openTwoFactorSetupModal, toggleDisable2FAModal, toggleBackupCodesModal } =
-        useActions(twoFactorLogic)
+    const {
+        generateBackupCodes,
+        disable2FA,
+        loadStatus,
+        openTwoFactorSetupModal,
+        toggleDisable2FAModal,
+        toggleBackupCodesModal,
+    } = useActions(twoFactorLogic)
 
     const handleSuccess = (): void => {
         updateUser({})
         loadMemberUpdates()
     }
 
+    const hasTotp = status?.has_totp ?? false
+    const hasPasskeys = status?.has_passkeys ?? false
+    const passkeysEnabled = status?.passkeys_enabled_for_2fa ?? false
+
     return (
-        <div className="flex flex-col items-start">
+        <div className="flex flex-col items-start space-y-4">
             {isDisable2FAModalOpen && (
                 <LemonModal
-                    title="Disable 2FA"
+                    title="Disable authenticator app"
                     onClose={() => toggleDisable2FAModal(false)}
                     footer={
                         <>
@@ -45,7 +56,10 @@ export function TwoFactorSettings(): JSX.Element {
                         </>
                     }
                 >
-                    <p>Are you sure you want to disable 2FA authentication? This will make your account less secure.</p>
+                    <p>
+                        Are you sure you want to disable 2FA using an authenticator app? This will make your account
+                        less secure.
+                    </p>
                 </LemonModal>
             )}
 
@@ -91,37 +105,157 @@ export function TwoFactorSettings(): JSX.Element {
                 </LemonModal>
             )}
 
-            {user?.is_2fa_enabled ? (
-                <>
-                    <div className="mb-4 flex items-center deprecated-space-x-2">
-                        <IconCheckCircle color="green" className="text-xl" />
-                        <span className="font-medium">2FA enabled</span>
-                    </div>
-                    <div className="deprecated-space-x-2 flex items-center">
-                        <LemonButton type="secondary" onClick={() => toggleBackupCodesModal(true)}>
-                            View backup codes
-                        </LemonButton>
-                        <LemonButton type="secondary" status="danger" onClick={() => toggleDisable2FAModal(true)}>
-                            Disable 2FA
-                        </LemonButton>
-                    </div>
-                </>
-            ) : (
-                <div className="space-y-3">
-                    <div className="mb-4 flex items-center deprecated-space-x-2">
-                        <IconWarning color="orange" className="text-xl" />
-                        <span className="font-medium">TOTP-based 2FA is not enabled</span>
-                    </div>
-                    {status?.has_passkeys && status?.method === 'passkey' && (
-                        <p className="text-muted">
-                            You have passkeys set up. Passkeys can be used for both login and 2FA authentication.
-                        </p>
+            <div className="space-y-1">
+                <p className="text-muted mb-4">
+                    Enable two-factor authentication (2FA) to add an extra layer of security to your account. You can
+                    use one or both methods below.
+                </p>
+
+                {/* 2FA Status Indicator */}
+                <div className="mb-4 flex items-center deprecated-space-x-2">
+                    {status?.is_enabled ? (
+                        <>
+                            <IconCheckCircle color="green" className="text-xl" />
+                            <span className="font-medium">2FA enabled</span>
+                        </>
+                    ) : (
+                        <>
+                            <IconWarning color="orange" className="text-xl" />
+                            <span className="font-medium">2FA not enabled</span>
+                        </>
                     )}
-                    <LemonButton type="primary" onClick={() => openTwoFactorSetupModal()}>
-                        Set up TOTP 2FA
-                    </LemonButton>
                 </div>
-            )}
+
+                <div className="border rounded bg-bg-light">
+                    {/* Authenticator app row */}
+                    <div className="p-4 border-b last:border-b-0">
+                        <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium">Authenticator app</span>
+                                    <Tooltip
+                                        title={
+                                            <div className="space-y-2">
+                                                <p>
+                                                    Use an authenticator app (like Google Authenticator, Authy, or
+                                                    1Password) to generate time-based codes for 2FA.
+                                                </p>
+                                                <p>
+                                                    When enabled, you'll be asked for a code from your authenticator app
+                                                    when signing in.
+                                                </p>
+                                            </div>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted text-sm" />
+                                    </Tooltip>
+                                </div>
+                                <p className="text-sm text-muted">
+                                    {hasTotp
+                                        ? 'Authenticator app is set up and enabled for 2FA.'
+                                        : 'Set up an authenticator app to use time-based codes for 2FA.'}
+                                </p>
+                            </div>
+                            <div className="ml-4 flex items-center gap-2">
+                                {hasTotp ? (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => toggleBackupCodesModal(true)}
+                                        >
+                                            View backup codes
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            status="danger"
+                                            onClick={() => toggleDisable2FAModal(true)}
+                                        >
+                                            Disable
+                                        </LemonButton>
+                                    </>
+                                ) : (
+                                    <LemonButton type="primary" onClick={() => openTwoFactorSetupModal()}>
+                                        Setup
+                                    </LemonButton>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Passkeys row */}
+                    <div className={`p-4 ${!hasPasskeys ? 'opacity-60' : ''}`}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className={`font-medium ${!hasPasskeys ? 'text-muted' : ''}`}>Passkeys</span>
+                                    <Tooltip
+                                        title={
+                                            <div className="space-y-2">
+                                                <p>
+                                                    Passkeys provide a secure, passwordless way to sign in and can be
+                                                    used for 2FA authentication.
+                                                </p>
+                                                <p>
+                                                    {hasPasskeys
+                                                        ? 'You have passkeys set up. They are automatically used for 2FA when available.'
+                                                        : 'Add a passkey in the Passkeys settings to enable this method for 2FA.'}
+                                                </p>
+                                            </div>
+                                        }
+                                    >
+                                        <IconInfo className="text-muted text-sm" />
+                                    </Tooltip>
+                                </div>
+                                <p className={`text-sm ${!hasPasskeys ? 'text-muted' : 'text-muted'}`}>
+                                    {hasPasskeys
+                                        ? passkeysEnabled
+                                            ? 'Passkeys are enabled for 2FA. Manage your passkeys in the Passkeys settings.'
+                                            : 'Passkeys are disabled for 2FA. Enable the switch above to use passkeys for 2FA.'
+                                        : 'No passkeys set up. Add a passkey to use this method for 2FA.'}
+                                </p>
+                            </div>
+                            <div className="ml-4">
+                                <LemonSwitch
+                                    checked={passkeysEnabled}
+                                    disabledReason={
+                                        !hasPasskeys
+                                            ? 'Add a passkey in Passkeys settings to enable this method'
+                                            : undefined
+                                    }
+                                    onChange={async () => {
+                                        if (hasPasskeys) {
+                                            try {
+                                                await updateUser(
+                                                    {
+                                                        passkeys_enabled_for_2fa: !passkeysEnabled,
+                                                    } as Partial<UserType>,
+                                                    () => {
+                                                        // Reload 2FA status after successful update
+                                                        loadStatus()
+                                                    }
+                                                )
+                                            } catch (e: any) {
+                                                const { detail } = e as Record<string, any>
+                                                lemonToast.error(detail || 'Failed to update passkey 2FA setting')
+                                            }
+                                        }
+                                    }}
+                                    tooltip={
+                                        hasPasskeys
+                                            ? passkeysEnabled
+                                                ? 'Disable passkeys for 2FA'
+                                                : 'Enable passkeys for 2FA'
+                                            : 'Add a passkey to enable this method'
+                                    }
+                                    size="medium"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     )
 }

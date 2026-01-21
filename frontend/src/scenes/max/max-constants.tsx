@@ -117,6 +117,7 @@ export interface ModeDefinition {
 export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
+    'list_data',
     'search',
     'switch_mode',
 ]
@@ -441,19 +442,20 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             },
         },
     },
-    create_and_query_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall, { registeredToolMap }) => {
-            const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
-            if (isEditing) {
-                return toolCall.status === 'completed'
-                    ? 'Edited the insight you are viewing'
-                    : 'Editing the insight you are viewing...'
+    list_data: {
+        name: 'List data',
+        description: 'List data with pagination to browse PostHog entities',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const kind = typeof toolCall.args?.kind === 'string' ? toolCall.args.kind : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const entityLabel = (kind ? kind.replace(/_/g, ' ') : 'entities').toLowerCase()
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+
+            if (toolCall.status === 'completed') {
+                return `Listed ${entityLabel}${pageInfo}`
             }
-            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
+            return `Listing ${entityLabel}${pageInfo}...`
         },
     },
     create_insight: {
@@ -563,6 +565,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering issues...'
         },
     },
+    search_error_tracking_issues: {
+        name: 'Search issues',
+        description: 'Search issues in error tracking',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        modes: [AgentMode.ErrorTracking],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Found issues'
+            }
+            return 'Searching issues...'
+        },
+    },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
         description: 'Find impactful issues affecting your conversion, activation, or any other events',
@@ -574,18 +589,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Found impactful issues'
             }
             return 'Finding impactful issues...'
-        },
-    },
-    error_tracking_explain_issue: {
-        name: 'Explain an issue',
-        description: 'Explain an issue by analyzing its stack trace',
-        product: Scene.ErrorTracking,
-        icon: iconForType('error_tracking'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Issue explained'
-            }
-            return 'Analyzing issue...'
         },
     },
     experiment_results_summary: {
@@ -873,6 +876,28 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
         flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
+    manage_memories: {
+        name: 'Manage memories',
+        description: 'Manage memories to store and retrieve persistent information',
+        icon: <IconMemory />,
+    },
+    create_notebook: {
+        name: 'Create a document',
+        description: 'Create a document to write down your thoughts',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.args.draft_content) {
+                if (toolCall.status === 'completed') {
+                    return 'Created a draft document'
+                }
+                return 'Creating a draft document...'
+            }
+            if (toolCall.status === 'completed') {
+                return 'Created a document'
+            }
+            return 'Creating a document...'
+        },
+    },
 }
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
@@ -899,6 +924,12 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
         ]),
+    },
+    [AgentMode.ErrorTracking]: {
+        name: 'Error tracking',
+        description: 'Searches and analyzes error tracking issues to help you understand and fix bugs.',
+        icon: iconForType('error_tracking'),
+        scenes: new Set([Scene.ErrorTracking]),
     },
 }
 
@@ -947,8 +978,12 @@ export const AI_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
-    const identifier = toolCall.args.kind ?? toolCall.name
-    return getToolDefinition(identifier as string)
+    const definition = getToolDefinition(toolCall.name)
+    // Only use args.kind for subtool lookup if the parent tool has subtools
+    if (definition?.subtools && typeof toolCall.args.kind === 'string') {
+        return definition.subtools[toolCall.args.kind] ?? definition
+    }
+    return definition
 }
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {

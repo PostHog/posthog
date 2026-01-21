@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
 
 import type { login2FALogicType } from './login2FALogicType'
 import { handleLoginRedirect } from './loginLogic'
@@ -25,8 +26,6 @@ export enum LoginStep {
     TWO_FACTOR = 'two_factor',
 }
 
-export interface Passkey2FABeginResponse extends PublicKeyCredentialRequestOptionsJSON {}
-
 export interface TwoFAMethodsResponse {
     has_totp: boolean
     has_passkeys: boolean
@@ -34,32 +33,6 @@ export interface TwoFAMethodsResponse {
 
 export interface LoginTokenResponse {
     success: boolean
-}
-
-const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
-    NotAllowedError: 'Authentication was cancelled or timed out.',
-    SecurityError: 'Security error occurred. Please try again.',
-    AbortError: 'Authentication was cancelled.',
-}
-
-interface WebAuthnError {
-    name?: string
-    detail?: string
-}
-
-function getPasskeyErrorMessage(error: unknown): string {
-    if (error && typeof error === 'object' && 'name' in error) {
-        const errorName = (error as WebAuthnError).name
-        if (errorName && WEBAUTHN_ERROR_MESSAGES[errorName]) {
-            return WEBAUTHN_ERROR_MESSAGES[errorName]
-        }
-    }
-
-    if (error instanceof ApiError && error.detail) {
-        return error.detail
-    }
-
-    return 'Passkey authentication failed. Please try again.'
 }
 
 export const login2FALogic = kea<login2FALogicType>([
@@ -98,7 +71,8 @@ export const login2FALogic = kea<login2FALogicType>([
                     breakpoint()
                     try {
                         // Step 1: Get authentication options from server
-                        const beginResponse = await api.create<Passkey2FABeginResponse>('api/login/2fa/passkey/begin/')
+                        const beginResponse =
+                            await api.create<PublicKeyCredentialRequestOptionsJSON>('api/login/2fa/passkey/begin/')
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
                         const assertion = await startAuthentication({

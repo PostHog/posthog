@@ -2,9 +2,13 @@ import json
 import uuid
 from typing import Any, cast
 
-from django.contrib.auth import login
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.signals import user_login_failed
+from django.http.response import JsonResponse
 
 import structlog
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -26,8 +30,8 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
+from posthog.api.authentication import axes_locked_out
 from posthog.auth import (
-    WEBAUTHN_LOGIN_CHALLENGE_KEY,
     SessionAuthentication,
     WebAuthnAuthenticationResponse,
     WebauthnBackend,
@@ -39,6 +43,7 @@ from posthog.helpers.two_factor_session import set_two_factor_verified_in_sessio
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 
 logger = structlog.get_logger(__name__)
 
@@ -49,21 +54,20 @@ WEBAUTHN_VERIFICATION_CHALLENGE_KEY = "webauthn_verification_challenge"
 CHALLENGE_TIMEOUT_MS = 300000  # 5 minutes
 
 # Session keys for signup passkey registration (before user exists)
-WEBAUTHN_SIGNUP_CHALLENGE_KEY = "signup_webauthn_challenge"
-WEBAUTHN_SIGNUP_EMAIL_KEY = "signup_email"
-WEBAUTHN_SIGNUP_CREDENTIAL_KEY = "signup_passkey_credential"
-WEBAUTHN_SIGNUP_USER_UUID_KEY = "signup_user_uuid"
+WEBAUTHN_SIGNUP_CHALLENGE_KEY = "webauthn_signup_challenge"
+WEBAUTHN_SIGNUP_EMAIL_KEY = "webauthn_signup_email"
+WEBAUTHN_SIGNUP_CREDENTIAL_KEY = "webauthn_signup_passkey_credential"
+WEBAUTHN_SIGNUP_USER_UUID_KEY = "webauthn_signup_user_uuid"
+WEBAUTHN_LOGIN_CHALLENGE_KEY = "webauthn_login_challenge"
+WEBAUTHN_2FA_CHALLENGE_KEY = "webauthn_2fa_challenge"
 SUPPORTED_PUB_KEY_ALGS = [
     COSEAlgorithmIdentifier.ECDSA_SHA_512,
     COSEAlgorithmIdentifier.ECDSA_SHA_256,
     COSEAlgorithmIdentifier.EDDSA,
-    COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_512,
-    COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_384,
-    COSEAlgorithmIdentifier.RSASSA_PKCS1_v1_5_SHA_256,
 ]
 
 
-def user_uuid_to_handle(user_uuid: "uuid.UUID") -> bytes:
+def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:
     """Convert a user's UUID to bytes for use as a WebAuthn user handle."""
     return user_uuid.bytes
 
@@ -91,6 +95,8 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         """
         user = cast(User, request.user)
 
+        self._raise_if_sso_enforced(user)
+
         # Get existing credentials to exclude
         existing_credentials = WebauthnCredential.objects.filter(user=user, verified=True)
         exclude_credentials = [
@@ -113,7 +119,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
             exclude_credentials=exclude_credentials,
             authenticator_selection=AuthenticatorSelectionCriteria(
                 resident_key=ResidentKeyRequirement.REQUIRED,
-                user_verification=UserVerificationRequirement.PREFERRED,
+                user_verification=UserVerificationRequirement.REQUIRED,
             ),
             timeout=CHALLENGE_TIMEOUT_MS,
             # manually specifying the allowed algorithms to avoid algorithms that may be insecure or have too small key sizes
@@ -137,8 +143,11 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
         """
         user = cast(User, request.user)
 
+        self._raise_if_sso_enforced(user)
+
         # Get challenge from session
-        challenge_b64 = request.session.get(WEBAUTHN_REGISTRATION_CHALLENGE_KEY)
+        challenge_b64 = request.session.pop(WEBAUTHN_REGISTRATION_CHALLENGE_KEY, None)
+        request.session.save()
 
         if not challenge_b64:
             return Response(
@@ -181,8 +190,6 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
 
             # Store credential ID for verification step
             request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
-            # Clear registration challenge
-            del request.session[WEBAUTHN_REGISTRATION_CHALLENGE_KEY]
             request.session.save()
 
             logger.info("webauthn_registration_complete", user_id=user.pk, credential_id=credential.pk)
@@ -202,110 +209,21 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-    @action(detail=False, methods=["POST"], url_path="verify")
-    def verify(self, request: Request) -> Response:
-        """
-        Begin verification of the newly created passkey.
+    def _raise_if_sso_enforced(self, user: User) -> None:
+        organization = user.current_organization
+        if not organization:
+            return
 
-        Generates an authentication challenge for the specific credential.
-        """
-        user = cast(User, request.user)
-
-        credential_id = request.session.get(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY)
-        if not credential_id:
-            return Response(
-                {"error": "No pending credential verification. Please register a new passkey."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            credential = WebauthnCredential.objects.get(pk=credential_id, user=user, verified=False)
-        except WebauthnCredential.DoesNotExist:
-            return Response(
-                {"error": "Credential not found or already verified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Generate authentication options for this specific credential
-        options = generate_authentication_options(
-            rp_id=get_webauthn_rp_id(),
-            allow_credentials=[
-                PublicKeyCredentialDescriptor(
-                    id=credential.credential_id,
-                    transports=[AuthenticatorTransport(t) for t in credential.transports if t],
-                )
-            ],
-            user_verification=UserVerificationRequirement.PREFERRED,
-            timeout=CHALLENGE_TIMEOUT_MS,
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(
+            user.email, organization=organization
         )
+        if not sso_enforcement:
+            return
 
-        # Store challenge in session
-        request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
-        request.session.save()
-
-        logger.info("webauthn_verification_begin", user_id=user.pk, credential_id=credential.pk)
-
-        return Response(json.loads(options_to_json(options)))
-
-    @action(detail=False, methods=["POST"], url_path="verify_complete")
-    def verify_complete(self, request: Request) -> Response:
-        """
-        Complete verification of the passkey by verifying the assertion.
-
-        Marks the credential as verified on success.
-        """
-        user = cast(User, request.user)
-
-        challenge_b64 = request.session.get(WEBAUTHN_VERIFICATION_CHALLENGE_KEY)
-        credential_id = request.session.get(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY)
-
-        if not challenge_b64 or not credential_id:
-            return Response(
-                {"error": "No pending verification. Please start registration again."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            credential = WebauthnCredential.objects.get(pk=credential_id, user=user, verified=False)
-        except WebauthnCredential.DoesNotExist:
-            return Response(
-                {"error": "Credential not found or already verified."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            expected_challenge = base64url_to_bytes(challenge_b64)
-
-            verification = verify_authentication_response(
-                credential=request.data,
-                expected_challenge=expected_challenge,
-                expected_rp_id=get_webauthn_rp_id(),
-                expected_origin=get_webauthn_rp_origin(),
-                credential_public_key=credential.public_key,
-                credential_current_sign_count=credential.counter,
-                require_user_verification=True,
-            )
-
-            # Mark credential as verified
-            credential.verified = True
-            credential.counter = verification.new_sign_count
-            credential.save()
-
-            # Clean up session
-            del request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY]
-            del request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY]
-            request.session.save()
-
-            logger.info("webauthn_verification_complete", user_id=user.pk, credential_id=credential.pk)
-
-            return Response({"success": True, "message": "Passkey verified and ready to use."})
-
-        except Exception as e:
-            logger.exception("webauthn_verification_error", user_id=user.pk, error=str(e))
-            return Response(
-                {"error": f"Verification failed: could not complete verification"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        raise serializers.ValidationError(
+            "Passkeys can't be added because your organization requires SSO.",
+            code="sso_enforced",
+        )
 
 
 class WebAuthnLoginViewSet(viewsets.ViewSet):
@@ -330,7 +248,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         options = generate_authentication_options(
             rp_id=get_webauthn_rp_id(),
             allow_credentials=[],  # Empty for discoverable credentials
-            user_verification=UserVerificationRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
             timeout=CHALLENGE_TIMEOUT_MS,
         )
 
@@ -343,15 +261,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         return Response(json.loads(options_to_json(options)))
 
     @action(detail=False, methods=["POST"], url_path="complete")
-    def complete(self, request: Request) -> Response:
+    def complete(self, request: Request) -> Response | JsonResponse:
         """
         Complete passkey login by verifying the assertion.
 
         Uses WebauthnBackend to verify the credential and authenticate the user.
         """
-        from django.contrib.auth import authenticate
 
-        challenge = request.session.get(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
+        challenge = request.session.pop(WEBAUTHN_LOGIN_CHALLENGE_KEY, None)
+        request.session.save()
 
         if not challenge:
             return Response(
@@ -394,8 +312,26 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         # Track if user was already authenticated (for re-auth detection)
         was_authenticated_before_login_attempt = request.user is not None and request.user.is_authenticated
 
+        # Extract user early for axes lockout checking
+        user = self._extract_user_from_user_handle(user_handle_b64)
+
+        # If we can't extract user from userHandle, return generic error
+        if not user:
+            return Response(
+                {"error": "Authentication failed. Please check your passkey and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check axes lockout before attempting authentication
+        if lockout_response := self._check_axes_lockout(request, user):
+            return lockout_response
+
+        # Check SSO enforcement before attempting authentication
+        if sso_enforcement_response := self._check_sso_enforcement(user):
+            return sso_enforcement_response
+
         try:
-            user = authenticate(
+            authenticated_user = authenticate(
                 request=request,
                 credential_id=credential_id,
                 challenge=challenge,
@@ -403,22 +339,18 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
                 backend=WebauthnBackend,  # no reason to use password or social auth backends
             )
 
-            if not user:
+            if not authenticated_user:
+                # Authentication failed - record failure with axes
+                if lockout_response := self._handle_authentication_failure(request, user):
+                    return lockout_response
+
                 return Response(
                     {"error": "Authentication failed. Please check your passkey and try again."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Check SSO enforcement
-            sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
-            if sso_enforcement:
-                return Response(
-                    {"error": f"You can only login with SSO for this account ({sso_enforcement})."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
             # Login the user with the WebauthnBackend
-            login(request, user, backend="posthog.auth.WebauthnBackend")
+            login(request, authenticated_user, backend="posthog.auth.WebauthnBackend")
 
             # Passkey bypasses 2FA
             set_two_factor_verified_in_session(request)
@@ -426,16 +358,69 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
             request.session.save()
 
-            report_user_logged_in(user, social_provider="passkey")
+            report_user_logged_in(cast(User, authenticated_user), social_provider="passkey")
 
             return Response({"success": True})
 
+        except AxesBackendPermissionDenied:
+            return axes_locked_out(request)
         except Exception as e:
             logger.exception("webauthn_login_error", error=str(e))
             return Response(
                 {"error": f"Login failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+    def _extract_user_from_user_handle(self, user_handle_b64: str) -> User | None:
+        """Extract user from base64url-encoded userHandle (UUID bytes)."""
+        try:
+            user_handle_bytes = base64url_to_bytes(user_handle_b64)
+            user_uuid = uuid.UUID(bytes=user_handle_bytes)
+            return User.objects.filter(uuid=user_uuid).first()
+        except Exception:
+            return None
+
+    def _check_sso_enforcement(self, user: User) -> Response | None:
+        """Check SSO enforcement for the user. Returns SSO error response if enforced, None otherwise."""
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
+        if sso_enforcement:
+            return Response(
+                {"error": "You can only login with SSO for this account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _check_axes_lockout(self, request: Request, user: User) -> JsonResponse | None:
+        """Check if axes has locked out this user/IP. Returns lockout response if locked, None otherwise."""
+        axes_request = getattr(request, "_request", request)
+        axes_credentials = {"username": user.email}
+
+        if AxesProxyHandler.is_locked(axes_request, credentials=axes_credentials):
+            return axes_locked_out(request)
+        return None
+
+    def _handle_authentication_failure(self, request: Request, user: User | None) -> JsonResponse | None:
+        """Record authentication failure with axes. Returns lockout response if triggered, None otherwise."""
+        if not user:
+            return None
+
+        axes_request = getattr(request, "_request", request)
+        axes_credentials = {"username": user.email}
+
+        try:
+            user_login_failed.send(
+                sender=WebauthnBackend,
+                credentials=axes_credentials,
+                request=axes_request,
+            )
+            # Check if this failure triggered a lockout
+            if AxesProxyHandler.is_locked(axes_request, credentials=axes_credentials):
+                return axes_locked_out(request)
+        except Exception:
+            # If axes recording fails, log but continue with generic error
+            logger.warning("webauthn_axes_recording_failed", exc_info=True)
+
+        return None
 
 
 class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
@@ -617,6 +602,10 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
 
         try:
             credential = WebauthnCredential.objects.get(pk=pk, user=user)
+
+            if credential.verified:
+                send_passkey_removed_email.delay(user.id)
+
             credential.delete()
             logger.info("webauthn_credential_deleted", user_id=user.pk, credential_id=pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -681,13 +670,13 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
                     transports=[AuthenticatorTransport(t) for t in credential.transports if t],
                 )
             ],
-            user_verification=UserVerificationRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
             timeout=CHALLENGE_TIMEOUT_MS,
         )
 
         # Store challenge and credential ID in session
         request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY] = bytes_to_base64url(options.challenge)
-        request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = credential.pk
+        request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY] = str(credential.pk)
         request.session.save()
 
         logger.info("webauthn_credential_verify_begin", user_id=user.pk, credential_id=credential.pk)
@@ -699,8 +688,9 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
         """Complete verification of an existing passkey."""
         user = cast(User, request.user)
 
-        challenge_b64 = request.session.get(WEBAUTHN_VERIFICATION_CHALLENGE_KEY)
-        session_credential_id = request.session.get(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY)
+        challenge_b64 = request.session.pop(WEBAUTHN_VERIFICATION_CHALLENGE_KEY, None)
+        session_credential_id = request.session.pop(WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY, None)
+        request.session.save()
 
         if not challenge_b64 or not session_credential_id:
             return Response(
@@ -748,10 +738,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
             credential.counter = verification.new_sign_count
             credential.save()
 
-            # Clean up session
-            del request.session[WEBAUTHN_VERIFICATION_CHALLENGE_KEY]
-            del request.session[WEBAUTHN_REGISTRATION_CREDENTIAL_ID_KEY]
-            request.session.save()
+            send_passkey_added_email.delay(user.id)
 
             logger.info("webauthn_credential_verify_complete", user_id=user.pk, credential_id=credential.pk)
 

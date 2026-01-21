@@ -1,13 +1,17 @@
 export const baseModifier: string[] = ['command', 'option']
 
 export const keyBinds: Record<string, string[]> = {
+    // Sequence shortcuts: use 'then' between keys (e.g., type "sql" to open SQL editor)
+    sqlEditor: ['s', 'then', 'q', 'then', 'l'],
+    openSidePanel: ['g', 'then', 'p'],
+    recentItems: [...baseModifier, 'y'],
     newTab: [...baseModifier, 't'],
     closeActiveTab: [...baseModifier, 'w'],
     toggleShortcutMenu: [...baseModifier, 'k'],
     toggleShortcutMenuFallback: ['command', 'shift', 'k'],
     search: ['command', 'k'],
     new: [...baseModifier, 'n'],
-    edit: [...baseModifier, 'e'],
+    edit: ['e'],
     save: [...baseModifier, 's'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],
@@ -24,4 +28,8 @@ export const keyBinds: Record<string, string[]> = {
     tab7: [...baseModifier, '7'],
     tab8: [...baseModifier, '8'],
     tab9: [...baseModifier, '9'],
+    zenMode: [...baseModifier, 'z'],
+    newChat: ['g', 'then', 'n'],
+    allChats: ['g', 'then', 'c'],
+    allApps: ['g', 'then', 'a'],
 }

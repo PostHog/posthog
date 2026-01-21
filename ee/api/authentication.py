@@ -86,6 +86,7 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
 
         return SAMLIdentityProvider(
+            self,
             str(organization_domain.id),
             entity_id=organization_domain.saml_entity_id,
             url=organization_domain.saml_acs_url,

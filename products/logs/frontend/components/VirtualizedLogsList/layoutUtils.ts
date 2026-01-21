@@ -11,11 +11,11 @@ export const CHECKBOX_WIDTH = 28
 export const EXPAND_WIDTH = 28
 export const TIMESTAMP_WIDTH = 180
 export const MESSAGE_MIN_WIDTH = 300
-export const ACTIONS_WIDTH = 120
+export const LOG_ROW_FAB_WIDTH = 150
 export const ROW_GAP = 8
 export const LOG_ROW_HEADER_HEIGHT = 32
 
-const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH + ACTIONS_WIDTH
+const FIXED_COLUMNS_TOTAL_WIDTH = SEVERITY_WIDTH + CHECKBOX_WIDTH + EXPAND_WIDTH + TIMESTAMP_WIDTH
 
 export const getAttributeColumnWidth = (attributeKey: string, attributeColumnWidths: Record<string, number>): number =>
     attributeColumnWidths[attributeKey] ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH

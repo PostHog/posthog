@@ -7,6 +7,7 @@ import secrets
 import datetime as dt
 from time import monotonic
 from typing import Optional
+from urllib.parse import quote
 
 from django.core import exceptions
 from django.core.management.base import BaseCommand
@@ -216,10 +217,10 @@ class Command(BaseCommand):
                     if existing_team_id is not None
                     else f"\nDemo data ready for {user.email}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={user.email}\n"
+                    f"http://localhost:8010/login?email={quote(user.email)}\n"
                     f"The password is:\n{password}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={user.email}\n"
+                    f"http://localhost:8010/signup?email={quote(user.email)}\n"
                 )
             )
 

@@ -41,10 +41,12 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
+from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -101,6 +103,7 @@ TEAM_METADATA_FIELDS = [
     "cookieless_server_hash_mode",
     "survey_config",
     "surveys_opt_in",
+    "product_tours_opt_in",
     "capture_console_log_opt_in",
     "capture_performance_opt_in",
     "capture_dead_clicks",
@@ -109,6 +112,9 @@ TEAM_METADATA_FIELDS = [
     "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "logs_settings",
+    "conversations_enabled",
+    "conversations_settings",
     "inject_web_apps",
     "heatmaps_opt_in",
     "flags_persistence_default",
@@ -136,7 +142,15 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "organization_id":
         return str(value) if value else None
     elif field == "session_recording_sample_rate":
-        return float(value) if value is not None else None
+        # Match the logic in decide.py and remote_config.py:
+        # - Convert Decimal to string directly (preserves precision like "1.00")
+        # - Return None for 100% sampling (no sampling needed)
+        if value is not None:
+            str_value = str(value)
+            if str_value == "1.00":
+                return None
+            return str_value
+        return None
     return value
 
 
@@ -337,11 +351,35 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     return success
 
 
+def _get_team_ids_with_recently_updated_teams(team_ids: list[int]) -> set[int]:
+    """
+    Batch check which teams have been updated within the grace period.
+
+    When a team is updated, an async task updates the cache. If verification
+    runs before the async task completes, it sees a stale cache and tries to
+    "fix" it, causing unnecessary work. This grace period lets recent async
+    updates complete before treating cache misses as genuine errors.
+
+    Args:
+        team_ids: List of team IDs to check
+
+    Returns:
+        Set of team IDs that were recently updated (should skip fix)
+    """
+    grace_period_minutes = settings.TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES
+    if grace_period_minutes <= 0 or not team_ids:
+        return set()
+
+    cutoff = timezone.now() - timedelta(minutes=grace_period_minutes)
+    return set(Team.objects.filter(id__in=team_ids, updated_at__gte=cutoff).values_list("id", flat=True))
+
+
 # Initialize hypercache management config after update_team_metadata_cache is defined
 TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     hypercache=team_metadata_hypercache,
     update_fn=update_team_metadata_cache,
     cache_name="team_metadata",
+    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_teams,
 )
 
 

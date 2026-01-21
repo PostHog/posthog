@@ -77,6 +77,66 @@ from posthog.errors import ch_error_type, wrap_query_error
             499,
             "CHQueryErrorS3Error",
         ),
+        (
+            ServerException(
+                "Code: 43. DB::Exception: Illegal type String of argument of function toInt64.",
+                code=43,
+            ),
+            "CHQueryErrorIllegalTypeOfArgument",
+            "Illegal type String of argument of function toInt64.",
+            43,
+            "CHQueryErrorIllegalTypeOfArgument",
+        ),
+        (
+            ServerException(
+                "Code: 386. DB::Exception: There is no common type for types String, Int64.",
+                code=386,
+            ),
+            "CHQueryErrorNoCommonType",
+            "There is no common type for types String, Int64.",
+            386,
+            "CHQueryErrorNoCommonType",
+        ),
+        (
+            ServerException(
+                "Code: 215. DB::Exception: Column count is not an aggregate function.",
+                code=215,
+            ),
+            "CHQueryErrorNotAnAggregate",
+            "Column count is not an aggregate function.",
+            215,
+            "CHQueryErrorNotAnAggregate",
+        ),
+        (
+            ServerException(
+                "Code: 46. DB::Exception: Unknown function foobar.",
+                code=46,
+            ),
+            "CHQueryErrorUnknownFunction",
+            "Unknown function foobar.",
+            46,
+            "CHQueryErrorUnknownFunction",
+        ),
+        (
+            ServerException(
+                "Code: 53. DB::Exception: Type mismatch in IN or VALUES section.",
+                code=53,
+            ),
+            "CHQueryErrorTypeMismatch",
+            "Type mismatch in IN or VALUES section.",
+            53,
+            "CHQueryErrorTypeMismatch",
+        ),
+        (
+            ServerException(
+                "Code: 184. DB::Exception: Aggregate function sum(count()) is found inside another aggregate function.",
+                code=184,
+            ),
+            "CHQueryErrorIllegalAggregation",
+            "Aggregate function sum(count()) is found inside another aggregate function.",
+            184,
+            "CHQueryErrorIllegalAggregation",
+        ),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
