@@ -316,9 +316,8 @@ function computeAugmentedInfoRelease(
 
         // Check if current version is equal to or newer than cached latest
         // This handles the case where events show a newer version than what's cached from GitHub
-        // diff === null means versions are equal; positive diff from (current, latest) means current is ahead
-        const currentAheadOfLatest = diffVersions(currentVersion, latestVersion)
-        const isCurrentOrNewer = diff === null || (currentAheadOfLatest !== null && currentAheadOfLatest.diff > 0)
+        // diff === null means versions are equal; diff.diff <= 0 means current >= latest
+        const isCurrentOrNewer = diff === null || diff.diff <= 0
 
         // Count number of versions behind by estimating based on semantic version difference
         let releasesBehind = 0
