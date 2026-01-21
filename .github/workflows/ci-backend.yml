@@ -711,9 +711,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
-                          # Only start db and clickhouse services (temporal will be started conditionally later)
+                          # Start essential services: db, clickhouse, objectstorage, temporal, elasticsearch
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml up db clickhouse -d; then
+                            docker compose -f docker-compose.dev.yml up db clickhouse objectstorage temporal elasticsearch -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -858,12 +858,6 @@ jobs:
               run: |
                   bin/check_clickhouse_up
                   bin/check_postgres_up
-
-            - name: Start Temporal services for Temporal tests
-              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
-              run: |
-                  docker compose -f docker-compose.dev.yml up temporal elasticsearch -d
 
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
