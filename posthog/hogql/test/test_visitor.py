@@ -76,7 +76,7 @@ class TestVisitor(BaseTest):
                     select=[ast.Field(chain=["a"])],
                     select_from=ast.JoinExpr(
                         table=ast.Field(chain=["b"]),
-                        table_final=True,
+                        table_final=None,
                         alias="c",
                         next_join=ast.JoinExpr(
                             join_type="INNER",

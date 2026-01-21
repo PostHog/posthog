@@ -33,6 +33,19 @@ from posthog.hogql.timings import HogQLTimings
 tracer = trace.get_tracer(__name__)
 
 
+def _validate_no_final(node: AST) -> None:
+    """Validates that the AST does not use the FINAL keyword, which causes slow queries."""
+    from posthog.hogql.visitor import TraversingVisitor
+
+    class FinalValidator(TraversingVisitor):
+        def visit_join_expr(self, node: ast.JoinExpr):
+            if node.table_final:
+                raise SyntaxError("The FINAL keyword is not supported in HogQL as it causes slow queries")
+            super().visit_join_expr(node)
+
+    FinalValidator().visit(node)
+
+
 def safe_lambda(f):
     def wrapped(*args, **kwargs):
         try:
@@ -162,6 +175,7 @@ def parse_select(
             tracer.start_as_current_span("parse_statement_to_node"),
         ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
+        _validate_no_final(node)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -528,7 +542,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.sampleClause():
             sample = self.visit(ctx.sampleClause())
         table = self.visit(ctx.tableExpr())
-        table_final = True if ctx.FINAL() else None
+        if ctx.FINAL():
+            raise SyntaxError("The FINAL keyword is not supported in HogQL as it causes slow queries")
+        table_final = None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
             # visitTableExprFunction returns a JoinExpr to pass the args

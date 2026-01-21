@@ -365,7 +365,7 @@ class HogQLPrinter(Visitor[str]):
             )
 
         if node.table_final:
-            join_strings.append("FINAL")
+            raise QueryError("The FINAL keyword is not supported in HogQL as it causes slow queries")
 
         if node.sample is not None:
             sample_clause = self.visit_sample_expr(node.sample)
