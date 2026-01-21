@@ -107,6 +107,10 @@ class MprocsGenerator:
                 if unit is not None and not unit.autostart:
                     proc_config["autostart"] = False
 
+                # Add startup message showing why this process is starting
+                reason = resolved.get_unit_reason(unit_name)
+                proc_config = self._add_startup_message(proc_config, process_name, reason)
+
                 procs[process_name] = proc_config
             else:
                 # Unit not in base config, might be a special case
@@ -114,7 +118,9 @@ class MprocsGenerator:
 
         # Handle typegen specially
         if not skip_typegen and "typegen" in self.base_config.procs:
-            procs["typegen"] = self.base_config.procs["typegen"].copy()
+            proc_config = self.base_config.procs["typegen"].copy()
+            proc_config = self._add_startup_message(proc_config, "typegen", "always required")
+            procs["typegen"] = proc_config
         elif skip_typegen and "typegen" in procs:
             del procs["typegen"]
 
@@ -129,6 +135,27 @@ class MprocsGenerator:
             mouse_scroll_speed=self.base_config.mouse_scroll_speed,
             scrollback=self.base_config.scrollback,
         )
+
+    def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
+        """Add a startup message to a process config.
+
+        Args:
+            proc_config: The process configuration dict
+            process_name: Name of the process
+            reason: Why this process is starting (capability name or "always required")
+
+        Returns:
+            Modified process configuration with startup message
+        """
+        original_shell = proc_config.get("shell", "")
+        if not original_shell:
+            return proc_config
+
+        # Create a friendly message
+        message = f"echo '▶ {process_name}: {reason}' && "
+
+        proc_config["shell"] = message + original_shell
+        return proc_config
 
     def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
         """Generate docker-compose process config with profile flags.
@@ -148,14 +175,16 @@ class MprocsGenerator:
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
             profile_flags = " " + " ".join(f"--profile {p}" for p in profiles)
+            message = f"echo '▶ docker-compose: running with profiles: {', '.join(profiles)}' && "
         else:
             profile_flags = ""
+            message = "echo '▶ docker-compose: running core services only' && "
 
         up_cmd = f"{compose_base}{profile_flags} up --pull always -d"
         logs_cmd = f"{compose_base}{profile_flags} logs --tail=0 -f"
 
         return {
-            "shell": f"{up_cmd} && {logs_cmd}",
+            "shell": f"{message}{up_cmd} && {logs_cmd}",
         }
 
     def generate_and_save(

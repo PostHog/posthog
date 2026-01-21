@@ -140,6 +140,7 @@ class ResolvedEnvironment:
     intents: set[str]
     docker_profiles: set[str] = field(default_factory=set)
     overrides_applied: dict[str, list[str]] = field(default_factory=dict)
+    unit_provenance: dict[str, str] = field(default_factory=dict)  # unit -> reason
 
     def get_unit_list(self) -> list[str]:
         """Get sorted list of units for consistent output."""
@@ -148,6 +149,10 @@ class ResolvedEnvironment:
     def get_docker_profiles_list(self) -> list[str]:
         """Get sorted list of docker profiles for consistent output."""
         return sorted(self.docker_profiles)
+
+    def get_unit_reason(self, unit: str) -> str:
+        """Get human-readable reason why a unit is included."""
+        return self.unit_provenance.get(unit, "unknown")
 
 
 class IntentResolver:
@@ -178,27 +183,49 @@ class IntentResolver:
         exclude_units = exclude_units or []
         include_capabilities = include_capabilities or []
 
-        # 1. Intents → Capabilities
+        # Track provenance: unit -> reason it was included
+        unit_provenance: dict[str, str] = {}
+
+        # 1. Intents → Capabilities (track which intent triggered each capability)
         capabilities = self._intents_to_capabilities(intents)
+        capability_to_intent = self._map_capabilities_to_intents(intents)
 
         # 1b. Add any explicitly included capabilities
         capabilities.update(include_capabilities)
+        for cap in include_capabilities:
+            if cap not in capability_to_intent:
+                capability_to_intent[cap] = "explicitly included"
 
         # 2. Expand capability dependencies (transitive)
         expanded_capabilities = self._expand_capability_dependencies(capabilities)
 
-        # 3. Capabilities → Units
-        units = self._capabilities_to_units(expanded_capabilities)
+        # 3. Capabilities → Units (with provenance tracking)
+        units: set[str] = set()
+        for cap_name in expanded_capabilities:
+            capability = self.intent_map.capabilities[cap_name]
+            # Find which intent this capability serves
+            intent_reason = capability_to_intent.get(cap_name, cap_name)
+            for unit in capability.units:
+                if unit not in units:
+                    units.add(unit)
+                    # Format: "needed for intent_name"
+                    unit_provenance[unit] = f"needed for {intent_reason}"
 
         # 4. Capabilities → Docker profiles
         docker_profiles = self._capabilities_to_docker_profiles(expanded_capabilities)
 
         # 5. Apply overrides
-        units = units | set(include_units)
+        for unit in include_units:
+            if unit not in units:
+                units.add(unit)
+                unit_provenance[unit] = "manually included"
         units = units - set(exclude_units)
 
         # 6. Add always-required
-        units = units | set(self.intent_map.always_required)
+        for unit in self.intent_map.always_required:
+            if unit not in units:
+                units.add(unit)
+                unit_provenance[unit] = "always required"
 
         # Track what overrides were applied
         overrides_applied: dict[str, list[str]] = {}
@@ -213,6 +240,7 @@ class IntentResolver:
             intents=set(intents),
             docker_profiles=docker_profiles,
             overrides_applied=overrides_applied,
+            unit_provenance=unit_provenance,
         )
 
     def resolve_preset(
@@ -267,6 +295,43 @@ class IntentResolver:
             capabilities.update(intent.capabilities)
 
         return capabilities
+
+    def _map_capabilities_to_intents(self, intents: list[str]) -> dict[str, str]:
+        """Map capabilities back to the intents that require them.
+
+        Returns:
+            Dict mapping capability name to intent name (or comma-separated list if multiple)
+        """
+        cap_to_intents: dict[str, list[str]] = {}
+
+        for intent_name in intents:
+            if intent_name not in self.intent_map.intents:
+                continue
+            intent = self.intent_map.intents[intent_name]
+
+            # Direct capabilities from this intent
+            for cap_name in intent.capabilities:
+                if cap_name not in cap_to_intents:
+                    cap_to_intents[cap_name] = []
+                cap_to_intents[cap_name].append(intent_name)
+
+                # Also track transitive dependencies
+                self._add_dependency_mappings(cap_name, intent_name, cap_to_intents)
+
+        # Convert lists to comma-separated strings
+        return {cap: ", ".join(sorted(set(intents_list))) for cap, intents_list in cap_to_intents.items()}
+
+    def _add_dependency_mappings(self, cap_name: str, intent_name: str, cap_to_intents: dict[str, list[str]]) -> None:
+        """Recursively add capability dependency mappings."""
+        if cap_name not in self.intent_map.capabilities:
+            return
+
+        capability = self.intent_map.capabilities[cap_name]
+        for dep_name in capability.requires:
+            if dep_name not in cap_to_intents:
+                cap_to_intents[dep_name] = []
+            cap_to_intents[dep_name].append(intent_name)
+            self._add_dependency_mappings(dep_name, intent_name, cap_to_intents)
 
     def _expand_capability_dependencies(self, capabilities: set[str]) -> set[str]:
         """Transitively expand capability dependencies."""
