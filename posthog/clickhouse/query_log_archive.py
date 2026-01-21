@@ -448,6 +448,7 @@ def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
         include_table_clauses=False,
     )
 
+
 # V8 - adding lc_query for storing full query JSON from log_comment
 def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
     return f"""
