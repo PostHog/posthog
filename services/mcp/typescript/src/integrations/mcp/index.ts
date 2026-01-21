@@ -48,6 +48,23 @@ function getPublicUrl(request: Request): URL {
     return url
 }
 
+// Detect region from hostname for EU subdomain routing.
+// This is a workaround for Claude Code's OAuth bug where it ignores the
+// authorization_servers field from OAuth protected resource metadata and
+// instead fetches /.well-known/oauth-authorization-server directly from the MCP server.
+// See: https://github.com/anthropics/claude-code/issues/2267
+//
+// By using a separate subdomain (mcp-eu.posthog.com), Claude Code's request to
+// /.well-known/oauth-authorization-server will hit our server with the EU hostname,
+// allowing us to redirect to the correct EU OAuth server.
+function getRegionFromHostname(request: Request): CloudRegion | undefined {
+    const publicUrl = getPublicUrl(request)
+    if (publicUrl.hostname === 'mcp-eu.posthog.com') {
+        return 'eu'
+    }
+    return undefined
+}
+
 const INSTRUCTIONS = `
 - You are a helpful assistant that can query PostHog API.
 - If you get errors due to permissions being denied, check that you have the correct active project and that the user has access to the required project.
@@ -327,6 +344,23 @@ export default {
             )
         }
 
+        // Detect region from hostname (mcp-eu.posthog.com) or query param (?region=eu)
+        // Hostname takes precedence as it's the workaround for Claude Code's OAuth bug
+        const hostnameRegion = getRegionFromHostname(request)
+        const queryRegion = url.searchParams.get('region')
+        const effectiveRegion = hostnameRegion || queryRegion
+
+        // OAuth Authorization Server Metadata (RFC 8414)
+        // Claude Code fetches this endpoint directly from the MCP server URL instead of
+        // following the authorization_servers from the protected resource metadata.
+        // See: https://github.com/anthropics/claude-code/issues/2267
+        //
+        // We redirect to the correct PostHog region's OAuth metadata endpoint.
+        if (url.pathname === '/.well-known/oauth-authorization-server') {
+            const authServer = getAuthorizationServerUrl(effectiveRegion)
+            return Response.redirect(`${authServer}/.well-known/oauth-authorization-server`, 302)
+        }
+
         // OAuth Protected Resource Metadata (RFC 9728)
         // This endpoint tells MCP clients where to authenticate to get tokens.
         //
@@ -351,10 +385,9 @@ export default {
             resourceUrl.pathname = resourcePath
             resourceUrl.search = ''
 
-            // Determine authorization server based on region param.
-            // The region param is set by the wizard based on user's cloud region selection.
+            // Determine authorization server based on hostname or region param.
             // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
-            const authorizationServer = getAuthorizationServerUrl(url.searchParams.get('region'))
+            const authorizationServer = getAuthorizationServerUrl(effectiveRegion)
 
             return new Response(
                 JSON.stringify({
@@ -383,12 +416,11 @@ export default {
             // between the host and the resource path:
             // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
             // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
-            const regionParam = url.searchParams.get('region')?.toLowerCase()
             const metadataUrl = getPublicUrl(request)
             metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
             metadataUrl.search = ''
-            if (regionParam) {
-                metadataUrl.searchParams.set('region', regionParam)
+            if (effectiveRegion) {
+                metadataUrl.searchParams.set('region', effectiveRegion)
             }
 
             return new Response(
