@@ -112,7 +112,7 @@ class WidgetMessageView(APIView):
                 if session_id:
                     ticket.session_id = session_id
                 if session_context:
-                    ticket.session_context = session_context
+                    ticket.session_context.update(session_context)
 
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
