@@ -357,23 +357,25 @@ PostHog supports migrations on multiple ClickHouse clusters. Each cluster has it
 
 ## Available clusters
 
-| Cluster        | Directory                             | Package                              | Command                                              |
-| -------------- | ------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
-| Main (default) | `posthog/clickhouse/migrations/`      | `posthog.clickhouse.migrations`      | `python manage.py migrate_clickhouse`                |
-| Logs           | `posthog/clickhouse/migrations_logs/` | `posthog.clickhouse.migrations_logs` | `python manage.py migrate_clickhouse --cluster=logs` |
+| Cluster | Directory                             | Package                              | Command                                              |
+| ------- | ------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Main    | `posthog/clickhouse/migrations/`      | `posthog.clickhouse.migrations`      | `python manage.py migrate_clickhouse --cluster=main` |
+| Logs    | `posthog/clickhouse/migrations_logs/` | `posthog.clickhouse.migrations_logs` | `python manage.py migrate_clickhouse --cluster=logs` |
 
 ## Running migrations
 
 ```bash
-# Main cluster (default)
+# All clusters (default) - runs main then logs
 python manage.py migrate_clickhouse
 
-# Logs cluster
+# Specific cluster only
+python manage.py migrate_clickhouse --cluster=main
 python manage.py migrate_clickhouse --cluster=logs
 
 # With other options
+python manage.py migrate_clickhouse --plan
+python manage.py migrate_clickhouse --check
 python manage.py migrate_clickhouse --cluster=logs --plan
-python manage.py migrate_clickhouse --cluster=logs --check
 ```
 
 ## Creating migrations for logs cluster

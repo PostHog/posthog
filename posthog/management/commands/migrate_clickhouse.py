@@ -64,9 +64,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--cluster",
-            default=MigrationCluster.MAIN,
+            default=None,
             choices=[c.value for c in MigrationCluster],
-            help="Which ClickHouse cluster to migrate. Default: main",
+            help="Which ClickHouse cluster to migrate. Default: all clusters (main then logs)",
         )
         parser.add_argument(
             "--upto",
@@ -97,10 +97,36 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         cluster_name = options["cluster"]
-        config = CLUSTER_CONFIGS[cluster_name]
-        self.migrate(config, options)
 
-    def migrate(self, config: ClusterConfig, options):
+        if cluster_name is None:
+            # No cluster specified - migrate all clusters in order (main then logs)
+            has_unapplied = False
+            for cluster in [MigrationCluster.MAIN, MigrationCluster.LOGS]:
+                config = CLUSTER_CONFIGS[cluster]
+                if not options["check"] and not options["plan"]:
+                    print(f"\n{'=' * 60}")
+                    print(f"Migrating {config.display_name} cluster")
+                    print(f"{'=' * 60}\n")
+                result = self.migrate(config, options)
+                if result:  # migrate returns True if there are unapplied migrations when --check is used
+                    has_unapplied = True
+
+            if options["check"] and has_unapplied:
+                exit(1)
+        else:
+            # Specific cluster requested
+            config = CLUSTER_CONFIGS[cluster_name]
+            has_unapplied = self.migrate(config, options)
+            if options["check"] and has_unapplied:
+                exit(1)
+
+    def migrate(self, config: ClusterConfig, options) -> bool:
+        """
+        Run migrations for a cluster.
+
+        Returns:
+            bool: True if there are unapplied migrations (for --check mode), False otherwise
+        """
         # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
         self._create_database_if_not_exists(config.database, config.migrations_cluster)
         database = Database(
@@ -131,8 +157,7 @@ class Command(BaseCommand):
                 print(f"\nClickhouse ({config.display_name}) most recent applied migration: {last}")
             if len(migrations) == 0:
                 print(f"Clickhouse ({config.display_name}) migrations up to date!")
-            elif options["check"]:
-                exit(1)
+            return len(migrations) > 0  # Return True if there are unapplied migrations
         elif options["fake"]:
             for migration_name, _ in self.get_migrations(database, config.package_name, options["upto"]):
                 print(f"Faked migration: {migration_name}")
@@ -146,9 +171,11 @@ class Command(BaseCommand):
                     ]
                 )
             print("Migrations done")
+            return False
         else:
             database.migrate(config.package_name, options["upto"], replicated=True)
             print(f"✅ Migration successful ({config.display_name} cluster)")
+            return False
 
     def get_migrations(self, database, package_name: str, upto: int):
         modules = import_submodules(package_name)
