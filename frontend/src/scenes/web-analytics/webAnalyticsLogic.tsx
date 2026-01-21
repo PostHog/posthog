@@ -1156,6 +1156,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             kind: NodeKind.WebOverviewQuery,
                             properties: webAnalyticsFilters,
                             dateRange,
+                            interval,
                             sampling,
                             compareFilter,
                             filterTestAccounts,

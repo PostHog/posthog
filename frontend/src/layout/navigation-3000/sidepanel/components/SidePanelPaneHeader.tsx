@@ -49,7 +49,7 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
                         closeSidePanel()
                         onClose?.()
                     }}
-                    tooltip="Close notebook panel"
+                    tooltip="Close side panel"
                     tooltipPlacement="bottom-end"
                     iconOnly
                     className="group"

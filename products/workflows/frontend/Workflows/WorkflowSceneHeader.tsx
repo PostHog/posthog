@@ -17,7 +17,7 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
         useActions(logic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
@@ -97,8 +97,12 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                                 Save as template
                                             </LemonButton>
                                             <LemonDivider />
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteWorkflow()}>
-                                                Delete
+                                            <LemonButton
+                                                status="danger"
+                                                fullWidth
+                                                onClick={() => archiveWorkflow(workflow)}
+                                            >
+                                                Archive
                                             </LemonButton>
                                         </>
                                     }

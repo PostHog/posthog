@@ -21,8 +21,20 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     query_traces_in_window_activity,
 )
 
-WORKFLOWS = [
+EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
+]
+
+EVAL_ACTIVITIES = [
+    fetch_evaluation_activity,
+    increment_trial_eval_count_activity,
+    update_key_state_activity,
+    execute_llm_judge_activity,
+    emit_evaluation_event_activity,
+    emit_internal_telemetry_activity,
+]
+
+WORKFLOWS = [
     BatchTraceSummarizationWorkflow,
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
@@ -30,12 +42,6 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    fetch_evaluation_activity,
-    increment_trial_eval_count_activity,
-    update_key_state_activity,
-    execute_llm_judge_activity,
-    emit_evaluation_event_activity,
-    emit_internal_telemetry_activity,
     query_traces_in_window_activity,
     generate_and_save_summary_activity,
     # Clustering activities

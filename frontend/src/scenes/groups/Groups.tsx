@@ -115,7 +115,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`groups-query-${tabId}`}
                 attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns }}
+                query={{ ...query, hiddenColumns, showCount: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',

@@ -17,13 +17,13 @@ import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import { type HogFlow, type HogFlowAction, HogFlowActionValidationResult, type HogFlowEdge } from './hogflows/types'
 import type { workflowLogicType } from './workflowLogicType'
 import { workflowSceneLogic } from './workflowSceneLogic'
+import { workflowsLogic } from './workflowsLogic'
 
 export interface WorkflowLogicProps {
     id?: string
@@ -116,6 +116,7 @@ export const workflowLogic = kea<workflowLogicType>([
     key((props) => props.id || 'new'),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
+        actions: [workflowsLogic, ['archiveWorkflow']],
     })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
@@ -138,7 +139,6 @@ export const workflowLogic = kea<workflowLogicType>([
         }),
         discardChanges: true,
         duplicate: true,
-        deleteWorkflow: true,
     }),
     loaders(({ props, values }) => ({
         originalWorkflow: [
@@ -481,38 +481,6 @@ export const workflowLogic = kea<workflowLogicType>([
             const createdWorkflow = await api.hogFlows.createHogFlow(newWorkflow)
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
-        },
-        deleteWorkflow: async () => {
-            const workflow = values.originalWorkflow
-            if (!workflow) {
-                return
-            }
-            LemonDialog.open({
-                title: 'Delete workflow?',
-                description: `Are you sure you want to delete "${workflow.name}"? This action cannot be undone.${
-                    workflow.status === 'active' ? ' In-progress workflows will end immediately.' : ''
-                }`,
-                primaryButton: {
-                    children: 'Delete',
-                    type: 'primary',
-                    status: 'danger',
-                    onClick: async () => {
-                        try {
-                            await api.hogFlows.deleteHogFlow(workflow.id)
-                            lemonToast.success(`Workflow "${workflow.name}" deleted`)
-                            router.actions.push(urls.workflows())
-                            deleteFromTree('hog_flow/', workflow.id)
-                        } catch (error: any) {
-                            lemonToast.error(
-                                `Failed to delete workflow: ${error.detail || error.message || 'Unknown error'}`
-                            )
-                        }
-                    },
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
         },
         triggerManualWorkflow: async ({ variables }) => {
             if (!values.workflow.id || values.workflow.id === 'new') {
