@@ -656,6 +656,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
 
 def _error_tracking_config_response(team: Team, skip_db: bool):
     suppression_rules = []
+    policy_config = None
     # errors mean the database is unavailable, no-op in this case
     if team.autocapture_exceptions_opt_in and not skip_db:
         try:
