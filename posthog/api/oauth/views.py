@@ -440,9 +440,46 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
     which is allowed to access the scope `introspection`. Alternatively,
     if the client_id and client_secret are provided, the request is
     authenticated using client credentials and does not require the `introspection` scope.
+
+    Self-introspection: A token can always introspect itself without requiring
+    the `introspection` scope. This allows MCP clients to discover their own
+    token's scopes and permissions during initialization.
     """
 
     required_scopes = ["introspection"]
+
+    def _is_self_introspection(self, request) -> bool:
+        """Check if the request is a self-introspection (token introspecting itself)."""
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return False
+        bearer_token = auth_header[7:]
+
+        if request.method == "GET":
+            token_to_introspect = request.GET.get("token")
+        else:
+            token_to_introspect = request.POST.get("token")
+            if not token_to_introspect and request.content_type == "application/json" and request.body:
+                try:
+                    token_to_introspect = json.loads(request.body).get("token")
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        return bearer_token and token_to_introspect and bearer_token == token_to_introspect
+
+    def verify_request(self, request):
+        """Allow self-introspection without the introspection scope."""
+        if self._is_self_introspection(request):
+            bearer_token = request.headers.get("Authorization", "")[7:]
+            try:
+                token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
+                token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
+                if token.is_valid():
+                    return True, request
+            except ObjectDoesNotExist:
+                pass
+            return False, request
+        return super().verify_request(request)
 
     @staticmethod
     def get_token_response(token_value=None):
