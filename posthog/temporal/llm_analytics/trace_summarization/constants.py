@@ -4,15 +4,15 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from products.llm_analytics.backend.summarization.models import GeminiModel, SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import OpenAIModel, SummarizationMode, SummarizationProvider
 
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 10  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
-DEFAULT_PROVIDER = SummarizationProvider.GEMINI
-DEFAULT_MODEL = GeminiModel.GEMINI_3_FLASH_PREVIEW
+DEFAULT_PROVIDER = SummarizationProvider.OPENAI
+DEFAULT_MODEL = OpenAIModel.GPT_4_1_MINI
 
 # Max text representation length by provider (in characters)
 # Gemini models have ~1M token context. At typical 2.5:1 char/token ratio,
@@ -37,7 +37,7 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (i
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 # Summarize retries with exponential backoff for rate limit handling (429s)
-# Gemini rate limits reset per minute, so 15s initial with 2x backoff handles most cases
+# 15s initial with 2x backoff handles most rate limit scenarios
 SUMMARIZE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=4,
     initial_interval=timedelta(seconds=15),
@@ -61,3 +61,4 @@ ALLOWED_TEAM_IDS: list[int] = [
 WORKFLOW_NAME = "llma-trace-summarization"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-summarization-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-summarization-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-summarization-team"

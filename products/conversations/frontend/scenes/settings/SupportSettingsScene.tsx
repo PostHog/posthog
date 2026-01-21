@@ -112,10 +112,21 @@ function AuthorizedDomains(): JSX.Element {
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { generateNewToken, setIsAddingDomain, setConversationsEnabledLoading, setWidgetEnabledLoading } =
-        useActions(supportSettingsLogic)
-    const { isAddingDomain, editingDomainIndex, conversationsEnabledLoading, widgetEnabledLoading } =
-        useValues(supportSettingsLogic)
+    const {
+        generateNewToken,
+        setIsAddingDomain,
+        setConversationsEnabledLoading,
+        setWidgetEnabledLoading,
+        setGreetingInputValue,
+        saveGreetingText,
+    } = useActions(supportSettingsLogic)
+    const {
+        isAddingDomain,
+        editingDomainIndex,
+        conversationsEnabledLoading,
+        widgetEnabledLoading,
+        greetingInputValue,
+    } = useValues(supportSettingsLogic)
 
     return (
         <SceneContent>
@@ -209,22 +220,27 @@ export function SupportSettingsScene(): JSX.Element {
 
                                 <div className="flex items-center gap-4 py-2">
                                     <label className="w-40 shrink-0">Greeting message</label>
-                                    <LemonInput
-                                        value={
-                                            currentTeam?.conversations_settings?.widget_greeting_text ||
-                                            'Hey, how can I help you today?'
-                                        }
-                                        placeholder="Enter greeting message"
-                                        onChange={(value) => {
-                                            updateCurrentTeam({
-                                                conversations_settings: {
-                                                    ...currentTeam?.conversations_settings,
-                                                    widget_greeting_text: value,
-                                                },
-                                            })
-                                        }}
-                                        className="flex-1"
-                                    />
+                                    <div className="flex gap-2 flex-1">
+                                        <LemonInput
+                                            value={
+                                                greetingInputValue ??
+                                                currentTeam?.conversations_settings?.widget_greeting_text ??
+                                                'Hey, how can I help you today?'
+                                            }
+                                            placeholder="Enter greeting message"
+                                            onChange={setGreetingInputValue}
+                                            fullWidth
+                                        />
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={saveGreetingText}
+                                            disabledReason={
+                                                !greetingInputValue ? 'Enter a greeting message' : undefined
+                                            }
+                                        >
+                                            Save
+                                        </LemonButton>
+                                    </div>
                                 </div>
 
                                 <div className="pt-8">
