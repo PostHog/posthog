@@ -31,18 +31,14 @@ def backfill_nodes_and_edges(apps, schema_editor):
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
     existing_saved_query_ids = set(Node.objects.values_list("saved_query_id", flat=True))
-    saved_queries = (
-        DataWarehouseSavedQuery.objects.select_related("team")
-        .filter(deleted=False)
-        .exclude(id__in=existing_saved_query_ids)
-    )
+    saved_queries = DataWarehouseSavedQuery.objects.filter(deleted=False).exclude(id__in=existing_saved_query_ids)
     total_to_backfill = len(saved_queries)
     logger.info("Starting saved_query -> node and edge model backfill...")
     # first pass: create all nodes
     for i, saved_query in enumerate(saved_queries.iterator(chunk_size=BATCH_SIZE)):
         node_type = NodeType.MAT_VIEW if saved_query.table_id else NodeType.VIEW
         Node.objects.create(
-            team=saved_query.team,
+            team_id=saved_query.team_id,
             saved_query=saved_query,
             dag_id=get_dag_id(saved_query.team_id),
             name=saved_query.name,
