@@ -52,7 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
-    const isRemovingSidePanelMax = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -75,7 +75,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    if (isRemovingSidePanelMax) {
+    if (isRemovingSidePanelMaxFlag) {
         return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 
@@ -106,7 +106,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
     const { exitAIOnlyMode } = useActions(appLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -136,7 +136,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <SidebarQuestionInputWithSuggestions />
                         </div>
 
-                        {!isRemovingSidePanelFlag && <HistoryPreview sidePanel={sidePanel} />}
+                        {!isRemovingSidePanelMaxFlag && <HistoryPreview sidePanel={sidePanel} />}
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -220,7 +220,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                             tooltipPlacement="bottom-end"
                         />
                     )}
-                    {isRemovingSidePanelFlag ? (
+                    {isRemovingSidePanelMaxFlag ? (
                         <Link
                             buttonProps={{
                                 iconOnly: true,

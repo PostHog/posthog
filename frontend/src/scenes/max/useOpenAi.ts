@@ -22,12 +22,12 @@ export interface UseOpenAiReturn {
 export function useOpenAi(): UseOpenAiReturn {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelStateLogic)
-    const isRemovingSidePanelMax = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     const openAi = (initialPrompt?: string): void => {
-        if (isRemovingSidePanelMax) {
+        if (isRemovingSidePanelMaxFlag) {
             newInternalTab(urls.ai(undefined, initialPrompt))
         } else {
             openSidePanel(SidePanelTab.Max, initialPrompt)
