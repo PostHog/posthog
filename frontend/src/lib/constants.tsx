@@ -266,6 +266,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_EXPOSURE_CRITERIA_COLLAPSABLE: 'experiments-exposure-criteria-collapsable', // owner: #team-experiments
     EXPERIMENTS_RELOAD_ACTION: 'experiments-reload-action', // owner: @rodrigoi #team-experiments
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
+    FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX: 'feature-flag-usage-dashboard-checkbox', // owner: #team-feature-flags, globally disabled, enables opt-out of auto dashboard creation
     FLAG_BUCKETING_IDENTIFIER: 'flag-bucketing-identifier', // owner: @andehen #team-experiments
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
@@ -273,12 +274,12 @@ export const FEATURE_FLAGS = {
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
-    LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD: 'llm-analytics-customizable-dashboard', // owner: #team-llm-analytics
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-posthog-ai
     LLM_ANALYTICS_DISCUSSIONS: 'llm-analytics-discussions', // owner: #team-llm-analytics
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-llm-analytics
     LLM_ANALYTICS_ERRORS_TAB: 'llm-analytics-errors-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_EVALUATIONS: 'llm-analytics-evaluations', // owner: #team-llm-analytics
+    LLM_ANALYTICS_EVALUATIONS_ONBOARDING_EXPERIMENT: 'llm-analytics-evaluations-onboarding-experiment', // owner: #team-llm-analytics, multivariate=control,test-b,test-c
     LLM_ANALYTICS_SESSION_SUMMARIZATION: 'llm-analytics-session-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERS_TAB: 'llm-analytics-clusters-tab', // owner: #team-llm-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-llm-analytics
@@ -345,8 +346,6 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
-    SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
-    SURVEY_RESULTS_V2: 'survey-results-v2', // owner: #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true

@@ -37,7 +37,7 @@ def test_should_produce_table_with_matching_hog_function(team):
     HogFunction.objects.create(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
@@ -53,7 +53,7 @@ def test_should_not_produce_table_with_disabled_matching_hog_function(team):
     HogFunction.objects.create(
         team=team,
         enabled=False,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
@@ -70,7 +70,7 @@ def test_should_not_produce_table_with_deleted_matching_hog_function(team):
         team=team,
         enabled=True,
         deleted=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
@@ -86,7 +86,7 @@ def test_should_produce_table_with_new_style_table_name(team):
     HogFunction.objects.create(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
@@ -102,7 +102,7 @@ def test_should_produce_table_with_source_prefix(team):
     HogFunction.objects.create(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.eu.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.eu.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
@@ -118,7 +118,7 @@ def test_should_produce_table_with_leading_underscore_source_prefix(team):
     HogFunction.objects.create(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse", "data_warehouse": [{"table_name": "postgres.eu.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.eu.table_1"}]},
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.MagicMock())
