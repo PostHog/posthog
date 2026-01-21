@@ -71,7 +71,7 @@ async def sample_uuid_boundaries_activity(
 ) -> UUIDBoundariesResult:
     """Sample UUID boundaries to partition persons evenly across workers.
 
-    Uses reservoir sampling on 1% of person IDs to find percentile boundaries.
+    Uses random sampling (approximately 1% of person IDs) to find percentile boundaries.
     Returns parallelism-1 boundaries that divide the UUID space into parallelism partitions.
     """
     parallelism = inputs.parallelism
