@@ -177,7 +177,6 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
         },
         verifyDomainSuccess: ({ verification }) => {
             if (verification?.status === 'success') {
-                lemonToast.success('Domain verified successfully!')
                 actions.loadIntegrations()
             }
         },
