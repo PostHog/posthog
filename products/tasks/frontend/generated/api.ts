@@ -28,7 +28,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, and repository.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
  * @summary List tasks
  */
 export type tasksListResponse200 = {

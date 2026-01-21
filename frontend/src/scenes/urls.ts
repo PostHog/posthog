@@ -43,7 +43,6 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
@@ -209,7 +208,8 @@ export const urls = {
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     productTours: (): string => '/product_tours',
-    productTour: (id: string): string => `/product_tours/${id}`,
+    productTour: (id: string, params?: string): string =>
+        `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     approvals: (): string => '/settings/organization-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,

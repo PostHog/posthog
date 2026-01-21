@@ -62,6 +62,16 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags (flags.json)
     /// Initialized once at startup to avoid per-request AWS SDK initialization
     pub flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
+    /// Used by the /flags/definitions endpoint
+    pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
+    /// Uses token-based lookup instead of team_id
+    pub team_hypercache_reader: Arc<HyperCacheReader>,
+    /// Pre-initialized HyperCacheReader for remote config (array/config.json)
+    /// Reads pre-computed config from Python's RemoteConfig.build_config()
+    /// Uses token-based lookup (api_token)
+    pub config_hypercache_reader: Arc<HyperCacheReader>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -76,6 +86,9 @@ pub fn router(
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    team_hypercache_reader: Arc<HyperCacheReader>,
+    config_hypercache_reader: Arc<HyperCacheReader>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -140,6 +153,9 @@ pub fn router(
         flags_rate_limiter,
         ip_rate_limiter,
         flags_hypercache_reader,
+        flags_with_cohorts_hypercache_reader,
+        team_hypercache_reader,
+        config_hypercache_reader,
     };
 
     // Very permissive CORS policy, as old SDK versions

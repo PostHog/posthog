@@ -13,6 +13,7 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
+import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsSelectionToolbar } from './LogsSelectionToolbar'
 import { LogsSparkline, LogsSparklineData } from './LogsViewerSparkline'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
@@ -28,7 +29,7 @@ export interface LogsViewerProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
@@ -37,6 +38,7 @@ export interface LogsViewerProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    onExpandTimeRange?: () => void
 }
 
 export function LogsViewer({
@@ -55,23 +57,27 @@ export function LogsViewer({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    onExpandTimeRange,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
-            <LogsViewerContent
-                loading={loading}
-                totalLogsCount={totalLogsCount}
-                hasMoreLogsToLoad={hasMoreLogsToLoad}
-                orderBy={orderBy}
-                onChangeOrderBy={onChangeOrderBy}
-                onRefresh={onRefresh}
-                onLoadMore={onLoadMore}
-                sparklineData={sparklineData}
-                sparklineLoading={sparklineLoading}
-                onDateRangeChange={onDateRangeChange}
-                sparklineBreakdownBy={sparklineBreakdownBy}
-                onSparklineBreakdownByChange={onSparklineBreakdownByChange}
-            />
+        <BindLogic logic={logDetailsModalLogic} props={{ tabId }}>
+            <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy, onAddFilter }}>
+                <LogsViewerContent
+                    loading={loading}
+                    totalLogsCount={totalLogsCount}
+                    hasMoreLogsToLoad={hasMoreLogsToLoad}
+                    orderBy={orderBy}
+                    onChangeOrderBy={onChangeOrderBy}
+                    onRefresh={onRefresh}
+                    onLoadMore={onLoadMore}
+                    sparklineData={sparklineData}
+                    sparklineLoading={sparklineLoading}
+                    onDateRangeChange={onDateRangeChange}
+                    sparklineBreakdownBy={sparklineBreakdownBy}
+                    onSparklineBreakdownByChange={onSparklineBreakdownByChange}
+                    onExpandTimeRange={onExpandTimeRange}
+                />
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -81,7 +87,7 @@ interface LogsViewerContentProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     sparklineData: LogsSparklineData
@@ -89,6 +95,7 @@ interface LogsViewerContentProps {
     onDateRangeChange: (dateRange: DateRange) => void
     sparklineBreakdownBy: LogsSparklineBreakdownBy
     onSparklineBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    onExpandTimeRange?: () => void
 }
 
 function LogsViewerContent({
@@ -104,6 +111,7 @@ function LogsViewerContent({
     onDateRangeChange,
     sparklineBreakdownBy,
     onSparklineBreakdownByChange,
+    onExpandTimeRange,
 }: LogsViewerContentProps): JSX.Element {
     const {
         tabId,
@@ -111,15 +119,19 @@ function LogsViewerContent({
         prettifyJson,
         pinnedLogsArray,
         isFocused,
+        cursorIndex,
         cursorLogId,
         logs,
         timezone,
         isSelectionActive,
+        keyboardNavEnabled,
+        isLogDetailsOpen,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
         moveCursorUp,
-        toggleExpandLog,
+        openLogDetails,
+        closeLogDetails,
         resetCursor,
         toggleSelectLog,
         clearSelection,
@@ -222,18 +234,18 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !isFocused },
-            j: { action: handleMoveDown, disabled: !isFocused },
-            arrowup: { action: handleMoveUp, disabled: !isFocused },
-            k: { action: handleMoveUp, disabled: !isFocused },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
-                    if (cursorLogId) {
-                        toggleExpandLog(cursorLogId)
+                    if (cursorIndex !== null && logs[cursorIndex]) {
+                        openLogDetails(logs[cursorIndex])
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             r: {
                 action: () => {
@@ -255,11 +267,13 @@ function LogsViewerContent({
             },
             escape: {
                 action: () => {
-                    if (isSelectionActive) {
+                    if (isLogDetailsOpen) {
+                        closeLogDetails()
+                    } else if (isSelectionActive) {
                         clearSelection()
                     }
                 },
-                disabled: !isFocused,
+                disabled: !keyboardNavEnabled,
             },
             p: {
                 action: () => {
@@ -272,8 +286,12 @@ function LogsViewerContent({
         },
         [
             isFocused,
-            cursorLogId,
-            toggleExpandLog,
+            keyboardNavEnabled,
+            isLogDetailsOpen,
+            cursorIndex,
+            logs,
+            openLogDetails,
+            closeLogDetails,
             onRefresh,
             loading,
             resetCursor,
@@ -297,7 +315,11 @@ function LogsViewerContent({
                 onBreakdownByChange={onSparklineBreakdownByChange}
             />
             <SceneDivider />
-            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
+            <LogsViewerToolbar
+                totalLogsCount={totalLogsCount}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'toolbar')}
+            />
             <LogsSelectionToolbar />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
@@ -309,6 +331,8 @@ function LogsViewerContent({
                     fixedHeight={250}
                     disableInfiniteScroll
                     disableCursor
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
                 />
             )}
 
@@ -321,6 +345,9 @@ function LogsViewerContent({
                 showPinnedWithOpacity
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
+                onExpandTimeRange={onExpandTimeRange}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
             />
 
             <LogDetailsModal timezone={timezone} />

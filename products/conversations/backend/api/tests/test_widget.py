@@ -70,7 +70,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.unread_team_count, 1)
 
     def test_create_message_to_existing_ticket(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -89,8 +89,37 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["ticket_id"], str(ticket.id))
 
+    def test_create_message_updates_session_data_on_existing_ticket(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            session_id="old-session-id",
+            session_context={"current_url": "/some-page", "replay_url": "https://app.posthog.com/replay/old"},
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Follow up message",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+                "session_id": "new-session-id",
+                "session_context": {"replay_url": "https://app.posthog.com/replay/new"},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.session_id, "new-session-id")
+        # session_context should merge, not replace - preserves current_url while updating replay_url
+        self.assertEqual(ticket.session_context["current_url"], "/some-page")
+        self.assertEqual(ticket.session_context["replay_url"], "https://app.posthog.com/replay/new")
+
     def test_create_message_wrong_widget_session_forbidden(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=str(uuid.uuid4()),
             distinct_id="other-user",
@@ -153,7 +182,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.anonymous_traits["email"], "john@example.com")
 
     def test_get_messages(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -183,7 +212,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.json()["messages"][0]["content"], "First message")
 
     def test_get_messages_excludes_private(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -213,7 +242,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.json()["messages"][0]["content"], "Public message")
 
     def test_get_messages_wrong_widget_session_forbidden(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=str(uuid.uuid4()),
             distinct_id="other-user",
@@ -234,14 +263,14 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_tickets(self):
-        ticket1 = Ticket.objects.create(
+        ticket1 = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
             channel_source="widget",
             status=Status.NEW,
         )
-        ticket2 = Ticket.objects.create(
+        ticket2 = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -249,7 +278,7 @@ class TestWidgetAPI(BaseTest):
             status=Status.RESOLVED,
         )
         # Ticket from another session - should not appear
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=str(uuid.uuid4()),
             distinct_id="other-user",
@@ -267,14 +296,14 @@ class TestWidgetAPI(BaseTest):
         self.assertIn(str(ticket2.id), ticket_ids)
 
     def test_list_tickets_filter_by_status(self):
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
             channel_source="widget",
             status=Status.NEW,
         )
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -291,7 +320,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.json()["results"][0]["status"], Status.NEW)
 
     def test_mark_read(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=self.widget_session_id,
             distinct_id=self.distinct_id,
@@ -311,7 +340,7 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(ticket.unread_customer_count, 0)
 
     def test_mark_read_wrong_widget_session_forbidden(self):
-        ticket = Ticket.objects.create(
+        ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id=str(uuid.uuid4()),
             distinct_id="other-user",

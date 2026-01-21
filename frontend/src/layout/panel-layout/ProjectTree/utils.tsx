@@ -439,7 +439,20 @@ export function appendResultsToFolders(
     // Append search results into the loaded state to persist data and help with multi-selection between panels
     const newState: Record<string, FileSystemEntry[]> = { ...folders }
     const newResults = 'lastCount' in results ? results.results.slice(-1 * results.lastCount) : results.results
+
+    // Track IDs we've already processed to avoid duplicates within the incoming results
+    const processedIds = new Set<string>()
+
     for (const result of newResults) {
+        // Skip items without IDs or that we've already processed in this batch
+        if (!result.id) {
+            continue
+        }
+        if (processedIds.has(result.id)) {
+            continue
+        }
+        processedIds.add(result.id)
+
         const folder = joinPath(splitPath(result.path).slice(0, -1))
         if (newState[folder]) {
             const existingItem = newState[folder].find((item) => item.id === result.id)

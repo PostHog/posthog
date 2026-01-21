@@ -7,7 +7,16 @@ import { getPostHogClient } from '@/integrations/mcp/utils/client'
 import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 import { handleToolError } from '@/integrations/mcp/utils/handleToolError'
 import type { AnalyticsEvent } from '@/lib/analytics'
-import { CUSTOM_BASE_URL, MCP_DOCS_URL } from '@/lib/constants'
+import {
+    CUSTOM_BASE_URL,
+    getAuthorizationServerUrl,
+    getBaseUrlForRegion,
+    MCP_DOCS_URL,
+    OAUTH_SCOPES_SUPPORTED,
+    POSTHOG_EU_BASE_URL,
+    POSTHOG_US_BASE_URL,
+    toCloudRegion,
+} from '@/lib/constants'
 import { ErrorCode } from '@/lib/errors'
 import { SessionManager } from '@/lib/utils/SessionManager'
 import { StateManager } from '@/lib/utils/StateManager'
@@ -29,6 +38,7 @@ type RequestProperties = {
     apiToken: string
     sessionId?: string
     features?: string[]
+    region?: string
 }
 
 // Define our MCP agent with tools
@@ -80,12 +90,12 @@ export class MyMCP extends McpAgent<Env> {
     async detectRegion(): Promise<CloudRegion | undefined> {
         const usClient = new ApiClient({
             apiToken: this.requestProperties.apiToken,
-            baseUrl: 'https://us.posthog.com',
+            baseUrl: POSTHOG_US_BASE_URL,
         })
 
         const euClient = new ApiClient({
             apiToken: this.requestProperties.apiToken,
-            baseUrl: 'https://eu.posthog.com',
+            baseUrl: POSTHOG_EU_BASE_URL,
         })
 
         const [usResult, euResult] = await Promise.all([usClient.users().me(), euClient.users().me()])
@@ -108,13 +118,19 @@ export class MyMCP extends McpAgent<Env> {
             return CUSTOM_BASE_URL
         }
 
-        const region = (await this.cache.get('region')) || (await this.detectRegion())
-
-        if (region === 'eu') {
-            return 'https://eu.posthog.com'
+        // Check region from request props first (passed via URL param), then cache, then detect
+        const propsRegion = this.requestProperties.region
+        if (propsRegion) {
+            const region = toCloudRegion(propsRegion)
+            // Cache it for future requests
+            await this.cache.set('region', region)
+            return getBaseUrlForRegion(region)
         }
 
-        return 'https://us.posthog.com'
+        const cachedRegion = await this.cache.get('region')
+        const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
+
+        return getBaseUrlForRegion(region || 'us')
     }
 
     async api(): Promise<ApiClient> {
@@ -290,15 +306,63 @@ export default {
             )
         }
 
+        // OAuth Protected Resource Metadata (RFC 9728)
+        // This endpoint tells MCP clients where to authenticate to get tokens.
+        //
+        // OAuth flow for MCP:
+        // 1. Client connects to MCP server without a token
+        // 2. MCP returns 401 with WWW-Authenticate header pointing to this metadata endpoint
+        // 3. Client fetches this metadata to discover the authorization server
+        // 4. Client performs OAuth flow with PostHog (US or EU based on region param)
+        // 5. Client reconnects to MCP with the access token
+        if (url.pathname === '/.well-known/oauth-protected-resource') {
+            const resourceUrl = new URL(request.url)
+            resourceUrl.pathname = '/'
+            resourceUrl.search = ''
+
+            // Determine authorization server based on region param.
+            // The region param is set by the wizard based on user's cloud region selection.
+            // CUSTOM_BASE_URL takes precedence for self-hosted, otherwise routes to US/EU.
+            const authorizationServer = getAuthorizationServerUrl(url.searchParams.get('region'))
+
+            return new Response(
+                JSON.stringify({
+                    resource: resourceUrl.toString().replace(/\/$/, ''),
+                    authorization_servers: [authorizationServer],
+                    scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                    bearer_methods_supported: ['header'],
+                }),
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'public, max-age=3600',
+                    },
+                }
+            )
+        }
+
         const token = request.headers.get('Authorization')?.split(' ')[1]
 
         const sessionId = url.searchParams.get('sessionId')
 
         if (!token) {
+            // Return 401 with WWW-Authenticate header per RFC 9728.
+            // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
+            // We preserve the region param so OAuth flows use the correct PostHog instance.
+            // Normalize to lowercase for consistency with the metadata endpoint.
+            const regionParam = url.searchParams.get('region')?.toLowerCase()
+            const metadataUrl = new URL('/.well-known/oauth-protected-resource', request.url)
+            if (regionParam) {
+                metadataUrl.searchParams.set('region', regionParam)
+            }
+
             return new Response(
                 `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
                 {
                     status: 401,
+                    headers: {
+                        'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"`,
+                    },
                 }
             )
         }
@@ -324,7 +388,12 @@ export default {
         // Example: ?features=org,insights
         const featuresParam = url.searchParams.get('features')
         const features = featuresParam ? featuresParam.split(',').filter(Boolean) : undefined
-        ctx.props = { ...ctx.props, features }
+
+        // Region param is used to route API calls to the correct PostHog instance (US or EU).
+        // This is set by the wizard based on user's cloud region selection during MCP setup.
+        const regionParam = url.searchParams.get('region') || undefined
+
+        ctx.props = { ...ctx.props, features, region: regionParam }
 
         if (url.pathname.startsWith('/mcp')) {
             return MyMCP.serve('/mcp').fetch(request, env, ctx).then(responseHandler)

@@ -13,10 +13,7 @@ import type {
     EnvironmentsPersonsActivityRetrieveParams,
     EnvironmentsPersonsBulkDeleteCreateParams,
     EnvironmentsPersonsCohortsRetrieveParams,
-    EnvironmentsPersonsDeleteEventsCreateParams,
     EnvironmentsPersonsDeletePropertyCreateParams,
-    EnvironmentsPersonsDeleteRecordingsCreateParams,
-    EnvironmentsPersonsDestroyParams,
     EnvironmentsPersonsFunnelCorrelationCreateParams,
     EnvironmentsPersonsFunnelCorrelationRetrieveParams,
     EnvironmentsPersonsFunnelCreateParams,
@@ -40,10 +37,7 @@ import type {
     PersonsActivityRetrieveParams,
     PersonsBulkDeleteCreateParams,
     PersonsCohortsRetrieveParams,
-    PersonsDeleteEventsCreateParams,
     PersonsDeletePropertyCreateParams,
-    PersonsDeleteRecordingsCreateParams,
-    PersonsDestroyParams,
     PersonsFunnelCorrelationCreateParams,
     PersonsFunnelCorrelationRetrieveParams,
     PersonsFunnelCreateParams,
@@ -96,15 +90,6 @@ export const getEnvironmentsPersonsListUrl = (projectId: string, params?: Enviro
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
-        const explodeParameters = ['properties']
-
-        if (Array.isArray(value) && explodeParameters.includes(key)) {
-            value.forEach((v) => {
-                normalizedParams.append(key, v === null ? 'null' : v.toString())
-            })
-            return
-        }
-
         if (value !== undefined) {
             normalizedParams.append(key, value === null ? 'null' : value.toString())
         }
@@ -275,51 +260,6 @@ export const environmentsPersonsPartialUpdate = async (
 }
 
 /**
- * Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
- */
-export type environmentsPersonsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type environmentsPersonsDestroyResponseSuccess = environmentsPersonsDestroyResponse204 & {
-    headers: Headers
-}
-export type environmentsPersonsDestroyResponse = environmentsPersonsDestroyResponseSuccess
-
-export const getEnvironmentsPersonsDestroyUrl = (
-    projectId: string,
-    id: number,
-    params?: EnvironmentsPersonsDestroyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/persons/${id}/?${stringifiedParams}`
-        : `/api/environments/${projectId}/persons/${id}/`
-}
-
-export const environmentsPersonsDestroy = async (
-    projectId: string,
-    id: number,
-    params?: EnvironmentsPersonsDestroyParams,
-    options?: RequestInit
-): Promise<environmentsPersonsDestroyResponse> => {
-    return apiMutator<environmentsPersonsDestroyResponse>(getEnvironmentsPersonsDestroyUrl(projectId, id, params), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-/**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type environmentsPersonsActivityRetrieve2Response200 = {
@@ -368,57 +308,6 @@ export const environmentsPersonsActivityRetrieve2 = async (
 }
 
 /**
- * Queue deletion of all events associated with this person. The task runs during non-peak hours.
- */
-export type environmentsPersonsDeleteEventsCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsPersonsDeleteEventsCreateResponseSuccess = environmentsPersonsDeleteEventsCreateResponse200 & {
-    headers: Headers
-}
-export type environmentsPersonsDeleteEventsCreateResponse = environmentsPersonsDeleteEventsCreateResponseSuccess
-
-export const getEnvironmentsPersonsDeleteEventsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: EnvironmentsPersonsDeleteEventsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/persons/${id}/delete_events/?${stringifiedParams}`
-        : `/api/environments/${projectId}/persons/${id}/delete_events/`
-}
-
-export const environmentsPersonsDeleteEventsCreate = async (
-    projectId: string,
-    id: number,
-    personApi: NonReadonly<PersonApi>,
-    params?: EnvironmentsPersonsDeleteEventsCreateParams,
-    options?: RequestInit
-): Promise<environmentsPersonsDeleteEventsCreateResponse> => {
-    return apiMutator<environmentsPersonsDeleteEventsCreateResponse>(
-        getEnvironmentsPersonsDeleteEventsCreateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
-}
-
-/**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type environmentsPersonsDeletePropertyCreateResponse200 = {
@@ -461,58 +350,6 @@ export const environmentsPersonsDeletePropertyCreate = async (
 ): Promise<environmentsPersonsDeletePropertyCreateResponse> => {
     return apiMutator<environmentsPersonsDeletePropertyCreateResponse>(
         getEnvironmentsPersonsDeletePropertyCreateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
-}
-
-/**
- * Queue deletion of all recordings associated with this person.
- */
-export type environmentsPersonsDeleteRecordingsCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type environmentsPersonsDeleteRecordingsCreateResponseSuccess =
-    environmentsPersonsDeleteRecordingsCreateResponse200 & {
-        headers: Headers
-    }
-export type environmentsPersonsDeleteRecordingsCreateResponse = environmentsPersonsDeleteRecordingsCreateResponseSuccess
-
-export const getEnvironmentsPersonsDeleteRecordingsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: EnvironmentsPersonsDeleteRecordingsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/persons/${id}/delete_recordings/?${stringifiedParams}`
-        : `/api/environments/${projectId}/persons/${id}/delete_recordings/`
-}
-
-export const environmentsPersonsDeleteRecordingsCreate = async (
-    projectId: string,
-    id: number,
-    personApi: NonReadonly<PersonApi>,
-    params?: EnvironmentsPersonsDeleteRecordingsCreateParams,
-    options?: RequestInit
-): Promise<environmentsPersonsDeleteRecordingsCreateResponse> => {
-    return apiMutator<environmentsPersonsDeleteRecordingsCreateResponse>(
-        getEnvironmentsPersonsDeleteRecordingsCreateUrl(projectId, id, params),
         {
             ...options,
             method: 'POST',
@@ -1262,15 +1099,6 @@ export const getPersonsListUrl = (projectId: string, params?: PersonsListParams)
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
-        const explodeParameters = ['properties']
-
-        if (Array.isArray(value) && explodeParameters.includes(key)) {
-            value.forEach((v) => {
-                normalizedParams.append(key, v === null ? 'null' : v.toString())
-            })
-            return
-        }
-
         if (value !== undefined) {
             normalizedParams.append(key, value === null ? 'null' : value.toString())
         }
@@ -1426,47 +1254,6 @@ export const personsPartialUpdate = async (
 }
 
 /**
- * Use this endpoint to delete individual persons. For bulk deletion, use the bulk_delete endpoint instead.
- */
-export type personsDestroyResponse204 = {
-    data: void
-    status: 204
-}
-
-export type personsDestroyResponseSuccess = personsDestroyResponse204 & {
-    headers: Headers
-}
-export type personsDestroyResponse = personsDestroyResponseSuccess
-
-export const getPersonsDestroyUrl = (projectId: string, id: number, params?: PersonsDestroyParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/${id}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/${id}/`
-}
-
-export const personsDestroy = async (
-    projectId: string,
-    id: number,
-    params?: PersonsDestroyParams,
-    options?: RequestInit
-): Promise<personsDestroyResponse> => {
-    return apiMutator<personsDestroyResponse>(getPersonsDestroyUrl(projectId, id, params), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-/**
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type personsActivityRetrieve2Response200 = {
@@ -1508,54 +1295,6 @@ export const personsActivityRetrieve2 = async (
     return apiMutator<personsActivityRetrieve2Response>(getPersonsActivityRetrieve2Url(projectId, id, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-/**
- * Queue deletion of all events associated with this person. The task runs during non-peak hours.
- */
-export type personsDeleteEventsCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsDeleteEventsCreateResponseSuccess = personsDeleteEventsCreateResponse200 & {
-    headers: Headers
-}
-export type personsDeleteEventsCreateResponse = personsDeleteEventsCreateResponseSuccess
-
-export const getPersonsDeleteEventsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: PersonsDeleteEventsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/${id}/delete_events/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/${id}/delete_events/`
-}
-
-export const personsDeleteEventsCreate = async (
-    projectId: string,
-    id: number,
-    personApi: NonReadonly<PersonApi>,
-    params?: PersonsDeleteEventsCreateParams,
-    options?: RequestInit
-): Promise<personsDeleteEventsCreateResponse> => {
-    return apiMutator<personsDeleteEventsCreateResponse>(getPersonsDeleteEventsCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personApi),
     })
 }
 
@@ -1605,57 +1344,6 @@ export const personsDeletePropertyCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(personApi),
     })
-}
-
-/**
- * Queue deletion of all recordings associated with this person.
- */
-export type personsDeleteRecordingsCreateResponse200 = {
-    data: void
-    status: 200
-}
-
-export type personsDeleteRecordingsCreateResponseSuccess = personsDeleteRecordingsCreateResponse200 & {
-    headers: Headers
-}
-export type personsDeleteRecordingsCreateResponse = personsDeleteRecordingsCreateResponseSuccess
-
-export const getPersonsDeleteRecordingsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: PersonsDeleteRecordingsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/${id}/delete_recordings/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/${id}/delete_recordings/`
-}
-
-export const personsDeleteRecordingsCreate = async (
-    projectId: string,
-    id: number,
-    personApi: NonReadonly<PersonApi>,
-    params?: PersonsDeleteRecordingsCreateParams,
-    options?: RequestInit
-): Promise<personsDeleteRecordingsCreateResponse> => {
-    return apiMutator<personsDeleteRecordingsCreateResponse>(
-        getPersonsDeleteRecordingsCreateUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(personApi),
-        }
-    )
 }
 
 /**

@@ -1127,6 +1127,15 @@ export class PostgresPersonRepository
 
     async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
         try {
+            // Calculate final properties by applying set and unset operations
+            const finalProperties = { ...personUpdate.properties }
+            Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
+                finalProperties[key] = value
+            })
+            personUpdate.properties_to_unset.forEach((key) => {
+                delete finalProperties[key]
+            })
+
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `
@@ -1140,7 +1149,7 @@ export class PostgresPersonRepository
                 RETURNING *
                 `,
                 [
-                    JSON.stringify(personUpdate.properties),
+                    JSON.stringify(finalProperties),
                     JSON.stringify(personUpdate.properties_last_updated_at),
                     JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,

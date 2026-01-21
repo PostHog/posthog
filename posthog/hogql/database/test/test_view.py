@@ -66,8 +66,8 @@ class TestView(BaseTest):
 
     def test_view_table_select(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
             self.assertEqual(
@@ -89,8 +89,8 @@ class TestView(BaseTest):
 
     def test_view_with_alias(self):
         with override_settings(
-            AIRBYTE_BUCKET_KEY=None,
-            AIRBYTE_BUCKET_SECRET=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=None,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=None,
         ):
             hogql = self._select(query="SELECT * FROM aapl_stock LIMIT 10", dialect="hogql")
             self.assertEqual(

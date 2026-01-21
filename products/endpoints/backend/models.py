@@ -6,6 +6,8 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from django_deprecate_fields import deprecate_field
+
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
@@ -37,8 +39,28 @@ class EndpointVersion(models.Model):
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
+    description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+
+    cache_age_seconds = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Cache age in seconds. If null, uses default interval-based caching.",
+    )
+    is_materialized = models.BooleanField(
+        default=False,
+        help_text="Whether this version's query results are materialized",
+    )
+    saved_query = models.ForeignKey(
+        "data_warehouse.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        db_index=False,
+        on_delete=models.SET_NULL,
+        related_name="endpoint_versions",
+        help_text="The underlying materialized view for this version",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -52,11 +74,46 @@ class EndpointVersion(models.Model):
             models.Index(fields=["endpoint", "version"], name="endpoint_version_idx"),
             models.Index(fields=["endpoint", "-version"], name="endpoint_version_desc_idx"),
             models.Index(fields=["created_at"], name="endpoint_version_created_idx"),
+            models.Index(fields=["saved_query"], name="endpointvers_saved_q_0dc3_idx"),
         ]
         ordering = ["-version"]
 
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
+
+    def can_materialize(self) -> tuple[bool, str]:
+        """Check if this version can be materialized.
+
+        Returns: (can_materialize: bool, reason: str)
+        """
+        query_kind = self.query.get("kind") if self.query else None
+
+        MATERIALIZABLE_QUERY_TYPES = {
+            "HogQLQuery",
+            "TrendsQuery",
+            "FunnelsQuery",
+            "LifecycleQuery",
+            "RetentionQuery",
+            "PathsQuery",
+            "StickinessQuery",
+        }
+
+        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+            return (
+                False,
+                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+            )
+
+        if self.query.get("variables"):
+            return False, "Queries with variables cannot be materialized."
+
+        if query_kind == "HogQLQuery":
+            hogql_query = self.query.get("query")
+            if not hogql_query or not isinstance(hogql_query, str):
+                return False, "Query is empty or invalid."
+
+        return True, ""
 
 
 class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -74,11 +131,12 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     )
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
 
-    # Use JSONField to store the query, following the same pattern as QueryRequest.query
-    # This can store any of the query types: HogQLQuery, TrendsQuery, FunnelsQuery, etc.
-    query = models.JSONField(help_text="Query definition following QueryRequest.query schema")
+    # Moved to EndpointVersion.query
+    # This field is kept nullable for backward compatibility during migration
+    query = deprecate_field(models.JSONField(null=True, blank=True))
 
-    description = models.TextField(blank=True, help_text="Human-readable description of what this query does")
+    # Moved to EndpointVersion.description
+    description = deprecate_field(models.TextField(null=True, blank=True))
 
     derived_from_insight = models.CharField(
         max_length=12,
@@ -87,26 +145,28 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         help_text="Short ID of the insight this endpoint was created from",
     )
 
-    # Parameter schema for query customization
-    parameters = models.JSONField(
-        default=dict, blank=True, help_text="JSON schema defining expected parameters for query customization"
-    )
+    # moved to EndpointVersion.query
+    parameters = deprecate_field(models.JSONField(null=True, blank=True))
 
     is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
 
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Custom cache age in seconds. If not set, uses default caching. Must be between 300 and 86400 seconds.",
+    # Moved to EndpointVersion.cache_age_seconds
+    cache_age_seconds = deprecate_field(
+        models.IntegerField(
+            null=True,
+            blank=True,
+        )
     )
 
-    saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="endpoints",
-        help_text="The underlying materialized view that backs this endpoint",
+    # Moved to EndpointVersion.saved_query
+    saved_query = deprecate_field(
+        models.ForeignKey(
+            "data_warehouse.DataWarehouseSavedQuery",
+            null=True,
+            blank=True,
+            on_delete=models.SET_NULL,
+            related_name="endpoints",
+        )
     )
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
@@ -149,7 +209,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         """
         # TODO: Implement parameter substitution logic
         # For example, replacing {parameter_name} placeholders in HogQL queries
-        return self.query
+        return self.query or {}
 
     def validate_parameters(self, request_params: dict[str, Any]) -> None:
         """Validate request parameters against the parameter schema.
@@ -191,8 +251,12 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     def can_materialize(self) -> tuple[bool, str]:
         """Check if endpoint can be materialized.
 
+        Note: TO BE DEPRECATED IN FAVOUR OF EndpointVersion.can_materialize()
+
         Returns: (can_materialize: bool, reason: str)
         """
+        if not self.query:
+            return False, "No query defined"
         query_kind = self.query.get("kind")
 
         MATERIALIZABLE_QUERY_TYPES = {
@@ -223,8 +287,11 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         """Deep comparison to check if query has actually changed.
 
         We normalize JSON before comparison to handle key ordering differences.
+        Compares against the current version's query.
         """
-        current_normalized = json.loads(json.dumps(self.query, sort_keys=True))
+        current_version = self.get_version()
+        current_query = current_version.query if current_version else {}
+        current_normalized = json.loads(json.dumps(current_query, sort_keys=True))
         new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
         return current_normalized != new_normalized
 
@@ -233,28 +300,38 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         This increments current_version and creates an EndpointVersion record.
         Should be called when the query changes during an update.
+        Snapshots current configuration values from previous version.
         """
-        self.current_version += 1
-        self.query = query
-        self.save(update_fields=["current_version", "query", "updated_at"])
+        # Get previous version's settings before incrementing
+        previous_version = self.get_version()
+        previous_cache_age = previous_version.cache_age_seconds if previous_version else None
+        previous_description = previous_version.description if previous_version else ""
 
+        self.current_version += 1
+        self.save(update_fields=["current_version", "updated_at"])
+
+        # Create new version, inheriting settings from previous version
         version = EndpointVersion.objects.create(
             endpoint=self,
             version=self.current_version,
             query=query,
             created_by=user,
+            cache_age_seconds=previous_cache_age,
+            description=previous_description,
+            is_materialized=False,
         )
 
         return version
 
-    def get_version(self, version: int | None = None) -> EndpointVersion | None:
-        """Get a specific version, or the latest if version is None.
+    def get_version(self, version: int | None = None) -> EndpointVersion:
+        """Get a specific version, or the latest (highest version number) if version is None.
 
-        Returns None if no versions exist when version is None.
-        Raises EndpointVersion.DoesNotExist if a specific version number is requested but doesn't exist.
+        Raises EndpointVersion.DoesNotExist if the requested version doesn't exist.
         """
         if version is not None:
-            return EndpointVersion.objects.get(endpoint=self, version=version)
+            return self.versions.get(version=version)
 
-        version_instance = self.versions.first()
-        return version_instance
+        latest = self.versions.first()  # Model ordering is -version
+        if latest is None:
+            raise EndpointVersion.DoesNotExist("Endpoint has no versions")
+        return latest
