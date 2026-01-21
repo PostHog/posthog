@@ -67,6 +67,7 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRuns,
         evaluationRunsLoading,
         runsSummary,
+        runsToSummarizeCount,
         evaluationSummary,
         evaluationSummaryLoading,
         evaluationSummaryFilter,
@@ -212,7 +213,7 @@ export function EvaluationRunsTable(): JSX.Element {
             {showSummaryFeature && evaluationSummaryLoading && (
                 <div className="flex items-center justify-center py-6 border rounded-lg bg-bg-light">
                     <Spinner className="text-primary" />
-                    <span className="ml-2 text-muted">Analyzing evaluation results...</span>
+                    <span className="ml-2 text-muted">Analyzing {runsToSummarizeCount} evaluation results...</span>
                 </div>
             )}
 
