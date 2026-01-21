@@ -1,3 +1,4 @@
+import copy
 import json
 from contextlib import contextmanager
 from pathlib import Path
@@ -265,7 +266,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_funding(self):
         """Test transform_harmonic_data handles missing funding section."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["funding"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -277,7 +278,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_company_fields(self):
         """Test transform_harmonic_data handles missing company info fields."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["name"]
         del harmonic_data["companyType"]
         del harmonic_data["description"]
@@ -294,7 +295,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_website(self):
         """Test transform_harmonic_data handles malformed website data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["website"] = "not-a-dict"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -305,7 +306,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_malformed_founding_date(self):
         """Test transform_harmonic_data handles malformed founding date."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["foundingDate"] = "1983-01-01"  # Should be dict, now string
 
         result = transform_harmonic_data(harmonic_data)
@@ -316,7 +317,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_traction_metrics(self):
         """Test transform_harmonic_data handles missing tractionMetrics."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["tractionMetrics"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -329,7 +330,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_missing_latest_value(self):
         """Test transform_harmonic_data handles metrics without latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         # Remove latestMetricValue from headcount metric
         del harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"]
 
@@ -344,7 +345,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_metric_with_null_latest_value(self):
         """Test transform_harmonic_data handles metrics with null latestMetricValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["latestMetricValue"] = None
 
         result = transform_harmonic_data(harmonic_data)
@@ -358,7 +359,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_empty_historical_metrics(self):
         """Test transform_harmonic_data handles empty historical data."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tractionMetrics"]["headcount"]["metrics"] = []
 
         result = transform_harmonic_data(harmonic_data)
@@ -371,7 +372,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_missing_tags(self):
         """Test transform_harmonic_data handles missing tags."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["tags"]
         del harmonic_data["tagsV2"]
 
@@ -384,7 +385,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_no_primary_tag_uses_first(self):
         """Test Salesforce update falls back to first tag when there's no primary tag."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         # Remove isPrimaryTag from all tags
         for tag in harmonic_data.get("tags", []):
             tag["isPrimaryTag"] = False
@@ -400,7 +401,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_empty_tags(self):
         """Test Salesforce update when both tags and tagsV2 arrays are empty."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []
         harmonic_data["tagsV2"] = []
 
@@ -427,7 +428,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_fallback_to_tagsv2_market_vertical(self):
         """Test Salesforce update falls back to tagsV2 MARKET_VERTICAL when tags is empty."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []  # Empty tags array
 
         transformed_data = transform_harmonic_data(harmonic_data)
@@ -441,7 +442,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_fallback_to_tagsv2_first_tag(self):
         """Test Salesforce update falls back to first tagsV2 tag when no MARKET_VERTICAL."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = []  # Empty tags array
         # Remove MARKET_VERTICAL from tagsV2
         harmonic_data["tagsV2"] = [
@@ -460,7 +461,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_skips_empty_displayvalue(self):
         """Test Salesforce update skips tags with empty displayValue."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["tags"] = [
             {"type": "INDUSTRY", "displayValue": "", "isPrimaryTag": True},
             {"type": "CATEGORY", "displayValue": "Fallback", "isPrimaryTag": False},
@@ -490,7 +491,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_includes_is_yc_company_with_yc_investor(self):
         """Test transform_harmonic_data sets is_yc_company=True when YC is an investor."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["funding"]["investors"] = [
             {"name": "GV"},
             {"name": "Y Combinator"},
@@ -505,7 +506,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_transform_harmonic_data_is_yc_company_false_missing_funding(self):
         """Test transform_harmonic_data sets is_yc_company=False when no funding section."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         del harmonic_data["funding"]
 
         result = transform_harmonic_data(harmonic_data)
@@ -516,7 +517,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_includes_yc_company_flag(self):
         """Test Salesforce update includes harmonic_is_yc_company__c field."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["funding"]["investors"] = [{"name": "Y Combinator"}]
 
         transformed_data = transform_harmonic_data(harmonic_data)
@@ -530,7 +531,7 @@ class TestHarmonicDataTransformation(BaseTest):
     @freeze_time("2025-07-29T12:00:00Z")
     def test_prepare_salesforce_update_yc_company_false(self):
         """Test Salesforce update includes harmonic_is_yc_company__c=False when not YC funded."""
-        harmonic_data = load_harmonic_fixture()
+        harmonic_data = copy.deepcopy(load_harmonic_fixture())
         harmonic_data["funding"]["investors"] = [{"name": "GV"}, {"name": "Sequoia"}]
 
         transformed_data = transform_harmonic_data(harmonic_data)
