@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { hashCodeForString } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -28,6 +29,8 @@ const BATCH_FLUSH_INTERVAL_MS = 300
 const BATCH_SIZE_THRESHOLD = 10
 const INITIAL_RETRY_DELAY_MS = 1000
 const MAX_RETRY_DELAY_MS = 30000
+const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
+const COOKIELESS_TRANSFORM_SEPARATOR = '|||'
 
 export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType>([
     path(['scenes', 'web-analytics', 'livePageviewsLogic']),
@@ -64,13 +67,18 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
 
-                            // In cookieless mode, device_id is always "$posthog_cookieless"
-                            // We combine device_id with distinct_id so we don't bucket all cookieless users as one device
-                            const deviceKey = `${deviceId}_${event.distinct_id}`
+                            // For cookieless events, device_id isn't set before preprocessing
+                            // so we create a device key from IP + user agent
+                            let deviceKey = deviceId
+                            if (!deviceKey || deviceKey === '$posthog_cookieless') {
+                                const ip = event.properties?.$ip ?? ''
+                                const ua = event.properties?.$raw_user_agent ?? ''
+                                deviceKey = `cookieless_${hashCodeForString(ip + ua)}`
+                            }
 
                             window.addDataPoint(eventTs, event.distinct_id, {
                                 pageviews: event.event === '$pageview' ? 1 : 0,
-                                device: deviceId && deviceType ? { deviceId: deviceKey, deviceType } : undefined,
+                                device: deviceKey && deviceType ? { deviceId: deviceKey, deviceType } : undefined,
                                 pathname: event.event === '$pageview' ? pathname : undefined,
                             })
                         }
@@ -207,7 +215,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const url = new URL(`${host}/events`)
 
             // Filter for only the columns we need
-            url.searchParams.append('columns', '$pathname,$device_type,$device_id')
+            url.searchParams.append('columns', '$pathname,$device_type,$device_id,$ip,$raw_user_agent')
 
             cache.batch = [] as LiveEvent[]
             cache.lastBatchTime = performance.now()
@@ -318,7 +326,13 @@ const loadQueryData = async (
         query: `SELECT
                     toStartOfMinute(timestamp) AS minute_bucket,
                     ifNull(properties.$device_type, 'Unknown') AS device_type,
-                    arrayDistinct(groupArray(concat(ifNull(properties.$device_id, ''), '_', distinct_id))) AS device_ids
+                    arrayDistinct(groupArray(
+                        if(
+                            properties.$device_id IS NULL OR properties.$device_id = '$posthog_cookieless',
+                            concat('cookieless_transform|||', ifNull(properties.$ip, ''), '|||', ifNull(properties.$raw_user_agent, '')),
+                            properties.$device_id
+                        )
+                    )) AS device_ids
                 FROM events
                 WHERE
                     timestamp >= toDateTime({dateFrom})
@@ -328,6 +342,8 @@ const loadQueryData = async (
         values: {
             dateFrom: dateFrom.toISOString(),
             dateTo: dateTo.toISOString(),
+            cookielessPrefix: COOKIELESS_TRANSFORM_PREFIX,
+            cookielessSeparator: COOKIELESS_TRANSFORM_SEPARATOR,
         },
     }
 
@@ -365,6 +381,14 @@ const addUserDataToBuckets = (
     }
 }
 
+const transformDeviceId = (deviceId: string): string => {
+    if (deviceId.startsWith(COOKIELESS_TRANSFORM_PREFIX)) {
+        const [_, ip, userAgent] = deviceId.split(COOKIELESS_TRANSFORM_SEPARATOR)
+        return `cookieless_${hashCodeForString((ip ?? '') + (userAgent ?? ''))}`
+    }
+    return deviceId
+}
+
 const addDeviceDataToBuckets = (
     deviceResponse: HogQLQueryResponse,
     bucketMap: Map<number, SlidingWindowBucket>
@@ -377,7 +401,7 @@ const addDeviceDataToBuckets = (
 
         const devices = bucket.devices.get(deviceType) ?? new Set<string>()
         for (const id of deviceIds) {
-            devices.add(id)
+            devices.add(transformDeviceId(id))
         }
         bucket.devices.set(deviceType, devices)
     }
