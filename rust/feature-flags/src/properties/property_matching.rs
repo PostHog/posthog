@@ -4,7 +4,7 @@ use crate::properties::property_models::{OperatorType, PropertyFilter};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use dateparser::parse as parse_date;
-use regex::Regex;
+use fancy_regex::Regex;
 use semver::{Version, VersionReq};
 use serde_json::Value;
 
@@ -166,7 +166,8 @@ pub fn match_property(
                 }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
-            let match_ = pattern.find(&haystack);
+            // fancy_regex returns Result<Option<Match>, Error> to handle backtracking limits
+            let match_ = pattern.find(&haystack).unwrap_or(None);
 
             if operator == OperatorType::Regex {
                 Ok(match_.is_some())
@@ -2718,5 +2719,338 @@ mod test_match_properties {
             true
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_lookahead() {
+        // Positive lookahead: match "foo" only if followed by "bar"
+        let property_positive = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"foo(?=bar)")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar123"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobaz"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foo"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative lookahead: match "foo" only if NOT followed by "bar"
+        let property_negative = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"foo(?!bar)")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobaz"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foo"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_lookbehind() {
+        // Positive lookbehind: match "bar" only if preceded by "foo"
+        let property_positive = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"(?<=foo)bar")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("123foobar456"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("bazbar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_positive,
+            &HashMap::from([("key".to_string(), json!("bar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Negative lookbehind: match "bar" only if NOT preceded by "foo"
+        let property_negative = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"(?<!foo)bar")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("bazbar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("bar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_negative,
+            &HashMap::from([("key".to_string(), json!("foobar"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_with_backreference() {
+        // Backreference: match repeated words like "the the" or "is is"
+        let property = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"\b(\w+)\s+\1\b")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("the the"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("this is is a test"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("the quick brown fox"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("hello world"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Another backreference: match HTML-like tags where opening and closing match
+        let property_tags = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"<(\w+)>.*</\1>")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<div>content</div>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<span>text</span>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_tags,
+            &HashMap::from([("key".to_string(), json!("<div>content</span>"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_complex_patterns() {
+        // Real-world example: match email addresses from specific domains using lookahead
+        let property = PropertyFilter {
+            key: "email".to_string(),
+            value: Some(json!(r"^[\w.+-]+@(?=.*\.(com|org)$)[\w.-]+$")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("user@example.com"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("test@posthog.org"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("email".to_string(), json!("user@example.net"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Password validation: at least one uppercase, one lowercase, one digit
+        let password_check = PropertyFilter {
+            key: "password".to_string(),
+            value: Some(json!(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        assert!(match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("Password1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("SecurePass123"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("password"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &password_check,
+            &HashMap::from([("password".to_string(), json!("SHORT1"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_match_properties_regex_backtracking_limit() {
+        // Test that pathological regex patterns don't hang forever
+        // fancy-regex has a default backtracking limit of 1 million steps
+        // This pattern could cause catastrophic backtracking without limits
+        let property = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!(r"(a+)+b")),
+            operator: Some(OperatorType::Regex),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+        };
+
+        // Should match normally
+        assert!(match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("aaab"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // This would cause catastrophic backtracking without limits,
+        // but fancy-regex will hit its backtracking limit and return an error
+        // which we handle by returning false (no match)
+        let start = std::time::Instant::now();
+        let result = match_property(
+            &property,
+            &HashMap::from([("key".to_string(), json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaac"))]),
+            true,
+        );
+        let elapsed = start.elapsed();
+
+        // The key assertion: this should complete quickly (not hang)
+        // Even with backtracking limit hit, should complete in under 1 second
+        assert!(
+            elapsed.as_secs() < 1,
+            "Regex matching took too long: {:?}",
+            elapsed
+        );
+
+        // Result should be Ok(false) - either no match or backtracking limit hit
+        assert!(!result.expect("expected match to exist"));
     }
 }
