@@ -44,7 +44,7 @@ const LogsSceneContent = (): JSX.Element => {
         sparklineBreakdownBy,
     } = useValues(logsSceneLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
-    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
+    const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy, zoomDateRange } =
         useActions(logsSceneLogic)
 
     return (
@@ -98,6 +98,7 @@ const LogsSceneContent = (): JSX.Element => {
                     onDateRangeChange={setDateRange}
                     sparklineBreakdownBy={sparklineBreakdownBy}
                     onSparklineBreakdownByChange={setSparklineBreakdownBy}
+                    onExpandTimeRange={() => zoomDateRange(2)}
                 />
             </div>
         </>

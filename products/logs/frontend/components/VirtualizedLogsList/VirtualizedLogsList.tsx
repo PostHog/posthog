@@ -6,7 +6,10 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { DetectiveHog } from 'lib/components/hedgehogs'
 
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -32,6 +35,7 @@ interface VirtualizedLogsListProps {
     disableInfiniteScroll?: boolean
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
+    onExpandTimeRange?: () => void
 }
 
 export function VirtualizedLogsList({
@@ -46,6 +50,7 @@ export function VirtualizedLogsList({
     disableInfiniteScroll = false,
     hasMoreLogsToLoad = false,
     onLoadMore,
+    onExpandTimeRange,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         tabId,
@@ -242,7 +247,25 @@ export function VirtualizedLogsList({
     )
 
     if (dataSource.length === 0 && !loading) {
-        return <div className="p-4 text-muted text-center">No logs to display</div>
+        return (
+            <div className="flex flex-col items-center gap-3 p-8 text-center h-full min-h-40">
+                <DetectiveHog className="w-32 h-32" />
+                <div>
+                    <h4 className="font-semibold m-0">No logs found</h4>
+                    <p className="text-muted text-sm mt-1 mb-0 max-w-80">
+                        Try adjusting your filters, expanding the time range, or checking that your app is sending logs.
+                    </p>
+                    <Link to="https://posthog.com/docs/logs/" target="_blank">
+                        View documentation
+                    </Link>
+                </div>
+                {onExpandTimeRange && (
+                    <LemonButton type="secondary" size="small" onClick={onExpandTimeRange}>
+                        Expand time range
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
 
     // Fixed height mode for pinned logs
