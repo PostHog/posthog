@@ -103,7 +103,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
 
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -162,7 +162,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
-        ...(isAiUx
+        ...(isRemovingSidePanelMaxFlag
             ? [
                   {
                       identifier: 'ai',

@@ -12,7 +12,7 @@ import {
     IconShare,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -52,7 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
-    const isAiUx = useFeatureFlag('AI_UX')
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
@@ -75,7 +75,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
         )
     }
 
-    if (isAiUx) {
+    if (isRemovingSidePanelMaxFlag) {
         return <AiFirstMaxInstance tabId={tabId ?? ''} />
     }
 
@@ -106,6 +106,7 @@ export const MaxInstance = React.memo(function MaxInstance({
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { closeTabId } = useActions(sceneLogic)
     const { exitAIOnlyMode } = useActions(appLogic)
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     const threadProps: MaxThreadLogicProps = {
         tabId,
@@ -134,7 +135,8 @@ export const MaxInstance = React.memo(function MaxInstance({
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>
-                        <HistoryPreview sidePanel={sidePanel} />
+
+                        {!isRemovingSidePanelMaxFlag && <HistoryPreview sidePanel={sidePanel} />}
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
@@ -218,7 +220,22 @@ export const MaxInstance = React.memo(function MaxInstance({
                             tooltipPlacement="bottom-end"
                         />
                     )}
-                    {!isAIOnlyMode && (
+                    {isRemovingSidePanelMaxFlag ? (
+                        <Link
+                            buttonProps={{
+                                iconOnly: true,
+                            }}
+                            to={urls.ai(conversationId ?? undefined)}
+                            onClick={() => {
+                                closeSidePanel()
+                            }}
+                            target="_blank"
+                            tooltip="Open as main focus"
+                            tooltipPlacement="bottom-end"
+                        >
+                            <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                        </Link>
+                    ) : (
                         <LemonButton
                             size="small"
                             sideIcon={<IconExpand45 />}
