@@ -347,9 +347,11 @@ class LazyTableResolver(TraversingVisitor):
         # Predicate pushdown: mark events table for wrapping in a subquery with pushed-down predicates.
         # This allows ClickHouse to filter events early before joining with lazy tables.
         # The actual subquery wrapping is done by the printer when it sees pushdown_where.
+        # Skip pushdown if there's a SAMPLE clause since ClickHouse doesn't support SAMPLE on subqueries.
         if (
             len(joins_to_add) > 0
             and node.select_from is not None
+            and node.select_from.sample is None
             and isinstance(node.select_from.table, ast.Field)
             and node.select_from.table.chain == ["events"]
             and node.where is not None
@@ -360,11 +362,10 @@ class LazyTableResolver(TraversingVisitor):
             )
 
             # Extract predicates that can be pushed down (events-only predicates).
-            # We use an empty set for joined_aliases because we want to exclude
-            # ANY predicate that references a lazy join or subquery (via the type system),
-            # not just the joins in the current query. This is important when filters are
-            # propagated to subqueries that may have different join structures.
-            extractor = EventsPredicatePushdownExtractor(joined_table_aliases=set())
+            # Pass the joined table aliases so predicates referencing them are excluded.
+            # The extractor also checks types for lazy joins and subqueries.
+            joined_aliases = set(joins_to_add.keys())
+            extractor = EventsPredicatePushdownExtractor(joined_table_aliases=joined_aliases)
             inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
 
             if inner_where is not None:

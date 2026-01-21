@@ -550,7 +550,22 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 self.found_joined_reference = True
 
     def _type_references_lazy_join(self, type_node) -> bool:
-        """Recursively check if a type eventually resolves to a LazyJoinType or SelectQueryAliasType."""
+        """
+        Recursively check if a type is not a simple, pushable events table field.
+
+        Returns True (don't push down) for:
+        - LazyJoinType: field references a lazy-joined table
+        - SelectQueryAliasType: field references a subquery
+        - FieldAliasType: field is an alias from SELECT clause
+        - VirtualTableType: field goes through a virtual table (e.g., person_properties via poe)
+        - TableAliasType: field references an aliased table (e.g., `e` instead of `events`)
+          This is important because unwrapping aliases can cause issues with how the printer
+          handles certain fields (like timestamps).
+
+        Returns False (ok to push down) only for:
+        - FieldType with TableType pointing directly to events table
+        - PropertyType wrapping such a FieldType
+        """
         visited = set()  # Prevent infinite loops
         to_check = [type_node]
 
@@ -560,24 +575,26 @@ class JoinedTableReferenceFinder(TraversingVisitor):
                 continue
             visited.add(id(current))
 
-            # Found a lazy join type or subquery alias (both represent "joined" tables)
+            # Found types that should NOT be pushed down
             if isinstance(current, ast.LazyJoinType):
                 return True
             if isinstance(current, ast.SelectQueryAliasType):
-                # SelectQueryAliasType means the field references a subquery,
-                # which won't exist in the inner events subquery
+                return True
+            if isinstance(current, ast.FieldAliasType):
+                return True
+            if isinstance(current, ast.VirtualTableType):
+                # Virtual table fields (like person_properties via poe) have special handling
+                # that may not work correctly inside a pushdown subquery
+                return True
+            if isinstance(current, ast.TableAliasType):
+                # Table aliases (like `e` for events) require type unwrapping which can
+                # cause issues with how the printer handles certain fields. Don't push down.
                 return True
 
             # Unwrap type wrappers and add their inner types to the check list
             if isinstance(current, ast.PropertyType):
                 to_check.append(current.field_type)
-            elif isinstance(current, ast.FieldAliasType):
-                to_check.append(current.type)
             elif isinstance(current, ast.FieldType):
-                to_check.append(current.table_type)
-            elif isinstance(current, ast.TableAliasType):
-                to_check.append(current.table_type)
-            elif isinstance(current, ast.VirtualTableType):
                 to_check.append(current.table_type)
 
         return False
