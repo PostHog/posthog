@@ -14,9 +14,10 @@ import { EvaluationPattern, EvaluationRun, EvaluationSummaryFilter } from '../ty
 interface PatternCardProps {
     pattern: EvaluationPattern
     type: 'pass' | 'fail' | 'na'
+    runsLookup: Record<string, EvaluationRun>
 }
 
-function PatternCard({ pattern, type }: PatternCardProps): JSX.Element {
+function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Element {
     const borderClass = type === 'pass' ? 'border-success' : type === 'fail' ? 'border-danger' : 'border-muted'
     const iconClass = type === 'pass' ? 'text-success' : type === 'fail' ? 'text-danger' : 'text-muted'
     const Icon = type === 'pass' ? IconCheck : type === 'fail' ? IconX : IconMinus
@@ -32,6 +33,30 @@ function PatternCard({ pattern, type }: PatternCardProps): JSX.Element {
             <div className="text-xs text-muted bg-bg-light p-2 rounded">
                 <strong>Example:</strong> {pattern.example_reasoning}
             </div>
+            {pattern.example_generation_ids.length > 0 && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted">Examples:</span>
+                    {pattern.example_generation_ids.map((genId) => {
+                        const run = runsLookup[genId]
+                        if (run) {
+                            return (
+                                <Link
+                                    key={genId}
+                                    to={urls.llmAnalyticsTrace(run.trace_id, { event: genId })}
+                                    className="text-xs font-mono text-primary hover:underline"
+                                >
+                                    {genId.slice(0, 8)}...
+                                </Link>
+                            )
+                        }
+                        return (
+                            <span key={genId} className="text-xs font-mono text-muted">
+                                {genId.slice(0, 8)}...
+                            </span>
+                        )
+                    })}
+                </div>
+            )}
         </div>
     )
 }
@@ -50,6 +75,12 @@ export function EvaluationRunsTable(): JSX.Element {
     const { refreshEvaluationRuns, generateEvaluationSummary, setEvaluationSummaryFilter, toggleSummaryExpanded } =
         useActions(llmEvaluationLogic)
     const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
+
+    // Create a lookup map from generation_id to run for linking in pattern cards
+    const runsLookup: Record<string, EvaluationRun> = {}
+    for (const run of evaluationRuns) {
+        runsLookup[run.generation_id] = run
+    }
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -251,7 +282,12 @@ export function EvaluationRunsTable(): JSX.Element {
                                             </h4>
                                             <div className="space-y-2">
                                                 {evaluationSummary.pass_patterns.map((pattern, i) => (
-                                                    <PatternCard key={i} pattern={pattern} type="pass" />
+                                                    <PatternCard
+                                                        key={i}
+                                                        pattern={pattern}
+                                                        type="pass"
+                                                        runsLookup={runsLookup}
+                                                    />
                                                 ))}
                                             </div>
                                         </div>
@@ -265,7 +301,12 @@ export function EvaluationRunsTable(): JSX.Element {
                                             </h4>
                                             <div className="space-y-2">
                                                 {evaluationSummary.fail_patterns.map((pattern, i) => (
-                                                    <PatternCard key={i} pattern={pattern} type="fail" />
+                                                    <PatternCard
+                                                        key={i}
+                                                        pattern={pattern}
+                                                        type="fail"
+                                                        runsLookup={runsLookup}
+                                                    />
                                                 ))}
                                             </div>
                                         </div>
@@ -282,7 +323,12 @@ export function EvaluationRunsTable(): JSX.Element {
                                     <div className="space-y-2">
                                         {evaluationSummary.pass_patterns.length > 0 ? (
                                             evaluationSummary.pass_patterns.map((pattern, i) => (
-                                                <PatternCard key={i} pattern={pattern} type="pass" />
+                                                <PatternCard
+                                                    key={i}
+                                                    pattern={pattern}
+                                                    type="pass"
+                                                    runsLookup={runsLookup}
+                                                />
                                             ))
                                         ) : (
                                             <p className="text-sm text-muted">No passing patterns identified</p>
@@ -300,7 +346,12 @@ export function EvaluationRunsTable(): JSX.Element {
                                     <div className="space-y-2">
                                         {evaluationSummary.fail_patterns.length > 0 ? (
                                             evaluationSummary.fail_patterns.map((pattern, i) => (
-                                                <PatternCard key={i} pattern={pattern} type="fail" />
+                                                <PatternCard
+                                                    key={i}
+                                                    pattern={pattern}
+                                                    type="fail"
+                                                    runsLookup={runsLookup}
+                                                />
                                             ))
                                         ) : (
                                             <p className="text-sm text-muted">No failing patterns identified</p>
@@ -318,7 +369,12 @@ export function EvaluationRunsTable(): JSX.Element {
                                     <div className="space-y-2">
                                         {evaluationSummary.na_patterns.length > 0 ? (
                                             evaluationSummary.na_patterns.map((pattern, i) => (
-                                                <PatternCard key={i} pattern={pattern} type="na" />
+                                                <PatternCard
+                                                    key={i}
+                                                    pattern={pattern}
+                                                    type="na"
+                                                    runsLookup={runsLookup}
+                                                />
                                             ))
                                         ) : (
                                             <p className="text-sm text-muted">No N/A patterns identified</p>

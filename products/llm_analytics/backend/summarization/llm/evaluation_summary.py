@@ -25,7 +25,7 @@ async def summarize_evaluation_runs(
     Generate summary of evaluation runs using OpenAI API with structured outputs.
 
     Args:
-        evaluation_runs: List of dicts with 'result' (bool or None) and 'reasoning' (str)
+        evaluation_runs: List of dicts with 'generation_id' (str), 'result' (bool or None), and 'reasoning' (str)
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
         filter_type: The filter applied ('all', 'pass', 'fail', 'na')
@@ -41,9 +41,12 @@ async def summarize_evaluation_runs(
             return "N/A"
         return "PASS" if result else "FAIL"
 
-    # Format the evaluation runs for the prompt
+    # Format the evaluation runs for the prompt (include generation_id so LLM can reference them)
     runs_text = "\n\n".join(
-        [f"- Result: {result_label(run['result'])}\n  Reasoning: {run['reasoning']}" for run in evaluation_runs]
+        [
+            f"- Generation ID: {run['generation_id']}\n  Result: {result_label(run['result'])}\n  Reasoning: {run['reasoning']}"
+            for run in evaluation_runs
+        ]
     )
 
     # Count statistics for the prompt
