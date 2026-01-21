@@ -26,6 +26,7 @@ class EvaluationSummaryStatistics(BaseModel):
     total_analyzed: int = Field(description="Total number of evaluation runs analyzed")
     pass_count: int = Field(description="Number of passing evaluations")
     fail_count: int = Field(description="Number of failing evaluations")
+    na_count: int = Field(description="Number of N/A (not applicable) evaluations")
 
 
 class EvaluationSummaryResponse(BaseModel):
@@ -33,14 +34,9 @@ class EvaluationSummaryResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    overall_assessment: str = Field(
-        description="1-2 sentence high-level summary of the evaluation results and their quality"
-    )
-    pass_patterns: list[EvaluationPattern] = Field(
-        description="Common patterns found in passing evaluations (0-4 patterns)"
-    )
-    fail_patterns: list[EvaluationPattern] = Field(
-        description="Common patterns found in failing evaluations (0-4 patterns)"
-    )
-    recommendations: list[str] = Field(description="2-4 actionable recommendations based on the analysis")
-    statistics: EvaluationSummaryStatistics = Field(description="Basic statistics about the analyzed runs")
+    overall_assessment: str
+    pass_patterns: list[EvaluationPattern]
+    fail_patterns: list[EvaluationPattern]
+    na_patterns: list[EvaluationPattern]
+    recommendations: list[str]
+    statistics: EvaluationSummaryStatistics
