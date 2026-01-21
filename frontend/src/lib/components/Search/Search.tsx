@@ -16,7 +16,7 @@ import {
 } from 'react'
 
 import { IconSearch, IconX } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -507,7 +507,7 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recent items'
+                return 'Recents and apps'
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
@@ -609,6 +609,27 @@ function SearchResults({
                                                                                 )}
                                                                             </span>
                                                                         )}
+                                                                    {item.productCategory && (
+                                                                        <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                            {item.productCategory}
+                                                                        </span>
+                                                                    )}
+                                                                    {item.tags?.map((tag) => (
+                                                                        <LemonTag
+                                                                            key={tag}
+                                                                            type={
+                                                                                tag === 'alpha'
+                                                                                    ? 'completion'
+                                                                                    : tag === 'beta'
+                                                                                      ? 'warning'
+                                                                                      : 'success'
+                                                                            }
+                                                                            size="small"
+                                                                            className="shrink-0"
+                                                                        >
+                                                                            {tag.toUpperCase()}
+                                                                        </LemonTag>
+                                                                    ))}
                                                                     {item.lastViewedAt && (
                                                                         <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
                                                                             {formatRelativeTimeShort(item.lastViewedAt)}
