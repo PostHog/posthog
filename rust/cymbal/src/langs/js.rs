@@ -181,6 +181,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
+            // https://posthog.slack.com/archives/C07AA937K9A/p1768415443965209
             ScopeLookupResult::NamedScope(name) => {
                 let scope_name = name.to_string();
                 let resolved = if name.starts_with("$async$") {
