@@ -39,6 +39,10 @@ export interface SignupPanelOnboardingForm {
     referral_source: string
 }
 
+interface SignupEmailPrecheckResponse {
+    email_exists: boolean
+}
+
 // Keep SignupForm for backwards compatibility
 export interface SignupForm extends SignupPanelEmailForm, SignupPanelAuthForm, SignupPanelOnboardingForm {}
 
@@ -108,7 +112,31 @@ export const signupLogic = kea<signupLogicType>([
                       ? 'Please use a valid email address'
                       : undefined,
             }),
-            submit: async () => {
+            submit: async ({ email }, breakpoint) => {
+                breakpoint()
+                actions.setSignupPanelEmailManualErrors({})
+                try {
+                    const { email_exists } = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                        email,
+                    })
+                    if (email_exists) {
+                        actions.setSignupPanelEmailManualErrors({
+                            email: 'There is already an account with this email address.',
+                        })
+                        return
+                    }
+                } catch (e: any) {
+                    if (e?.status === 409 || e?.code === 'account_exists') {
+                        actions.setSignupPanelEmailManualErrors({
+                            email: 'There is already an account with this email address.',
+                        })
+                        return
+                    }
+                    actions.setSignupPanelEmailManualErrors({
+                        email: e?.detail || 'Could not verify your email. Please try again.',
+                    })
+                    throw e
+                }
                 actions.setPanel(1)
             },
         },
@@ -219,7 +247,31 @@ export const signupLogic = kea<signupLogicType>([
                         : values.validatedPassword.feedback || undefined
                     : undefined,
             }),
-            submit: async () => {
+            submit: async ({ email }, breakpoint) => {
+                breakpoint()
+                actions.setSignupPanel1ManualErrors({})
+                try {
+                    const { email_exists } = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
+                        email,
+                    })
+                    if (email_exists) {
+                        actions.setSignupPanel1ManualErrors({
+                            email: 'There is already an account with this email address.',
+                        })
+                        return
+                    }
+                } catch (e: any) {
+                    if (e?.status === 409 || e?.code === 'account_exists') {
+                        actions.setSignupPanel1ManualErrors({
+                            email: 'There is already an account with this email address.',
+                        })
+                        return
+                    }
+                    actions.setSignupPanel1ManualErrors({
+                        email: e?.detail || 'Could not verify your email. Please try again.',
+                    })
+                    throw e
+                }
                 actions.setPanel(1)
             },
         },
@@ -379,6 +431,12 @@ export const signupLogic = kea<signupLogicType>([
             try {
                 // Step 1: Begin registration - get options from server
                 const beginResponse = await api.create('api/webauthn/signup-register/begin/', { email })
+
+                if (beginResponse?.already_registered) {
+                    actions.setPasskeyRegistered(true)
+                    actions.setSignupPanelAuthValue('password', '')
+                    return
+                }
 
                 // Step 2: Create credential using browser WebAuthn API
                 const credential = await navigator.credentials.create({

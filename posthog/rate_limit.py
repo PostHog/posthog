@@ -305,6 +305,15 @@ class SignupIPThrottle(IPThrottle):
     rate = "5/day"
 
 
+class SignupEmailPrecheckThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit signup email precheck requests by user/email.
+    """
+
+    scope = "signup_email_precheck"
+    rate = "30/minute"
+
+
 class OnboardingIPThrottle(IPThrottle):
     """
     Rate limit onboarding product recommendations by IP address.

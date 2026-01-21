@@ -73,6 +73,14 @@ def user_uuid_to_handle(user_uuid: uuid.UUID) -> bytes:
     return user_uuid.bytes
 
 
+def clear_signup_webauthn_session(request: Request) -> None:
+    request.session.pop(WEBAUTHN_SIGNUP_CHALLENGE_KEY, None)
+    request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+    request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+    request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+    request.session.save()
+
+
 class WebAuthnRegistrationViewSet(viewsets.ViewSet):
     """
     ViewSet for WebAuthn passkey registration.
@@ -459,6 +467,23 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
                 {"error": "An account with this email already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # handle previously aborted passkey signup
+        session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY)
+        session_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+        session_user_uuid = request.session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY)
+
+        if session_email and session_email.lower() != email.lower():
+            clear_signup_webauthn_session(request)
+            session_email = None
+            session_credential = None
+            session_user_uuid = None
+
+        if session_credential and session_email and session_user_uuid:
+            return Response({"already_registered": True})
+
+        if session_credential or session_email or session_user_uuid:
+            clear_signup_webauthn_session(request)
 
         # Generate user UUID - will become the user's uuid field when account is created
         user_uuid = uuid.uuid4()

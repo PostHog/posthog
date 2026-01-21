@@ -13,7 +13,7 @@ from django.urls.base import reverse
 
 import structlog
 import posthoganalytics
-from rest_framework import exceptions, generics, permissions, response, serializers
+from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
@@ -35,7 +35,7 @@ from posthog.helpers.email_utils import EmailValidationHelper
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupIPThrottle
+from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -278,6 +278,32 @@ class SignupSerializer(serializers.Serializer):
         return data
 
 
+class SignupEmailPrecheckSerializer(serializers.Serializer):
+    email: serializers.Field = serializers.EmailField()
+
+
+class SignupEmailPrecheckViewset(generics.GenericAPIView):
+    serializer_class = SignupEmailPrecheckSerializer
+    permission_classes = (permissions.AllowAny,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupEmailPrecheckThrottle]
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        if email_exists:
+            return response.Response(
+                {
+                    "email_exists": True,
+                    "code": "account_exists",
+                    "detail": "There is already an account with this email address.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return response.Response({"email_exists": False}, status=status.HTTP_200_OK)
+
+
 class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
@@ -302,10 +328,17 @@ class InviteSignupSerializer(serializers.Serializer):
         return data
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        if "request" not in self.context or not self.context["request"].user.is_authenticated:
+        request = self.context.get("request")
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
+
+        if not request or not request.user.is_authenticated:
             # If there's no authenticated user and we're creating a new one, attributes are required.
 
-            for attr in ["first_name", "password"]:
+            required_fields = ["first_name"]
+            if not passkey_credential:
+                required_fields.append("password")
+
+            for attr in required_fields:
                 if not data.get(attr):
                     raise serializers.ValidationError({attr: "This field is required."}, code="required")
 
@@ -320,8 +353,13 @@ class InviteSignupSerializer(serializers.Serializer):
 
         role_at_organization = validated_data.pop("role_at_organization", "")
 
-        if self.context["request"].user.is_authenticated:
-            user = cast(User, self.context["request"].user)
+        request = self.context["request"]
+        passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+        session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY)
+        session_user_uuid = request.session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY)
+
+        if request.user.is_authenticated:
+            user = cast(User, request.user)
 
         invite_id = self.context["view"].kwargs.get("invite_id")
 
@@ -344,14 +382,33 @@ class InviteSignupSerializer(serializers.Serializer):
         with transaction.atomic():
             if not user:
                 is_new_user = True
+                if passkey_credential and (not session_email or not session_user_uuid):
+                    raise serializers.ValidationError(
+                        "Passkey signup session expired. Please register your passkey again.",
+                        code="passkey_session_expired",
+                    )
+
+                if passkey_credential and session_email and session_email.lower() != invite.target_email.lower():
+                    raise serializers.ValidationError(
+                        "Email does not match the email used for passkey registration", code="email_mismatch"
+                    )
+
                 try:
+                    if passkey_credential:
+                        validated_data.pop("password", None)
+                    password = None if passkey_credential else validated_data.pop("password")
+                    first_name = validated_data.pop("first_name")
+                    extra_fields: dict[str, Any] = {**validated_data}
+                    if passkey_credential and session_user_uuid:
+                        extra_fields["uuid"] = uuid_module.UUID(session_user_uuid)
+
                     user = User.objects.create_user(
                         invite.target_email,
-                        validated_data.pop("password"),
-                        validated_data.pop("first_name"),
+                        password,
+                        first_name,
                         is_email_verified=False,
                         role_at_organization=role_at_organization,
-                        **validated_data,
+                        **extra_fields,
                     )
                 except IntegrityError:
                     raise serializers.ValidationError(
@@ -362,6 +419,18 @@ class InviteSignupSerializer(serializers.Serializer):
                 invite.use(user)
             except ValueError as e:
                 raise serializers.ValidationError(str(e))
+
+            if passkey_credential:
+                WebauthnCredential.objects.create(
+                    user=user,
+                    credential_id=base64url_to_bytes(passkey_credential["credential_id"]),
+                    public_key=base64url_to_bytes(passkey_credential["public_key"]),
+                    algorithm=passkey_credential["algorithm"],
+                    counter=passkey_credential["sign_count"],
+                    transports=passkey_credential.get("transports", []),
+                    verified=True,
+                    label="Passkey",
+                )
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)
@@ -382,6 +451,12 @@ class InviteSignupSerializer(serializers.Serializer):
             report_user_joined_organization(organization=invite.organization, current_user=user)
 
         alias_invite_id(user, str(invite.id))
+
+        if passkey_credential:
+            request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+            request.session.save()
 
         return user
 
