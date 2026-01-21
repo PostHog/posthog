@@ -36,6 +36,10 @@ class Migration(migrations.Migration):
                         to="posthog.team",
                     ),
                 ),
+                (
+                    "person_id",
+                    models.BigIntegerField(blank=True, db_index=True, null=True),
+                ),
             ],
         ),
         migrations.AddIndex(

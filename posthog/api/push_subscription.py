@@ -25,7 +25,7 @@ logger = structlog.get_logger(__name__)
 class PushSubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PushSubscription
-        fields = ["id", "distinct_id", "token", "platform", "is_active", "created_at", "updated_at"]
+        fields = ["id", "distinct_id", "token", "platform", "is_active", "created_at", "updated_at", "person_id"]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {"token": {"write_only": True}}
 
@@ -97,12 +97,14 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         {
             "distinct_id": "user-123",
             "token": "fcm-token-abc123...",
-            "platform": "android" | "ios"
+            "platform": "android" | "ios",
+            "person_id": 123 (optional)
         }
         """
         distinct_id = request.data.get("distinct_id")
         token = request.data.get("token")
         platform = request.data.get("platform")
+        person_id = request.data.get("person_id")
 
         if not distinct_id:
             return Response({"error": "distinct_id is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -124,6 +126,7 @@ class PushSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             distinct_id=distinct_id,
             token=token,
             platform=platform_enum,
+            person_id=person_id,
         )
 
         return Response(PushSubscriptionSerializer(subscription).data, status=status.HTTP_200_OK)
@@ -158,7 +161,8 @@ def sdk_push_subscription_register(request: HttpRequest):
         "api_key": "phc_xxx...",
         "distinct_id": "user-123",
         "token": "fcm-token-abc123...",
-        "platform": "android" | "ios"
+        "platform": "android" | "ios",
+        "person_id": 123 (optional)
     }
 
     Security note: This endpoint uses @csrf_exempt because it's called by mobile SDKs
@@ -196,6 +200,7 @@ def sdk_push_subscription_register(request: HttpRequest):
     distinct_id = data.get("distinct_id")
     token = data.get("token")
     platform = data.get("platform")
+    person_id = data.get("person_id")
 
     if not distinct_id:
         return cors_response(request, JsonResponse({"error": "distinct_id is required"}, status=400))
@@ -220,6 +225,7 @@ def sdk_push_subscription_register(request: HttpRequest):
         distinct_id=distinct_id,
         token=token,
         platform=platform_enum,
+        person_id=person_id,
     )
 
     logger.info(

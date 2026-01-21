@@ -160,3 +160,62 @@ class TestPushSubscription(BaseTest):
         self.assertIn("user-123", str(subscription))
         self.assertIn("android", str(subscription).lower())
         self.assertIn("active", str(subscription).lower())
+
+    def test_upsert_token_ignores_upload_when_existing_has_person_id(self):
+        # person_id stores Person ID (from posthog_person table)
+        person_id = 12345
+        existing_subscription = PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+            person_id=person_id,
+        )
+
+        original_updated_at = existing_subscription.updated_at
+
+        # Try to upload same token without person_id
+        result = PushSubscription.upsert_token(
+            team_id=self.team.id,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.IOS,  # Different platform, but should be ignored
+            person_id=None,
+        )
+
+        # Should return existing subscription without updating
+        self.assertEqual(existing_subscription.id, result.id)
+        self.assertEqual(result.person_id, person_id)
+        existing_subscription.refresh_from_db()
+        self.assertEqual(existing_subscription.updated_at, original_updated_at)
+
+    def test_upsert_token_allows_update_when_providing_person_id(self):
+        import time
+
+        # person_id stores Person ID (from posthog_person table)
+        person_id_1 = 12345
+        person_id_2 = 67890
+
+        existing_subscription = PushSubscription.objects.create(
+            team=self.team,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.ANDROID,
+            person_id=person_id_1,
+        )
+
+        original_updated_at = existing_subscription.updated_at
+        time.sleep(0.01)  # Small delay to ensure timestamp difference
+
+        # Upload with different person_id should update
+        result = PushSubscription.upsert_token(
+            team_id=self.team.id,
+            distinct_id="user-123",
+            token="fcm-token-abc123",
+            platform=PushPlatform.IOS,
+            person_id=person_id_2,
+        )
+
+        self.assertEqual(existing_subscription.id, result.id)
+        self.assertEqual(result.person_id, person_id_2)
+        self.assertGreater(result.updated_at, original_updated_at)

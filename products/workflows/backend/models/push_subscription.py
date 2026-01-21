@@ -36,6 +36,9 @@ class PushSubscription(UUIDModel):
 
     disabled_reason = models.CharField(max_length=128, null=True, blank=True)
 
+    # Person ID from posthog_person table (customer analytics person, not PostHog User)
+    person_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "distinct_id", "is_active"]),
@@ -68,23 +71,43 @@ class PushSubscription(UUIDModel):
         distinct_id: str,
         token: str,
         platform: PushPlatform,
+        person_id: int | None = None,
     ) -> "PushSubscription":
         """
         Create or update a push subscription token.
-        If a subscription with the same team/token exists, updates it.
+        If a subscription with the same team/distinct_id/token_hash exists, updates it.
+        Otherwise creates a new one.
+        If uploading without person_id and a subscription with person_id already exists,
+        the upload is ignored and the existing subscription is returned.
         """
         token_hash = cls._hash_token(token)
 
+        # Check if subscription already exists with person_id
+        # If so and we're uploading without person_id, ignore the upload
+        existing = cls.objects.filter(team_id=team_id, distinct_id=distinct_id, token_hash=token_hash).first()
+
+        if existing and existing.person_id is not None and person_id is None:
+            return existing
+
+        defaults = {
+            "token": token,
+            "platform": platform,
+            "is_active": True,
+            "disabled_reason": None,
+        }
+        if person_id is not None:
+            defaults["person_id"] = person_id
+
+        # update_or_create will:
+        # - Find existing subscription by team_id + distinct_id + token_hash
+        # - If found: update it with defaults (including user if provided)
+        #   This handles the case where existing subscription has no user and we're uploading with user_id
+        # - If not found: create new subscription with defaults
         subscription, _created = cls.objects.update_or_create(
             team_id=team_id,
             distinct_id=distinct_id,
             token_hash=token_hash,
-            defaults={
-                "token": token,
-                "platform": platform,
-                "is_active": True,
-                "disabled_reason": None,
-            },
+            defaults=defaults,
         )
 
         return subscription

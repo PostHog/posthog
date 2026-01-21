@@ -237,4 +237,349 @@ describe('Hog Inputs', () => {
             )
         })
     })
+
+    describe('push_subscriptions deduplication', () => {
+        let pushSubscriptionsManager: any
+
+        beforeEach(() => {
+            pushSubscriptionsManager = hogInputsService['pushSubscriptionsManager']
+        })
+
+        it('does not query PersonDistinctId when all subscriptions have person_id', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            const postgresQuerySpy = jest.spyOn(hub.postgres, 'query')
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(postgresQuerySpy).not.toHaveBeenCalled()
+            expect(pushSubscriptionsManager.updatePersonIds).not.toHaveBeenCalled()
+        })
+
+        it('queries PersonDistinctId and updates subscriptions without person_id', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: null,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({
+                rows: [{ person_id: 456 }],
+            } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(hub.postgres.query).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.stringContaining('SELECT person_id'),
+                expect.anything(),
+                expect.anything()
+            )
+            expect(pushSubscriptionsManager.updatePersonIds).toHaveBeenCalledWith(team.id, [
+                { subscriptionId: 'sub-1', personId: 456 },
+            ])
+        })
+
+        it('groups subscriptions by person_id + token_hash and keeps latest', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+                {
+                    id: 'sub-2',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-2',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-02T00:00:00Z',
+                    updated_at: '2025-01-02T00:00:00Z',
+                    person_id: 123,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({ rows: [] } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+
+            expect(pushSubscriptionsManager.deactivateSubscriptionsByIds).toHaveBeenCalledWith(
+                team.id,
+                ['sub-1'],
+                'Disabled because user+device has a more recent token'
+            )
+            expect(result.push_subscriptions).toEqual([{ id: 'sub-2' }])
+        })
+
+        it('considers subscriptions with existing person_id when grouping', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-existing',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+                {
+                    id: 'sub-new',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-2',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-02T00:00:00Z',
+                    updated_at: '2025-01-02T00:00:00Z',
+                    person_id: null,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({
+                rows: [{ person_id: 123 }],
+            } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+
+            // Both subscriptions should be grouped together by person_id (123) + token_hash (hash-1)
+            // sub-new should be kept (newer), sub-existing should be disabled
+            expect(pushSubscriptionsManager.updatePersonIds).toHaveBeenCalledWith(team.id, [
+                { subscriptionId: 'sub-new', personId: 123 },
+            ])
+            expect(pushSubscriptionsManager.deactivateSubscriptionsByIds).toHaveBeenCalledWith(
+                team.id,
+                ['sub-existing'],
+                'Disabled because user+device has a more recent token'
+            )
+            expect(result.push_subscriptions).toEqual([{ id: 'sub-new' }])
+        })
+
+        it('keeps all subscriptions when they have different token_hashes', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+                {
+                    id: 'sub-2',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-2',
+                    token_hash: 'hash-2',
+                    platform: 'ios' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({ rows: [] } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+
+            expect(pushSubscriptionsManager.deactivateSubscriptionsByIds).not.toHaveBeenCalled()
+            expect(result.push_subscriptions).toEqual([{ id: 'sub-1' }, { id: 'sub-2' }])
+        })
+
+        it('keeps all subscriptions when they have different person_ids', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 123,
+                },
+                {
+                    id: 'sub-2',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-2',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: 456,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({ rows: [] } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+
+            expect(pushSubscriptionsManager.deactivateSubscriptionsByIds).not.toHaveBeenCalled()
+            expect(result.push_subscriptions).toEqual([{ id: 'sub-1' }, { id: 'sub-2' }])
+        })
+
+        it('does not disable subscriptions when PersonDistinctId query returns no results', async () => {
+            const mockSubscriptions = [
+                {
+                    id: 'sub-1',
+                    team_id: team.id,
+                    distinct_id: 'distinct-1',
+                    token: 'token-1',
+                    token_hash: 'hash-1',
+                    platform: 'android' as const,
+                    is_active: true,
+                    last_successfully_used_at: null,
+                    created_at: '2025-01-01T00:00:00Z',
+                    updated_at: '2025-01-01T00:00:00Z',
+                    person_id: null,
+                },
+            ]
+
+            jest.spyOn(pushSubscriptionsManager, 'get').mockResolvedValue(mockSubscriptions)
+            jest.spyOn(pushSubscriptionsManager, 'updatePersonIds').mockResolvedValue(undefined)
+            jest.spyOn(pushSubscriptionsManager, 'deactivateSubscriptionsByIds').mockResolvedValue(undefined)
+            jest.spyOn(hub.postgres, 'query').mockResolvedValue({ rows: [] } as any)
+
+            const hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs_schema: [{ key: 'push_sub', type: 'push_subscription', required: true }],
+            })
+
+            const globals = createHogExecutionGlobals({
+                event: { distinct_id: 'distinct-1' } as any,
+            })
+
+            const result = await hogInputsService.buildInputsWithGlobals(hogFunction, globals)
+
+            expect(pushSubscriptionsManager.updatePersonIds).not.toHaveBeenCalled()
+            expect(pushSubscriptionsManager.deactivateSubscriptionsByIds).not.toHaveBeenCalled()
+            // Subscription without person_id should still be included (grouped as 'null:hash-1')
+            expect(result.push_subscriptions).toEqual([{ id: 'sub-1' }])
+        })
+    })
 })

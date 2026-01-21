@@ -32,11 +32,13 @@ type PushSubscriptionRow = {
     team_id: number
     distinct_id: string
     token: string
+    token_hash: string
     platform: 'android' | 'ios'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
+    person_id: number | null
 }
 
 export type PushSubscription = {
@@ -44,11 +46,13 @@ export type PushSubscription = {
     team_id: number
     distinct_id: string
     token: string
+    token_hash: string
     platform: 'android' | 'ios'
     is_active: boolean
     last_successfully_used_at: string | null
     created_at: string
     updated_at: string
+    person_id: number | null
 }
 
 export class PushSubscriptionsManagerService {
@@ -84,11 +88,13 @@ export class PushSubscriptionsManagerService {
                 team_id,
                 distinct_id,
                 token,
+                token_hash,
                 platform,
                 is_active,
                 last_successfully_used_at,
                 created_at,
-                updated_at
+                updated_at,
+                person_id
             FROM workflows_pushsubscription
             WHERE id = $1 AND team_id = $2 AND is_active = true
             LIMIT 1`
@@ -114,11 +120,13 @@ export class PushSubscriptionsManagerService {
             team_id: row.team_id,
             distinct_id: row.distinct_id,
             token: decryptedToken,
+            token_hash: row.token_hash,
             platform: row.platform,
             is_active: row.is_active,
             last_successfully_used_at: row.last_successfully_used_at,
             created_at: row.created_at,
             updated_at: row.updated_at,
+            person_id: row.person_id,
         }
     }
 
@@ -146,11 +154,13 @@ export class PushSubscriptionsManagerService {
                 team_id,
                 distinct_id,
                 token,
+                token_hash,
                 platform,
                 is_active,
                 last_successfully_used_at,
                 created_at,
-                updated_at
+                updated_at,
+                person_id
             FROM workflows_pushsubscription
             WHERE team_id = $1 AND id IN (${placeholders}) AND is_active = true
             LIMIT ${MAX_SUBSCRIPTION_IDS_PER_QUERY}`
@@ -180,11 +190,13 @@ export class PushSubscriptionsManagerService {
                 team_id: row.team_id,
                 distinct_id: row.distinct_id,
                 token: decryptedToken,
+                token_hash: row.token_hash,
                 platform: row.platform,
                 is_active: row.is_active,
                 last_successfully_used_at: row.last_successfully_used_at,
                 created_at: row.created_at,
                 updated_at: row.updated_at,
+                person_id: row.person_id,
             }
         }
 
@@ -230,11 +242,13 @@ export class PushSubscriptionsManagerService {
                     team_id,
                     distinct_id,
                     token,
+                    token_hash,
                     platform,
                     is_active,
                     last_successfully_used_at,
                     created_at,
-                    updated_at
+                    updated_at,
+                    person_id
                 FROM workflows_pushsubscription
                 WHERE ${conditions}
                 ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
@@ -265,11 +279,13 @@ export class PushSubscriptionsManagerService {
                     team_id,
                     distinct_id,
                     token,
+                    token_hash,
                     platform,
                     is_active,
                     last_successfully_used_at,
                     created_at,
-                    updated_at
+                    updated_at,
+                    person_id
                 FROM workflows_pushsubscription
                 WHERE ${conditions}
                 ORDER BY last_successfully_used_at DESC NULLS LAST, created_at DESC`
@@ -317,11 +333,13 @@ export class PushSubscriptionsManagerService {
                         team_id: row.team_id,
                         distinct_id: row.distinct_id,
                         token: decryptedToken,
+                        token_hash: row.token_hash,
                         platform: row.platform,
                         is_active: row.is_active,
                         last_successfully_used_at: row.last_successfully_used_at,
                         created_at: row.created_at,
                         updated_at: row.updated_at,
+                        person_id: row.person_id,
                     })
                 }
             }
@@ -356,6 +374,58 @@ export class PushSubscriptionsManagerService {
             [reason, teamId, tokenHash],
             'deactivatePushSubscriptionToken'
         )
+    }
+
+    public async deactivateSubscriptionsByIds(
+        teamId: number,
+        subscriptionIds: string[],
+        reason: string
+    ): Promise<void> {
+        if (subscriptionIds.length === 0) {
+            return
+        }
+
+        const placeholders = subscriptionIds.map((_, idx) => `$${idx + 3}`).join(', ')
+        const queryString = `UPDATE workflows_pushsubscription
+            SET is_active = false, disabled_reason = $1
+            WHERE team_id = $2 AND id IN (${placeholders}) AND is_active = true`
+
+        await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            queryString,
+            [reason, teamId, ...subscriptionIds],
+            'deactivatePushSubscriptionsByIds'
+        )
+    }
+
+    public async updatePersonIds(
+        teamId: number,
+        updates: Array<{ subscriptionId: string; personId: number }>
+    ): Promise<void> {
+        if (updates.length === 0) {
+            return
+        }
+
+        // Use VALUES clause with JOIN for efficient batch update
+        const values: any[] = []
+        const placeholders: string[] = []
+        let paramIndex = 1
+
+        // TODOdin: Take a closer look at the query
+        for (const update of updates) {
+            placeholders.push(`($${paramIndex}::uuid, $${paramIndex + 1})`)
+            values.push(update.subscriptionId, update.personId)
+            paramIndex += 2
+        }
+
+        const queryString = `UPDATE workflows_pushsubscription ps
+            SET person_id = v.person_id
+            FROM (VALUES ${placeholders.join(', ')}) AS v(id, person_id)
+            WHERE ps.id = v.id::uuid AND ps.team_id = $${paramIndex}`
+
+        values.push(teamId)
+
+        await this.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'updatePushSubscriptionPersonIds')
     }
 
     private hashToken(token: string): string {
