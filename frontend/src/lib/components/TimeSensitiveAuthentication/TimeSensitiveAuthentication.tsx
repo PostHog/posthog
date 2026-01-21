@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -17,8 +18,13 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         user,
         precheckResponse,
         precheckResponseLoading,
+        passkey2FALoading,
+        passkeysAvailable,
+        totpAvailable,
     } = useValues(timeSensitiveAuthenticationLogic)
-    const { submitReauthentication, setDismissedReauthentication } = useActions(timeSensitiveAuthenticationLogic)
+    const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA } = useActions(
+        timeSensitiveAuthenticationLogic
+    )
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
@@ -83,16 +89,44 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     ) : null}
 
                     {twoFactorRequired ? (
-                        <LemonField name="token" label="Authenticator token">
-                            <LemonInput
-                                className="ph-ignore-input"
-                                autoFocus
-                                data-attr="token"
-                                placeholder="123456"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
-                            />
-                        </LemonField>
+                        <>
+                            {passkeysAvailable && (
+                                <>
+                                    <LemonButton
+                                        type="primary"
+                                        htmlType="button"
+                                        onClick={() => beginPasskey2FA()}
+                                        loading={passkey2FALoading}
+                                        fullWidth
+                                        center
+                                        size="large"
+                                        icon={
+                                            <img src={passkeyLogo} alt="Passkey" className="object-contain w-6 h-6" />
+                                        }
+                                    >
+                                        Use passkey
+                                    </LemonButton>
+                                    {totpAvailable && <LemonDivider className="my-4" label="Or" />}
+                                </>
+                            )}
+
+                            {totpAvailable && (
+                                <LemonField name="token" label="Authenticator token">
+                                    <LemonInput
+                                        className="ph-ignore-input"
+                                        autoFocus={!passkeysAvailable}
+                                        data-attr="token"
+                                        placeholder="123456"
+                                        inputMode="numeric"
+                                        autoComplete="one-time-code"
+                                    />
+                                </LemonField>
+                            )}
+
+                            {!passkeysAvailable && !totpAvailable && (
+                                <p className="text-muted">No 2FA methods available. Please contact support.</p>
+                            )}
+                        </>
                     ) : null}
                 </Form>
             ) : null}

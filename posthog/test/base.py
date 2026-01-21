@@ -1020,7 +1020,7 @@ def materialized(
             if create_ngram_lower_index:
                 indexes_to_drop.append(get_ngram_lower_index_name(column.name))
             for index_name in indexes_to_drop:
-                sync_execute(f"ALTER TABLE {data_table} DROP INDEX {index_name} SETTINGS mutations_sync = 2")
+                sync_execute(f"ALTER TABLE {data_table} DROP INDEX IF EXISTS {index_name} SETTINGS mutations_sync = 2")
         cleanup_materialized_columns()
 
 

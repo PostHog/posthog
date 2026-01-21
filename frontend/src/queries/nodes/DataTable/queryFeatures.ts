@@ -43,6 +43,7 @@ export enum QueryFeature {
     highlightExceptionEventRows,
     /** Enables cell and row actions for non-integrated conversions mapping */
     nonIntegratedConversionsActions,
+    showCount,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -98,6 +99,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
             features.add(QueryFeature.selectAndOrderByColumns)
             features.add(QueryFeature.columnsInResponse)
             features.add(QueryFeature.resultIsArrayOfArrays)
+            features.add(QueryFeature.showCount)
         }
     }
 

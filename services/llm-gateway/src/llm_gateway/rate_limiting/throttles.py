@@ -18,9 +18,6 @@ def get_team_multiplier(team_id: int | None) -> int:
 class ThrottleContext:
     user: AuthenticatedUser
     product: str
-    model: str | None = None
-    input_tokens: int | None = None
-    max_output_tokens: int | None = None
     request_id: str | None = None
 
 

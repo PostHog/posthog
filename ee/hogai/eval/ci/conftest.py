@@ -46,7 +46,9 @@ def call_root_for_insight_generation(demo_org_team_user):
         .compile(checkpointer=DjangoCheckpointer())
     )
 
-    async def callable(query_with_extra_context: str | tuple[str, str]) -> PlanAndQueryOutput:
+    async def callable(
+        query_with_extra_context: str | tuple[str, str],
+    ) -> PlanAndQueryOutput:
         # If query_with_extra_context is a tuple, the first element is the query, the second is the extra context
         # in case there's an ask_user tool call.
         query = query_with_extra_context[0] if isinstance(query_with_extra_context, tuple) else query_with_extra_context
@@ -67,7 +69,10 @@ def call_root_for_insight_generation(demo_org_team_user):
         if isinstance(query_with_extra_context, tuple) and not any(
             isinstance(m, ArtifactRefMessage | FailureMessage) for m in final_state.messages
         ):
-            final_state.messages = [*final_state.messages, HumanMessage(content=query_with_extra_context[1])]
+            final_state.messages = [
+                *final_state.messages,
+                HumanMessage(content=query_with_extra_context[1]),
+            ]
             final_state.graph_status = "resumed"
             final_state_raw = await graph.ainvoke(final_state, config)
             final_state = AssistantState.model_validate(final_state_raw)
@@ -102,14 +107,17 @@ def call_root_for_insight_generation(demo_org_team_user):
     yield callable
 
 
-@pytest.fixture(scope="package")
-def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organization, Team, User], None, None]:  # noqa: F811
+@pytest.fixture(scope="session", autouse=True)
+def demo_org_team_user(
+    set_up_evals,  # noqa: F811
+    django_db_blocker,
+) -> Generator[tuple[Organization, Team, User], None, None]:
     with django_db_blocker.unblock():
         team: Team | None = Team.objects.order_by("-created_at").first()
         today = datetime.date.today()
         # If there's no eval team or it's older than today, we need to create a new one with fresh data
         if not team or team.created_at.date() < today:
-            print(f"Generating fresh demo data for evals...")  # noqa: T201
+            print("Generating fresh demo data for evals...")  # noqa: T201
 
             matrix = HedgeboxMatrix(
                 seed="b1ef3c66-5f43-488a-98be-6b46d92fbcef",  # this seed generates all events
@@ -126,7 +134,7 @@ def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organ
                     f"eval-{today.isoformat()}", EVAL_USER_FULL_NAME, "Hedgebox Inc."
                 )
         else:
-            print(f"Using existing demo data for evals...")  # noqa: T201
+            print("Using existing demo data for evals...")  # noqa: T201
             org = team.organization
             membership = org.memberships.first()
             assert membership is not None
@@ -135,7 +143,7 @@ def demo_org_team_user(set_up_evals, django_db_blocker) -> Generator[tuple[Organ
         yield org, team, user
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, None, None]:
     initial_memory = """Hedgebox is a cloud storage service enabling users to store, share, and access files across devices.
 
@@ -235,7 +243,9 @@ class DashboardWithInsightsFixture:
 
 
 @pytest.fixture
-def dashboard_with_insights(demo_org_team_user) -> Generator[DashboardWithInsightsFixture, None, None]:
+def dashboard_with_insights(
+    demo_org_team_user,
+) -> Generator[DashboardWithInsightsFixture, None, None]:
     """Creates a dashboard with 3 insights and 1 replacement insight for testing UpsertDashboardTool."""
     org, team, user = demo_org_team_user
 

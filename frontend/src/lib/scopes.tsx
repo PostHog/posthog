@@ -31,6 +31,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
+    { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
     { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
     { key: 'group', objectName: 'Group', objectPlural: 'groups' },
@@ -163,6 +164,31 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 }
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
+
+// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
+// These match the scopes_supported in the MCP server's OAuth protected resource metadata
+export const MCP_SERVER_OAUTH_SCOPES = [
+    'openid',
+    'profile',
+    'email',
+    'introspection',
+    'user:read',
+    'organization:read',
+    'project:read',
+    'feature_flag:read',
+    'feature_flag:write',
+    'experiment:read',
+    'experiment:write',
+    'insight:read',
+    'insight:write',
+    'dashboard:read',
+    'dashboard:write',
+    'query:read',
+    'survey:read',
+    'survey:write',
+    'error_tracking:read',
+    'logs:read',
+]
 
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {

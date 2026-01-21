@@ -8,6 +8,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -52,25 +53,26 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
+            width: 300,
             render: function renderName(name: string, insight) {
+                const displayName = name || summarizeInsight(insight.query)
                 return (
-                    <>
-                        <div className="flex flex-col gap-1 min-w-0">
-                            <div className="flex min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex min-w-0">
+                            <Tooltip title={displayName}>
                                 <Link
                                     to={urls.insightView(insight.short_id)}
                                     target="_blank"
-                                    title={name || summarizeInsight(insight.query)}
                                     className="w-0 flex-1 min-w-0"
                                 >
-                                    <span className="block truncate">
-                                        {name || <i>{summarizeInsight(insight.query)}</i>}
-                                    </span>
+                                    <span className="block truncate">{name || <i>{displayName}</i>}</span>
                                 </Link>
-                            </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                            </Tooltip>
                         </div>
-                    </>
+                        {insight.description && (
+                            <div className="text-xs text-tertiary truncate">{insight.description}</div>
+                        )}
+                    </div>
                 )
             },
         },
