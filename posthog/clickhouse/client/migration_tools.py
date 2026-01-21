@@ -38,6 +38,7 @@ def run_sql_with_exceptions(
     node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
+    cluster: MigrationCluster = MigrationCluster.MAIN,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -58,6 +59,8 @@ def run_sql_with_exceptions(
     is_alter_on_replicated_table: bool, optional (default is False)
         Specifies whether the query is an ALTER statement executed on replicated tables.
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+    cluster: MigrationCluster, optional (default is MigrationCluster.MAIN)
+        Which cluster to run the migration on. Use MigrationCluster.LOGS for logs cluster migrations.
 
     Returns:
     migrations.RunPython
@@ -84,19 +87,23 @@ def run_sql_with_exceptions(
         node_roles = [NodeRole.ALL]
 
     def run_migration():
-        cluster = get_migrations_cluster()
+        # Select cluster based on parameter
+        if cluster == MigrationCluster.LOGS:
+            cluster_instance = get_logs_migrations_cluster()
+        else:
+            cluster_instance = get_migrations_cluster()
 
         query = Query(sql)
         if sharded and is_alter_on_replicated_table:
             assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
                 settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
-            return cluster.map_one_host_per_shard(query).result()
+            return cluster_instance.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
             logger.info("       Running ALTER on replicated table on just one host")
-            return cluster.any_host_by_roles(query, node_roles=node_roles).result()
+            return cluster_instance.any_host_by_roles(query, node_roles=node_roles).result()
         else:
-            return cluster.map_hosts_by_roles(query, node_roles=node_roles).result()
+            return cluster_instance.map_hosts_by_roles(query, node_roles=node_roles).result()
 
     operation = migrations.RunPython(lambda _: run_migration())
 
@@ -106,71 +113,6 @@ def run_sql_with_exceptions(
     operation._node_roles = original_node_roles
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
-
-    return operation
-
-
-def run_sql_on_logs_cluster(
-    sql: str,
-    node_roles: list[NodeRole] | NodeRole | None = None,
-    sharded: Optional[bool] = None,
-    is_alter_on_replicated_table: Optional[bool] = None,
-):
-    """
-    Executes a SQL query on the logs cluster with specific options.
-
-    This is identical to run_sql_with_exceptions but targets the logs cluster
-    instead of the main PostHog cluster. Use this for migrations in the
-    posthog.clickhouse.migrations_logs package.
-
-    Parameters:
-    sql: str
-        The SQL query to be executed.
-    node_roles: List of roles to execute the migration on, optional (default is NodeRole.DATA if not specified)
-        Specifies which type of node the query should target during execution.
-    sharded: bool, optional (default is False)
-        Indicates if the migration is on a sharded table
-    is_alter_on_replicated_table: bool, optional (default is False)
-        Specifies whether the query is an ALTER statement executed on replicated tables.
-
-    Returns:
-    migrations.RunPython
-        A high-level representation capable of running the migration query.
-    """
-
-    if node_roles and not isinstance(node_roles, list):
-        node_roles = [node_roles]
-
-    node_roles = node_roles or [NodeRole.DATA]
-
-    # Store original node_roles for validation purposes before debug override
-    original_node_roles = node_roles
-
-    if settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT:
-        # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
-        node_roles = [NodeRole.ALL]
-
-    def run_migration():
-        cluster = get_logs_migrations_cluster()
-
-        query = Query(sql)
-        if sharded and is_alter_on_replicated_table:
-            assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
-                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
-            ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
-            return cluster.map_one_host_per_shard(query).result()
-        elif is_alter_on_replicated_table:
-            logger.info("       Running ALTER on replicated table on just one host")
-            return cluster.any_host_by_roles(query, node_roles=node_roles).result()
-        else:
-            return cluster.map_hosts_by_roles(query, node_roles=node_roles).result()
-
-    operation = migrations.RunPython(lambda _: run_migration())
-
-    # Attach metadata for validation tools
-    operation._sql = sql
-    operation._node_roles = original_node_roles
-    operation._sharded = sharded
-    operation._is_alter_on_replicated_table = is_alter_on_replicated_table
+    operation._cluster = cluster
 
     return operation

@@ -69,6 +69,33 @@ def create_clickhouse_tables():
     run_clickhouse_statement_in_parallel(data_queries)
 
 
+def create_clickhouse_logs_tables():
+    # Create clickhouse logs cluster tables for testing
+    from posthog.clickhouse.schema_logs import (
+        CREATE_DATA_TABLE_QUERIES,
+        CREATE_DISTRIBUTED_TABLE_QUERIES,
+        CREATE_MV_TABLE_QUERIES,
+        CREATE_UDF_QUERIES,
+        build_query,
+    )
+
+    # Create UDF first
+    udf_queries = list(map(build_query, CREATE_UDF_QUERIES))
+    run_clickhouse_statement_in_parallel(udf_queries)
+
+    # Create data tables
+    data_table_queries = list(map(build_query, CREATE_DATA_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(data_table_queries)
+
+    # Create distributed tables
+    distributed_queries = list(map(build_query, CREATE_DISTRIBUTED_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(distributed_queries)
+
+    # Create materialized views
+    mv_queries = list(map(build_query, CREATE_MV_TABLE_QUERIES))
+    run_clickhouse_statement_in_parallel(mv_queries)
+
+
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
@@ -140,6 +167,13 @@ def reset_clickhouse_tables():
     from posthog.clickhouse.schema import CREATE_DATA_QUERIES
 
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES))
+
+
+def reset_clickhouse_logs_tables():
+    # Truncate clickhouse logs cluster tables for testing
+    from posthog.clickhouse.schema_logs import TRUNCATE_TABLE_QUERIES
+
+    run_clickhouse_statement_in_parallel(TRUNCATE_TABLE_QUERIES)
 
 
 def run_persons_sqlx_migrations(keepdb: bool = False):
@@ -296,14 +330,37 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     create_clickhouse_tables()
 
+    # Create logs cluster database and tables
+    logs_database = Database(
+        settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+        db_url=settings.CLICKHOUSE_LOGS_HTTP_URL,
+        username=settings.CLICKHOUSE_LOGS_CLUSTER_USER,
+        password=settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
+        cluster=settings.CLICKHOUSE_LOGS_CLUSTER,
+        verify_ssl_cert=False,
+        randomize_replica_paths=True,
+    )
+
+    if not django_db_keepdb:
+        try:
+            logs_database.drop_database()
+        except:
+            pass
+
+    logs_database.create_database()  # Create logs database if it doesn't exist
+
+    create_clickhouse_logs_tables()
+
     yield
 
     if django_db_keepdb:
         # Reset ClickHouse data, unless we're running AI evals, where we want to keep the DB between runs
         if not settings.IN_EVAL_TESTING:
             reset_clickhouse_tables()
+            reset_clickhouse_logs_tables()
     else:
         database.drop_database()
+        logs_database.drop_database()
 
 
 @pytest.fixture(scope="package")
