@@ -1,10 +1,12 @@
 import './PlayerFrameOverlay.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -15,6 +17,54 @@ import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
 import { ClipRecording } from './controller/ClipRecording'
 import { Screenshot } from './controller/PlayerController'
 import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+
+const SeekIndicator = (): JSX.Element | null => {
+    const { seekIndicator } = useValues(sessionRecordingPlayerLogic)
+    const { hideSeekIndicator } = useActions(sessionRecordingPlayerLogic)
+    const [visible, setVisible] = useState(false)
+    const [currentIndicator, setCurrentIndicator] = useState<{
+        direction: 'forward' | 'backward'
+        seconds: number
+    } | null>(null)
+
+    useEffect(() => {
+        if (seekIndicator) {
+            setCurrentIndicator(seekIndicator)
+            setVisible(true)
+
+            const timer = setTimeout(() => {
+                setVisible(false)
+                hideSeekIndicator()
+            }, 500)
+
+            return () => clearTimeout(timer)
+        }
+    }, [seekIndicator, hideSeekIndicator])
+
+    if (!currentIndicator || !visible) {
+        return null
+    }
+
+    const isForward = currentIndicator.direction === 'forward'
+
+    return (
+        <div
+            className={cn(
+                'SeekIndicator absolute inset-0 z-20 flex items-center pointer-events-none',
+                isForward ? 'justify-end pr-[15%]' : 'justify-start pl-[15%]'
+            )}
+        >
+            <div className="SeekIndicator__bubble flex flex-col items-center justify-center rounded-full bg-black/60 w-20 h-20">
+                <IconSkipBackward
+                    className={cn('SeekIndicator__icon text-white text-4xl', {
+                        'SeekIndicator__icon--forward': isForward,
+                    })}
+                />
+                <span className="text-white text-sm font-semibold">{currentIndicator.seconds}s</span>
+            </div>
+        </div>
+    )
+}
 
 const PlayerFrameOverlayActions = (): JSX.Element | null => {
     const { setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
@@ -126,6 +176,7 @@ export function PlayerFrameOverlay(): JSX.Element {
     return (
         <div className="PlayerFrameOverlay absolute inset-0 z-10" onClick={togglePlayPause}>
             <PlayerFrameOverlayContent />
+            <SeekIndicator />
         </div>
     )
 }
