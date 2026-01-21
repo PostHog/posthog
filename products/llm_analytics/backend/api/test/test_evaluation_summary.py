@@ -92,11 +92,13 @@ class TestEvaluationSummaryAPI(APIBaseTest):
                     example_reasoning="Response did not address user question",
                 )
             ],
+            na_patterns=[],
             recommendations=["Improve context handling", "Add validation"],
             statistics=EvaluationSummaryStatistics(
                 total_analyzed=3,
                 pass_count=2,
                 fail_count=1,
+                na_count=0,
             ),
         )
 
@@ -147,11 +149,13 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             overall_assessment="Pass-only summary",
             pass_patterns=[],
             fail_patterns=[],
+            na_patterns=[],
             recommendations=[],
             statistics=EvaluationSummaryStatistics(
                 total_analyzed=2,
                 pass_count=2,
                 fail_count=0,
+                na_count=0,
             ),
         )
 
@@ -185,3 +189,51 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.llm_analytics.backend.api.evaluation_summary.async_to_sync")
+    def test_na_filter_and_null_results(self, mock_async_to_sync):
+        """Should accept NA filter and null results for N/A evaluations."""
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        mock_summary = EvaluationSummaryResponse(
+            overall_assessment="N/A summary for evaluations that were not applicable",
+            pass_patterns=[],
+            fail_patterns=[],
+            na_patterns=[
+                EvaluationPattern(
+                    title="Out of Scope",
+                    description="Evaluation criteria did not apply",
+                    frequency="common",
+                    example_reasoning="The response was a clarifying question",
+                )
+            ],
+            recommendations=["Consider updating evaluation criteria"],
+            statistics=EvaluationSummaryStatistics(
+                total_analyzed=2,
+                pass_count=0,
+                fail_count=0,
+                na_count=2,
+            ),
+        )
+
+        mock_async_to_sync.return_value = lambda *args, **kwargs: mock_summary
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
+            {
+                "evaluation_runs": [
+                    {"result": None, "reasoning": "The response was a clarifying question"},
+                    {"result": None, "reasoning": "Evaluation criteria did not apply to this case"},
+                ],
+                "filter": "na",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.data
+
+        assert data["statistics"]["na_count"] == 2
+        assert len(data["na_patterns"]) == 1
+        assert data["na_patterns"][0]["title"] == "Out of Scope"
