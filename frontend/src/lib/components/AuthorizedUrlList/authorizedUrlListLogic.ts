@@ -106,6 +106,7 @@ interface BuildToolbarParamsOptions {
     actionId?: number | null
     experimentId?: ExperimentIdType
     productTourId?: string | null
+    productTourStepIndex?: number | null
     userIntent?: ToolbarUserIntent
     toolbarFlagsKey?: string
 }
@@ -139,6 +140,7 @@ function buildToolbarParams(options?: BuildToolbarParamsOptions): ToolbarParams 
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
         ...(options?.productTourId && options.productTourId !== 'new' ? { productTourId: options.productTourId } : {}),
+        ...(options?.productTourStepIndex != null ? { productTourStepIndex: options.productTourStepIndex } : {}),
         ...(options?.toolbarFlagsKey ? { toolbarFlagsKey: options.toolbarFlagsKey } : {}),
     }
 }
@@ -150,6 +152,7 @@ export function appEditorUrl(
         actionId?: number | null
         experimentId?: ExperimentIdType
         productTourId?: string | null
+        productTourStepIndex?: number | null
         userIntent?: ToolbarUserIntent
         generateOnly?: boolean
         toolbarFlagsKey?: string
@@ -232,6 +235,7 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
     productTourId: string | null
+    productTourStepIndex?: number | null
     userIntent?: ToolbarUserIntent
     type: AuthorizedUrlListType
     allowWildCards?: boolean
@@ -241,6 +245,7 @@ export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
     productTourId: null,
+    productTourStepIndex: null,
     userIntent: undefined,
 }
 
@@ -485,8 +490,14 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
         launchUrl: [
-            (_, p) => [p.actionId, p.experimentId, p.productTourId, p.userIntent ?? (() => undefined)],
-            (actionId, experimentId, productTourId, userIntent) => (url: string) => {
+            (_, p) => [
+                p.actionId,
+                p.experimentId,
+                p.productTourId,
+                p.productTourStepIndex ?? (() => null),
+                p.userIntent ?? (() => undefined),
+            ],
+            (actionId, experimentId, productTourId, productTourStepIndex, userIntent) => (url: string) => {
                 if (experimentId) {
                     return appEditorUrl(url, {
                         experimentId,
@@ -494,7 +505,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 }
 
                 if (productTourId) {
-                    return appEditorUrl(url, { productTourId, userIntent })
+                    return appEditorUrl(url, { productTourId, productTourStepIndex, userIntent })
                 }
 
                 return appEditorUrl(url, {

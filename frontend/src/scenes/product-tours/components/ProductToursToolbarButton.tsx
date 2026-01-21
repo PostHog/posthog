@@ -7,13 +7,16 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 
 import { ToolbarUserIntent } from '~/types'
 
-type ToolbarButtonMode = 'edit' | 'preview'
+type ToolbarButtonMode = 'edit' | 'preview' | 'select-element'
 
 interface ToolbarButtonProps {
     tourId: string
     mode?: ToolbarButtonMode
+    stepIndex?: number
     type?: 'primary' | 'secondary' | 'tertiary'
     size?: 'xsmall' | 'small' | 'medium' | 'large'
+    icon?: React.ReactNode
+    children?: React.ReactNode
 }
 
 const MODE_CONFIG: Record<
@@ -32,21 +35,30 @@ const MODE_CONFIG: Record<
         description: 'Select a URL to launch the toolbar and preview your product tour on your site',
         intent: 'preview-product-tour',
     },
+    'select-element': {
+        label: 'Select element',
+        title: 'Select element on your site',
+        description: 'Select a URL to launch the toolbar and pick an element for this step',
+        intent: 'select-product-tour-element',
+    },
 }
 
 export function ProductToursToolbarButton({
     tourId,
     mode = 'edit',
+    stepIndex,
     type = 'secondary',
     size = 'small',
+    icon,
+    children,
 }: ToolbarButtonProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const config = MODE_CONFIG[mode]
 
     return (
         <>
-            <LemonButton size={size} type={type} onClick={() => setIsModalOpen(true)}>
-                {config.label}
+            <LemonButton size={size} type={type} icon={icon} onClick={() => setIsModalOpen(true)}>
+                {children ?? config.label}
             </LemonButton>
             <LemonModal
                 title={config.title}
@@ -60,6 +72,7 @@ export function ProductToursToolbarButton({
                         type={AuthorizedUrlListType.TOOLBAR_URLS}
                         addText="Add authorized URL"
                         productTourId={tourId}
+                        productTourStepIndex={stepIndex}
                         userIntent={config.intent}
                     />
                 </div>

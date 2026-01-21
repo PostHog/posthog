@@ -662,6 +662,57 @@ class ProductTourViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, view
         self.perform_destroy(instance)
         return Response(status=204)
 
+    @action(detail=True, methods=["POST"], url_path="update_step_element")
+    def update_step_element(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update element data for a specific step from the toolbar.
+
+        This endpoint is called when a user selects an element in the toolbar.
+        It updates the step's selector, inference data, and screenshot.
+        """
+        instance = self.get_object()
+        step_index = request.data.get("step_index")
+        selector = request.data.get("selector")
+        inference_data = request.data.get("inferenceData")
+        screenshot_media_id = request.data.get("screenshotMediaId")
+
+        if step_index is None:
+            return Response(
+                {"detail": "step_index is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content = instance.content or {}
+        steps = content.get("steps", [])
+
+        # If step_index is beyond current steps, we need to add a new step
+        if step_index >= len(steps):
+            # Add placeholder steps if needed
+            while len(steps) <= step_index:
+                steps.append({
+                    "id": generate("0123456789abcdef", 8),
+                    "type": "element",
+                })
+
+        # Update the step with element data
+        step = steps[step_index]
+        step["type"] = "element"
+        if selector:
+            step["selector"] = selector
+        if inference_data:
+            step["inferenceData"] = inference_data
+        if screenshot_media_id:
+            step["screenshotMediaId"] = screenshot_media_id
+
+        # Ensure step has an ID
+        if not step.get("id"):
+            step["id"] = generate("0123456789abcdef", 8)
+
+        content["steps"] = steps
+        instance.content = content
+        instance.save(update_fields=["content", "updated_at"])
+
+        return Response({"success": True, "step": step})
+
     @action(detail=False, methods=["POST"])
     def generate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Generate tour step content using AI."""

@@ -12,7 +12,6 @@ import { FocusRect } from '~/toolbar/elements/FocusRect'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { ElementHighlight } from '~/toolbar/product-tours/ElementHighlight'
-import { StepEditor } from '~/toolbar/product-tours/StepEditor'
 import { getStepElement, productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { getBoxColors, getHeatMapHue } from '~/toolbar/utils'
 
@@ -36,12 +35,9 @@ export function Elements(): JSX.Element {
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
     const {
         isSelecting: productToursSelecting,
-        isEditing: productToursEditing,
         hoverElementRect: productToursHoverRect,
-        selectedElementRect: productToursSelectedRect,
-        tourForm,
-        editingStepIndex,
-        editingStepType,
+        selectedTourSteps,
+        selectingStepIndex,
         rectUpdateCounter,
         isPreviewing: isPreviewingProductTour,
         selectedTourId,
@@ -82,9 +78,11 @@ export function Elements(): JSX.Element {
                 <ScrollDepth />
                 {activeToolbarMode === 'heatmap' && <HeatmapCanvas context="toolbar" />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
+
+                {/* Product Tours: Show step element highlights when a tour is selected */}
                 {selectedTourId !== null && !isPreviewingProductTour && (
                     <>
-                        {tourForm?.steps?.map((step, index: number) => {
+                        {selectedTourSteps.map((step, index: number) => {
                             if (step.type !== 'element') {
                                 return null
                             }
@@ -103,11 +101,11 @@ export function Elements(): JSX.Element {
                                 right: domRect.right,
                                 bottom: domRect.bottom,
                             }
-                            const isActive = editingStepIndex === index
+                            const isActive = selectingStepIndex === index
 
                             return (
                                 <ElementHighlight
-                                    key={step.id}
+                                    key={step.id || index}
                                     rect={rect}
                                     isSelected={isActive}
                                     stepNumber={index + 1}
@@ -115,24 +113,9 @@ export function Elements(): JSX.Element {
                             )
                         })}
 
+                        {/* Hover highlight during element selection */}
                         {productToursSelecting && productToursHoverRect && (
                             <ElementHighlight rect={productToursHoverRect} />
-                        )}
-
-                        {productToursEditing && editingStepType === 'element' && (
-                            <>
-                                {productToursSelectedRect && (
-                                    <ElementHighlight rect={productToursSelectedRect} isSelected />
-                                )}
-                                <StepEditor
-                                    rect={productToursSelectedRect ?? undefined}
-                                    elementNotFound={!productToursSelectedRect}
-                                />
-                            </>
-                        )}
-
-                        {productToursEditing && (editingStepType === 'modal' || editingStepType === 'survey') && (
-                            <StepEditor />
                         )}
                     </>
                 )}

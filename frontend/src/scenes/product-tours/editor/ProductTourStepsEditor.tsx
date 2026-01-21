@@ -27,6 +27,7 @@ import {
 } from '~/types'
 
 import { ProductTourPreview } from '../components/ProductTourPreview'
+import { ProductToursToolbarButton } from '../components/ProductToursToolbarButton'
 import { StepButtonsEditor } from './StepButtonsEditor'
 import { StepContentEditor } from './StepContentEditor'
 import { StepLayoutSettings } from './StepLayoutSettings'
@@ -34,9 +35,11 @@ import { StepScreenshotThumbnail } from './StepScreenshotThumbnail'
 import { SurveyStepEditor } from './SurveyStepEditor'
 
 export interface ProductTourStepsEditorProps {
+    tourId: string
     steps: ProductTourStep[]
     appearance?: ProductTourAppearance
     onChange: (steps: ProductTourStep[]) => void
+    onRefresh?: () => void
 }
 
 const STEP_TYPE_ICONS: Partial<Record<ProductTourStepType, JSX.Element>> = {
@@ -87,7 +90,13 @@ export const TOUR_WIDTH_PRESET_OPTIONS = [
 export const TOUR_STEP_MIN_WIDTH = 200
 export const TOUR_STEP_MAX_WIDTH = 700
 
-export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductTourStepsEditorProps): JSX.Element {
+export function ProductTourStepsEditor({
+    tourId,
+    steps,
+    appearance,
+    onChange,
+    onRefresh,
+}: ProductTourStepsEditorProps): JSX.Element {
     const [selectedStepIndex, setSelectedStepIndex] = useState<number>(0)
     const [stepToDelete, setStepToDelete] = useState<number | null>(null)
     const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -181,6 +190,15 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                 <span className="font-semibold">{STEP_TYPE_LABELS[selectedStep.type]} step</span>
                                 {selectedStep.type === 'element' && (
                                     <>
+                                        <ProductToursToolbarButton
+                                            tourId={tourId}
+                                            mode="select-element"
+                                            stepIndex={selectedStepIndex}
+                                            size="xsmall"
+                                            icon={<IconCursorClick />}
+                                        >
+                                            {selectedStep.selector ? 'Change element' : 'Select element'}
+                                        </ProductToursToolbarButton>
                                         {selectedStep.screenshotMediaId && (
                                             <StepScreenshotThumbnail
                                                 mediaId={selectedStep.screenshotMediaId}

@@ -20,6 +20,7 @@ export interface AuthorizedUrlListProps {
     actionId?: number
     experimentId?: ExperimentIdType
     productTourId?: string | null
+    productTourStepIndex?: number | null
     userIntent?: ToolbarUserIntent
     query?: string | null
     allowWildCards?: boolean
@@ -33,6 +34,7 @@ export function AuthorizedUrlList({
     actionId,
     experimentId,
     productTourId,
+    productTourStepIndex,
     userIntent,
     query,
     type,
@@ -46,6 +48,7 @@ export function AuthorizedUrlList({
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
         productTourId: productTourId ?? null,
+        productTourStepIndex: productTourStepIndex ?? null,
         actionId: actionId ?? null,
         userIntent,
         type,

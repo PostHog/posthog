@@ -33,6 +33,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
         productTourId: [props.productTourId || null, { logout: () => null, clearUserIntent: () => null }],
+        productTourStepIndex: [props.productTourStepIndex ?? null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -109,6 +110,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
                 productTourId: values.productTourId ?? undefined,
+                productTourStepIndex: values.productTourStepIndex ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
             }

@@ -275,6 +275,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                         </>
                     ) : (
                         <ProductTourStepsEditor
+                            tourId={id}
                             steps={productTourForm.content?.steps ?? []}
                             appearance={productTourForm.content?.appearance}
                             onChange={(steps: ProductTourStep[]) => {
