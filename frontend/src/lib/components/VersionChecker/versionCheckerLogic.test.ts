@@ -109,7 +109,12 @@ describe('versionCheckerLogic', () => {
                 { version: '1.83.1', count: 50 },
             ],
             latestVersion: '1.84.0',
-            expectation: null, // Highest used is 1.83.1, only 1 minor behind
+            // 1.9.0 is outdated and has 50% of traffic (≥10% threshold), so warning is expected
+            expectation: {
+                latestUsedVersion: '1.83.1',
+                latestAvailableVersion: '1.84.0',
+                level: 'error',
+            },
         },
         {
             usedVersions: [
