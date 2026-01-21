@@ -407,6 +407,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
         seekForward: (amount?: number) => ({ amount }),
         seekBackward: (amount?: number) => ({ amount }),
+        seekToStart: true,
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -1527,6 +1528,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
 
             actions.seekToTimestamp(newTimestamp)
+        },
+        seekToStart: () => {
+            actions.seekToTime(0)
         },
 
         togglePlayPause: () => {
