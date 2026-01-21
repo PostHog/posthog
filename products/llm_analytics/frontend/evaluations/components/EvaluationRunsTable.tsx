@@ -1,18 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { IconBolt, IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun } from '../types'
+import { EvaluationSummaryModal } from './EvaluationSummaryModal'
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
+    const { evaluationRuns, evaluationRunsLoading, runsSummary } = useValues(llmEvaluationLogic)
+    const { refreshEvaluationRuns, openSummaryModal } = useActions(llmEvaluationLogic)
+    const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -109,7 +112,12 @@ export function EvaluationRunsTable(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+                {showSummaryFeature && runsSummary && runsSummary.total > 0 && (
+                    <LemonButton type="secondary" icon={<IconBolt />} onClick={openSummaryModal} size="small">
+                        Summarize
+                    </LemonButton>
+                )}
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
@@ -138,6 +146,8 @@ export function EvaluationRunsTable(): JSX.Element {
                     </div>
                 }
             />
+
+            {showSummaryFeature && <EvaluationSummaryModal />}
         </div>
     )
 }
