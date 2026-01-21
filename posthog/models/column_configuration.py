@@ -11,11 +11,11 @@ class ColumnConfiguration(UUIDModel):
         SHARED = "shared", "Shared with team"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255, null=True, blank=True)
+    name = models.CharField(max_length=255, default="Column configuration")
     context_key = models.CharField(max_length=255, db_index=True)
     columns = ArrayField(models.TextField(), null=False, blank=False, default=list)
     filters = models.JSONField(default=dict, null=True, blank=True)
-    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE)
+    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.SHARED)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -23,11 +23,6 @@ class ColumnConfiguration(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["team", "context_key"],
-                name="unique_team_context_key_no_name",
-                condition=models.Q(name__isnull=True),
-            ),
             models.UniqueConstraint(
                 fields=["team", "context_key", "name", "created_by"],
                 name="unique_user_view_name",
