@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import IntegrityError, models
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.exceptions import Conflict
 from posthog.models import ColumnConfiguration
 
 
@@ -49,12 +50,19 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset.order_by("visibility", "-created_at")
 
     def perform_create(self, serializer):
-        serializer.save(team=self.team, created_by=self.request.user)
+        try:
+            serializer.save(team=self.team, created_by=self.request.user)
+        except IntegrityError as e:
+            error_str = str(e)
+            if "unique_user_view_name" in error_str:
+                raise Conflict(detail="A private view with this name already exists")
+            elif "unique_team_view_name" in error_str:
+                raise Conflict(detail="A shared view with this name already exists")
+            raise
 
     def create(self, request, *args, **kwargs):
         context_key = request.data.get("context_key")
         columns = request.data.get("columns")
-        name = request.data.get("name")
 
         if not context_key:
             return Response({"error": "context_key is required"}, status=400)
@@ -73,16 +81,6 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if len(columns) > 100:
             return Response({"error": "cannot configure more than 100 columns"}, status=400)
-
-        # For legacy unnamed configs, check for existing config
-        if (
-            not name
-            and ColumnConfiguration.objects.filter(team=self.team, context_key=context_key, name__isnull=True).exists()
-        ):
-            return Response(
-                {"error": "column configuration for this context_key already exists, use PATCH to update"},
-                status=409,
-            )
 
         return super().create(request, *args, **kwargs)
 
