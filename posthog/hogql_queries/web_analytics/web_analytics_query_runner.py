@@ -74,7 +74,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             date_range=self.query.dateRange,
             team=self.team,
             timezone_info=self._timezone_info,
-            interval=None,
+            interval=self.query.interval,
             now=datetime.now(self._timezone_info),
         )
 
@@ -85,7 +85,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 return QueryCompareToDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
+                    interval=self.query.interval,
                     now=datetime.now(self._timezone_info),
                     timezone_info=self._timezone_info,
                     compare_to=self.query.compareFilter.compare_to,
@@ -94,7 +94,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                 return QueryPreviousPeriodDateRange(
                     date_range=self.query.dateRange,
                     team=self.team,
-                    interval=None,
+                    interval=self.query.interval,
                     now=datetime.now(self._timezone_info),
                     timezone_info=self._timezone_info,
                 )
