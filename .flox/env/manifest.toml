@@ -39,6 +39,9 @@ sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
 ffmpeg.pkg-path = "ffmpeg"
 gh = { pkg-path = "gh" }
+ninja.pkg-path = "ninja"
+emscripten = { pkg-path = "emscripten", pkg-group = "emscripten", version = "4.0.23" }
+libpthread-stubs = { pkg-path = "libpthread-stubs", pkg-group = "emscripten" }
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
