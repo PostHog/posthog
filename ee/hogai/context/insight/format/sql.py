@@ -2,7 +2,7 @@ from typing import Any
 
 from posthog.schema import AssistantHogQLQuery, HogQLQuery
 
-TRUNCATED_MARKER = "[TRUNCATED]"
+TRUNCATED_MARKER = "...truncated"
 
 
 class SQLResultsFormatter:
