@@ -69,11 +69,11 @@ jobs:
                     local content
 
                     response=$(gh api -i "repos/PostHog/posthog-cloud-infra/contents/$path" 2>&1 || true)
-                    body=$(printf '%s' "$response" | sed -n '1,/^\r$/d' | tr -d '\r')
+                    status_line=$(printf '%s' "$response" | head -n 1 | tr -d '\r')
+                    body=$(printf '%s' "$response" | tr -d '\r' | sed '1,/^$/d')
                     content=$(printf '%s' "$body" | jq -r '.content // empty' 2>/dev/null || true)
 
                     if [ -z "$content" ]; then
-                      status_line=$(printf '%s' "$response" | sed -n '1s/\r$//p')
                       if [ -z "$status_line" ]; then
                         status_line="HTTP status unknown"
                       fi
@@ -116,11 +116,11 @@ jobs:
                     local content
 
                     response=$(gh api -i "repos/PostHog/posthog-cloud-infra/contents/$path" 2>&1 || true)
-                    body=$(printf '%s' "$response" | sed -n '1,/^\r$/d' | tr -d '\r')
+                    status_line=$(printf '%s' "$response" | head -n 1 | tr -d '\r')
+                    body=$(printf '%s' "$response" | tr -d '\r' | sed '1,/^$/d')
                     content=$(printf '%s' "$body" | jq -r '.content // empty' 2>/dev/null || true)
 
                     if [ -z "$content" ]; then
-                      status_line=$(printf '%s' "$response" | sed -n '1s/\r$//p')
                       if [ -z "$status_line" ]; then
                         status_line="HTTP status unknown"
                       fi
