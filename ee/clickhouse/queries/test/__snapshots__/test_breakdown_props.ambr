@@ -18,6 +18,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
           OR NOT JSONHas(group_properties_0, 'out')))
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 6
@@ -43,6 +44,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
     AND ((isNull(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'out'), '^"|"$', ''))
           OR NOT JSONHas(group_properties_0, 'out')))
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 6
@@ -73,6 +75,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-21 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 6
@@ -103,6 +106,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-21 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 6
@@ -141,6 +145,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
     AND ((has(['test2'], replaceRegexpAll(JSONExtractRaw(person_props, '$os'), '^"|"$', ''))
           OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 6
@@ -166,6 +171,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -205,6 +211,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26
@@ -244,6 +251,7 @@
     AND event = '$pageview'
     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
   LIMIT 26

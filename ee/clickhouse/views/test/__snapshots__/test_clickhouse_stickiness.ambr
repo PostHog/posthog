@@ -399,27 +399,21 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
+       AND notEmpty(e.person_id)
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -431,27 +425,21 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
+       AND notEmpty(e.person_id)
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -463,27 +451,21 @@
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT aggregation_target AS actor_id
   FROM
-    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND ((event = 'watched movie'))
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND ((event = 'watched movie'))
+       AND notEmpty(e.person_id)
      GROUP BY aggregation_target)
   WHERE num_intervals = 1
   LIMIT 100
@@ -555,27 +537,21 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC') )
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-05-15 23:59:59', 'UTC')
        AND event = '$pageview'
+       AND notEmpty(e.person_id)
      GROUP BY aggregation_target)
   WHERE num_intervals <= 16
   GROUP BY num_intervals
@@ -588,27 +564,21 @@
   SELECT countDistinct(aggregation_target),
          num_intervals
   FROM
-    (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS aggregation_target,
+    (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS aggregation_target,
             countDistinct(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'))) as num_intervals
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
-               AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific') )
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'US/Pacific')), 'US/Pacific')
        AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2021-05-15 23:59:59', 'US/Pacific')
        AND event = '$pageview'
+       AND notEmpty(e.person_id)
      GROUP BY aggregation_target)
   WHERE num_intervals <= 16
   GROUP BY num_intervals

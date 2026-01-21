@@ -463,28 +463,11 @@
        (SELECT count() AS total,
                toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
         FROM events AS e
-        LEFT OUTER JOIN
-          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                  person_distinct_id_overrides.distinct_id AS distinct_id
-           FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 99999)
-           GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        LEFT JOIN
-          (SELECT person.id AS id,
-                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS e__person___properties___email
-           FROM person
-           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
-                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                          FROM person
-                                                          WHERE equals(person.team_id, 99999)
-                                                          GROUP BY person.id
-                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         LEFT JOIN
           (SELECT posthog_test_test_table_1.id AS id,
-                  posthog_test_test_table_1.prop_1 AS e__person__posthog_test_test_table_1___prop_1
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__person__posthog_test_test_table_1 ON equals(e__person.e__person___properties___email, e__person__posthog_test_test_table_1.e__person__posthog_test_test_table_1___prop_1)
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(equals(e__person__posthog_test_test_table_1.id, 'false'), 0))
+                  posthog_test_test_table_1.prop_1 AS e__posthog_test_test_table_1___prop_1
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1) AS e__posthog_test_test_table_1 ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'email'), ''), 'null'), '^"|"$', ''), e__posthog_test_test_table_1.e__posthog_test_test_table_1___prop_1)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2022-12-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-01-07 23:59:59', 'UTC'))), equals(e.event, '$pageview'), ifNull(equals(e__posthog_test_test_table_1.id, 'false'), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)

@@ -114,7 +114,7 @@
   
   SELECT person.person_id AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -129,14 +129,15 @@
                             AND event = '$autocapture'))) < now() as first_time_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview', '$pageview', '$autocapture']
+       AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '')))))
      GROUP BY person_id) behavior_query
   INNER JOIN
     (SELECT *,
@@ -253,7 +254,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$new_view'
@@ -264,12 +265,12 @@
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event IN ['$new_view', '$new_view']
              AND timestamp <= now()
@@ -725,19 +726,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -833,19 +834,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -928,19 +929,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -1199,7 +1200,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -1210,12 +1211,12 @@
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event IN ['$pageview', '$pageview']
              AND timestamp <= now()
@@ -1322,7 +1323,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -1333,12 +1334,12 @@
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event IN ['$new_view', '$pageview', '$pageview']
              AND timestamp <= now()
@@ -1460,7 +1461,7 @@
                                        min(event_0_latest_1) over (PARTITION by person_id
                                                                    ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) event_0_latest_1
         FROM
-          (SELECT if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) AS person_id,
+          (SELECT if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) AS person_id,
                   event,
                   properties,
                   distinct_id, timestamp, if(event = '$pageview'
@@ -1471,16 +1472,17 @@
                                           if(event_0_step_1 = 1, timestamp, null) AS event_0_latest_1
            FROM events AS e
            LEFT OUTER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 99999
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
            WHERE team_id = 99999
              AND event IN ['$pageview', '$pageview', '$pageview']
              AND timestamp <= now()
-             AND timestamp >= now() - INTERVAL 1 week ))
+             AND timestamp >= now() - INTERVAL 1 week
+             AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '')))) ))
      GROUP BY person_id) funnel_query
   INNER JOIN
     (SELECT *,
@@ -1548,19 +1550,19 @@
   
   SELECT behavior_query.person_id AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > 'explicit_redacted_timestamp'
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND (has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$filter_prop'), '^"|"$', '')))) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -1632,19 +1634,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -1727,19 +1729,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -1892,7 +1894,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -1907,12 +1909,12 @@
                             AND event = '$autocapture'))) < now() as first_time_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview', '$pageview', '$autocapture']
      GROUP BY person_id) behavior_query
@@ -2306,19 +2308,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -2393,19 +2395,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_level_0_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()
@@ -2495,19 +2497,19 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_1_0
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event IN ['$pageview']
        AND timestamp <= now()

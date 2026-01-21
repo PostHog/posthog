@@ -12,30 +12,24 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -67,40 +61,27 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 99999
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%ben%'
-             OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%ben%'
+       AND ((replaceRegexpAll(JSONExtractRaw(e.person_properties, 'email'), '^"|"$', '') ILIKE '%ben%'
+             OR replaceRegexpAll(JSONExtractRaw(e.person_properties, 'name'), '^"|"$', '') ILIKE '%ben%'
              OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%ben%')
-            AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))) )
+            AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -132,30 +113,24 @@
             e."properties" as "properties",
             e."$window_id" as $window_id,
             e."$session_id" as $session_id,
-            if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+            if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id,
             e.uuid as uuid
      FROM events e
      LEFT OUTER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 99999
-          AND distinct_id IN
-            (SELECT distinct_id
-             FROM events
-             WHERE team_id = 99999
-               AND event = '$pageview'
-               AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-               AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC'))
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
      WHERE team_id = 99999
        AND event = '$pageview'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+       AND (has([''], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC

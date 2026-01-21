@@ -84,9 +84,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -104,21 +104,16 @@
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
                  LEFT OUTER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                      AND distinct_id IN
-                        (SELECT distinct_id
-                         FROM events
-                         WHERE team_id = 99999
-                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                  WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -227,9 +222,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -247,21 +242,16 @@
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
                  LEFT OUTER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                      AND distinct_id IN
-                        (SELECT distinct_id
-                         FROM events
-                         WHERE team_id = 99999
-                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                  WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -370,9 +360,9 @@
                                                                                                                                                                                                                                        ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) "$window_id_2"
               FROM
                 (SELECT e.timestamp as timestamp,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as aggregation_target,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as aggregation_target,
                         e.uuid AS uuid,
-                        if(notEmpty(pdi.distinct_id), pdi.person_id, e.person_id) as person_id,
+                        if(notEmpty(overrides.distinct_id), overrides.person_id, e.person_id) as person_id,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -390,21 +380,16 @@
                         if(step_2 = 1, "$window_id", null) as "$window_id_2"
                  FROM events e
                  LEFT OUTER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 99999
-                      AND distinct_id IN
-                        (SELECT distinct_id
-                         FROM events
-                         WHERE team_id = 99999
-                           AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') )
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                   (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                           person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
                  WHERE team_id = 99999
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND notEmpty(e.person_id)
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
