@@ -1179,12 +1179,13 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
 
     campaign_key = f"new_conversation_ticket_{ticket.id}"
     message = EmailMessage(
+        use_http=True,
         campaign_key=campaign_key,
         subject=f"[Ticket #{ticket.ticket_number}] New support ticket in {team.name}",
         template_name="new_conversation_ticket",
         template_context={
-            "team": team,
-            "ticket": ticket,
+            "team_name": team.name,
+            "ticket_number": ticket.ticket_number,
             "customer_name": customer_name,
             "customer_email": customer_email,
             "first_message": first_message_content[:500] if first_message_content else "",
