@@ -78,3 +78,32 @@ class ProductTour(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.id})"
+
+    def get_analytics_metadata(self) -> dict:
+        steps = self.content.get("steps", []) if self.content else []
+        tour_type = self.content.get("type", "tour") if self.content else "tour"
+        conditions = self.content.get("conditions", {}) if self.content else {}
+
+        if tour_type == "announcement" and steps:
+            first_step_type = steps[0].get("type")
+            if first_step_type == "banner":
+                tour_type = "banner"
+            elif first_step_type == "modal":
+                tour_type = "modal_announcement"
+
+        return {
+            "tour_id": str(self.id),
+            "tour_name": self.name,
+            "tour_type": tour_type,
+            "step_count": len(steps),
+            "has_targeting": self.internal_targeting_flag is not None,
+            "has_survey_steps": any(s.get("survey") for s in steps),
+            "auto_launch": self.auto_launch,
+            "display_frequency": self.content.get("displayFrequency") if self.content else None,
+            "has_url_condition": bool(conditions.get("url")),
+            "url_match_type": conditions.get("urlMatchType"),
+            "has_delay": bool(conditions.get("autoShowDelaySeconds")),
+            "has_selector_condition": bool(conditions.get("selector")),
+            "has_action_triggers": bool(conditions.get("actions", {}).get("values")),
+            "has_event_triggers": bool(conditions.get("events", {}).get("values")),
+        }

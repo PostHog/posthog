@@ -14,6 +14,7 @@ class ScheduledChange(RootTeamMixin, models.Model):
         DAILY = "daily", "daily"
         WEEKLY = "weekly", "weekly"
         MONTHLY = "monthly", "monthly"
+        YEARLY = "yearly", "yearly"
 
     # Keep in sync with frontend/src/types.ts ScheduledChangeOperationType enum
     class OperationType(models.TextChoices):

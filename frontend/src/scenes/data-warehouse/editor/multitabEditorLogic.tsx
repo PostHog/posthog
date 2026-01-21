@@ -18,6 +18,7 @@ import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -1118,6 +1119,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     ]
                 }
                 return [first]
+            },
+        ],
+
+        selectedQueryTablesAndColumns: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): Record<string, Record<string, boolean>> => {
+                return parseQueryTablesAndColumns(queryInput)
             },
         ],
     }),

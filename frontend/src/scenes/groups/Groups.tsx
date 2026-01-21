@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { IconPeople } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -13,6 +13,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -46,19 +47,16 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
     const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
 
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
     }
 
-    if (
-        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
-        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
-        groupsAccessStatus == GroupsAccessStatus.NoAccess
-    ) {
+    if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
                 <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
@@ -137,6 +135,7 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ),
                     columns,
                     groupTypeLabel: groupTypeNamePlural,
+                    baseCurrency,
                 }}
                 dataAttr="groups-table"
             />

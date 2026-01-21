@@ -132,12 +132,27 @@ export function BatchExportsEditFields({
                                         { value: 'me-south-1', label: 'Middle East (Bahrain)' },
                                         { value: 'me-central-1', label: 'Middle East (Riyadh)' },
                                         { value: 'sa-east-1', label: 'South America (São Paulo)' },
+                                        // Cloudflare R2
                                         { value: 'auto', label: 'Automatic (AUTO)' },
                                         { value: 'apac', label: 'Asia Pacific (APAC)' },
                                         { value: 'eeur', label: 'Eastern Europe (EEUR)' },
                                         { value: 'enam', label: 'Eastern North America (ENAM)' },
                                         { value: 'weur', label: 'Western Europe (WEUR)' },
                                         { value: 'wnam', label: 'Western North America (WNAM)' },
+                                        // OVH Cloud
+                                        { value: 'gra', label: 'Gravelines (GRA)' },
+                                        { value: 'rbx', label: 'Roubaix (RBX)' },
+                                        { value: 'sbg', label: 'Strasbourg (SBG)' },
+                                        { value: 'eu-west-par', label: 'Paris (PAR)' },
+                                        { value: 'eu-south-mil', label: 'Milan (MIL)' },
+                                        { value: 'de', label: 'Frankfurt (DE)' },
+                                        { value: 'uk', label: 'London (UK)' },
+                                        { value: 'waw', label: 'Warsaw (WAW)' },
+                                        { value: 'bhs', label: 'Beauharnois (BHS)' },
+                                        { value: 'ca-east-tor', label: 'Toronto (TOR)' },
+                                        { value: 'sgp', label: 'Singapore (SGP)' },
+                                        { value: 'ap-southeast-syd', label: 'Sydney (SYD)' },
+                                        { value: 'ap-south-mum', label: 'Mumbai (MUM)' },
                                     ]}
                                 />
                             </LemonField>

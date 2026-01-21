@@ -515,6 +515,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     type: source,
                 })),
         ],
+        isSelfManagedSource: [
+            (s) => [s.manualLinkingProvider],
+            (manualLinkingProvider: ManualLinkSourceType | null): boolean => manualLinkingProvider !== null,
+        ],
         tablesAllToggledOn: [
             (s) => [s.databaseSchema],
             (databaseSchema: ExternalDataSourceSyncSchema[]): boolean | 'indeterminate' => {

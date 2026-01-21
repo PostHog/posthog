@@ -29,7 +29,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
         FROM events
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,

@@ -23,6 +23,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -42,7 +43,6 @@ import {
 import { ListBox } from 'lib/ui/ListBox/ListBox'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -99,9 +99,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { user } = useValues(userLogic)
     const { visibleTabs, sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { firstTabIsActive, activeTabId } = useValues(sceneLogic)
+    const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const isAiUx = useFeatureFlag('AI_UX')
+    const { toggleCommand } = useActions(commandLogic)
+
+    const isRemovingSidePanelMaxFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -150,16 +152,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         return false
     }
 
-    function handleSearchClick(): void {
-        const mountedLogic = activeTabId ? newTabSceneLogic.findMounted({ tabId: activeTabId }) : null
-
-        if (mountedLogic) {
-            setTimeout(() => {
-                mountedLogic.actions.triggerSearchPulse()
-            }, 100)
-        }
-    }
-
     const navItems: {
         identifier: string
         label: string
@@ -170,7 +162,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         collapsedTooltip?: React.ReactNode | [React.ReactNode, React.ReactNode] // Open and closed tooltips
         documentationUrl?: string
     }[] = [
-        ...(isAiUx
+        ...(isRemovingSidePanelMaxFlag
             ? [
                   {
                       identifier: 'ai',
@@ -194,10 +186,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             identifier: 'Search',
             label: 'Search',
             icon: <IconSearch />,
-            to: urls.newTab(),
             onClick: () => {
-                handleSearchClick()
-                handleStaticNavbarItemClick(urls.newTab(), true)
+                toggleCommand()
             },
             collapsedTooltip: 'Search',
         },

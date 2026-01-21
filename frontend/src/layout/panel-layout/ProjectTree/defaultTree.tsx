@@ -5,7 +5,6 @@ import {
     IconApps,
     IconBook,
     IconBug,
-    IconChat,
     IconCircleDashed,
     IconCode2,
     IconCursor,
@@ -39,8 +38,10 @@ import {
     IconServer,
     IconSpotlight,
     IconStickiness,
+    IconSupport,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -266,7 +267,11 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconFolderOpen />,
     },
     conversations: {
-        icon: <IconChat />,
+        icon: <IconSupport />,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'],
+    },
+    toolbar: {
+        icon: <IconToolbar />,
     },
 }
 

@@ -128,7 +128,10 @@ export function IssuesList(): JSX.Element {
     const context = useIssueQueryContext()
 
     return (
-        <BindLogic logic={issuesDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
+        <BindLogic
+            logic={issuesDataNodeLogic}
+            props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
+        >
             <SceneStickyBar showBorderBottom={false}>
                 <ListOptions />
                 {orderBy === 'revenue' && (

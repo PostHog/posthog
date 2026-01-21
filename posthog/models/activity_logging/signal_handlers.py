@@ -14,6 +14,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     ActivityScope,
@@ -44,20 +45,6 @@ class UserLogoutContext(ActivityContextBase):
     user_agent: str
 
 
-def _get_original_user_from_session(request):
-    """Extract the original admin user from the impersonation session."""
-    try:
-        signer = TimestampSigner()
-        original_session = request.session.get(la_settings.USER_SESSION_FLAG)
-        original_user_pk = signer.unsign(
-            original_session, max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP)
-        )
-        User = get_user_model()
-        return User.objects.get(pk=original_user_pk)
-    except Exception:
-        return None
-
-
 def _get_logout_user_context(user, request):
     """Determine the correct user context and attribution for logout activity logging."""
     was_impersonated = is_impersonated_session(request)
@@ -65,7 +52,7 @@ def _get_logout_user_context(user, request):
     item_id = str(user.id)
 
     if was_impersonated and hasattr(request, "session") and request.session:
-        admin_user = _get_original_user_from_session(request)
+        admin_user = get_original_user_from_session(request)
         if admin_user:
             log_user = admin_user
             item_id = str(user.id)

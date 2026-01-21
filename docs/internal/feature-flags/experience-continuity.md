@@ -364,8 +364,9 @@ Ensure `$anon_distinct_id` is a **top-level field**, not nested in `person_prope
 ### Logs to Check
 
 - `/flags` endpoint logs for `anon_distinct_id` processing
-- Canonical log field: `hash_key_override_skipped` (optimization active)
+- Canonical log field: `hash_key_override_status` (values: `None`, `"skipped"`, `"error"`, `"empty"`, `"found"`)
 - Metric: `flags_experience_continuity_optimized_total`
+- Metric: `flags_hash_key_query_result_total` (labels: `result="empty"` or `result="has_overrides"`)
 
 ## See also
 

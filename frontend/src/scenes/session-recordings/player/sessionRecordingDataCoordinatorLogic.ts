@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
 
 import {
     RecordingSegment,
@@ -352,18 +352,22 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 const anyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).some((x) => x)
                 const everyWindowMissingFullSnapshot = !Object.values(windowsHaveFullSnapshot).every((x) => x)
 
+                const recordingAgeMs = now().diff(start, 'millisecond')
+
                 if (everyWindowMissingFullSnapshot) {
                     // video is definitely unplayable
                     posthog.capture('recording_has_no_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamId: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 } else if (anyWindowMissingFullSnapshot) {
                     posthog.capture('recording_window_missing_full_snapshot', {
                         watchedSession: sessionRecordingId,
                         teamID: currentTeam?.id,
                         teamName: currentTeam?.name,
+                        recordingAgeMs,
                     })
                 }
 

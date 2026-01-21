@@ -12,11 +12,13 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
+import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { NotebookTableOfContents } from './NotebookTableOfContents'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingLeftColumn, showHistory, showTableOfContents } = useValues(notebookLogic)
+    const { editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
+        useValues(notebookLogic)
 
     return (
         <div
@@ -24,16 +26,19 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                 'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >
-            {editingNodeLogic ? <NotebookNodeSettingsOffset logic={editingNodeLogic} /> : null}
             <div className="NotebookColumn__content">
                 {isShowingLeftColumn ? (
-                    editingNodeLogic ? (
-                        <NotebookNodeSettingsWidget logic={editingNodeLogic} />
-                    ) : showHistory ? (
-                        <NotebookHistory />
-                    ) : showTableOfContents ? (
-                        <NotebookTableOfContents />
-                    ) : null
+                    <>
+                        {editingNodeLogicsForLeft.map((logic) => (
+                            <div key={logic.values.nodeId}>
+                                <NotebookNodeSettingsOffset logic={logic} />
+                                <NotebookNodeSettingsWidget logic={logic} />
+                            </div>
+                        ))}
+                        {showHistory ? <NotebookHistory /> : null}
+                        {showTableOfContents ? <NotebookTableOfContents /> : null}
+                        {showKernelInfo ? <NotebookKernelInfo /> : null}
+                    </>
                 ) : null}
             </div>
         </div>
@@ -81,7 +86,7 @@ export const NotebookNodeSettingsOffset = ({ logic }: { logic: BuiltLogic<notebo
 }
 
 export const NotebookNodeSettingsWidget = ({ logic }: { logic: BuiltLogic<notebookNodeLogicType> }): JSX.Element => {
-    const { setEditingNodeId } = useActions(notebookLogic)
+    const { setEditingNodeEditing } = useActions(notebookLogic)
     const { Settings, nodeAttributes, title } = useValues(logic)
     const { updateAttributes, selectNode } = useActions(logic)
 
@@ -91,7 +96,7 @@ export const NotebookNodeSettingsWidget = ({ logic }: { logic: BuiltLogic<notebo
             className="NotebookColumn__widget"
             actions={
                 <>
-                    <LemonButton size="small" onClick={() => setEditingNodeId(null)}>
+                    <LemonButton size="small" onClick={() => setEditingNodeEditing(nodeAttributes.nodeId, false)}>
                         Done
                     </LemonButton>
                 </>

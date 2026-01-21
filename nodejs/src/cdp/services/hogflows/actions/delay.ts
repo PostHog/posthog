@@ -25,6 +25,13 @@ export class DelayHandler implements ActionHandler {
 
 const DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 
+const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
+    d: 30,
+    h: 24,
+    m: 60,
+    s: 60,
+}
+
 /**
  * Helper for the common case of delaying a hog flow action.
  * We calculate the delay value and return the scheduleAt based on the time the action started.
@@ -53,16 +60,16 @@ export function calculatedScheduledAt(
 
     switch (unit) {
         case 'd':
-            duration = { days: parseFloat(amountString) }
+            duration = { days: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
             break
         case 'h':
-            duration = { hours: parseFloat(amountString) }
+            duration = { hours: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
             break
         case 'm':
-            duration = { minutes: parseFloat(amountString) }
+            duration = { minutes: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
             break
         case 's':
-            duration = { seconds: parseFloat(amountString) }
+            duration = { seconds: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
             break
         default:
             throw new Error(`Invalid duration: ${value}`)

@@ -65,6 +65,7 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
     # We retry the comparison to handle transient inconsistencies.
     sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
     sync_execute("OPTIMIZE TABLE person FINAL")
+    sync_execute("OPTIMIZE TABLE sharded_events FINAL")
 
     last_error: AssertionError | None = None
     for attempt in range(max_retries):
@@ -81,6 +82,7 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
                 # Force another merge before retrying
                 sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
                 sync_execute("OPTIMIZE TABLE person FINAL")
+                sync_execute("OPTIMIZE TABLE sharded_events FINAL")
     assert last_error is not None  # Always set since loop runs at least once
     raise last_error
 

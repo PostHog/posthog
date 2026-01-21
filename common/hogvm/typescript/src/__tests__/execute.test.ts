@@ -133,6 +133,45 @@ describe('hogvm execute', () => {
         )
     })
 
+    test('null coercion in ordering comparisons - preserved behavior', () => {
+        // This test documents the current typescript hogvm behavior where null is coerced to 0 in ordering comparisons.
+        // HogVM in python/rust does not share this behavior.
+        // It is preserved for backward compatibility - users depend on it.
+        // See: https://github.com/PostHog/posthog/pull/45328
+        const options = {}
+
+        // null is coerced to 0 in JavaScript comparisons
+        // 0 <= null is true (null coerces to 0, 0 <= 0)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT_EQ], options)).toBe(true)
+        // 0 >= null is true (null coerces to 0, 0 >= 0)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT_EQ], options)).toBe(true)
+        // 0 < null is false (null coerces to 0, 0 < 0 is false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT], options)).toBe(false)
+        // 0 > null is false (null coerces to 0, 0 > 0 is false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT], options)).toBe(false)
+
+        // 1 < null is false (null coerces to 0, 1 < 0 is false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT], options)).toBe(false)
+        // 1 <= null is false (null coerces to 0, 1 <= 0 is false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT_EQ], options)).toBe(false)
+        // 1 > null is true (null coerces to 0, 1 > 0 is true)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT], options)).toBe(true)
+        // 1 >= null is true (null coerces to 0, 1 >= 0 is true)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT_EQ], options)).toBe(true)
+
+        // -1 < null is true (null coerces to 0, -1 < 0 is true)
+        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.LT], options)).toBe(true)
+        // -1 > null is false (null coerces to 0, -1 > 0 is false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.GT], options)).toBe(false)
+
+        // Reverse order: null < 0 is false (null coerces to 0, 0 < 0 is false)
+        expect(execSync(['_h', op.INTEGER, 0, op.NULL, op.LT], options)).toBe(false)
+        // Reverse order: null < 1 is true (null coerces to 0, 0 < 1 is true)
+        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.LT], options)).toBe(true)
+        // Reverse order: null > 1 is false (null coerces to 0, 0 > 1 is false)
+        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.GT], options)).toBe(false)
+    })
+
     test('async limits', async () => {
         const callSleep = [
             33,

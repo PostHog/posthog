@@ -16,7 +16,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
     Breakdown,
     BreakdownFilter,
@@ -59,8 +59,8 @@ function summarizeSingularBreakdown(
         breakdownType &&
         breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
             ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
-                  ?.label || extractExpressionComment(breakdown)
-            : extractExpressionComment(breakdown as string)
+                  ?.label || extractDisplayLabel(breakdown)
+            : extractDisplayLabel(breakdown as string)
     return `${noun}'s ${propertyLabel}`
 }
 
@@ -264,7 +264,7 @@ function summarizeQuery(query: Node): string {
 
         if (selected.length > 0) {
             return `${selected
-                .map(extractExpressionComment)
+                .map(extractDisplayLabel)
                 .filter((c) => !query.hiddenColumns?.includes(c))
                 .join(', ')}${source ? ` from ${source}` : ''}`
         }

@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import React, { Children, ReactNode, createContext, isValidElement, useContext, useMemo } from 'react'
 
+import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
+
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,15 +13,8 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface OnboardingComponents {
-    Steps: React.ComponentType<{ children: ReactNode }>
-    Step: React.ComponentType<{
-        title: string
-        subtitle?: string
-        badge?: 'required' | 'recommended' | 'optional'
-        checkpoint?: boolean
-        docsOnly?: boolean
-        children: ReactNode
-    }>
+    Steps: React.ComponentType<StepsProps>
+    Step: React.ComponentType<StepProps>
     CodeBlock: React.ComponentType<{
         blocks?: Array<{ language: string; code: string; file?: string }>
         language?: string
@@ -57,7 +52,7 @@ interface OnboardingComponents {
 
 const OnboardingContext = createContext<OnboardingComponents | null>(null)
 
-function Steps({ children }: { children: ReactNode }): JSX.Element {
+function Steps({ children }: StepsProps): JSX.Element {
     let stepNumber = 0
 
     const processedChildren = Children.map(children, (child) => {
@@ -86,15 +81,7 @@ function Step({
     docsOnly,
     stepNumber,
     children,
-}: {
-    title: string
-    subtitle?: string
-    badge?: 'required' | 'recommended' | 'optional'
-    checkpoint?: boolean
-    docsOnly?: boolean
-    stepNumber?: number
-    children: ReactNode
-}): JSX.Element | null {
+}: StepProps & { stepNumber?: number }): JSX.Element | null {
     if (docsOnly) {
         return null
     }
@@ -375,7 +362,7 @@ export function OnboardingDocsContentWrapper({
 
     return (
         <OnboardingContext.Provider value={components}>
-            <div className="max-w-screen-md mx-auto">{children}</div>
+            <div className="w-full">{children}</div>
         </OnboardingContext.Provider>
     )
 }

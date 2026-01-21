@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -24,6 +25,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    ActivityScope,
     FeatureFlagFilters,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
@@ -37,10 +39,10 @@ import {
     SurveyMatchType,
 } from '~/types'
 
-import { EditInToolbarButton } from './components/EditInToolbarButton'
 import { ProductTourStatsSummary } from './components/ProductTourStatsSummary'
+import { ProductToursToolbarButton } from './components/ProductToursToolbarButton'
 import { productTourLogic } from './productTourLogic'
-import { getProductTourStatus, isProductTourRunning, productToursLogic } from './productToursLogic'
+import { getProductTourStatus, isAnnouncement, isProductTourRunning, productToursLogic } from './productToursLogic'
 
 export function ProductTourView({ id }: { id: string }): JSX.Element {
     const { productTour, productTourLoading, tourStats, tourStatsLoading, dateRange, targetingFlagFilters } = useValues(
@@ -59,7 +61,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
 
     const status = getProductTourStatus(productTour)
     const isRunning = isProductTourRunning(productTour)
-    const hasUrlCondition = !!productTour.content?.conditions?.url
 
     return (
         <SceneContent>
@@ -107,7 +108,10 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                 isLoading={productTourLoading}
                 actions={
                     <>
-                        <EditInToolbarButton tourId={id} />
+                        <ProductToursToolbarButton
+                            tourId={id}
+                            mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
+                        />
                         <LemonButton type="secondary" size="small" onClick={() => editingProductTour(true)}>
                             Edit
                         </LemonButton>
@@ -115,7 +119,6 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                disabledReason={!hasUrlCondition ? 'Set a URL pattern before launching' : undefined}
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Launch this product tour?',
@@ -229,11 +232,20 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                     }
                                 />
                                 <LemonDivider />
-                                <StepsFunnel tour={productTour} dateRange={dateRange} />
-                                <LemonDivider />
+                                {!isAnnouncement(productTour) && (
+                                    <>
+                                        <StepsFunnel tour={productTour} dateRange={dateRange} />
+                                        <LemonDivider />
+                                    </>
+                                )}
                                 <TargetingSummary tour={productTour} targetingFlagFilters={targetingFlagFilters} />
                             </div>
                         ),
+                    },
+                    {
+                        key: 'history',
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.PRODUCT_TOUR} id={id} />,
                     },
                 ]}
             />

@@ -1,7 +1,7 @@
-id,user_id,created,event_name,properties
-fb05509d-2cb6-4417-9f6c-7abc4212947c,d1f7bc7b-8378-3015-4347-e60e2d2f6348,2025-11-01,,"{""payment_source"": ""stripe""}"
-a1723c5b-d515-44e6-bdd6-c19f3ce95e23,cf6a408b-b00d-2458-7b24-9321c13033ec,2025-11-02,,"{""payment_source"": ""paypal""}"
-c6dba7bf-662d-4e9a-9d55-853d673303cf,4bee5d74-a588-a205-45ef-69db7f5e8bc2,2025-11-03,,"{""payment_source"": ""stripe""}"
-0ad4c782-9dd5-4dea-a8b8-072ad98d8ea5,bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539,2025-11-04,payment_succeeded,"{""payment_source"": ""paypal""}"
-8543c2b1-e485-45de-8ae5-1a3c3b246e8c,8cadb28f-1825-f158-73fa-3f228865b540,2025-11-05,payment_failed,"{""payment_source"": ""paypal""}"
-cb1d3b2f-16b9-4b41-883c-15c8f9e31e24,cf6a408b-b00d-2458-7b24-9321c13033ec,2025-11-06,,"{""payment_source"": ""paypal""}"
+id,id_with_nulls,uuid,user_id,created,event_name,properties
+1,1,fb05509d-2cb6-4417-9f6c-7abc4212947c,d1f7bc7b-8378-3015-4347-e60e2d2f6348,2025-11-01,,"{""payment_source"": ""stripe""}"
+2,2,a1723c5b-d515-44e6-bdd6-c19f3ce95e23,cf6a408b-b00d-2458-7b24-9321c13033ec,2025-11-02,,"{""payment_source"": ""paypal""}"
+3,\N,c6dba7bf-662d-4e9a-9d55-853d673303cf,4bee5d74-a588-a205-45ef-69db7f5e8bc2,2025-11-03,,"{""payment_source"": ""stripe""}"
+4,4,0ad4c782-9dd5-4dea-a8b8-072ad98d8ea5,bc53b62b-7cc4-b3b8-0688-c6ee3dfb8539,2025-11-04,payment_succeeded,"{""payment_source"": ""paypal""}"
+5,5,8543c2b1-e485-45de-8ae5-1a3c3b246e8c,8cadb28f-1825-f158-73fa-3f228865b540,2025-11-05,payment_failed,"{""payment_source"": ""paypal""}"
+6,6,cb1d3b2f-16b9-4b41-883c-15c8f9e31e24,cf6a408b-b00d-2458-7b24-9321c13033ec,2025-11-06,,"{""payment_source"": ""paypal""}"

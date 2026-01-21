@@ -350,7 +350,13 @@ def test_properties(request, session_id):
         return {**{"$session_id": session_id}, **request.param}
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value", "$session_id": session_id}
+    return {
+        "$browser": "Chrome",
+        "$os": "Mac OS X",
+        "prop": "value",
+        "$session_id": session_id,
+        "$current_url": "posthog.com",
+    }
 
 
 @pytest.fixture

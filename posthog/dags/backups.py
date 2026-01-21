@@ -57,11 +57,8 @@ SHARDED_TABLES = [
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
     "sharded_sessions",
+    "sharded_events",
 ]
-# Continue backing up sharded_events in EU using CH BACKUP. For US we
-# already switched to Vector based approach.
-if settings.CLOUD_DEPLOYMENT == "EU":
-    SHARDED_TABLES.append("sharded_events")
 
 NON_SHARDED_TABLES = [
     "asyncdeletion",
@@ -570,7 +567,7 @@ def run_backup_request(
 @dagster.schedule(
     job=sharded_backup,
     cron_schedule=settings.CLICKHOUSE_FULL_BACKUP_SCHEDULE,
-    should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
+    # should_execute=lambda context: 1 <= context.scheduled_execution_time.day <= 7,
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
 def full_sharded_backup_schedule(context: dagster.ScheduleEvaluationContext):

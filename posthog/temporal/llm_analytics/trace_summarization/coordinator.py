@@ -19,6 +19,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_summarization import constants
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     ALLOWED_TEAM_IDS,
+    CHILD_WORKFLOW_ID_PREFIX,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_TRACES_PER_WINDOW,
@@ -125,7 +126,7 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
                         provider=inputs.provider,
                         model=inputs.model,
                     ),
-                    id=f"batch-summarization-team-{team_id}-{temporalio.workflow.now().isoformat()}",
+                    id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=timedelta(minutes=WORKFLOW_EXECUTION_TIMEOUT_MINUTES),
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )

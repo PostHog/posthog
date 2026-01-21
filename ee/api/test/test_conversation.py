@@ -610,18 +610,22 @@ class TestConversation(APIBaseTest):
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        # get_throttles checks organization.customer_id - no customer_id means rate limits apply
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
         self.assertIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertIsInstance(throttles[1], AISustainedRateThrottle)
 
     @override_settings(DEBUG=True)
-    def test_get_throttles_skips_rate_limits_for_debug_mode(self):
-        """Test that rate limits are skipped in debug mode."""
+    def test_get_throttles_skips_rate_limits_for_create_action_in_debug_mode(self):
+        """Test that AI rate limits are skipped in debug mode (falls back to default throttles)."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
+        # In debug mode, AI-specific throttles are skipped, default throttles are returned
         self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
         self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
 

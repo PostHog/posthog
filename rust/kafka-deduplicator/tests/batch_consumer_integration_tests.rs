@@ -189,23 +189,49 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
 
     tokio::time::sleep(Duration::from_millis(1)).await;
 
+    // Retry loop to wait for messages with timeout
     let mut msgs_recv = 0;
-    while let Some(batch_result) = batch_rx.recv().await {
-        let (msgs, errs) = batch_result.unpack();
-        if !errs.is_empty() {
-            panic!("Errors in batch: {errs:?}");
+    let max_attempts = 10;
+    let wait_duration = Duration::from_millis(500);
+
+    for attempt in 0..max_attempts {
+        // Try to receive all available batches without blocking
+        loop {
+            match batch_rx.try_recv() {
+                Ok(batch_result) => {
+                    let (msgs, errs) = batch_result.unpack();
+                    if !errs.is_empty() {
+                        panic!("Errors in batch: {errs:?}");
+                    }
+                    assert!(
+                        msgs.len() <= 3,
+                        "Batch size should be at most 3, got: {}",
+                        msgs.len()
+                    );
+                    msgs_recv += msgs.len();
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break, // No more messages right now
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break, // Channel closed
+            }
         }
-        assert!(
-            msgs.len() <= 3,
-            "Batch size should be at most 3, got: {}",
-            msgs.len()
-        );
-        msgs_recv += msgs.len();
+
+        // If we've received all messages, break early
+        if msgs_recv >= expected_msg_count {
+            break;
+        }
+
+        // Wait before next attempt (unless this is the last attempt)
+        if attempt < max_attempts - 1 {
+            tokio::time::sleep(wait_duration).await;
+        }
     }
 
     assert_eq!(
-        msgs_recv, expected_msg_count,
-        "Should have received all messages, got: {msgs_recv}",
+        msgs_recv,
+        expected_msg_count,
+        "Should have received all messages after {} attempts (waited up to {}ms), got: {msgs_recv}",
+        max_attempts,
+        (max_attempts - 1) * wait_duration.as_millis()
     );
 
     // Wait for graceful shutdown

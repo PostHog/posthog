@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -34,6 +34,17 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
 
         mutationSuccess: (mutationName: string) => ({ mutationName }),
         mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
+        clearNeedsReload: true,
+    }),
+
+    reducers({
+        needsReload: [
+            false,
+            {
+                mutationSuccess: () => true,
+                clearNeedsReload: () => false,
+            },
+        ],
     }),
 
     listeners(({ actions }) => {

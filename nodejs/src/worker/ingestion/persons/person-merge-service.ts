@@ -484,19 +484,23 @@ export class PersonMergeService {
                         this.context.distinctId
                     )
 
-                    // Merge the distinct IDs
+                    // Move distinct IDs first to establish ownership of the source person quickly.
+                    // This reduces contention when multiple concurrent merges target the same source,
+                    // as subsequent lookups via distinct ID will fail faster.
+                    const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
+                        tx,
+                        currentSourcePerson,
+                        currentTargetPerson
+                    )
+
+                    // Update cohorts and feature flags after distinct IDs are moved.
+                    // The source person row still exists (deleted below), so FK constraints are satisfied.
                     // TODO: Doesn't this table need to add updates to CH too?
                     await tx.updateCohortsAndFeatureFlagsForMerge(
                         currentSourcePerson.team_id,
                         currentSourcePerson.id,
                         currentTargetPerson.id,
                         this.context.distinctId
-                    )
-
-                    const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(
-                        tx,
-                        currentSourcePerson,
-                        currentTargetPerson
                     )
 
                     const deletePersonMessages = await tx.deletePerson(currentSourcePerson, this.context.distinctId)

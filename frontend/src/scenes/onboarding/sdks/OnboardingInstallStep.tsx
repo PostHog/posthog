@@ -251,7 +251,7 @@ const NextButton = ({ installationComplete, size = 'medium' }: NextButtonProps):
             status="alt"
             onClick={continueInstallation}
         >
-            Continue
+            Next
         </LemonButton>
     )
 }

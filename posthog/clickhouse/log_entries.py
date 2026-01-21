@@ -1,5 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES, KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -143,7 +143,7 @@ def KAFKA_LOG_ENTRIES_V3_TABLE_SQL():
     ).format(
         table_name=f"kafka_{LOG_ENTRIES_TABLE}_v3",
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
-        engine=kafka_engine(topic=KAFKA_LOG_ENTRIES, group="clickhouse_log_entries"),
+        engine=kafka_engine(topic=KAFKA_LOG_ENTRIES, group=CONSUMER_GROUP_LOG_ENTRIES),
         extra_fields="",
     )
 

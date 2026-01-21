@@ -12,11 +12,14 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { isHogQLQuery } from '~/queries/utils'
 import { EndpointType } from '~/types'
 
+import { EndpointFromInsightModal } from './EndpointFromInsightModal'
 import { humanizeQueryKind } from './common'
 import { endpointLogic } from './endpointLogic'
 import { endpointsLogic } from './endpointsLogic'
@@ -41,7 +44,8 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
     const { setFilters, loadEndpoints } = useActions(endpointsLogic({ tabId }))
     const { endpoints, allEndpointsLoading, filters } = useValues(endpointsLogic({ tabId }))
 
-    const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
+    const { deleteEndpoint, confirmToggleActive, setDuplicateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { duplicateEndpoint } = useValues(endpointLogic({ tabId }))
 
     const handleDelete = (endpointName: string): void => {
         LemonDialog.open({
@@ -70,6 +74,16 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     const handleEndpointActivation = (endpoint: EndpointType): void => {
         confirmToggleActive(endpoint)
+    }
+
+    const handleDuplicate = (endpoint: EndpointType): void => {
+        if (isHogQLQuery(endpoint.query)) {
+            router.actions.push(
+                urls.sqlEditor(endpoint.query.query, undefined, undefined, undefined, OutputTab.Endpoint)
+            )
+        } else {
+            setDuplicateEndpoint(endpoint)
+        }
     }
 
     const columns: LemonTableColumns<EndpointType> = [
@@ -156,6 +170,9 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                             >
                                 View usage
                             </LemonButton>
+                            <LemonButton onClick={() => handleDuplicate(record)} fullWidth>
+                                Duplicate endpoint
+                            </LemonButton>
 
                             <LemonDivider />
                             <LemonButton
@@ -218,6 +235,15 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 emptyState="No endpoints matching your filters!"
                 nouns={['endpoint', 'endpoints']}
             />
+            {duplicateEndpoint && (
+                <EndpointFromInsightModal
+                    isOpen={!!duplicateEndpoint}
+                    closeModal={() => setDuplicateEndpoint(null)}
+                    tabId={tabId}
+                    insightQuery={duplicateEndpoint.query}
+                    insightShortId={duplicateEndpoint.derived_from_insight ?? undefined}
+                />
+            )}
         </SceneContent>
     )
 }

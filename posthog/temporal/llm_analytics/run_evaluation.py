@@ -8,7 +8,7 @@ from django.conf import settings
 
 import structlog
 import temporalio
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
@@ -33,6 +33,64 @@ class BooleanEvalResult(BaseModel):
 
     reasoning: str
     verdict: bool
+
+
+class BooleanWithNAEvalResult(BaseModel):
+    """Structured output for boolean with N/A evaluation results.
+
+    When the evaluation criteria doesn't apply to the input/output,
+    applicable should be False and verdict should be None.
+    """
+
+    reasoning: str
+    applicable: bool
+    verdict: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_verdict_consistency(self) -> "BooleanWithNAEvalResult":
+        if self.applicable and self.verdict is None:
+            raise ValueError("verdict is required when applicable is true")
+        if not self.applicable and self.verdict is not None:
+            raise ValueError("verdict must be null when applicable is false")
+        return self
+
+
+@dataclass
+class OutputTypeConfig:
+    """Configuration for each evaluation output type"""
+
+    response_format: type[BooleanEvalResult] | type[BooleanWithNAEvalResult]
+    instructions: str
+
+
+def get_output_type_config(allows_na: bool) -> OutputTypeConfig:
+    """Get the output type configuration based on whether N/A is allowed."""
+    if allows_na:
+        return OutputTypeConfig(
+            response_format=BooleanWithNAEvalResult,
+            instructions="""First, determine if this evaluation criteria is applicable to the given input/output. If the criteria doesn't apply to this case mark it as not applicable.
+
+Note: If the criteria above instructs you to return "N/A", "not applicable", or similar, treat that as applicable=false with verdict=null.
+
+Return:
+- applicable: true if the criteria applies to this input/output, false if it doesn't apply
+- verdict: true if it passes, false if it fails, or null if not applicable
+- reasoning: a brief explanation (1 sentence)""",
+        )
+    return OutputTypeConfig(
+        response_format=BooleanEvalResult,
+        instructions="Provide a brief reasoning (1 sentence) and a boolean verdict (true/false).",
+    )
+
+
+def build_system_prompt(prompt: str, allows_na: bool) -> str:
+    """Build the system prompt for the LLM judge."""
+    config = get_output_type_config(allows_na)
+    return f"""You are an evaluator. Evaluate the following generation according to this criteria:
+
+{prompt}
+
+{config.instructions}"""
 
 
 @dataclass
@@ -115,9 +173,12 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     output_type = evaluation["output_type"]
     if output_type != "boolean":
         raise ApplicationError(
-            f"Unsupported output type: {output_type}. Only 'boolean' is currently supported.",
+            f"Unsupported output type: {output_type}. Supported types: 'boolean'.",
             non_retryable=True,
         )
+
+    output_config = evaluation.get("output_config", {})
+    allows_na = output_config.get("allows_na", False)
 
     # Fetch API key configuration (BYOK or trial)
     team_id = evaluation["team_id"]
@@ -202,12 +263,10 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
 
-    # Build judge prompt
-    system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
-
-{prompt}
-
-Provide a brief reasoning (1 sentence) and a boolean verdict (true/false)."""
+    # Build judge prompt based on allows_na config
+    type_config = get_output_type_config(allows_na)
+    system_prompt = build_system_prompt(prompt, allows_na)
+    response_format = type_config.response_format
 
     user_prompt = f"""Input: {input_data}
 
@@ -230,7 +289,7 @@ Output: {output_data}"""
         response = client.beta.chat.completions.parse(
             model=DEFAULT_JUDGE_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            response_format=BooleanEvalResult,
+            response_format=response_format,
         )
     except openai.AuthenticationError:
         if is_byok:
@@ -275,9 +334,14 @@ Output: {output_data}"""
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
+    # Type narrowing for mypy - the response_format guarantees one of these types
+    assert isinstance(result, (BooleanEvalResult, BooleanWithNAEvalResult))
+
     # Extract token usage from response
     usage = response.usage
-    return {
+
+    # Build result dict based on allows_na config
+    result_dict: dict[str, Any] = {
         "verdict": result.verdict,
         "reasoning": result.reasoning,
         "input_tokens": usage.prompt_tokens if usage else 0,
@@ -285,7 +349,17 @@ Output: {output_data}"""
         "total_tokens": usage.total_tokens if usage else 0,
         "is_byok": is_byok,
         "key_id": key_id,
+        "allows_na": allows_na,
     }
+
+    if allows_na and isinstance(result, BooleanWithNAEvalResult):
+        result_dict["applicable"] = result.applicable
+    elif isinstance(result, BooleanEvalResult):
+        pass
+    else:
+        raise ValueError(f"Unexpected result type: {type(result)}")
+
+    return result_dict
 
 
 @temporalio.activity.defn
@@ -305,12 +379,14 @@ async def emit_evaluation_event_activity(
             raise ValueError(f"Team {event_data['team_id']} not found")
 
         event_uuid = uuid.uuid4()
-        properties = {
+        allows_na = result.get("allows_na", False)
+
+        properties: dict[str, Any] = {
             "$ai_evaluation_id": evaluation["id"],
             "$ai_evaluation_name": evaluation["name"],
             "$ai_evaluation_model": DEFAULT_JUDGE_MODEL,
             "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_result": result["verdict"],
+            "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
@@ -318,6 +394,17 @@ async def emit_evaluation_event_activity(
             "$ai_evaluation_key_type": "byok" if result.get("is_byok") else "posthog",
             "$ai_evaluation_key_id": result.get("key_id"),
         }
+
+        # Handle result based on allows_na config
+        if allows_na:
+            applicable = result.get("applicable", True)
+            properties["$ai_evaluation_applicable"] = applicable
+            # Only set result when applicable
+            if applicable:
+                properties["$ai_evaluation_result"] = result["verdict"]
+        else:
+            # Standard boolean output - always set result
+            properties["$ai_evaluation_result"] = result["verdict"]
 
         # Convert person_id string to UUID
         person_id = uuid.UUID(event_data["person_id"]) if event_data.get("person_id") else None

@@ -29,30 +29,34 @@ logger = logging.getLogger(__name__)
 WORKING_DIR = "/tmp/workspace"
 DEFAULT_TASK_TIMEOUT_SECONDS = 20 * 60  # 20 minutes
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
-SANDBOX_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
+NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
+SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 
 
-@lru_cache(maxsize=1)
-def _get_sandbox_image_reference() -> str:
+@lru_cache(maxsize=2)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
     so Modal fetches the correct version. Queries GHCR once per deployment.
     """
+    image_repo = image.replace("ghcr.io/", "")
     try:
         token_resp = requests.get(
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:posthog/posthog-sandbox-base:pull",
+            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
             timeout=10,
         )
         if token_resp.status_code != 200:
             logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{SANDBOX_IMAGE}:master"
+            return f"{image}:master"
 
         token = token_resp.json().get("token")
         if not token:
             logger.warning("GHCR token response missing token field")
-            return f"{SANDBOX_IMAGE}:master"
+            return f"{image}:master"
 
         manifest_resp = requests.get(
-            "https://ghcr.io/v2/posthog/posthog-sandbox-base/manifests/master",
+            f"https://ghcr.io/v2/{image_repo}/manifests/master",
             headers={
                 "Accept": "application/vnd.oci.image.index.v1+json",
                 "Authorization": f"Bearer {token}",
@@ -62,13 +66,13 @@ def _get_sandbox_image_reference() -> str:
         if manifest_resp.status_code == 200:
             digest = manifest_resp.headers.get("Docker-Content-Digest")
             if digest:
-                logger.info(f"Resolved sandbox image digest: {digest}")
-                return f"{SANDBOX_IMAGE}@{digest}"
+                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
+                return f"{image}@{digest}"
         logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
     except Exception as e:
         logger.warning(f"Failed to fetch sandbox image digest: {e}")
 
-    return f"{SANDBOX_IMAGE}:master"
+    return f"{image}:master"
 
 
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
@@ -83,7 +87,20 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
             return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
         else:
-            return modal.Image.from_registry(_get_sandbox_image_reference())
+            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
+
+    if template == SandboxTemplate.NOTEBOOK_BASE:
+        if settings.DEBUG:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
+            )
+
+            if not os.path.exists(dockerfile_path):
+                raise FileNotFoundError(f"Dockerfile not found at {dockerfile_path}")
+
+            return modal.Image.from_dockerfile(dockerfile_path, force_build=True)
+        else:
+            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
 
     raise ValueError(f"Unknown template: {template}")
 
@@ -103,17 +120,22 @@ class ModalSandbox:
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = ModalSandbox._get_default_app()
+        self._app = ModalSandbox._get_app_for_template(config.template)
 
     @staticmethod
     def _get_default_app() -> modal.App:
         return modal.App.lookup(DEFAULT_MODAL_APP_NAME, create_if_missing=True)
 
     @staticmethod
+    def _get_app_for_template(template: SandboxTemplate) -> modal.App:
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return modal.App.lookup(NOTEBOOK_MODAL_APP_NAME, create_if_missing=True)
+        return ModalSandbox._get_default_app()
+
+    @staticmethod
     def create(config: SandboxConfig) -> "ModalSandbox":
         try:
-            app = ModalSandbox._get_default_app()
-
+            app = ModalSandbox._get_app_for_template(config.template)
             image = _get_template_image(config.template)
 
             if config.snapshot_id:
@@ -139,7 +161,7 @@ class ModalSandbox:
                 "image": image,
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
-                "memory": config.memory_gb * 1024,
+                "memory": int(config.memory_gb * 1024),
                 "verbose": True,
             }
 

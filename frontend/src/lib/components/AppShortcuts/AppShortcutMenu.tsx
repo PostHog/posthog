@@ -48,6 +48,44 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
     }
 }
 
+interface RenderKeybindProps {
+    keybind: string[][]
+    className?: string
+}
+
+export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.Element {
+    return (
+        <span className={cn('flex items-center gap-1', className)}>
+            {keybind.map((keybindOption, index) => {
+                const isSequence = keybindOption.includes('then')
+                if (isSequence) {
+                    const keys = keybindOption.filter((k) => k !== 'then')
+                    return (
+                        <React.Fragment key={index}>
+                            {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                            {keys.map((key, keyIndex) => (
+                                <React.Fragment key={key}>
+                                    {keyIndex > 0 && <span className="opacity-50 lowercase text-xxs">then</span>}
+                                    <kbd className="KeyboardShortcut gap-x-0.5 text-xxs">{key}</kbd>
+                                </React.Fragment>
+                            ))}
+                        </React.Fragment>
+                    )
+                }
+                return (
+                    <React.Fragment key={index}>
+                        {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                        <KeyboardShortcut
+                            {...Object.fromEntries(keybindOption.map((key: string) => [key, true]))}
+                            className="text-xs"
+                        />
+                    </React.Fragment>
+                )
+            })}
+        </span>
+    )
+}
+
 export function AppShortcutMenu(): JSX.Element | null {
     const { appShortcutMenuOpen } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
@@ -258,58 +296,10 @@ export function AppShortcutMenu(): JSX.Element | null {
                                                         {getShortcutIcon(shortcut)}
                                                         {shortcut.intent}
                                                     </span>
-                                                    <span className="ml-auto flex items-center gap-1">
-                                                        {(shortcut.keybind as string[][]).map(
-                                                            (keybindOption, index) => {
-                                                                const isSequence = keybindOption.includes('then')
-                                                                if (isSequence) {
-                                                                    // Render sequence shortcuts as "s → q → l"
-                                                                    const keys = keybindOption.filter(
-                                                                        (k) => k !== 'then'
-                                                                    )
-                                                                    return (
-                                                                        <React.Fragment key={index}>
-                                                                            {index > 0 && (
-                                                                                <span className="text-xs opacity-75">
-                                                                                    or
-                                                                                </span>
-                                                                            )}
-                                                                            <kbd className="KeyboardShortcut gap-x-0.5 text-xs">
-                                                                                {keys.map((key, keyIndex) => (
-                                                                                    <React.Fragment key={key}>
-                                                                                        {keyIndex > 0 && (
-                                                                                            <span className="opacity-50">
-                                                                                                {' '}
-                                                                                            </span>
-                                                                                        )}
-                                                                                        <span>{key}</span>
-                                                                                    </React.Fragment>
-                                                                                ))}
-                                                                            </kbd>
-                                                                        </React.Fragment>
-                                                                    )
-                                                                }
-                                                                return (
-                                                                    <React.Fragment key={index}>
-                                                                        {index > 0 && (
-                                                                            <span className="text-xs opacity-75">
-                                                                                or
-                                                                            </span>
-                                                                        )}
-                                                                        <KeyboardShortcut
-                                                                            {...Object.fromEntries(
-                                                                                keybindOption.map((key: string) => [
-                                                                                    key,
-                                                                                    true,
-                                                                                ])
-                                                                            )}
-                                                                            className="text-xs"
-                                                                        />
-                                                                    </React.Fragment>
-                                                                )
-                                                            }
-                                                        )}
-                                                    </span>
+                                                    <RenderKeybind
+                                                        keybind={shortcut.keybind as string[][]}
+                                                        className="ml-auto"
+                                                    />
                                                 </ButtonPrimitive>
                                             </Combobox.Item>
                                         </Combobox.Group>

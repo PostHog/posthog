@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Optional
@@ -1259,3 +1260,184 @@ class TestCSVExporter(APIBaseTest):
                     "Test Action,Firefox,1",
                 ],
             )
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_excel_streaming_saves_to_object_storage(self, _mock_feature_enabled: Any, mocked_uuidt: Any) -> None:
+        """Test that Excel streaming export saves to object storage and handles complex types."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        query_limit = 5
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i, "tags": ["tag1", "tag2"], "meta": {"key": "value"}},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event, properties.prop as prop, properties.tags as tags, properties.meta as meta from events where distinct_id = '{random_uuid}' order by prop limit {query_limit}",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/vnd.openxmlformats-officedocument.spreadsheetml.sheet/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read_bytes(exported_asset.content_location)
+            assert content is not None
+
+            workbook = load_workbook(filename=BytesIO(content))
+            worksheet = workbook.active
+            rows = list(worksheet.iter_rows(values_only=True))
+
+            header_row = 1
+            assert rows[0] == ("event", "prop", "tags", "meta")
+            assert len(rows) == query_limit + header_row
+            assert all(row[0] == "$pageview" for row in rows[1:])
+            # Complex types (arrays, objects) are converted to strings without crashing
+            assert all(row[2] is not None and "tag1" in str(row[2]) for row in rows[1:])
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_csv_streaming_saves_to_object_storage(
+        self, _mock_feature_enabled: Any, mocked_uuidt: Any, csv_export_limit: int = 10
+    ) -> None:
+        """Test that CSV streaming export saves to object storage and handles complex types."""
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        for i in range(15):
+            _create_event(
+                event="$pageview",
+                distinct_id=random_uuid,
+                team=self.team,
+                timestamp=now() - relativedelta(hours=1),
+                properties={"prop": i, "tags": ["tag1", "tag2"], "meta": {"key": "value"}},
+            )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event, properties.tags as tags, properties.meta as meta from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert exported_asset.content_location is not None
+            assert exported_asset.content is None
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            header_row = 1
+            assert lines[0] == "event,tags,meta"
+            assert len(lines) == csv_export_limit + header_row
+            # Complex types (arrays, objects) are handled without crashing
+            assert "tag1" in lines[1]
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_csv_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
+        """Test that CSV streaming export writes to a temp file and cleans it up."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_paths: list[str] = []
+
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
+            tmp = original_temp_file(*args, **kwargs)
+            temp_file_paths.append(tmp.name)
+            return tmp
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        assert len(temp_file_paths) == 1
+        assert temp_file_paths[0].endswith(".csv")
+        assert not os.path.exists(temp_file_paths[0]), "Temp file should be cleaned up after export"
+
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
+    @patch("posthog.tasks.exports.csv_exporter.posthoganalytics.feature_enabled", return_value=True)
+    def test_excel_streaming_uses_temp_file(self, _mock_feature_enabled: Any) -> None:
+        """Test that Excel streaming export writes to a temp file and cleans it up."""
+        import tempfile
+
+        original_temp_file = tempfile.NamedTemporaryFile
+        temp_file_paths: list[str] = []
+
+        def tracking_temp_file(*args: Any, **kwargs: Any) -> Any:
+            tmp = original_temp_file(*args, **kwargs)
+            temp_file_paths.append(tmp.name)
+            return tmp
+
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
+        _create_event(
+            event="$pageview",
+            distinct_id=random_uuid,
+            team=self.team,
+            timestamp=now() - relativedelta(hours=1),
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.XLSX,
+            export_context={
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": f"select event from events where distinct_id = '{random_uuid}'",
+                }
+            },
+        )
+        exported_asset.save()
+
+        with patch("posthog.tasks.exports.csv_exporter.tempfile.NamedTemporaryFile", tracking_temp_file):
+            csv_exporter.export_tabular(exported_asset)
+
+        assert len(temp_file_paths) == 1
+        assert temp_file_paths[0].endswith(".xlsx")
+        assert not os.path.exists(temp_file_paths[0]), "Temp file should be cleaned up after export"

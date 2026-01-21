@@ -15,6 +15,7 @@ export interface CreatedResources {
     insights: number[]
     dashboards: number[]
     surveys: string[]
+    actions: number[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -99,6 +100,15 @@ export async function cleanupResources(
         }
     }
     resources.surveys = []
+
+    for (const actionId of resources.actions) {
+        try {
+            await client.actions({ projectId }).delete({ actionId })
+        } catch (error) {
+            console.warn(`Failed to cleanup action ${actionId}:`, error)
+        }
+    }
+    resources.actions = []
 }
 
 export function parseToolResponse(result: any): any {

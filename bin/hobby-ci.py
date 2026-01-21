@@ -138,9 +138,11 @@ runcmd:
             "cd ..",
             'echo "$LOG_PREFIX Waiting for docker image to be available on DockerHub..."',
             self._get_wait_for_image_script(),
-            "chmod +x posthog/bin/hobby-installer",
+            'echo "$LOG_PREFIX Downloading hobby installer from GitHub releases..."',
+            "curl -L https://github.com/PostHog/posthog/releases/download/hobby-latest/hobby-installer -o hobby-installer",
+            "chmod +x hobby-installer",
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
-            f"./posthog/bin/hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
+            f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
             'echo "$LOG_PREFIX Hobby installer exited with code: $DEPLOY_EXIT"',
             "exit $DEPLOY_EXIT",
@@ -452,7 +454,7 @@ runcmd:
         http_502_count = 0
         connection_error_count = 0
 
-        last_log_fetch = 0
+        last_log_fetch = -30  # Start at -30 so first check happens after 30s, not 60s
         containers_healthy_since = None  # Track when containers first became healthy
         cloud_init_finished = False
 
@@ -621,7 +623,7 @@ runcmd:
         last_error = None
         http_502_count = 0
         connection_error_count = 0
-        last_log_fetch = 0
+        last_log_fetch = -30  # Start at -30 so first check happens after 30s, not 60s
         containers_healthy_since = None
         cloud_init_finished = False
         failure_details: dict = {}
@@ -649,6 +651,7 @@ runcmd:
                 connection_error_count += 1
                 print(f"Connection failed: {type(e).__name__}", flush=True)
 
+            # Periodic checks (every 60 seconds)
             if int(elapsed) - last_log_fetch > 60:
                 if not cloud_init_finished:
                     finished, success, status = self.check_cloud_init_status()
@@ -1299,15 +1302,21 @@ def main():
         name = os.environ.get("HOBBY_NAME")
         record_id = os.environ.get("HOBBY_DNS_RECORD_ID")
         droplet_id = os.environ.get("HOBBY_DROPLET_ID")
+        ssh_key = os.environ.get("DIGITALOCEAN_SSH_PRIVATE_KEY")
 
         print("Waiting for deployment to become healthy", flush=True)
         print(f"Record ID: {record_id}", flush=True)
         print(f"Droplet ID: {droplet_id}", flush=True)
+        print(f"SSH key available: {bool(ssh_key)}", flush=True)
+
+        if not ssh_key:
+            print("⚠️  WARNING: No SSH key - cannot detect cloud-init failures early!", flush=True)
 
         ht = HobbyTester(
             name=name,
             record_id=record_id,
             droplet_id=droplet_id,
+            ssh_private_key=ssh_key,
         )
         health_success, failure_details = ht.test_deployment_with_details()
 

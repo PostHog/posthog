@@ -26,6 +26,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     formatDateTimeRange,
+    formatPercentageDiff,
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
@@ -1274,6 +1275,27 @@ describe('lib/utils', () => {
             const from = dayjs('2025-03-15T12:00:00')
             const to = dayjs('2025-03-15T12:01:00')
             expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
+        })
+    })
+
+    describe('formatPercentageDiff()', () => {
+        it.each([
+            { current: 150, previous: 100, expected: '(+50.0%)' },
+            { current: 200, previous: 100, expected: '(+100.0%)' },
+            { current: 100, previous: 100, expected: '(+0.0%)' },
+            { current: 50, previous: 100, expected: '(-50.0%)' },
+            { current: 0, previous: 100, expected: '(-100.0%)' },
+            { current: 125, previous: 100, expected: '(+25.0%)' },
+            { current: 75, previous: 100, expected: '(-25.0%)' },
+        ])('formats $current vs $previous as $expected', ({ current, previous, expected }) => {
+            expect(formatPercentageDiff(current, previous)).toEqual(expected)
+        })
+
+        it.each([
+            { current: 100, previous: 0, description: 'division by zero' },
+            { current: 0, previous: 0, description: 'zero divided by zero' },
+        ])('returns null for $description', ({ current, previous }) => {
+            expect(formatPercentageDiff(current, previous)).toBeNull()
         })
     })
 

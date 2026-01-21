@@ -99,6 +99,7 @@ class TestSummarizeWithOpenAI:
 
             call_kwargs = mock_client.chat.completions.create.call_args[1]
             assert call_kwargs["model"] == OpenAIModel.GPT_4O
+            assert call_kwargs["user"] == "llma-summarization"
 
     @pytest.mark.asyncio
     async def test_uses_json_schema_format(self, valid_response_json):

@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
+import { TOOLBAR_ID } from '~/toolbar/utils'
 
 import { productToursLogic } from './productToursLogic'
 
@@ -20,6 +22,31 @@ export function TourGoalModal(): JSX.Element | null {
     const { closeGoalModal, setAIGoal, startFromGoalModal } = useActions(productToursLogic)
 
     const canProceed = aiGoal.trim().length > 0
+
+    // prevent main doc from stealing focus while tour modal is open
+    useEffect(() => {
+        if (!goalModalOpen) {
+            return
+        }
+
+        const toolbarHost = document.getElementById(TOOLBAR_ID)
+        const toolbarContainer = toolbarHost?.parentElement
+
+        // mark everything _except_ the toolbar as inert
+        const elementsToRestore: HTMLElement[] = []
+        document.body.childNodes.forEach((node) => {
+            if (node instanceof HTMLElement && node !== toolbarContainer && !node.inert) {
+                node.inert = true
+                elementsToRestore.push(node)
+            }
+        })
+
+        return () => {
+            elementsToRestore.forEach((el) => {
+                el.inert = false
+            })
+        }
+    }, [goalModalOpen])
 
     return (
         <LemonModal

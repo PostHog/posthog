@@ -1,8 +1,11 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { FeatureFlagType } from '~/types'
+
+import { DependentFlag } from './featureFlagLogic'
 
 type ConfirmationModalType = 'flag-status' | 'rollout' | 'multi-changes'
 
@@ -12,7 +15,8 @@ interface ConfirmationModalProps {
     activeNewValue?: boolean // Only for flag-status type
     changes?: string[] // Only for multi-changes type
     customConfirmationMessage?: string // Custom confirmation message to replace default message
-    extraMessages?: string[] // Additional messages to display after the main message
+    dependentFlags?: DependentFlag[] // Feature flags that depend on this flag (only shown when disabling)
+    isBeingDisabled?: boolean // Whether the flag is being disabled (controls dependent flags warning)
     featureFlagConfirmationEnabled?: boolean // Whether the team has feature flag confirmation enabled in settings
     onConfirm: () => void
 }
@@ -27,7 +31,8 @@ export function openConfirmationModal({
     activeNewValue,
     changes = [],
     customConfirmationMessage,
-    extraMessages,
+    dependentFlags,
+    isBeingDisabled = false,
     featureFlagConfirmationEnabled = false,
     onConfirm,
 }: ConfirmationModalProps): void {
@@ -76,16 +81,12 @@ export function openConfirmationModal({
             const defaultMessage =
                 '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
 
-            const allMessages: string[] = []
+            const allMessages: React.ReactNode[] = []
 
             if (customConfirmationMessage) {
                 allMessages.push(customConfirmationMessage)
             } else if (featureFlagConfirmationEnabled) {
                 allMessages.push(defaultMessage)
-            }
-
-            if (extraMessages && extraMessages.length > 0) {
-                allMessages.push(...extraMessages)
             }
 
             description = (
@@ -96,6 +97,25 @@ export function openConfirmationModal({
                             <li key={index}>{change}</li>
                         ))}
                     </ul>
+                    {isBeingDisabled && dependentFlags && dependentFlags.length > 0 && (
+                        <p className="mt-4">
+                            This flag is referenced by {dependentFlags.length} other feature flag
+                            {dependentFlags.length === 1 ? '' : 's'}. By disabling this flag,{' '}
+                            {dependentFlags.map((flag, index) => (
+                                <span key={flag.id}>
+                                    {index > 0 && (index === dependentFlags.length - 1 ? ' and ' : ', ')}
+                                    <Link
+                                        to={urls.featureFlag(flag.id)}
+                                        target="_blank"
+                                        aria-label={`Open ${flag.key}`}
+                                    >
+                                        <strong>{flag.key}</strong>
+                                    </Link>
+                                </span>
+                            ))}{' '}
+                            will evaluate as <strong>false</strong> for all users.
+                        </p>
+                    )}
                     {allMessages.map((message, index) => (
                         <p key={index} className="mt-4">
                             {message}

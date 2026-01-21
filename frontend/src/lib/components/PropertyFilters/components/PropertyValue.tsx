@@ -79,6 +79,10 @@ export function PropertyValue({
     const isAssigneeProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
+    // TODO: Add semver input validation when a semver operator is selected.
+    // This will require detecting isOperatorSemver(operator) and validating the input
+    // matches semver format (e.g., "1.2.3", "1.2.3-alpha", etc.)
+
     const load = useCallback(
         (newInput: string | undefined): void => {
             loadPropertyValues({

@@ -81,10 +81,12 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     - Weekly: adds exactly 7 days
     - Monthly: adds 1 month, handling month-end edge cases
       (e.g., Jan 31 + 1 month = Feb 28/29, not Mar 3)
+    - Yearly: adds 1 year, handling leap year edge cases
+      (e.g., Feb 29 + 1 year = Feb 28 in non-leap years)
 
     Args:
         current: The current scheduled_at datetime
-        interval: One of 'daily', 'weekly', 'monthly' (validated at API layer via
+        interval: One of 'daily', 'weekly', 'monthly', 'yearly' (validated at API layer via
             ScheduledChange.RecurrenceInterval). We use str instead of Literal here
             because Django's TextChoices fields return str at runtime, not the enum type.
 
@@ -100,6 +102,8 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
         return current + relativedelta(weeks=1)
     elif interval == "monthly":
         return current + relativedelta(months=1)
+    elif interval == "yearly":
+        return current + relativedelta(years=1)
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 

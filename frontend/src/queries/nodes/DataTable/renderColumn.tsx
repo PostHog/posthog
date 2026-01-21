@@ -12,6 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription, isURL } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
+import { formatCurrency } from 'lib/utils/geography/currency'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableL
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import {
+    CurrencyCode,
     DataTableNode,
     EventsQueryPersonColumn,
     HasPropertiesNode,
@@ -395,8 +397,13 @@ export function renderColumn(
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
         const key = (record as any[])[1] // 'key' is the second column in the groups query
         return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
+    } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
+        if (value === null || value === undefined) {
+            return '—'
+        }
+        const baseCurrency = context?.baseCurrency || CurrencyCode.USD
+        return formatCurrency(Number(value), baseCurrency)
     }
-
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (

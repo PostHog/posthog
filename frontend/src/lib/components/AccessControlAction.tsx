@@ -4,12 +4,12 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-interface AccessControlActionChildrenProps {
+export interface AccessControlActionChildrenProps {
     disabled?: boolean
     disabledReason: string | null
 }
 
-interface AccessControlActionProps<P extends AccessControlActionChildrenProps> {
+export interface AccessControlActionProps<P extends AccessControlActionChildrenProps> {
     children: React.ComponentType<P> | React.ReactElement<P>
     resourceType: AccessControlResourceType
     minAccessLevel: AccessControlLevel

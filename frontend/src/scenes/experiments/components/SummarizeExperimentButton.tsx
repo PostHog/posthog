@@ -17,7 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentStatsMethod } from '~/types'
 
-import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
+import { getChanceToWin, getDefaultMetricTitle, getDelta } from '../MetricsView/shared/utils'
 import { experimentLogic } from '../experimentLogic'
 
 function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
@@ -36,11 +36,14 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
 
                     const variants =
                         result.variant_results?.map((variant: any) => {
+                            const delta = getDelta(variant)
+
                             if (statsMethod === 'bayesian') {
                                 return {
                                     key: variant.key,
-                                    chance_to_win: variant.chance_to_win || null,
+                                    chance_to_win: getChanceToWin(variant, metric.goal) ?? null,
                                     credible_interval: variant.credible_interval || null,
+                                    delta,
                                     significant: variant.significant || false,
                                 }
                             }
@@ -48,12 +51,14 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
                                 key: variant.key,
                                 p_value: variant.p_value || null,
                                 confidence_interval: variant.confidence_interval || null,
+                                delta,
                                 significant: variant.significant || false,
                             }
                         }) || []
 
                     return {
                         name: metricName,
+                        goal: metric.goal || null,
                         variant_results: variants,
                     }
                 })

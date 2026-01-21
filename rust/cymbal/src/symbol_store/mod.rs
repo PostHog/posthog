@@ -18,6 +18,7 @@ use crate::{
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
+pub mod dart_minified_names;
 pub mod hermesmap;
 pub mod proguard;
 pub mod saving;

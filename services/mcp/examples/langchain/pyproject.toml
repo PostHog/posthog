@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "langchain>=0.3.0",
     "langchain-openai>=0.2.0",
-    "langchain-core>=0.3.0",
+    "langchain-core>=0.3.81",
     "python-dotenv>=1.0.0",
     "posthog-agent-toolkit>=0.1.0",
 ]

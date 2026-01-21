@@ -4,6 +4,7 @@ import { useCallback, useEffect } from 'react'
 import { IconQuestion } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
@@ -14,6 +15,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
@@ -101,6 +103,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         nextButtonText,
         selectedConnector,
         connectors,
+        isSelfManagedSource,
     } = useValues(sourceWizardLogic)
     const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
@@ -126,6 +129,19 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
             return null
         }
 
+        const nextButton = (disabledReason?: string | false): JSX.Element => (
+            <LemonButton
+                loading={isLoading || manualLinkIsLoading}
+                disabledReason={disabledReason || (!canGoNext && 'You cant click next yet')}
+                type="primary"
+                center
+                onClick={() => onSubmit()}
+                data-attr="source-link"
+            >
+                {nextButtonText}
+            </LemonButton>
+        )
+
         return (
             <div className="flex flex-row gap-2 justify-end mt-4">
                 {!props.hideBackButton && (
@@ -139,16 +155,16 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         Back
                     </LemonButton>
                 )}
-                <LemonButton
-                    loading={isLoading || manualLinkIsLoading}
-                    disabledReason={!canGoNext && 'You cant click next yet'}
-                    type="primary"
-                    center
-                    onClick={() => onSubmit()}
-                    data-attr="source-link"
-                >
-                    {nextButtonText}
-                </LemonButton>
+                {isSelfManagedSource ? (
+                    nextButton()
+                ) : (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.ExternalDataSource}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
+                    </AccessControlAction>
+                )}
             </div>
         )
     }, [
@@ -161,6 +177,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         nextButtonText,
         onSubmit,
         props.hideBackButton,
+        isSelfManagedSource,
     ])
 
     return (

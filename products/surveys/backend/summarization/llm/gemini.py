@@ -1,15 +1,10 @@
 """Gemini provider for survey summarization."""
 
-import uuid
 from dataclasses import dataclass
 
-from django.conf import settings
-
-import structlog
-import posthoganalytics
-from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from rest_framework import exceptions
+
+from products.surveys.backend.llm import generate_structured_output
 
 from ..constants import DEFAULT_MODEL
 from ..models import GeminiModel
@@ -22,27 +17,6 @@ class SummarizationResult:
 
     summary: SurveySummaryResponse
     trace_id: str
-
-
-logger = structlog.get_logger(__name__)
-
-
-def _create_client():
-    """Create a Gemini client with PostHog analytics (called per-request like GeminiProvider)."""
-    # In dev with --minimal, posthoganalytics may be disabled - enable it for LLM analytics
-    if settings.DEBUG and posthoganalytics.disabled:
-        posthoganalytics.disabled = False
-        if not posthoganalytics.host:
-            posthoganalytics.host = settings.SITE_URL
-
-    posthog_client = posthoganalytics.default_client
-    if not posthog_client:
-        logger.warning("PostHog default_client not available, LLM analytics will not be tracked")
-
-    return genai.Client(
-        api_key=settings.GEMINI_API_KEY,
-        posthog_client=posthog_client,
-    )
 
 
 SYSTEM_PROMPT = """You are a product manager's assistant specializing in analyzing survey responses.
@@ -101,40 +75,19 @@ def summarize_with_gemini(
     if not responses:
         raise exceptions.ValidationError("responses cannot be empty")
 
-    client = _create_client()
-
-    config = GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        response_mime_type="application/json",
-        response_json_schema=SurveySummaryResponse.model_json_schema(),
+    summary, trace_id = generate_structured_output(
+        model=model,
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=_build_user_prompt(question_text, responses),
+        response_schema=SurveySummaryResponse,
+        posthog_properties={
+            "survey_id": survey_id,
+            "question_id": question_id,
+            "response_count": len(responses),
+            "ai_product": "survey_summary",
+        },
+        team_id=team_id,
+        distinct_id=distinct_id,
     )
 
-    trace_id = str(uuid.uuid4())
-
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=_build_user_prompt(question_text, responses),
-            config=config,
-            posthog_distinct_id=distinct_id or "",
-            posthog_trace_id=trace_id,
-            posthog_properties={
-                "survey_id": survey_id,
-                "question_id": question_id,
-                "response_count": len(responses),
-                "ai_product": "survey_summary",
-            },
-            posthog_groups={"project": str(team_id)} if team_id else {},
-        )
-
-        if not response.text:
-            raise exceptions.ValidationError("Gemini returned empty response")
-
-        summary = SurveySummaryResponse.model_validate_json(response.text)
-        return SummarizationResult(summary=summary, trace_id=trace_id)
-
-    except exceptions.ValidationError:
-        raise
-    except Exception:
-        logger.exception("Gemini API call failed for survey summary")
-        raise exceptions.APIException("Failed to generate summary")
+    return SummarizationResult(summary=summary, trace_id=trace_id)

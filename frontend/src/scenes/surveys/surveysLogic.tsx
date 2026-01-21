@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
@@ -455,6 +456,10 @@ export const surveysLogic = kea<surveysLogicType>([
         surveysStylingAvailable: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.SURVEYS_STYLING),
+        ],
+        guidedEditorEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags) => !!enabledFlags[FEATURE_FLAGS.SURVEYS_GUIDED_EDITOR],
         ],
         globalSurveyAppearanceConfigAvailable: [
             (s) => [s.hasAvailableFeature],

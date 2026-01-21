@@ -405,7 +405,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 {recording_event_select_statement}
             FROM events AS event
                 {event_join_query}
-                AND event.event = '{target_event}'
+                AND event.event = {{target_event}}
                 {conversion_filter}
             GROUP BY actor_id
             ORDER BY actor_id
@@ -414,6 +414,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "funnel_persons_query": funnel_persons_query,
                 "date_from": date_from,
                 "date_to": date_to,
+                "target_event": ast.Constant(value=target_event),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -474,6 +475,10 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         date_from = self._date_range().date_from_as_hogql()
         date_to = self._date_range().date_to_as_hogql()
 
+        # Build exclude event names as AST array for safe escaping
+        exclude_event_names = self.query.funnelCorrelationExcludeEventNames or []
+        exclude_event_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in exclude_event_names])
+
         event_correlation_query = parse_select(
             f"""
             WITH
@@ -503,7 +508,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
 
             FROM events AS event
                 {event_join_query}
-                AND event.event NOT IN {self.query.funnelCorrelationExcludeEventNames or []}
+                AND event.event NOT IN {{exclude_event_names}}
             GROUP BY name
 
             -- To get the total success/failure numbers, we do an aggregation on
@@ -521,7 +526,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             SELECT
                 -- We're not using WITH TOTALS because the resulting queries are
                 -- not runnable in Metabase
-                '{self.TOTAL_IDENTIFIER}' as name,
+                {{total_identifier}} as name,
 
                 countDistinctIf(
                     funnel_actors.actor_id,
@@ -538,6 +543,8 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "funnel_persons_query": funnel_persons_query,
                 "date_from": date_from,
                 "date_to": date_to,
+                "exclude_event_names": exclude_event_names_ast,
+                "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
             },
         )
 
@@ -555,6 +562,10 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         date_to = self._date_range().date_to_as_hogql()
         event_names = self.query.funnelCorrelationEventNames
         exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
+
+        # Build AST arrays for safe escaping of user input
+        event_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in event_names])
+        exclude_prop_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in exclude_property_names])
 
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
@@ -597,13 +608,13 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                     {array_join_query}
                 FROM events AS event
                     {event_join_query}
-                    AND event.event IN {event_names}
+                    AND event.event IN {{event_names}}
             )
             GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
-            AND prop.1 NOT IN {exclude_property_names}
+            AND prop.1 NOT IN {{exclude_prop_names}}
 
             UNION ALL
             -- To get the total success/failure numbers, we do an aggregation on
@@ -618,7 +629,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 {target_step} AS target_step
 
             SELECT
-                '{self.TOTAL_IDENTIFIER}' as name,
+                {{total_identifier}} as name,
 
                 countDistinctIf(
                     funnel_actors.actor_id,
@@ -635,6 +646,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "funnel_persons_query": funnel_persons_query,
                 "date_from": date_from,
                 "date_to": date_to,
+                "event_names": event_names_ast,
+                "exclude_prop_names": exclude_prop_names_ast,
+                "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
             },
         )
 
@@ -648,8 +662,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         target_step = self.context.max_steps
         exclude_property_names = self.query.funnelCorrelationExcludeNames or []
 
-        person_prop_query = self._get_properties_prop_clause()
+        prop_clause = self._get_properties_prop_clause()
         aggregation_join_query = self._get_aggregation_join_query()
+
+        # Build exclude names as AST array for safe escaping
+        exclude_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in exclude_property_names])
 
         query = parse_select(
             f"""
@@ -691,14 +708,14 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                         To avoid clashes and clarify the values, we also zip with the property name, to generate
                         tuples like: (property_name, property_value), which we then group by
                     */
-                    {person_prop_query}
+                    {{prop_clause}}
                 FROM funnel_actors
                 {aggregation_join_query}
 
             ) aggregation_target_with_props
             -- Group by the tuple items: (property_name, property_value) generated by zip
             GROUP BY prop.1, prop.2
-            HAVING prop.1 NOT IN {exclude_property_names}
+            HAVING prop.1 NOT IN {{exclude_names}}
 
             UNION ALL
 
@@ -711,13 +728,16 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 {target_step} AS target_step
 
             SELECT
-                '{self.TOTAL_IDENTIFIER}' as name,
+                {{total_identifier}} as name,
                 countDistinctIf(actor_id, steps = target_step) AS success_count,
                 countDistinctIf(actor_id, steps <> target_step) AS failure_count
             FROM funnel_actors
         """,
             placeholders={
                 "funnel_persons_query": funnel_persons_query,
+                "prop_clause": prop_clause,
+                "exclude_names": exclude_names_ast,
+                "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
             },
         )
 
@@ -803,22 +823,54 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 ON funnel_actors.actor_id == groups_{group_type_index}.key
             """
 
-    def _get_properties_prop_clause(self):
+    def _get_properties_prop_clause(self) -> ast.Alias:
+        """
+        Build AST for property extraction, safely escaping user-provided property names.
+        Returns: arrayJoin(...) as prop
+        """
         assert self.query.funnelCorrelationNames is not None
 
         if self.funnels_query.aggregation_group_type_index is None:
-            properties_prefix = "person_props"
+            properties_field = ast.Field(chain=["person_props"])
         else:
-            properties_prefix = f"groups_{self.funnels_query.aggregation_group_type_index}.properties"
+            group_idx = self.funnels_query.aggregation_group_type_index
+            properties_field = ast.Field(chain=[f"groups_{group_idx}", "properties"])
+
         if "$all" in self.query.funnelCorrelationNames:
-            return f"arrayJoin(JSONExtractKeysAndValues({properties_prefix}, 'String')) as prop"
+            # arrayJoin(JSONExtractKeysAndValues(person_props, 'String')) as prop
+            return ast.Alias(
+                alias="prop",
+                expr=ast.Call(
+                    name="arrayJoin",
+                    args=[
+                        ast.Call(
+                            name="JSONExtractKeysAndValues",
+                            args=[properties_field, ast.Constant(value="String")],
+                        )
+                    ],
+                ),
+            )
         else:
-            props = [
-                f"JSONExtractString({properties_prefix}, '{property_name}')"
-                for property_name in self.query.funnelCorrelationNames
-            ]
-            props_str = ", ".join(props)
-            return f"arrayJoin(arrayZip({self.query.funnelCorrelationNames}, [{props_str}])) as prop"
+            # Build: arrayJoin(arrayZip(['prop1', 'prop2'], [JSONExtractString(...), ...])) as prop
+            # Property names as constants (safely escaped)
+            prop_names_array = ast.Array(exprs=[ast.Constant(value=name) for name in self.query.funnelCorrelationNames])
+            # Property value extractions
+            prop_values_array = ast.Array(
+                exprs=[
+                    ast.Call(
+                        name="JSONExtractString",
+                        args=[properties_field, ast.Constant(value=name)],
+                    )
+                    for name in self.query.funnelCorrelationNames
+                ]
+            )
+            return ast.Alias(
+                alias="prop",
+                expr=ast.Call(
+                    name="arrayJoin",
+                    args=[ast.Call(name="arrayZip", args=[prop_names_array, prop_values_array])],
+                ),
+            )
 
     def _get_funnel_step_names(self) -> list[str]:
         events: set[str] = set()

@@ -1,6 +1,7 @@
 import dataclasses
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Product, tag_queries
 
 
 @dataclasses.dataclass(frozen=True)
@@ -11,6 +12,7 @@ class RecordingsSystemStatus:
 
 
 def get_recording_status_month_to_date() -> RecordingsSystemStatus:
+    tag_queries(product=Product.REPLAY)
     result = sync_execute(
         """
         SELECT count(distinct session_id), sum(event_count), sum(message_count), formatReadableSize(sum(size))

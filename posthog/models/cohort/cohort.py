@@ -289,7 +289,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 
-        logger.warn(
+        logger.info(
             "cohort_calculation_started",
             id=self.pk,
             current_version=self.version,
@@ -336,7 +336,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
         self.refresh_from_db()
 
-        logger.warn(
+        logger.info(
             "cohort_calculation_completed",
             id=self.pk,
             version=pending_version,

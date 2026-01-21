@@ -105,6 +105,7 @@ See `posthog/clickhouse/migrations/AGENTS.md` for comprehensive patterns, exampl
 
 - Python: Use type hints, follow mypy strict rules
 - Frontend: TypeScript required, explicit return types
+- Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use prettier-plugin-sort-imports (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors

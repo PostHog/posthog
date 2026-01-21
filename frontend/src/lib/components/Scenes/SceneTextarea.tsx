@@ -66,6 +66,7 @@ export function SceneTextarea({
                     autoFocus
                     error={!!error}
                     markdown={markdown}
+                    className="input-like"
                 />
             </ScenePanelLabel>
 

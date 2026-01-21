@@ -730,4 +730,4 @@ async def test_copy_into_redshift_activity_handles_data_over_string_limit(
 
     assert result.error is not None
     assert result.error.type == "StringLimitExceededError"
-    assert "Consider switching this column to 'SUPER' type" in result.error.message
+    assert "'json_parse_truncate_strings' setting can be enabled" in result.error.message

@@ -160,9 +160,22 @@ export function ErrorTrackingFiltersWidget({
     filters,
 }: {
     toolCallId: string
-    filters: MaxErrorTrackingSearchResponse
+    filters: MaxErrorTrackingSearchResponse | null | undefined
 }): JSX.Element {
     const logicProps: MaxErrorTrackingWidgetLogicProps = { toolCallId, filters }
+
+    if (!filters) {
+        return (
+            <MessageTemplate type="ai" wrapperClassName="w-full" boxClassName="p-0 overflow-hidden">
+                <div className="py-2">
+                    <EmptyMessage
+                        title="Error tracking data unavailable"
+                        description="The error tracking search could not be completed"
+                    />
+                </div>
+            </MessageTemplate>
+        )
+    }
 
     return (
         <BindLogic logic={maxErrorTrackingWidgetLogic} props={logicProps}>

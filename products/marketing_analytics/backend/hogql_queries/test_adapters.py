@@ -472,6 +472,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "actions": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "action_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_per_action_type": {
                         "hogql": "StringDatabaseField",
                         "clickhouse": "String",
@@ -1164,6 +1165,10 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         """Test Meta Ads adapter query generation with JOIN."""
         campaign_table = self._create_mock_table("meta_campaigns", "MetaAds")
         stats_table = self._create_mock_table("meta_campaign_stats", "MetaAds")
+
+        # Enable conversion field logic by adding columns attribute
+        # This allows the snapshot to capture the full conversion SQL with deduplication
+        stats_table.columns = {"actions": True, "action_values": True}
 
         config = MetaAdsConfig(
             campaign_table=campaign_table,

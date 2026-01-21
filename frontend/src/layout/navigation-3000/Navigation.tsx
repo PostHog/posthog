@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -23,6 +24,7 @@ import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
+import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
 import { themeLogic } from './themeLogic'
 
 export function Navigation({
@@ -45,6 +47,8 @@ export function Navigation({
     const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
+    const { sidePanelOpen, sidePanelAvailable } = useValues(sidePanelStateLogic)
+    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -76,7 +80,11 @@ export function Navigation({
                 Skip to content
             </a>
             <div
-                className={cn('app-layout bg-surface-tertiary', mobileLayout && 'app-layout--mobile')}
+                className={cn('app-layout bg-surface-tertiary', {
+                    'app-layout--mobile': mobileLayout,
+                    'app-layout--sidepanel-open': isRemovingSidePanelFlag && sidePanelOpen && sidePanelAvailable,
+                    'app-layout--ai-first': isRemovingSidePanelFlag,
+                })}
                 style={
                     {
                         ...theme?.mainStyle,
@@ -108,6 +116,7 @@ export function Navigation({
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary lg:mb-2 relative',
                             {
                                 'lg:rounded-tl-none': firstTabIsActive,
+                                'lg:mr-2': isRemovingSidePanelFlag,
                             }
                         )}
                     >
@@ -175,7 +184,6 @@ export function Navigation({
                             </>
                         )}
                     </div>
-
                     <SidePanel className="right-nav" />
                 </ProjectDragAndDropProvider>
             </div>

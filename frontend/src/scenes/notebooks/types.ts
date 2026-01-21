@@ -39,6 +39,7 @@ export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
     Query = 'ph-query',
     Python = 'ph-python',
+    DuckSQL = 'ph-duck-sql',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',

@@ -161,7 +161,7 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
 
 
 #
-# From https://github.com/ClickHouse/ClickHouse/blob/v25.8.11.66-lts/src/Common/ErrorCodes.cpp#L17-L650
+# From https://github.com/ClickHouse/ClickHouse/blob/v25.8.12.129-lts/src/Common/ErrorCodes.cpp#L17-L650
 #
 # Please keep this list up to date at each ClickHouse upgrade.
 #
@@ -171,7 +171,7 @@ def get_specific_clickhouse_error(meta_name: str, original_message: str, code: i
 # import re
 # import requests
 #
-# TAG = "v25.8.11.66-lts"
+# TAG = "v25.8.12.129-lts"
 # URL = f"https://raw.githubusercontent.com/ClickHouse/ClickHouse/refs/tags/{TAG}/src/Common/ErrorCodes.cpp"
 #
 # resp = requests.get(URL, timeout=30)
@@ -497,7 +497,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     392: ErrorCodeMeta("QUERY_IS_PROHIBITED"),
     393: ErrorCodeMeta("THERE_IS_NO_QUERY"),
     394: ErrorCodeMeta("QUERY_WAS_CANCELLED"),
-    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO"),
+    395: ErrorCodeMeta("FUNCTION_THROW_IF_VALUE_IS_NON_ZERO", user_safe=True),
     396: ErrorCodeMeta("TOO_MANY_ROWS_OR_BYTES"),
     397: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_MATERIALIZED_VIEW"),
     398: ErrorCodeMeta("UNKNOWN_MUTATION_COMMAND"),

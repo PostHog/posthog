@@ -1,7 +1,11 @@
 from django.conf import settings
 
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_DOCUMENT_EMBEDDINGS,
+    KAFKA_COLUMNS_WITH_PARTITION,
+    kafka_engine,
+)
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 
@@ -97,7 +101,7 @@ def DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL():
 def KAFKA_DOCUMENT_EMBEDDINGS_TABLE_SQL():
     return DOCUMENT_EMBEDDINGS_TABLE_BASE_SQL.format(
         table_name=KAFKA_DOCUMENT_EMBEDDINGS,
-        engine=kafka_engine(KAFKA_DOCUMENT_EMBEDDINGS_TOPIC, group="clickhouse_document_embeddings"),
+        engine=kafka_engine(KAFKA_DOCUMENT_EMBEDDINGS_TOPIC, group=CONSUMER_GROUP_DOCUMENT_EMBEDDINGS),
         content_default="",
         metadata_default="",
         extra_fields="",

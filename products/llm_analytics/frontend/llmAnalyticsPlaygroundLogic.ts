@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { RateLimitError } from 'lib/api'
+import api, { ApiError, RateLimitError } from 'lib/api'
 import { uuid } from 'lib/utils'
 import { isObject } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -150,6 +150,7 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         setResponseError: (hasError: boolean) => ({ hasError }),
         clearResponseError: true,
         setRateLimited: (retryAfterSeconds: number) => ({ retryAfterSeconds }),
+        setSubscriptionRequired: (required: boolean) => ({ required }),
     }),
 
     reducers({
@@ -283,6 +284,12 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             null as number | null,
             {
                 setRateLimited: (_, { retryAfterSeconds }) => Date.now() + retryAfterSeconds * 1000,
+            },
+        ],
+        subscriptionRequired: [
+            false as boolean,
+            {
+                setSubscriptionRequired: (_, { required }) => required,
             },
         ],
     }),
@@ -422,6 +429,11 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                         if (err instanceof RateLimitError) {
                             return handleRateLimitError(err)
                         }
+                        if (err instanceof ApiError && err.status === 402) {
+                            actions.setSubscriptionRequired(true)
+                            actions.finalizeAssistantMessage()
+                            return
+                        }
                         actions.addAssistantMessageChunk(
                             `\n\n**Stream Connection Error:** ${err.message || 'Unknown error'}`
                         )
@@ -433,6 +445,11 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
             } catch (error) {
                 if (error instanceof RateLimitError) {
                     return handleRateLimitError(error)
+                }
+                if (error instanceof ApiError && error.status === 402) {
+                    actions.setSubscriptionRequired(true)
+                    actions.finalizeAssistantMessage()
+                    return
                 }
                 actions.addAssistantMessageChunk(`\n\n**Error:** Failed to initiate prompt submission.`)
                 actions.setResponseError(true)

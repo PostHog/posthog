@@ -163,10 +163,6 @@ test.describe('Quick create survey from feature flag', () => {
     })
 
     test('survey responses visible in feature flag feedback tab', async ({ page }) => {
-        await page.evaluate(() => {
-            window.posthog?.featureFlags?.override({ 'surveys-ff-cross-sell': true })
-        })
-
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -183,10 +179,6 @@ test.describe('Quick create survey from feature flag', () => {
     })
 
     test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
-        await page.evaluate(() => {
-            window.posthog?.featureFlags?.override({ 'surveys-ff-cross-sell': true })
-        })
-
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 

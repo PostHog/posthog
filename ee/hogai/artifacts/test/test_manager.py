@@ -215,7 +215,7 @@ class TestArtifactManagerGetEnrichedMessage(BaseTest):
         self.assertIsNotNone(enriched)
         assert enriched is not None
         assert isinstance(enriched.content, VisualizationArtifactContent)
-        self.assertEqual(enriched.content.name, "test query")
+        self.assertEqual(enriched.content.name, "Insight")
         self.assertEqual(enriched.content.plan, "test plan")
 
     async def test_state_source_without_state_messages_raises(self):
@@ -307,14 +307,17 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
             artifact_id=viz_id,
             source=ArtifactSource.STATE,
         )
-        messages: list[VisualizationMessage | ArtifactRefMessage] = [viz_message, artifact_message]
+        messages: list[VisualizationMessage | ArtifactRefMessage] = [
+            viz_message,
+            artifact_message,
+        ]
 
         contents = await self.manager._aget_contents_by_id(messages, aggregate_by="message_id")
 
         self.assertEqual(len(contents), 1)
         content = contents[artifact_msg_id]
         assert isinstance(content, VisualizationArtifactContent)
-        self.assertEqual(content.name, "state query")
+        self.assertEqual(content.name, "Insight")
         self.assertEqual(content.plan, "state plan")
 
 
@@ -367,7 +370,10 @@ class TestArtifactManagerEnrichMessages(BaseTest):
             plan="plan",
         )
         assistant_msg = AssistantMessage(id=str(uuid4()), content="Hello")
-        messages: list[VisualizationMessage | AssistantMessage] = [viz_message, assistant_msg]
+        messages: list[VisualizationMessage | AssistantMessage] = [
+            viz_message,
+            assistant_msg,
+        ]
 
         enriched = await self.manager.aenrich_messages(messages)
 
@@ -389,7 +395,10 @@ class TestArtifactManagerEnrichMessages(BaseTest):
             source=ArtifactSource.ARTIFACT,
         )
         assistant_msg = AssistantMessage(id=str(uuid4()), content="Hello")
-        messages: list[ArtifactRefMessage | AssistantMessage] = [artifact_message, assistant_msg]
+        messages: list[ArtifactRefMessage | AssistantMessage] = [
+            artifact_message,
+            assistant_msg,
+        ]
 
         enriched = await self.manager.aenrich_messages(messages, artifacts_only=True)
 
@@ -454,6 +463,116 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         results = await viz_handler._from_insights_with_models([insight.short_id], self.team)
 
         self.assertEqual(len(results), 0)
+
+
+class TestArtifactManagerGetConversationArtifacts(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+        self.manager = ArtifactManager(team=self.team, user=self.user, config=config)
+
+    async def test_returns_all_artifacts_when_no_limit(self):
+        for i in range(5):
+            await AgentArtifact.objects.acreate(
+                name=f"Artifact {i}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={
+                    "query": {"kind": "TrendsQuery", "series": []},
+                    "name": f"Chart {i}",
+                },
+                conversation=self.conversation,
+                team=self.team,
+            )
+
+        artifacts, total_count = await self.manager.aget_conversation_artifacts()
+
+        self.assertEqual(len(artifacts), 5)
+        self.assertEqual(total_count, 5)
+
+    async def test_respects_limit(self):
+        for i in range(5):
+            await AgentArtifact.objects.acreate(
+                name=f"Artifact {i}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={
+                    "query": {"kind": "TrendsQuery", "series": []},
+                    "name": f"Chart {i}",
+                },
+                conversation=self.conversation,
+                team=self.team,
+            )
+
+        artifacts, total_count = await self.manager.aget_conversation_artifacts(limit=2)
+
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(total_count, 5)
+
+    async def test_respects_offset(self):
+        for i in range(5):
+            await AgentArtifact.objects.acreate(
+                name=f"Artifact {i}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={
+                    "query": {"kind": "TrendsQuery", "series": []},
+                    "name": f"Chart {i}",
+                },
+                conversation=self.conversation,
+                team=self.team,
+            )
+
+        artifacts, total_count = await self.manager.aget_conversation_artifacts(limit=2, offset=3)
+
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(total_count, 5)
+
+    async def test_offset_without_limit_returns_remaining(self):
+        for i in range(5):
+            await AgentArtifact.objects.acreate(
+                name=f"Artifact {i}",
+                type=AgentArtifact.Type.VISUALIZATION,
+                data={
+                    "query": {"kind": "TrendsQuery", "series": []},
+                    "name": f"Chart {i}",
+                },
+                conversation=self.conversation,
+                team=self.team,
+            )
+
+        artifacts, total_count = await self.manager.aget_conversation_artifacts(offset=3)
+
+        self.assertEqual(len(artifacts), 2)
+        self.assertEqual(total_count, 5)
+
+    async def test_returns_empty_for_no_artifacts(self):
+        artifacts, total_count = await self.manager.aget_conversation_artifacts()
+
+        self.assertEqual(len(artifacts), 0)
+        self.assertEqual(total_count, 0)
+
+    async def test_only_returns_artifacts_from_same_conversation(self):
+        other_conversation = await Conversation.objects.acreate(user=self.user, team=self.team)
+        await AgentArtifact.objects.acreate(
+            name="Same Conversation",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Same"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        await AgentArtifact.objects.acreate(
+            name="Other Conversation",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Other"},
+            conversation=other_conversation,
+            team=self.team,
+        )
+
+        artifacts, total_count = await self.manager.aget_conversation_artifacts()
+
+        self.assertEqual(len(artifacts), 1)
+        self.assertEqual(total_count, 1)
+        assert isinstance(artifacts[0].content, VisualizationArtifactContent)
+        self.assertEqual(artifacts[0].content.name, "Same")
 
 
 class TestArtifactManagerGetVisualizationWithSource(BaseTest):
@@ -614,7 +733,9 @@ class TestArtifactManagerGetContentsByArtifactId(BaseTest):
         ]
 
         contents = await self.manager._aget_contents_by_id(
-            messages, aggregate_by="artifact_id", filter_by_artifact_ids=[artifact1.short_id]
+            messages,
+            aggregate_by="artifact_id",
+            filter_by_artifact_ids=[artifact1.short_id],
         )
 
         self.assertEqual(len(contents), 1)

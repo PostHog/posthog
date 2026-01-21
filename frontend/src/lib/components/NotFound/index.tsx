@@ -6,15 +6,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonModal,
-    ProfilePicture,
-    SpinnerOverlay,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, ProfilePicture, SpinnerOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -28,6 +20,7 @@ import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
+import { ImpersonationReasonModal } from '~/layout/navigation/ImpersonationNotice/ImpersonationReasonModal'
 import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
@@ -146,10 +139,9 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [isLoginInProgress, setIsLoginInProgress] = useState(false)
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
     const [selectedUser, setSelectedUser] = useState<UserBasicType | null>(null)
-    const [reason, setReason] = useState('')
     const [readOnly, setReadOnly] = useState(true)
 
-    const handleLogin = async (user: UserBasicType): Promise<void> => {
+    const handleLogin = async (user: UserBasicType, reason: string): Promise<void> => {
         setIsLoginInProgress(true)
 
         try {
@@ -242,7 +234,6 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                         sideIcon: user.id === successfulUserId ? <IconCheckCircle /> : <IconArrowRight />,
                         onClick: () => {
                             setSelectedUser(user)
-                            setReason('')
                             setReadOnly(true)
                         },
                     }))}
@@ -252,43 +243,19 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
                 {isLoginInProgress && <SpinnerOverlay className="text-3xl" />}
             </ScrollableShadows>
 
-            <LemonModal
+            <ImpersonationReasonModal
                 isOpen={selectedUser !== null}
                 onClose={() => setSelectedUser(null)}
+                onConfirm={async (reason) => {
+                    if (selectedUser) {
+                        await handleLogin(selectedUser, reason)
+                    }
+                }}
                 title={`Log in as ${selectedUser?.first_name} ${selectedUser?.last_name}`}
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setSelectedUser(null)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                if (selectedUser) {
-                                    setSelectedUser(null)
-                                    void handleLogin(selectedUser)
-                                }
-                            }}
-                            disabledReason={!reason.trim() ? 'Please provide a reason' : undefined}
-                        >
-                            Log in
-                        </LemonButton>
-                    </>
-                }
+                confirmText="Log in"
             >
-                <div className="space-y-2">
-                    <div>
-                        <label className="block mb-1 font-semibold">Reason</label>
-                        <LemonInput
-                            value={reason}
-                            onChange={setReason}
-                            placeholder="e.g., Customer support request #12345"
-                            autoFocus
-                        />
-                    </div>
-                    <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
-                </div>
-            </LemonModal>
+                <LemonCheckbox checked={readOnly} onChange={setReadOnly} label="Read-only mode (recommended)" />
+            </ImpersonationReasonModal>
         </>
     )
 }

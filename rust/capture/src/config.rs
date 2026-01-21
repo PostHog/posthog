@@ -64,6 +64,19 @@ pub struct Config {
     /// for particular keys.
     pub global_rate_limit_overrides_csv: Option<String>,
 
+    /// Optional dedicated Redis URL for global rate limiter.
+    /// If set, creates a separate Redis client for the limiter.
+    /// Falls back to the shared redis_url if unset.
+    pub global_rate_limit_redis_url: Option<String>,
+
+    /// Response timeout for dedicated global rate limiter Redis (milliseconds).
+    /// Defaults to redis_response_timeout_ms if unset.
+    pub global_rate_limit_redis_response_timeout_ms: Option<u64>,
+
+    /// Connection timeout for dedicated global rate limiter Redis (milliseconds).
+    /// Defaults to redis_connection_timeout_ms if unset.
+    pub global_rate_limit_redis_connection_timeout_ms: Option<u64>,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]

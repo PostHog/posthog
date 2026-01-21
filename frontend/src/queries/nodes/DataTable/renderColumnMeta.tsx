@@ -67,6 +67,10 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
         title = 'Event'
     } else if (key === 'person') {
         title = 'Person'
+    } else if (trimQuotes(key).endsWith('$virt_mrr')) {
+        title = 'MRR'
+    } else if (trimQuotes(key).endsWith('$virt_revenue')) {
+        title = 'Lifetime value'
     } else if (key.startsWith('properties.')) {
         title = (
             <PropertyKeyInfo

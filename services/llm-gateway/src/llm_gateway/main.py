@@ -5,7 +5,6 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 
 import asyncpg
 import structlog
@@ -17,22 +16,20 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from llm_gateway.analytics import init_analytics_service, shutdown_analytics_service
 from llm_gateway.api.health import health_router
 from llm_gateway.api.routes import router
+from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
-from llm_gateway.rate_limiting.redis_limiter import RateLimiter
-
-request_id_var: ContextVar[str] = ContextVar("request_id", default="")
-
-
-def get_request_id() -> str:
-    return request_id_var.get()
+from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
+from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle, UserCostThrottle
+from llm_gateway.rate_limiting.runner import ThrottleRunner
+from llm_gateway.request_context import RequestContext, set_request_context
 
 
-def configure_logging() -> None:
+def configure_logging(debug: bool = False) -> None:
+    log_level = logging.DEBUG if debug else logging.INFO
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -42,14 +39,14 @@ def configure_logging() -> None:
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.JSONRenderer(),
         ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
 
-configure_logging()
+configure_logging(get_settings().debug)
 logger = structlog.get_logger(__name__)
 
 
@@ -63,7 +60,7 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
-        request_id_var.set(request_id)
+        set_request_context(RequestContext(request_id=request_id))
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
@@ -128,19 +125,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         logger.info("Redis connected")
 
-    app.state.rate_limiter = RateLimiter(
-        redis=app.state.redis,
-        burst_limit=settings.rate_limit_burst,
-        burst_window=settings.rate_limit_burst_window,
-        sustained_limit=settings.rate_limit_sustained,
-        sustained_window=settings.rate_limit_sustained_window,
+    app.state.throttle_runner = ThrottleRunner(
+        throttles=[
+            ProductCostThrottle(redis=app.state.redis),
+            UserCostThrottle(redis=app.state.redis),
+        ]
+    )
+    logger.info("Throttle runner initialized")
+
+    logger.info(
+        "product_cost_limits_configured",
+        limits={
+            k: {"limit_usd": v.limit_usd, "window_seconds": v.window_seconds}
+            for k, v in settings.product_cost_limits.items()
+        },
+        default_user_limit_usd=settings.default_user_cost_limit_usd,
+        default_user_window_seconds=settings.default_user_cost_window_seconds,
     )
 
-    init_analytics_service()
+    init_callbacks()
+
+    ensure_costs_fresh()
+    logger.info("Model costs initialized")
 
     yield
-
-    shutdown_analytics_service()
 
     if app.state.redis:
         await app.state.redis.aclose()

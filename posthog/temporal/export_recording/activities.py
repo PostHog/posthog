@@ -13,6 +13,7 @@ from django.conf import settings
 import pytz
 from temporalio import activity
 
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.exported_recording import ExportedRecording
 from posthog.redis import get_async_client
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -63,6 +64,7 @@ async def build_recording_export_context(input: ExportRecordingInput) -> ExportC
 
 @activity.defn
 async def export_replay_clickhouse_rows(input: ExportContext) -> None:
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Exporting Replay ClickHouse rows for session {input.session_id}")
 
@@ -92,6 +94,7 @@ async def export_replay_clickhouse_rows(input: ExportContext) -> None:
 
 @activity.defn
 async def export_event_clickhouse_rows(input: ExportContext) -> None:
+    tag_queries(product=Product.REPLAY, team_id=input.team_id)
     logger = LOGGER.bind()
     logger.info(f"Exporting event ClickHouse rows for session {input.session_id}")
 

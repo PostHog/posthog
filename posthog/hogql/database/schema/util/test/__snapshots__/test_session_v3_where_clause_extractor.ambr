@@ -41,6 +41,32 @@
   LIMIT 50000
   '''
 # ---
+# name: TestSessionsV3QueriesHogQLToClickhouse.test_select_query_alias_type_does_not_crash
+  '''
+  SELECT
+      subquery.session_id AS session_id
+  FROM
+      (SELECT
+          sessions.session_id AS session_id,
+          sessions.`$start_timestamp` AS `$start_timestamp`
+      FROM
+          (SELECT
+              toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+              min(toTimeZone(raw_sessions_v3.min_timestamp, %(hogql_val_0)s)) AS `$start_timestamp`,
+              raw_sessions_v3.session_id_v7 AS session_id_v7
+          FROM
+              raw_sessions_v3
+          WHERE
+              and(equals(raw_sessions_v3.team_id, <TEAM_ID>), greaterOrEquals(raw_sessions_v3.session_timestamp, minus(%(hogql_val_1)s, toIntervalDay(3))))
+          GROUP BY
+              raw_sessions_v3.session_id_v7) AS sessions
+      WHERE
+          ifNull(greaterOrEquals(sessions.`$start_timestamp`, %(hogql_val_2)s), 0)) AS subquery
+  WHERE
+      ifNull(equals(subquery.session_id, %(hogql_val_3)s), 0)
+  LIMIT 50000
+  '''
+# ---
 # name: TestSessionsV3QueriesHogQLToClickhouse.test_select_with_timestamp
   '''
   SELECT

@@ -242,8 +242,41 @@ where
     );
 
     let global_rate_limiter = if config.global_rate_limit_enabled {
+        // Use dedicated Redis if configured, otherwise fall back to shared client
+        let grl_redis_client: Arc<dyn common_redis::Client + Send + Sync> =
+            if let Some(ref grl_redis_url) = config.global_rate_limit_redis_url {
+                let response_timeout = config
+                    .global_rate_limit_redis_response_timeout_ms
+                    .unwrap_or(config.redis_response_timeout_ms);
+                let connection_timeout = config
+                    .global_rate_limit_redis_connection_timeout_ms
+                    .unwrap_or(config.redis_connection_timeout_ms);
+
+                Arc::new(
+                    RedisClient::with_config(
+                        grl_redis_url.clone(),
+                        common_redis::CompressionConfig::disabled(),
+                        common_redis::RedisValueFormat::default(),
+                        if response_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(response_timeout))
+                        },
+                        if connection_timeout == 0 {
+                            None
+                        } else {
+                            Some(Duration::from_millis(connection_timeout))
+                        },
+                    )
+                    .await
+                    .expect("failed to create global rate limiter redis client"),
+                )
+            } else {
+                redis_client.clone()
+            };
+
         Some(Arc::new(
-            GlobalRateLimiter::new(&config, vec![redis_client.clone()])
+            GlobalRateLimiter::new(&config, vec![grl_redis_client])
                 .expect("failed to create global rate limiter"),
         ))
     } else {

@@ -5,6 +5,7 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -56,6 +57,8 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return getattr(obj, "_value", None)  # type: ignore
 
     def validate_scopes(self, scopes):
+        requesting_user = self.context["request"].user
+
         for scope in scopes:
             if scope == "*":
                 continue
@@ -67,6 +70,27 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+            # Check feature flag for llm_gateway scope - block if newly adding this scope
+            if scope_parts[0] == "llm_gateway":
+                existing_has_llm_gateway = self.instance is not None and any(
+                    s.startswith("llm_gateway:") for s in (self.instance.scopes or [])
+                )
+                if not existing_has_llm_gateway:
+                    organization_id = requesting_user.current_organization_id
+                    if organization_id is None:
+                        raise serializers.ValidationError("Unable to verify feature access.")
+                    if not posthoganalytics.feature_enabled(
+                        "gateway-personal-api-key",
+                        str(requesting_user.distinct_id),
+                        groups={"organization": str(organization_id)},
+                        group_properties={"organization": {"id": str(organization_id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    ):
+                        raise serializers.ValidationError(
+                            "LLM gateway scope is not available. Contact support to enable this feature."
+                        )
 
         return scopes
 

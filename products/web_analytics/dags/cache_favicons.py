@@ -7,13 +7,12 @@ import dagster
 from dagster_aws.s3 import S3Resource
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.cluster import ClickhouseCluster
-
-logger = dagster.get_dagster_logger()
 
 
-def download_favicon(domain: str, client: httpx.Client) -> tuple[str, Optional[bytes], Optional[str]]:
-    logger.info(f"Attempting to download favicon for domain '{domain}'")
+def download_favicon(
+    context: dagster.AssetExecutionContext, domain: str, client: httpx.Client
+) -> tuple[str, Optional[bytes], Optional[str], Optional[str]]:
+    context.log.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
         f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
         f"https://icons.duckduckgo.com/ip3/{domain}.ico",
@@ -23,21 +22,20 @@ def download_favicon(domain: str, client: httpx.Client) -> tuple[str, Optional[b
         try:
             resp = client.get(url, timeout=10)
             if resp.status_code == 200 and resp.content:
-                logger.info(f"Found favicon for {domain} at {url}")
-                return domain, resp.content, resp.headers.get("content-type")
+                context.log.info(f"Found favicon for {domain} at {url}")
+                return domain, resp.content, resp.headers.get("content-type"), url
         except Exception:
-            logger.exception(f"Failed to download favicon from: {url}")
+            context.log.exception(f"Failed to download favicon from: {url}")
             continue
 
-    return domain, None, None
+    return domain, None, None, None
 
 
-def upload_if_missing(s3_client, bucket, key, data, content_type):
-    # Ignore uploading if the favicon already exists in our cache
-    logger.info(f"Attempting to cache {key}")
+def upload_if_missing(context: dagster.AssetExecutionContext, s3_client, bucket, key, data, content_type):
+    context.log.info(f"Attempting to cache {key}")
     try:
         s3_client.head_object(Bucket=bucket, Key=key)
-        logger.info("Favicon already cached, skipping upload.")
+        context.log.info("Favicon already cached, skipping upload.")
         return key
     except s3_client.exceptions.ClientError:
         pass
@@ -49,12 +47,12 @@ def upload_if_missing(s3_client, bucket, key, data, content_type):
         ContentType=content_type,
     )
 
-    logger.info(f"Favicon successfully cached.")
+    context.log.info("Favicon successfully cached.")
     return key
 
 
 @dagster.asset
-def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseCluster]):
+def cache_favicons(context: dagster.AssetExecutionContext, s3: S3Resource) -> dagster.MaterializeResult:
     top_referrer_query = """
         SELECT cutToFirstSignificantSubdomainWithWWW(mat_$referrer) AS referrer
         FROM events
@@ -66,28 +64,43 @@ def cache_favicons(s3: S3Resource, cluster: dagster.ResourceParam[ClickhouseClus
         LIMIT 5000
     """
 
-    logger.info("Querying top referrers.")
+    context.log.info("Querying top referrers.")
     results = sync_execute(top_referrer_query)
-
-    domains = [result[0] for result in results]
-    logger.info(f"Found {len(domains)} results.")
+    context.log.info(f"Found {len(results)} domains.")
 
     s3_client = s3.get_client()
+    bucket = settings.DAGSTER_FAVICONS_S3_BUCKET
 
-    uploaded = []
+    favicons: list[dict] = []
     with httpx.Client() as client:
-        for domain in domains:
-            domain, data, content_type = download_favicon(domain, client)
+        for (domain,) in results:
+            domain, data, content_type, source_url = download_favicon(context, domain, client)
             if data is None:
                 continue
             key = f"/favicons/{domain}.png"
             upload_if_missing(
+                context,
                 s3_client,
-                settings.DAGSTER_FAVICONS_S3_BUCKET,
+                bucket,
                 key,
                 data,
                 content_type,
             )
-            uploaded.append(key)
+            favicons.append(
+                {
+                    "domain": domain,
+                    "source_url": source_url,
+                    "cached_url": f"s3://{bucket}{key}",
+                    "favicon_url": f"/static/favicons/{domain}.png",
+                }
+            )
 
-    return uploaded
+    context.log.info(f"Successfully cached {len(favicons)} favicons.")
+
+    return dagster.MaterializeResult(
+        metadata={
+            "domains_queried": len(results),
+            "favicons_cached": len(favicons),
+            "favicons": favicons,
+        }
+    )

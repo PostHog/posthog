@@ -10,6 +10,7 @@ from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
+from posthog.user_permissions import UserPermissions
 
 
 class OrganizationFeatureFlagView(
@@ -27,11 +28,15 @@ class OrganizationFeatureFlagView(
     def retrieve(self, request, *args, **kwargs):
         feature_flag_key = kwargs.get(self.lookup_field)
 
-        teams = self.organization.teams.all()
+        # Only return flags from teams the user has access to
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = user_permissions.team_ids_visible_for_user
+        org_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        team_ids = list(org_team_ids & set(accessible_team_ids))
 
         flags = FeatureFlag.objects.filter(
             key=feature_flag_key,
-            team_id__in=[team.id for team in teams],
+            team_id__in=team_ids,
             deleted=False,
         )
         flags_data = [
@@ -82,14 +87,17 @@ class OrganizationFeatureFlagView(
         successful_projects = []
         failed_projects = []
 
+        # Get accessible teams for the user
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+
         for target_project_id in target_project_ids:
-            # Target project does not exist
             target_team = Team.objects.filter(project_id=target_project_id).first()
-            if target_team is None:
+            if target_team is None or target_team.id not in accessible_team_ids:
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
-                        "errors": "Target project does not exist.",
+                        "errors": "Project not found.",
                     }
                 )
                 continue

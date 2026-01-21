@@ -322,6 +322,8 @@ export interface SurveyApi {
     response_sampling_daily_limits?: unknown
     /** @nullable */
     enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -499,6 +501,8 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     response_sampling_daily_limits?: unknown
     /** @nullable */
     enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
 }
 
@@ -663,6 +667,8 @@ export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     response_sampling_daily_limits?: unknown
     /** @nullable */
     enable_partial_responses?: boolean | null
+    /** @nullable */
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string
 }
 

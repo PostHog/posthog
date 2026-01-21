@@ -215,7 +215,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
         FROM events
         LEFT OUTER JOIN
@@ -278,7 +278,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
         FROM events
         LEFT OUTER JOIN
@@ -341,7 +341,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               1 AS value,
+               coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
         FROM events
         LEFT OUTER JOIN
@@ -410,7 +410,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_3
@@ -482,7 +482,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
         FROM events
@@ -553,7 +553,7 @@
         LEFT JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                   coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
            FROM events
            LEFT OUTER JOIN
@@ -597,7 +597,7 @@
            LEFT JOIN
              (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                      toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                     accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+                     coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                      coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
               FROM events
               LEFT OUTER JOIN
@@ -664,7 +664,7 @@
      LEFT JOIN
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
+               coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
                coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
         FROM events
@@ -708,64 +708,39 @@
          sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM
-    (SELECT numerator_aggregated.variant AS variant,
-            numerator_aggregated.entity_id AS entity_id,
-            numerator_aggregated.numerator_value AS numerator_value,
-            coalesce(denominator_aggregated.denominator_value, 0) AS denominator_value,
-            numerator_aggregated.breakdown_value_1 AS breakdown_value_1
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            sum(coalesce(accurateCastOrNull(combined_events.numerator_value, 'Float64'), 0)) AS numerator_value,
+            sum(coalesce(accurateCastOrNull(combined_events.denominator_value, 'Float64'), 0)) AS denominator_value,
+            exposures.breakdown_value_1 AS breakdown_value_1
      FROM
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS numerator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1
-        FROM
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events ON and(equals(exposures.entity_id, numerator_events.entity_id), greaterOrEquals(numerator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1) AS numerator_aggregated
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+        GROUP BY entity_id) AS exposures
      LEFT JOIN
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS denominator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1
+       (SELECT numerator_events.entity_id AS entity_id,
+               numerator_events.timestamp AS timestamp,
+               numerator_events.value AS numerator_value,
+               NULL AS denominator_value,
+               'numerator' AS source_type
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -774,13 +749,16 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events
+        UNION ALL SELECT denominator_events.entity_id AS entity_id,
+                         denominator_events.timestamp AS timestamp,
+                         NULL AS numerator_value,
+                         denominator_events.value AS denominator_value,
+                         'denominator' AS source_type
+        FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  1 AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                  coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -789,10 +767,10 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events ON and(equals(exposures.entity_id, denominator_events.entity_id), greaterOrEquals(denominator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1) AS denominator_aggregated ON and(and(equals(numerator_aggregated.entity_id, denominator_aggregated.entity_id), equals(numerator_aggregated.variant, denominator_aggregated.variant)), equals(numerator_aggregated.breakdown_value_1, denominator_aggregated.breakdown_value_1))) AS entity_metrics
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events) AS combined_events ON and(equals(exposures.entity_id, combined_events.entity_id), greaterOrEquals(combined_events.timestamp, exposures.first_exposure_time))
+     GROUP BY exposures.variant,
+              exposures.entity_id,
+              exposures.breakdown_value_1) AS entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1
   LIMIT 100 SETTINGS readonly=2,
@@ -822,78 +800,43 @@
          sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM
-    (SELECT numerator_aggregated.variant AS variant,
-            numerator_aggregated.entity_id AS entity_id,
-            numerator_aggregated.numerator_value AS numerator_value,
-            coalesce(denominator_aggregated.denominator_value, 0) AS denominator_value,
-            numerator_aggregated.breakdown_value_1 AS breakdown_value_1,
-            numerator_aggregated.breakdown_value_2 AS breakdown_value_2,
-            numerator_aggregated.breakdown_value_3 AS breakdown_value_3
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            sum(coalesce(accurateCastOrNull(combined_events.numerator_value, 'Float64'), 0)) AS numerator_value,
+            sum(coalesce(accurateCastOrNull(combined_events.denominator_value, 'Float64'), 0)) AS denominator_value,
+            exposures.breakdown_value_1 AS breakdown_value_1,
+            exposures.breakdown_value_2 AS breakdown_value_2,
+            exposures.breakdown_value_3 AS breakdown_value_3
      FROM
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS numerator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1,
-               exposures.breakdown_value_2 AS breakdown_value_2,
-               exposures.breakdown_value_3 AS breakdown_value_3
-        FROM
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_3
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_3
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events ON and(equals(exposures.entity_id, numerator_events.entity_id), greaterOrEquals(numerator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1,
-                 exposures.breakdown_value_2,
-                 exposures.breakdown_value_3) AS numerator_aggregated
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_3
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+        GROUP BY entity_id) AS exposures
      LEFT JOIN
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS denominator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1,
-               exposures.breakdown_value_2 AS breakdown_value_2,
-               exposures.breakdown_value_3 AS breakdown_value_3
+       (SELECT numerator_events.entity_id AS entity_id,
+               numerator_events.timestamp AS timestamp,
+               numerator_events.value AS numerator_value,
+               NULL AS denominator_value,
+               'numerator' AS source_type
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_3
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -902,15 +845,16 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events
+        UNION ALL SELECT denominator_events.entity_id AS entity_id,
+                         denominator_events.timestamp AS timestamp,
+                         NULL AS numerator_value,
+                         denominator_events.value AS denominator_value,
+                         'denominator' AS source_type
+        FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  1 AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$device_type'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_3
+                  coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -919,12 +863,12 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events ON and(equals(exposures.entity_id, denominator_events.entity_id), greaterOrEquals(denominator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1,
-                 exposures.breakdown_value_2,
-                 exposures.breakdown_value_3) AS denominator_aggregated ON and(and(equals(numerator_aggregated.entity_id, denominator_aggregated.entity_id), equals(numerator_aggregated.variant, denominator_aggregated.variant)), equals(numerator_aggregated.breakdown_value_1, denominator_aggregated.breakdown_value_1), equals(numerator_aggregated.breakdown_value_2, denominator_aggregated.breakdown_value_2), equals(numerator_aggregated.breakdown_value_3, denominator_aggregated.breakdown_value_3))) AS entity_metrics
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events) AS combined_events ON and(equals(exposures.entity_id, combined_events.entity_id), greaterOrEquals(combined_events.timestamp, exposures.first_exposure_time))
+     GROUP BY exposures.variant,
+              exposures.entity_id,
+              exposures.breakdown_value_1,
+              exposures.breakdown_value_2,
+              exposures.breakdown_value_3) AS entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2,
@@ -955,71 +899,41 @@
          sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
          sum(multiply(entity_metrics.numerator_value, entity_metrics.denominator_value)) AS numerator_denominator_sum_product
   FROM
-    (SELECT numerator_aggregated.variant AS variant,
-            numerator_aggregated.entity_id AS entity_id,
-            numerator_aggregated.numerator_value AS numerator_value,
-            coalesce(denominator_aggregated.denominator_value, 0) AS denominator_value,
-            numerator_aggregated.breakdown_value_1 AS breakdown_value_1,
-            numerator_aggregated.breakdown_value_2 AS breakdown_value_2
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            sum(coalesce(accurateCastOrNull(combined_events.numerator_value, 'Float64'), 0)) AS numerator_value,
+            sum(coalesce(accurateCastOrNull(combined_events.denominator_value, 'Float64'), 0)) AS denominator_value,
+            exposures.breakdown_value_1 AS breakdown_value_1,
+            exposures.breakdown_value_2 AS breakdown_value_2
      FROM
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(numerator_events.value, 'Float64'), 0)) AS numerator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1,
-               exposures.breakdown_value_2 AS breakdown_value_2
-        FROM
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
-          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
-           FROM events
-           LEFT OUTER JOIN
-             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events ON and(equals(exposures.entity_id, numerator_events.entity_id), greaterOrEquals(numerator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1,
-                 exposures.breakdown_value_2) AS numerator_aggregated
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
+               argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
+        GROUP BY entity_id) AS exposures
      LEFT JOIN
-       (SELECT exposures.entity_id AS entity_id,
-               exposures.variant AS variant,
-               sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS denominator_value,
-               exposures.breakdown_value_1 AS breakdown_value_1,
-               exposures.breakdown_value_2 AS breakdown_value_2
+       (SELECT numerator_events.entity_id AS entity_id,
+               numerator_events.timestamp AS timestamp,
+               numerator_events.value AS numerator_value,
+               NULL AS denominator_value,
+               'numerator' AS source_type
         FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
-                  max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
-                  argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-                  argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1,
-                  argMin(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_2
+                  toTimeZone(events.timestamp, 'UTC') AS timestamp,
+                  coalesce(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1028,14 +942,16 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
-           GROUP BY entity_id) AS exposures
-        LEFT JOIN
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'purchase'))) AS numerator_events
+        UNION ALL SELECT denominator_events.entity_id AS entity_id,
+                         denominator_events.timestamp AS timestamp,
+                         NULL AS numerator_value,
+                         denominator_events.value AS denominator_value,
+                         'denominator' AS source_type
+        FROM
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   toTimeZone(events.timestamp, 'UTC') AS timestamp,
-                  1 AS value,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_1,
-                  coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$os'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$') AS breakdown_value_2
+                  coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
            FROM events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
@@ -1044,11 +960,11 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events ON and(equals(exposures.entity_id, denominator_events.entity_id), greaterOrEquals(denominator_events.timestamp, exposures.first_exposure_time))
-        GROUP BY exposures.entity_id,
-                 exposures.variant,
-                 exposures.breakdown_value_1,
-                 exposures.breakdown_value_2) AS denominator_aggregated ON and(and(equals(numerator_aggregated.entity_id, denominator_aggregated.entity_id), equals(numerator_aggregated.variant, denominator_aggregated.variant)), equals(numerator_aggregated.breakdown_value_1, denominator_aggregated.breakdown_value_1), equals(numerator_aggregated.breakdown_value_2, denominator_aggregated.breakdown_value_2))) AS entity_metrics
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'view_item'))) AS denominator_events) AS combined_events ON and(equals(exposures.entity_id, combined_events.entity_id), greaterOrEquals(combined_events.timestamp, exposures.first_exposure_time))
+     GROUP BY exposures.variant,
+              exposures.entity_id,
+              exposures.breakdown_value_1,
+              exposures.breakdown_value_2) AS entity_metrics
   GROUP BY entity_metrics.variant,
            entity_metrics.breakdown_value_1,
            entity_metrics.breakdown_value_2

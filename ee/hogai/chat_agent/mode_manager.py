@@ -34,7 +34,13 @@ class ChatAgentModeManager(AgentModeManager):
         context_manager: AssistantContextManager,
         state: AssistantState,
     ):
-        super().__init__(team=team, user=user, node_path=node_path, context_manager=context_manager, state=state)
+        super().__init__(
+            team=team,
+            user=user,
+            node_path=node_path,
+            context_manager=context_manager,
+            state=state,
+        )
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:

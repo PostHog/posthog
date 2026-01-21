@@ -131,9 +131,8 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
-                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()
-                    actions.loadUser()
 
                     /* Notify user the update was successful  */
                     const updatedAttribute =
@@ -150,14 +149,14 @@ export const teamLogic = kea<teamLogicType>([
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
                             : 'Feature flag confirmation disabled'
-                    } else if (updatedAttribute === 'default_evaluation_environments_enabled') {
-                        message = payload.default_evaluation_environments_enabled
-                            ? 'Default evaluation environments enabled'
-                            : 'Default evaluation environments disabled'
-                    } else if (updatedAttribute === 'require_evaluation_environment_tags') {
-                        message = payload.require_evaluation_environment_tags
-                            ? 'Require evaluation environment tags enabled'
-                            : 'Require evaluation environment tags disabled'
+                    } else if (updatedAttribute === 'default_evaluation_contexts_enabled') {
+                        message = payload.default_evaluation_contexts_enabled
+                            ? 'Default evaluation contexts enabled'
+                            : 'Default evaluation contexts disabled'
+                    } else if (updatedAttribute === 'require_evaluation_contexts') {
+                        message = payload.require_evaluation_contexts
+                            ? 'Require evaluation contexts enabled'
+                            : 'Require evaluation contexts disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
@@ -321,6 +320,8 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam && !payload?.onboarding_tasks) {
                 activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
             }
+            // Reload user after team update to keep user object in sync
+            actions.loadUser()
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {

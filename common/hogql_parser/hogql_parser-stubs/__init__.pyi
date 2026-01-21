@@ -42,3 +42,38 @@ def parse_program(source: str, /, *, is_internal: bool = False) -> Program:
     If the expr `is_internal`, spans and notices won't be included in the AST.
     """
     ...
+
+def parse_expr_json(expr: str, /, *, is_internal: bool = False) -> str:
+    """Parse the HogQL expression string into a JSON AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
+def parse_order_expr_json(expr: str, /, *, is_internal: bool = False) -> str:
+    """Parse the ORDER BY clause string into a JSON AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
+def parse_select_json(expr: str, /, *, is_internal: bool = False) -> str:
+    """Parse the HogQL SELECT statement string into a JSON AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
+def parse_full_template_string_json(expr: str, /, *, is_internal: bool = False) -> str:
+    """Parse a Hog template string into a JSON AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...
+
+def parse_program_json(source: str, /, *, is_internal: bool = False) -> str:
+    """Parse a Hog program into a JSON AST.
+
+    If the expr `is_internal`, spans and notices won't be included in the AST.
+    """
+    ...

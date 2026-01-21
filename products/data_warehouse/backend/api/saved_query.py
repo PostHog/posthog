@@ -267,7 +267,14 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
             # Store the activity log in the serializer context
             if activity_log:
                 self.context["activity_log"] = activity_log
+        # best effort sync to new data modeling DAG representation
+        try:
+            from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
+            sync_saved_query_to_dag(view)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
@@ -382,7 +389,15 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
                         view.name,
                         sync_frequency,
                     )
+        # best effort sync to new data modeling DAG representation
+        if "query" in validated_data:
+            try:
+                from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 
+                sync_saved_query_to_dag(view)
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
     def validate_query(self, query):
@@ -534,12 +549,25 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        instance: DataWarehouseSavedQuery = self.get_object()
+        from products.data_modeling.backend.services.saved_query_dag_sync import (
+            HasDependentsError,
+            delete_node_from_dag,
+        )
 
+        instance: DataWarehouseSavedQuery = self.get_object()
         if instance.managed_viewset is not None:
             raise serializers.ValidationError(
                 "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
             )
+        try:
+            delete_node_from_dag(instance)
+        except HasDependentsError:
+            raise serializers.ValidationError(
+                "Cannot delete this view because other views depend on it. Delete or update those views first."
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to delete node for saved query", saved_query_name=instance.name)
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
@@ -573,6 +601,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         saved_query.revert_materialization()
 
+        # set data modeling node type to view
+        try:
+            from products.data_modeling.backend.models.node import NodeType
+            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+
+            update_node_type(saved_query, NodeType.VIEW)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
+
         return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
@@ -604,6 +642,16 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 {"error": "Materialization failed. Please try again or contact support."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # set data modeling node type to matview
+        try:
+            from products.data_modeling.backend.models.node import NodeType
+            from products.data_modeling.backend.services.saved_query_dag_sync import update_node_type
+
+            update_node_type(saved_query, NodeType.MAT_VIEW)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to update node type to matview", saved_query_name=saved_query.name)
 
         return response.Response(status=status.HTTP_200_OK)
 

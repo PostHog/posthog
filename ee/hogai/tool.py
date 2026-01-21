@@ -81,7 +81,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """Tool execution, which should return a tuple of (content, artifact)"""
         raise NotImplementedError
 
-    def is_dangerous_operation(self, **kwargs) -> bool:
+    async def is_dangerous_operation(self, *args, **kwargs) -> bool:
         """
         Override to mark certain operations as requiring user approval.
 
@@ -90,7 +90,7 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         """
         return False
 
-    async def format_dangerous_operation_preview(self, **kwargs) -> str:
+    async def format_dangerous_operation_preview(self, *args, **kwargs) -> str:
         """
         Override to provide a human-readable preview of the dangerous operation.
         This is shown to the user when asking for approval. Should clearly
@@ -117,29 +117,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
                     return path.tool_call_id
         return None
 
-    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
-        """
-        Declare what resource-level access this tool requires to be used.
-
-        Override this method to specify access requirements for your tool.
-        The check runs before `_arun_impl` is called.
-
-        Returns:
-            List of (resource, required_level) tuples.
-            Empty list means no access control check (default for backward compatibility).
-
-        Examples:
-            # Tool that creates feature flags
-            return [("feature_flag", "editor")]
-
-            # Tool that reads insights
-            return [("insight", "viewer")]
-
-            # Tool that needs multiple permissions
-            return [("dashboard", "editor"), ("insight", "viewer")]
-        """
-        return []
-
     # -------------------------------------------------------------------------
     # Access Control (Resource-level)
     # -------------------------------------------------------------------------
@@ -153,19 +130,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             team=self._team,
             organization_id=str(self._team.organization_id),
         )
-
-    def _check_access_control(self) -> None:
-        """
-        Checks all resource-level access requirements declared in `get_required_resource_access()`.
-        Raises MaxToolAccessDeniedError if any check fails.
-        """
-        required_access = self.get_required_resource_access()
-        if not required_access:
-            return
-
-        for resource, required_level in required_access:
-            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
-                raise MaxToolAccessDeniedError(resource, required_level, action="use")
 
     def __init__(
         self,
@@ -234,22 +198,119 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def _run_with_context(self, *args, **kwargs):
         """Sets the context for the tool."""
         with set_node_path(self.node_path):
+            if permission_check_result := async_to_sync(self._check_dangerous_operation)(**kwargs):
+                return permission_check_result
             return self._run_impl(*args, **kwargs)
 
     async def _arun_with_context(self, *args, **kwargs):
         """Sets the context for the tool. Checks for approved/dangerous operations before executing."""
         with set_node_path(self.node_path):
-            is_dangerous = self.is_dangerous_operation(**kwargs)
-
-            # Handle dangerous operation approval flow
-            # Pre-compute preview before calling _handle_dangerous_operation
-            preview = await self.format_dangerous_operation_preview(**kwargs) if is_dangerous else None
-            dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
-            if dangerous_result is not None:
-                return dangerous_result
-
-            # Normal execution
+            if permission_check_result := await self._check_dangerous_operation(**kwargs):
+                return permission_check_result
             return await self._arun_impl(*args, **kwargs)
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        """
+        Declare what resource-level access this tool requires to be used.
+
+        Override this method to specify access requirements for your tool.
+        The check runs before `_arun_impl` is called.
+
+        Returns:
+            List of (resource, required_level) tuples.
+            Empty list means no access control check (default for backward compatibility).
+
+        Examples:
+            # Tool that creates feature flags
+            return [("feature_flag", "editor")]
+
+            # Tool that reads insights
+            return [("insight", "viewer")]
+
+            # Tool that needs multiple permissions
+            return [("dashboard", "editor"), ("insight", "viewer")]
+        """
+        return []
+
+    @property
+    def node_name(self) -> str:
+        return f"max_tool.{self.get_name()}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return (*self._node_path, NodePath(name=self.node_name))
+
+    @property
+    def context(self) -> dict:
+        return self._context_manager.get_contextual_tools().get(self.get_name(), {})
+
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
+        if not self.context_prompt_template:
+            return None
+        # Build initial context
+        formatted_context = {
+            key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
+        }
+        # Extract expected keys from template
+        expected_keys = {
+            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
+        }
+        # If they expect key is not present in the context (for example, cached FE) - use None as a default
+        for key in expected_keys:
+            if key not in formatted_context:
+                formatted_context[key] = None
+                logger.warning(
+                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
+                )
+        return self.context_prompt_template.format(**formatted_context)
+
+    def set_node_path(self, node_path: tuple[NodePath, ...]):
+        self._node_path = node_path
+
+    @classmethod
+    async def create_tool_class(
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
+    ) -> Self:
+        """
+        Factory that creates a tool class.
+
+        Override this factory to dynamically modify the tool name, description, args schema, etc.
+        """
+        return cls(
+            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
+        )
+
+    def _check_access_control(self) -> None:
+        """
+        Checks all resource-level access requirements declared in `get_required_resource_access()`.
+        Raises MaxToolAccessDeniedError if any check fails.
+        """
+        required_access = self.get_required_resource_access()
+        if not required_access:
+            return
+
+        for resource, required_level in required_access:
+            if not self.user_access_control.check_access_level_for_resource(resource, required_level):
+                raise MaxToolAccessDeniedError(resource, required_level, action="use")
+
+    async def _check_dangerous_operation(self, **kwargs) -> tuple[str, Any] | None:
+        if not await self.is_dangerous_operation(**kwargs):
+            return None
+
+        # Handle dangerous operation approval flow
+        # Pre-compute preview before calling _handle_dangerous_operation
+        preview = await self.format_dangerous_operation_preview(**kwargs)
+        dangerous_result = self._handle_dangerous_operation(preview=preview, **kwargs)
+        if dangerous_result is not None:
+            return dangerous_result
+        return None
 
     def _handle_dangerous_operation(self, preview: str | None = None, **kwargs) -> tuple[str, Any] | None:
         """
@@ -263,9 +324,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             preview: Human-readable preview of the operation. Must be provided when the operation
                      is dangerous (pre-computed async by the caller).
         """
-        if not self.is_dangerous_operation(**kwargs):
-            return None
-
         if preview is None:
             raise ValueError("preview must be provided for dangerous operations")
 
@@ -330,61 +388,6 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             else:
                 serialized[key] = value
         return serialized
-
-    @property
-    def node_name(self) -> str:
-        return f"max_tool.{self.get_name()}"
-
-    @property
-    def node_path(self) -> tuple[NodePath, ...]:
-        return (*self._node_path, NodePath(name=self.node_name))
-
-    @property
-    def context(self) -> dict:
-        return self._context_manager.get_contextual_tools().get(self.get_name(), {})
-
-    def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
-        if not self.context_prompt_template:
-            return None
-        # Build initial context
-        formatted_context = {
-            key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
-        }
-        # Extract expected keys from template
-        expected_keys = {
-            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
-        }
-        # If they expect key is not present in the context (for example, cached FE) - use None as a default
-        for key in expected_keys:
-            if key not in formatted_context:
-                formatted_context[key] = None
-                logger.warning(
-                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
-                )
-        return self.context_prompt_template.format(**formatted_context)
-
-    def set_node_path(self, node_path: tuple[NodePath, ...]):
-        self._node_path = node_path
-
-    @classmethod
-    async def create_tool_class(
-        cls,
-        *,
-        team: Team,
-        user: User,
-        node_path: tuple[NodePath, ...] | None = None,
-        state: AssistantState | None = None,
-        config: RunnableConfig | None = None,
-        context_manager: AssistantContextManager | None = None,
-    ) -> Self:
-        """
-        Factory that creates a tool class.
-
-        Override this factory to dynamically modify the tool name, description, args schema, etc.
-        """
-        return cls(
-            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
-        )
 
 
 class MaxSubtool(AssistantDispatcherMixin, ABC):

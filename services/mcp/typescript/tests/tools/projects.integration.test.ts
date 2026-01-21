@@ -25,6 +25,7 @@ describe('Projects', { concurrent: false }, () => {
         insights: [],
         dashboards: [],
         surveys: [],
+        actions: [],
     }
 
     beforeAll(async () => {

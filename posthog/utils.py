@@ -1701,9 +1701,12 @@ def patchable(fn):
 
 
 def label_for_team_id_to_track(team_id: int) -> str:
-    team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
-
+    """
+    LEGACY: Only used by flag_matching.py (cohort creation background task).
+    Returns empty string to avoid tracking specific team IDs in metrics.
+    """
     team_id_as_string = str(team_id)
+    team_id_filter: list[str] = []  # No longer tracking specific teams
 
     if "all" in team_id_filter:
         return team_id_as_string

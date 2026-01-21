@@ -3,7 +3,7 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
@@ -12,6 +12,7 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -35,8 +36,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         isNewEvaluation,
         runsSummary,
     } = useValues(llmEvaluationLogic)
-    const { setEvaluationName, setEvaluationDescription, setEvaluationEnabled, saveEvaluation, resetEvaluation } =
-        useActions(llmEvaluationLogic)
+    const {
+        setEvaluationName,
+        setEvaluationDescription,
+        setEvaluationEnabled,
+        setAllowsNA,
+        saveEvaluation,
+        resetEvaluation,
+    } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
 
@@ -145,6 +152,30 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                     </span>
                                 </div>
                             </Field>
+
+                            <Field
+                                name="allows_na"
+                                label={
+                                    <div className="flex items-center gap-1">
+                                        <span>Allow N/A responses</span>
+                                        <Tooltip title="Sometimes forcing a True or False is not enough and you want the LLM to decide if the eval is applicable or not. Enable this when the evaluation criteria may not apply to all generations.">
+                                            <IconInfo className="text-muted text-base" />
+                                        </Tooltip>
+                                    </div>
+                                }
+                            >
+                                <div className="flex items-center gap-2">
+                                    <LemonSwitch
+                                        checked={evaluation.output_config.allows_na ?? false}
+                                        onChange={setAllowsNA}
+                                    />
+                                    <span className="text-muted text-sm">
+                                        {evaluation.output_config.allows_na
+                                            ? 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                            : 'Evaluation returns true or false'}
+                                    </span>
+                                </div>
+                            </Field>
                         </div>
                     </div>
 
@@ -187,6 +218,14 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                         </div>
                                         <div className="text-muted">Success Rate</div>
                                     </div>
+                                    {evaluation.output_config.allows_na && (
+                                        <div className="text-center">
+                                            <div className="font-semibold text-lg">
+                                                {runsSummary.applicabilityRate}%
+                                            </div>
+                                            <div className="text-muted">Applicable</div>
+                                        </div>
+                                    )}
                                     <div className="text-center">
                                         <div className="font-semibold text-lg text-danger">{runsSummary.errors}</div>
                                         <div className="text-muted">Errors</div>

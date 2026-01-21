@@ -1,7 +1,4 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
-
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { DecoratorFunction } from '@storybook/types'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -15,21 +12,6 @@ import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { UserRole } from '~/types'
-
-const createDecoratorsForRole = (role: UserRole): DecoratorFunction<any>[] => [
-    mswDecorator({
-        get: {
-            '/api/users/@me/': () => [
-                200,
-                {
-                    ...MOCK_DEFAULT_USER,
-                    role_at_organization: role,
-                },
-            ],
-        },
-    }),
-]
 
 const meta: Meta = {
     component: App,
@@ -39,7 +21,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         pageUrl: urls.onboarding(),
-        featureFlags: [FEATURE_FLAGS.ONBOARDING_GREAT_FOR_ROLE],
     },
     decorators: [
         mswDecorator({
@@ -97,12 +78,3 @@ export const AfterAIRecommendation: StoryFn = () => {
 AfterAIRecommendation.parameters = {
     testOptions: { waitForSelector: '[data-attr="product_analytics-onboarding-card"]' },
 }
-
-// Stories for each role showing "Great for..." badges
-export const DataRole: Story = { decorators: createDecoratorsForRole(UserRole.Data) }
-export const EngineeringRole: Story = { decorators: createDecoratorsForRole(UserRole.Engineering) }
-export const FounderRole: Story = { decorators: createDecoratorsForRole(UserRole.Founder) }
-export const LeadershipRole: Story = { decorators: createDecoratorsForRole(UserRole.Leadership) }
-export const MarketingRole: Story = { decorators: createDecoratorsForRole(UserRole.Marketing) }
-export const ProductRole: Story = { decorators: createDecoratorsForRole(UserRole.Product) }
-export const SalesRole: Story = { decorators: createDecoratorsForRole(UserRole.Sales) }

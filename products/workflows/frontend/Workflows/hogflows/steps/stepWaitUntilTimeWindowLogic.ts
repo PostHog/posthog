@@ -10,11 +10,13 @@ type TimeConfig = 'any' | [string, string]
 
 export type WaitUntilTimeWindowConfig = {
     timezone?: string | null
+    use_person_timezone?: boolean
+    fallback_timezone?: string | null
     day?: DayConfig
     time?: TimeConfig
 }
 
-const AUTO_DESCRIPTION_REGEX = /^Wait until .+ (at any time|between .+ and .+) \(.+\)\.$/
+const AUTO_DESCRIPTION_REGEX = /^Wait until .+ (at any time|between .+ and .+) \((.+)\)\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait until a specified time window.'
 
 function capitalize(str: string): string {
@@ -50,13 +52,27 @@ function getTimeDescription(time: TimeConfig): string {
     return 'any time'
 }
 
-export function getWaitUntilTimeWindowDescription(day: DayConfig, time: TimeConfig, timezone: string | null): string {
+export function getWaitUntilTimeWindowDescription(
+    day: DayConfig,
+    time: TimeConfig,
+    timezone: string | null,
+    usePersonTimezone?: boolean,
+    fallbackTimezone?: string | null
+): string {
     const dayDesc = getDayDescription(day)
     const timeDesc = getTimeDescription(time)
-    const tz = timezone || 'UTC'
     // Use "at" only for "any time", otherwise use the time description directly (e.g., "between X and Y")
     const timeClause = time === 'any' ? `at ${timeDesc}` : timeDesc
-    return `Wait until ${dayDesc} ${timeClause} (${tz}).`
+
+    let tzDesc: string
+    if (usePersonTimezone) {
+        const fallback = fallbackTimezone || timezone || 'UTC'
+        tzDesc = `person's timezone, fallback: ${fallback}`
+    } else {
+        tzDesc = timezone || 'UTC'
+    }
+
+    return `Wait until ${dayDesc} ${timeClause} (${tzDesc}).`
 }
 
 export function shouldAutoUpdateDescription(description: string): boolean {
@@ -103,15 +119,33 @@ export const stepWaitUntilTimeWindowLogic = kea<stepWaitUntilTimeWindowLogicType
                 return
             }
 
-            const currentConfig = action.config as { day: DayConfig; time: TimeConfig; timezone: string | null }
+            const currentConfig = action.config as {
+                day: DayConfig
+                time: TimeConfig
+                timezone: string | null
+                use_person_timezone?: boolean
+                fallback_timezone?: string | null
+            }
             const newDay = config.day ?? currentConfig.day
             const newTime = config.time ?? currentConfig.time
             const newTimezone = config.timezone !== undefined ? config.timezone : currentConfig.timezone
+            const newUsePersonTimezone =
+                config.use_person_timezone !== undefined
+                    ? config.use_person_timezone
+                    : currentConfig.use_person_timezone
+            const newFallbackTimezone =
+                config.fallback_timezone !== undefined ? config.fallback_timezone : currentConfig.fallback_timezone
 
             if (shouldAutoUpdateDescription(action.description)) {
                 actions.setWorkflowAction(actionId, {
                     ...action,
-                    description: getWaitUntilTimeWindowDescription(newDay, newTime, newTimezone),
+                    description: getWaitUntilTimeWindowDescription(
+                        newDay,
+                        newTime,
+                        newTimezone,
+                        newUsePersonTimezone,
+                        newFallbackTimezone
+                    ),
                 })
             }
         },

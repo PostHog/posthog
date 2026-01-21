@@ -4,6 +4,14 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.session_summary.activities import (
+    analyze_video_segment_activity,
+    consolidate_video_segments_activity,
+    embed_and_store_segments_activity,
+    export_session_video_activity,
+    store_video_session_summary_activity,
+    upload_video_to_gemini_activity,
+)
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     combine_patterns_from_chunks_activity,
@@ -74,6 +82,13 @@ ACTIVITIES = [
     validate_llm_single_session_summary_with_videos_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
+    # Video analysis activities
+    export_session_video_activity,
+    upload_video_to_gemini_activity,
+    analyze_video_segment_activity,
+    embed_and_store_segments_activity,
+    store_video_session_summary_activity,
+    consolidate_video_segments_activity,
 ]
 
 __all__ = [

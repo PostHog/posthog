@@ -1143,6 +1143,118 @@ describe('Hogflow Executor', () => {
         })
     })
 
+    describe('filter_test_accounts', () => {
+        let hogFlow: HogFlow
+
+        beforeEach(async () => {
+            hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                // Use the test account filter which filters out @posthog.com emails
+                                filters: HOG_FILTERS_EXAMPLES.test_account_filter.filters ?? {},
+                            },
+                        },
+
+                        function_id_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: {
+                                    name: {
+                                        value: `Mr {event?.properties?.name}`,
+                                        bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
+                                    },
+                                },
+                            },
+                        },
+
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'trigger',
+                            to: 'function_id_1',
+                            type: 'continue',
+                        },
+                        {
+                            from: 'function_id_1',
+                            to: 'exit',
+                            type: 'continue',
+                        },
+                    ],
+                })
+                .build()
+        })
+
+        it('should filter out internal users with @posthog.com email', async () => {
+            // Create globals with internal user email
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'uuid',
+                    event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        name: 'Internal User',
+                    },
+                },
+                person: {
+                    id: 'person_internal',
+                    name: 'Internal User',
+                    url: '',
+                    properties: {
+                        email: 'internal@posthog.com',
+                    },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            // Should not match because email contains @posthog.com
+            expect(result.invocations).toHaveLength(0)
+        })
+
+        it('should allow external users without @posthog.com email', async () => {
+            // Create globals with external user email
+            const globals = createHogExecutionGlobals({
+                event: {
+                    uuid: 'uuid',
+                    event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    elements_chain: '',
+                    timestamp: new Date().toISOString(),
+                    url: 'http://localhost:8000/events/1',
+                    properties: {
+                        name: 'External User',
+                    },
+                },
+                person: {
+                    id: 'person_external',
+                    name: 'External User',
+                    url: '',
+                    properties: {
+                        email: 'external@customer.com',
+                    },
+                },
+            })
+
+            const result = await executor.buildHogFlowInvocations([hogFlow], globals)
+
+            // Should match because email doesn't contain @posthog.com
+            expect(result.invocations).toHaveLength(1)
+            expect(result.invocations[0].hogFlow.id).toBe(hogFlow.id)
+        })
+    })
+
     describe('variable merging', () => {
         it('merges default and provided variables correctly', () => {
             const hogFlow: HogFlow = new FixtureHogFlowBuilder()

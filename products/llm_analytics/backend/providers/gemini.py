@@ -9,7 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from anthropic.types import MessageParam
 from google.genai.errors import APIError
-from google.genai.types import GenerateContentConfig
+from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai
 
 from products.llm_analytics.backend.providers.formatters.gemini_formatter import convert_anthropic_messages_to_gemini
@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 class GeminiConfig:
     # these are hardcoded for now, we might experiment with different values
     TEMPERATURE: float = 0
+    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
+    TIMEOUT: int = 300
 
     SUPPORTED_MODELS: list[str] = [
         "gemini-3-flash-preview",
@@ -40,7 +43,11 @@ class GeminiProvider:
         if not posthog_client:
             raise ValueError("PostHog client not found")
 
-        self.client = genai.Client(api_key=self.get_api_key(), posthog_client=posthog_client)
+        self.client = genai.Client(
+            api_key=self.get_api_key(),
+            posthog_client=posthog_client,
+            http_options=HttpOptions(timeout=GeminiConfig.TIMEOUT),
+        )
         self.validate_model(model_id)
         self.model_id = model_id
 

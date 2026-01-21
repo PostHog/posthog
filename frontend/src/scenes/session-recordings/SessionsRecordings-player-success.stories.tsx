@@ -1,15 +1,12 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -314,29 +311,3 @@ FiltersExpandedLotsOfResultsNarrow.parameters = {
         viewport: { width: 568, height: 1024 },
     },
 }
-
-const cinemaModeStory = (mocks: Record<string, any> = {}): StoryFn => {
-    const Story: StoryFn = () => {
-        const { setIsCinemaMode } = useActions(playerSettingsLogic)
-        useStorybookMocks({ get: mocks })
-        useEffect(() => setIsCinemaMode(true), [setIsCinemaMode])
-        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }))
-        return <App />
-    }
-    return Story
-}
-
-const cinemaModeWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
-const cinemaModeNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
-
-export const CinemaModeWithIntro: StoryFn = cinemaModeStory()
-CinemaModeWithIntro.parameters = cinemaModeWideParameters
-
-export const CinemaModeSeenIntro: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntro.parameters = cinemaModeWideParameters
-
-export const CinemaModeWithIntroNarrow: StoryFn = cinemaModeStory()
-CinemaModeWithIntroNarrow.parameters = cinemaModeNarrowParameters
-
-export const CinemaModeSeenIntroNarrow: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntroNarrow.parameters = cinemaModeNarrowParameters

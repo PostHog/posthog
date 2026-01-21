@@ -22,12 +22,17 @@ export function BreakdownColumnTitle({
     onTogglePin,
 }: BreakdownColumnTitleProps): JSX.Element {
     return (
-        <div className="flex items-center gap-1">
-            <PropertyKeyInfo disableIcon disablePopover value={formatBreakdownType(breakdownFilter)} />
+        <div className="flex items-center gap-1 min-w-0">
+            <PropertyKeyInfo
+                className="min-w-0"
+                disableIcon
+                disablePopover
+                value={formatBreakdownType(breakdownFilter)}
+            />
             {onTogglePin && (
                 <Tooltip title={isPinned ? 'Unpin column' : 'Pin column'}>
                     <span
-                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1 shrink-0"
                         onClick={(e) => {
                             e.stopPropagation()
                             onTogglePin()
@@ -53,12 +58,12 @@ export function MultipleBreakdownColumnTitle({
     onTogglePin,
 }: MultipleBreakdownColumnTitleProps): JSX.Element {
     return (
-        <div className="flex items-center gap-1">
-            <PropertyKeyInfo disableIcon disablePopover value={children || 'Breakdown Value'} />
+        <div className="flex items-center gap-1 min-w-0">
+            <PropertyKeyInfo className="min-w-0" disableIcon disablePopover value={children || 'Breakdown Value'} />
             {onTogglePin && (
                 <Tooltip title={isPinned ? 'Unpin column' : 'Pin column'}>
                     <span
-                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1 shrink-0"
                         onClick={(e) => {
                             e.stopPropagation()
                             onTogglePin()

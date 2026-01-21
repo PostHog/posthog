@@ -2515,17 +2515,17 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # Test org-level logs metrics (sum of both teams)
         assert org_1_report["logs_bytes_in_period"] == 4_000_000_000  # 1.5B + 2.5B
         assert org_1_report["logs_records_in_period"] == 3000  # 1000 + 2000
-        assert org_1_report["logs_gb_in_period"] == 4.0  # 1.5 + 2.5
+        assert org_1_report["logs_mb_in_period"] == 4000  # 1500 + 2500
 
         # Test team 1 logs metrics
         assert org_1_report["teams"]["3"]["logs_bytes_in_period"] == 1_500_000_000
         assert org_1_report["teams"]["3"]["logs_records_in_period"] == 1000
-        assert org_1_report["teams"]["3"]["logs_gb_in_period"] == 1.5
+        assert org_1_report["teams"]["3"]["logs_mb_in_period"] == 1500
 
         # Test team 2 logs metrics
         assert org_1_report["teams"]["4"]["logs_bytes_in_period"] == 2_500_000_000
         assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
-        assert org_1_report["teams"]["4"]["logs_gb_in_period"] == 2.5
+        assert org_1_report["teams"]["4"]["logs_mb_in_period"] == 2500
 
 
 @freeze_time("2022-01-10T10:00:00Z")

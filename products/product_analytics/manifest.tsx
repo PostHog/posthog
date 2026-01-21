@@ -171,6 +171,7 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Notebooks',
+            intents: [ProductKey.NOTEBOOKS],
             category: 'Tools',
             type: 'notebook',
             iconType: 'notebook',

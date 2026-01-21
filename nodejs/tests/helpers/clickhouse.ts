@@ -80,7 +80,7 @@ export class Clickhouse {
 
         await Promise.allSettled([
             this.truncate('person_static_cohort'),
-            this.truncate('sharded_session_recording_events'),
+            this.truncate('sharded_session_replay_events'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),

@@ -417,6 +417,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         togglePrettifyLog: ({ logId }) => {
             actions.recomputeRowHeights([logId])
         },
+        toggleAttributeBreakdown: ({ logId }) => {
+            actions.recomputeRowHeights([logId])
+        },
         moveCursorDown: ({ shiftSelect }) => {
             const { logs, cursor } = values
             if (logs.length === 0) {

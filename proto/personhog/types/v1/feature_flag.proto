@@ -1,0 +1,39 @@
+syntax = "proto3";
+package personhog.types.v1;
+
+// HashKeyOverride represents a feature flag hash key override for a person
+message HashKeyOverride {
+  string feature_flag_key = 1;
+  string hash_key = 2;
+}
+
+// PersonIdWithOverrides pairs a person with their hash key overrides
+message PersonIdWithOverrides {
+  int64 person_id = 1;
+  string distinct_id = 2;
+  repeated HashKeyOverride overrides = 3;
+}
+
+// PersonIdWithOverrideKeys lists existing override keys for a person
+message PersonIdWithOverrideKeys {
+  int64 person_id = 1;
+  repeated string existing_feature_flag_keys = 2;
+}
+
+message GetPersonIdsAndHashKeyOverridesRequest {
+  int64 team_id = 1;
+  repeated string distinct_ids = 2;
+}
+
+message GetPersonIdsAndHashKeyOverridesResponse {
+  repeated PersonIdWithOverrides results = 1;
+}
+
+message GetExistingPersonIdsWithOverrideKeysRequest {
+  int64 team_id = 1;
+  repeated string distinct_ids = 2;
+}
+
+message GetExistingPersonIdsWithOverrideKeysResponse {
+  repeated PersonIdWithOverrideKeys results = 1;
+}

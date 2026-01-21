@@ -20,6 +20,29 @@ logger = structlog.get_logger(__name__)
 
 
 class CommentSerializer(serializers.ModelSerializer):
+    def _extract_mentions_from_rich_content(self, rich_content: dict | None) -> list[int]:
+        """Extract user IDs from ph-mention nodes in rich_content"""
+        if not rich_content:
+            return []
+
+        mentions = []
+
+        def find_mentions(node):
+            if isinstance(node, dict):
+                if node.get("type") == "ph-mention":
+                    user_id = node.get("attrs", {}).get("id")
+                    if user_id and isinstance(user_id, int) and user_id not in mentions:
+                        mentions.append(user_id)
+                for value in node.values():
+                    if isinstance(value, (dict, list)):
+                        find_mentions(value)
+            elif isinstance(node, list):
+                for item in node:
+                    find_mentions(item)
+
+        find_mentions(rich_content)
+        return mentions
+
     created_by = UserBasicSerializer(read_only=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
     mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
@@ -58,6 +81,11 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data: Any) -> Any:
         mentions: list[int] = validated_data.pop("mentions", [])
+
+        # Extract mentions from rich_content if not provided explicitly
+        if not mentions:
+            mentions = self._extract_mentions_from_rich_content(validated_data.get("rich_content"))
+
         slug: str = validated_data.pop("slug", "")
         validated_data["team_id"] = self.context["team_id"]
 
@@ -71,6 +99,11 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
         mentions: list[int] = validated_data.pop("mentions", [])
+
+        # Extract mentions from rich_content if not provided explicitly
+        if not mentions:
+            mentions = self._extract_mentions_from_rich_content(validated_data.get("rich_content"))
+
         slug: str = validated_data.pop("slug", "")
         request = self.context["request"]
 

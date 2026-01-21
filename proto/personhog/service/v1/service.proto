@@ -1,0 +1,5 @@
+syntax = "proto3";
+package personhog.service.v1;
+
+// PersonHogService is the public API exposed by the router.
+// This service will be implemented when the personhog-router is set up.

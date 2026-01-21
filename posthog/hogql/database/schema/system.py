@@ -3,12 +3,31 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
+    FieldOrTable,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    Table,
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+
+
+class IngestionWarningsTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False, hidden=True),
+        "source": StringDatabaseField(name="source", nullable=False),
+        "type": StringDatabaseField(name="type", nullable=False),
+        "details": StringDatabaseField(name="details", nullable=False),
+        "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "ingestion_warnings"
+
+    def to_printed_hogql(self):
+        return "ingestion_warnings"
+
 
 cohorts: PostgresTable = PostgresTable(
     name="cohorts",
@@ -212,6 +231,7 @@ class SystemTables(TableNode):
     children: dict[str, TableNode] = {
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "cohorts": TableNode(name="cohorts", table=cohorts),
+        "ingestion_warnings": TableNode(name="ingestion_warnings", table=IngestionWarningsTable()),
         "insights": TableNode(name="insights", table=insights),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),

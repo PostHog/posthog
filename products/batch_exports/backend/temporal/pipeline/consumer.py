@@ -1,7 +1,10 @@
 import abc
+import enum
+import typing
 import asyncio
 import collections.abc
 
+import pyarrow as pa
 import temporalio.common
 
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -14,6 +17,14 @@ from products.batch_exports.backend.temporal.utils import cast_record_batch_json
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+
+class _WaitResult(enum.Enum):
+    """Enumeration of possible results when concurrently waiting for two tasks."""
+
+    FIRST_DONE = (True, False)
+    SECOND_DONE = (False, True)
+    BOTH_DONE = (True, True)
 
 
 class Consumer:
@@ -61,10 +72,8 @@ class Consumer:
         Record batches will be processed by the `transformer`, which transforms the
         record batch into chunks of bytes, depending on the `file_format` and
         `compression`.
-
         Each of these chunks will be consumed by the `consume_chunk` method, which is
         implemented by subclasses.
-
         Returns:
             BatchExportResult:
                 - The total number of records in all consumed record batches. If an
@@ -76,6 +85,7 @@ class Consumer:
                   None. If an error occurs, this will be a string representation of the
                   error.
         """
+
         self.reset_tracking()
 
         self.logger.info("Starting consumer from internal S3 stage")
@@ -112,20 +122,41 @@ class Consumer:
         producer_task: asyncio.Task,
         json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
     ):
-        """Yield record batches from provided `queue` until `producer_task` is done."""
+        """Yield record batches from provided `queue` until `producer_task` is done.
+
+        This method is non-blocking by concurrently waiting for both `queue.get` and
+        `producer_task` in a loop using `asyncio.wait`.
+
+        Everytime `queue.get` returns a value it is yielded. Whenever `producer_task` is
+        done, we check if `queue` is empty. If it is, then the method doesn't expect
+        anything else to ever come in the queue, and thus can exit without data loss
+        (after canceling a pending `queue.get` to avoid resource leaking).
+
+        If the `queue` is not empty, then the method can't exit just yet and instead
+        continues waiting on `queue.get`.
+        """
 
         while True:
-            try:
-                record_batch = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                if producer_task.done():
-                    self.logger.debug(
-                        "Empty queue with no more events being produced, closing writer loop and flushing"
-                    )
-                    break
-                else:
-                    await asyncio.sleep(0)
-                    continue
+            get_task = asyncio.create_task(queue.get())
+            _ = await asyncio.wait((get_task, producer_task), return_when=asyncio.FIRST_COMPLETED)
+
+            wait_result = _WaitResult((get_task.done(), producer_task.done()))
+            match wait_result:
+                case _WaitResult.FIRST_DONE | _WaitResult.BOTH_DONE:
+                    record_batch = get_task.result()
+
+                case _WaitResult.SECOND_DONE:
+                    if queue.empty():
+                        self.logger.debug(
+                            "Empty queue with no more events being produced, closing writer loop and flushing"
+                        )
+                        get_task.cancel()
+                        break
+                    else:
+                        record_batch = await get_task
+
+                case _:
+                    typing.assert_never(wait_result)
 
             self.logger.debug(f"Consuming batch number {self.total_record_batches_count}")
 
@@ -134,21 +165,27 @@ class Consumer:
 
             yield record_batch
 
-            num_records_in_batch = record_batch.num_rows
-            self.total_records_count += num_records_in_batch
-            num_bytes_in_batch = record_batch.nbytes
-            self.total_record_batch_bytes_count += num_bytes_in_batch
-            self.rows_exported_counter.add(num_records_in_batch)
+            self.track_record_batch(record_batch)
 
-            self.logger.debug(
-                f"Consumed batch number {self.total_record_batches_count} with "
-                f"{num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} "
-                f"MiB. Total records consumed so far: {self.total_records_count:,}, "
-                f"total MiB consumed so far: {self.total_record_batch_bytes_count / 1024**2:.2f}, "
-                f"total file MiB consumed so far: {self.total_file_bytes_count / 1024**2:.2f}"
-            )
+    def track_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        """Track consumer progress based on the last consumed record batch."""
 
-            self.total_record_batches_count += 1
+        num_records_in_batch = record_batch.num_rows
+        num_bytes_in_batch = record_batch.nbytes
+
+        self.total_records_count += num_records_in_batch
+        self.total_record_batch_bytes_count += num_bytes_in_batch
+        self.rows_exported_counter.add(num_records_in_batch)
+
+        self.logger.debug(
+            f"Consumed batch number {self.total_record_batches_count} with "
+            f"{num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} "
+            f"MiB. Total records consumed so far: {self.total_records_count:,}, "
+            f"total MiB consumed so far: {self.total_record_batch_bytes_count / 1024**2:.2f}, "
+            f"total file MiB consumed so far: {self.total_file_bytes_count / 1024**2:.2f}"
+        )
+
+        self.total_record_batches_count += 1
 
     @abc.abstractmethod
     async def consume_chunk(self, data: bytes):

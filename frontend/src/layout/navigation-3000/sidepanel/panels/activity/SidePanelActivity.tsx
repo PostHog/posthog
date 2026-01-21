@@ -157,14 +157,16 @@ export const SidePanelActivity = (): JSX.Element => {
                             </div>
                         </div>
                     ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2">
-                            <div className="flex items-center gap-1">
-                                Activity on{' '}
-                                <strong>
-                                    {hasItemContext
-                                        ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
-                                        : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
-                                </strong>
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                            <div className="flex items-center gap-2">
+                                <span>
+                                    Activity on{' '}
+                                    <strong>
+                                        {hasItemContext
+                                            ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
+                                            : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
+                                    </strong>
+                                </span>
                                 {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
                                     <LemonMenu
                                         placement="bottom-start"

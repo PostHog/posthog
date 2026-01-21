@@ -1,11 +1,5 @@
-import { ReactNode } from 'react'
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
-export interface StepDefinition {
-    title: string
-    badge?: 'required' | 'recommended' | 'optional'
-    content: ReactNode
-}
+import { StepDefinition } from '../steps'
 
 export const getAPISteps = (CodeBlock: any, Markdown: any, CalloutBox: any, dedent: any): StepDefinition[] => {
     return [

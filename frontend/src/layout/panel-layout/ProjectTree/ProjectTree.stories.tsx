@@ -30,7 +30,6 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
             FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
             FEATURE_FLAGS.PRODUCT_TOURS,
             FEATURE_FLAGS.USER_INTERVIEWS,
-            FEATURE_FLAGS.WORKFLOWS,
         ],
     },
 }

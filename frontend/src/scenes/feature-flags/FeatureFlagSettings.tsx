@@ -8,8 +8,8 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
-import { RequireEvaluationEnvironmentTags } from './RequireEvaluationEnvironmentTags'
+import { DefaultEvaluationContexts } from './DefaultEvaluationContexts'
+import { RequireEvaluationContexts } from './RequireEvaluationContexts'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -109,11 +109,11 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
             </div>
 
             <div className="space-y-2">
-                <RequireEvaluationEnvironmentTags />
+                <RequireEvaluationContexts />
             </div>
 
             <div className="space-y-2">
-                <DefaultEvaluationEnvironments />
+                <DefaultEvaluationContexts />
             </div>
 
             <div className="space-y-2">

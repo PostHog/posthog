@@ -2901,6 +2901,73 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    def test_filter_for_recordings_by_visited_page(self):
+        user = "test_visited_page_filter-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        # Session with /pricing page in recording
+        session_id_one = "session one id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_one,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+
+        # Session with /billing page in recording
+        session_id_two = "session two id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_two,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/billing"],
+        )
+
+        # Session with no URLs (recording started but no pages captured)
+        session_id_three = "session three id"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_id_three,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # Test exact match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_id_one],
+        )
+
+        # Test contains match
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_two],
+        )
+
+        # Test multiple values (OR)
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["pricing", "billing"], "operator": "icontains", "type": "recording"}]'
+            },
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_SET - should match sessions with URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_set", "type": "recording"}]'},
+            [session_id_one, session_id_two],
+        )
+
+        # Test IS_NOT_SET - should match session with no URLs
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"key": "visited_page", "value": null, "operator": "is_not_set", "type": "recording"}]'},
+            [session_id_three],
+        )
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],

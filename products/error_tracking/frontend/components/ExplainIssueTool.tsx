@@ -1,7 +1,4 @@
-import { useActions, useValues } from 'kea'
-
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 
 export interface UseErrorTrackingExplainIssueReturn {
     isMaxOpen: boolean
@@ -13,11 +10,10 @@ export interface UseErrorTrackingExplainIssueReturn {
  * The issue context is automatically provided via the maxContext selector in errorTrackingIssueSceneLogic.
  */
 export function useErrorTrackingExplainIssue(): UseErrorTrackingExplainIssueReturn {
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
+    const { isMaxOpen, openAi } = useOpenAi()
 
     return {
-        isMaxOpen: sidePanelOpen && selectedTab === SidePanelTab.Max,
-        openMax: () => openSidePanel(SidePanelTab.Max, 'Explain this issue to me'),
+        isMaxOpen,
+        openMax: () => openAi('Explain this issue to me'),
     }
 }

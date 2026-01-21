@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -19,7 +19,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     connect(({ key, query }: IssuesDataNodeLogicProps) => {
         const nodeLogic = dataNodeLogic({ key, query, refresh: 'blocking' })
         return {
-            values: [nodeLogic, ['response', 'responseLoading']],
+            values: [nodeLogic, ['response', 'responseLoading'], issueActionsLogic, ['needsReload']],
             actions: [
                 nodeLogic,
                 ['setResponse', 'loadData', 'cancelQuery'],
@@ -34,6 +34,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                     'updateIssueStatus',
                     'mutationSuccess',
                     'mutationFailure',
+                    'clearNeedsReload',
                 ],
             ],
         }
@@ -51,7 +52,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
-        reloadData: async () => {
+        reloadData: () => {
             actions.loadData('force_blocking')
         },
         // optimistically update local results
@@ -156,4 +157,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         mutationSuccess: () => actions.reloadData(),
         mutationFailure: () => actions.reloadData(),
     })),
+
+    afterMount(({ values, actions }) => {
+        if (values.needsReload) {
+            actions.clearNeedsReload()
+            actions.reloadData()
+        }
+    }),
 ])

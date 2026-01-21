@@ -73,8 +73,8 @@ pub struct FlagRequest {
     pub timezone: Option<String>,
     #[serde(default)]
     pub cookieless_hash_extra: Option<String>,
-    #[serde(default)]
-    pub evaluation_environments: Option<Vec<String>>,
+    #[serde(default, alias = "evaluation_environments")]
+    pub evaluation_contexts: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<EvaluationRuntime>,
 }

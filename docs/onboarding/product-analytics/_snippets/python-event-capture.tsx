@@ -1,7 +1,7 @@
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 import { PersonProfiles } from './person-profiles'
 
-export const PythonEventCapture = (): JSX.Element => {
+export const PythonEventCapture = function PythonEventCapture(): JSX.Element {
     const { Markdown, CodeBlock, dedent } = useMDXComponents()
 
     return (

@@ -277,7 +277,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("search", "")
+        search = request.GET.get("value", "")
         limit = request.GET.get("limit", 100)
         offset = request.GET.get("offset", 0)
         attributeKey = request.GET.get("key", "")

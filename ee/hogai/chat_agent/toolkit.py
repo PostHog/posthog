@@ -18,6 +18,7 @@ from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
 from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
+    ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
     ReadTaxonomyTool,
@@ -38,6 +39,7 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
+    ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
 ]

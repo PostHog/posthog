@@ -98,7 +98,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         ],
         insightEventsQueryUrl: [
             (s) => [s.actorsQuery],
-            (actorsQuery: ActorsQuery): string | null => {
+            (actorsQuery): string | null => {
                 if (!actorsQuery) {
                     return null
                 }
@@ -108,13 +108,26 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
+                // Extract event name from the RetentionQuery
+                // interval 0 = targetEntity (initial cohort), interval > 0 = returningEntity
+                const retentionQuery = insightActorsQuery.source as RetentionQuery
+                const interval = insightActorsQuery.interval ?? 0
+                const entity =
+                    interval === 0
+                        ? retentionQuery.retentionFilter?.targetEntity
+                        : retentionQuery.retentionFilter?.returningEntity
+
+                const eventName = entity?.type === 'events' && entity?.id ? String(entity.id) : undefined
+
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
                         source: insightActorsQuery,
                         select: ['*', 'event', 'person', 'timestamp'],
-                        after: 'all', // Show all events by default because date range is filtered by the source
+                        // Show all events by default because date range is filtered by the source
+                        after: 'all',
+                        event: eventName,
                     },
                     full: true,
                 }

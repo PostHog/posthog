@@ -4,7 +4,13 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_v2"
 QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
+
+SHARDED_QUERY_LOG_ARCHIVE_TABLE = "sharded_query_log_archive"
+SHARDED_QUERY_LOG_ARCHIVE_MV = "sharded_query_log_archive_mv"
+DIST_QUERY_LOG_ARCHIVE_MV = "dist_query_log_archive_mv"
+SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE = "writable_sharded_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -403,3 +409,39 @@ def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE
     return """
     ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
     """.format(table=table)
+
+
+# V7 - sharded query_log_archive
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE():
+    return MergeTreeEngine(SHARDED_QUERY_LOG_ARCHIVE_TABLE, replication_scheme=ReplicationScheme.SHARDED)
+
+
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+        engine=SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
+    )
+
+
+def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )

@@ -5,7 +5,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.schema import (
-    ArtifactMessage,
     ArtifactSource,
     AssistantToolCallMessage,
     AssistantTrendsEventsNode,
@@ -82,114 +81,6 @@ class TestReadDataTool(BaseTest):
             mock_context_class.assert_called_once()
             assert tool is not None
 
-    async def test_arun_impl_artifacts_returns_formatted_artifacts(self):
-        """Test that artifacts kind returns formatted artifact data."""
-        team = MagicMock()
-        user = MagicMock()
-
-        viz_content = VisualizationArtifactContent(
-            query=AssistantTrendsQuery(series=[]),
-            name="Test Chart",
-            description="A test visualization",
-        )
-        artifact_message = ArtifactMessage(
-            id=str(uuid4()),
-            artifact_id="artifact-123",
-            source=ArtifactSource.ARTIFACT,
-            content=viz_content,
-        )
-
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifacts = AsyncMock(return_value=[artifact_message])
-
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
-
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
-
-        context_manager.artifacts.aget_conversation_artifacts.assert_called_once_with()
-        assert "artifact-123" in result
-        assert "Test Chart" in result
-        assert "A test visualization" in result
-
-    async def test_arun_impl_artifacts_returns_no_artifacts_message(self):
-        """Test that artifacts kind returns 'No artifacts available' when empty."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.artifacts = MagicMock()
-        context_manager.artifacts.aget_conversation_artifacts = AsyncMock(return_value=[])
-        context_manager.artifacts.check_user_has_billing_access = AsyncMock(return_value=False)
-
-        tool = ReadDataTool(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-        )
-
-        result, _ = await tool._arun_impl({"kind": "artifacts"})
-
-        assert result == "No artifacts available"
-
-    async def test_create_tool_class_with_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=True,
-        )
-        assert "# Artifacts" in tool.description
-        assert "billing_info" not in tool.description
-
-    async def test_create_tool_class_without_artifacts(self):
-        """Test that tool has artifacts in description when can_read_artifacts is True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=False,
-        )
-        assert "# Artifacts" not in tool.description
-
-    async def test_create_tool_class_with_artifacts_and_billing_access(self):
-        """Test that tool has artifacts and billing in description when can_read_artifacts and can_read_billing are True."""
-        team = MagicMock()
-        user = MagicMock()
-        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
-        context_manager = MagicMock()
-        context_manager.check_user_has_billing_access = AsyncMock(return_value=True)
-        tool = await ReadDataTool.create_tool_class(
-            team=team,
-            user=user,
-            state=state,
-            context_manager=context_manager,
-            can_read_artifacts=True,
-        )
-        assert "# Artifacts" in tool.description
-        assert "billing_info" in tool.description
-        assert "Billing information" in tool.description
-
     async def test_read_insight_schema_only(self):
         """Test reading an insight without executing it returns the schema."""
         team = MagicMock()
@@ -247,7 +138,8 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch(
-            "ee.hogai.context.insight.context.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
+            "ee.hogai.context.insight.context.execute_and_format_query",
+            new=AsyncMock(return_value="Formatted results"),
         ):
             tool = ReadDataTool(
                 team=team,
@@ -408,7 +300,10 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             name="Test Insight",
             description="Test description",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "name": "$pageview"}]},
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "name": "$pageview"}],
+            },
         )
 
         await DashboardTile.objects.acreate(
@@ -433,7 +328,13 @@ class TestReadDataTool(BaseTest):
                 context_manager=context_manager,
             )
 
-            await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
+            await tool._arun_impl(
+                {
+                    "kind": "dashboard",
+                    "dashboard_id": str(dashboard.id),
+                    "execute": False,
+                }
+            )
 
             # Verify DashboardContext was instantiated with correct arguments
             MockDashboardContext.assert_called_once()
@@ -482,7 +383,13 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns={
+                "id": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                }
+            },
         )
         await DataWarehouseTable.objects.acreate(
             name="hubspot_contacts",
@@ -490,7 +397,13 @@ class TestReadDataTool(BaseTest):
             team=self.team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            columns={
+                "email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                }
+            },
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -521,7 +434,10 @@ class TestReadDataTool(BaseTest):
         await DataWarehouseSavedQuery.objects.acreate(
             team=self.team,
             name="revenue_summary",
-            query={"kind": "HogQLQuery", "query": "SELECT count() as total FROM events"},
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() as total FROM events",
+            },
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -576,7 +492,11 @@ class TestReadDataTool(BaseTest):
                     "clickhouse": "Nullable(String)",
                     "schema_valid": True,
                 },
-                "email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
                 "created_at": {
                     "hogql": "DateTimeDatabaseField",
                     "clickhouse": "Nullable(DateTime64(3))",

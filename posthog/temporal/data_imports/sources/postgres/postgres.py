@@ -286,6 +286,10 @@ def _get_primary_keys(
     if len(rows) > 0:
         return [row[0] for row in rows]
 
+    logger.warning(
+        f"No primary keys found for {table_name}. If the table is not a view, (a) does the table have a primary key set? (b) is the primary key returned from querying information_schema?"
+    )
+
     return None
 
 

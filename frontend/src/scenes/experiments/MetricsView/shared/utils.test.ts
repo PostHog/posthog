@@ -5,6 +5,7 @@ import { ExperimentMetricGoal, ExperimentMetricMathType } from '~/types'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
+    formatPValue,
     getChanceToWin,
     getDefaultMetricTitle,
     getMetricColors,
@@ -225,5 +226,45 @@ describe('getMetricColors', () => {
         const result = getMetricColors(colors, ExperimentMetricGoal.Decrease)
         expect(result.positive).toBe('#FF0000')
         expect(result.negative).toBe('#00FF00')
+    })
+})
+
+describe('formatPValue', () => {
+    it.each([
+        [null, '—'],
+        [undefined, '—'],
+    ])('returns "—" for %p', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
+    })
+
+    it.each([
+        [0, '< 0.001'],
+        [0.0001, '< 0.001'],
+        [0.00001, '< 0.001'],
+        [4.196532010780629e-11, '< 0.001'],
+        [1e-100, '< 0.001'],
+        [Number.MIN_VALUE, '< 0.001'],
+    ])('returns "< 0.001" for very small p-value %p', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
+    })
+
+    it.each([
+        [0.001, '0.0010'],
+        [0.005, '0.0050'],
+        [0.009, '0.0090'],
+        [0.00999, '0.0100'],
+    ])('returns 4 decimal places for p-value %p between 0.001 and 0.01', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
+    })
+
+    it.each([
+        [0.01, '0.010'],
+        [0.05, '0.050'],
+        [0.1, '0.100'],
+        [0.5, '0.500'],
+        [0.999, '0.999'],
+        [1, '1.000'],
+    ])('returns 3 decimal places for p-value %p >= 0.01', (input, expected) => {
+        expect(formatPValue(input)).toBe(expected)
     })
 })

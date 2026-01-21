@@ -680,8 +680,12 @@ class BigQueryClient:
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
         if format == "Parquet":
+            opts = bigquery.format_options.ParquetOptions()
+            opts.enable_list_inference = True
+
             job_config = bigquery.LoadJobConfig(
                 source_format="PARQUET",
+                parquet_options=opts,
                 schema=schema,
             )
         elif format == "JSONLines":

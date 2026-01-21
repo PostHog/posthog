@@ -1,12 +1,12 @@
-import { PythonEventCapture } from '@posthog/shared-onboarding/product-analytics/_snippets/python-event-capture'
-import { DjangoInstallation } from '@posthog/shared-onboarding/product-analytics/django'
+import { DjangoInstallation } from '@posthog/shared-onboarding/product-analytics'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import SetupWizardBanner from 'scenes/onboarding/sdks/sdk-install-instructions/components/SetupWizardBanner'
 
 export function ProductAnalyticsDjangoInstructions(): JSX.Element {
     return (
-        <OnboardingDocsContentWrapper snippets={{ PythonEventCapture }}>
+        <>
+            <SetupWizardBanner integrationName="Django" />
             <DjangoInstallation />
-        </OnboardingDocsContentWrapper>
+        </>
     )
 }

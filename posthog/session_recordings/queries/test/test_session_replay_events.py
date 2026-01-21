@@ -88,6 +88,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_metadata_with_block(self) -> None:
@@ -112,6 +113,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 89,
             "mouse_activity_count": 300,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_metadata_with_multiple_blocks(self) -> None:
@@ -142,6 +144,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "retention_period_days": 365,
             "recording_ttl": 364,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_nonexistent_metadata(self) -> None:
@@ -187,6 +190,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "recording_ttl": 29,
             "start_time": self.base_time,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
         assert metadata_dict["2"] == {
             "active_seconds": 1.234,
@@ -208,6 +212,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "retention_period_days": 90,
             "recording_ttl": 89,
             "snapshot_source": "web",
+            "snapshot_library": None,
         }
 
     def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:

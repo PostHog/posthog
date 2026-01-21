@@ -1,14 +1,13 @@
-from typing import Literal
-
 from posthog.test.base import BaseTest
 
 from hogql_parser import parse_string_literal_text as parse_string_cpp
 
+from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import SyntaxError
 from posthog.hogql.parse_string import parse_string_literal_text as parse_string_py
 
 
-def parse_string_test_factory(backend: Literal["python", "cpp"]):
+def parse_string_test_factory(backend: HogQLParserBackend):
     parse_string = parse_string_py if backend == "python" else parse_string_cpp
 
     class TestParseString(BaseTest):

@@ -75,3 +75,91 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
                 base_attributes = {r["name"] for r in base_attributes_result}
                 tz_attributes = {r["name"] for r in result}
                 self.assertEqual(base_attributes, tz_attributes, f"Log level attributes mismatch for timezone {tz}")
+
+    def test_log_values_query_with_value_filter_no_service_name(self):
+        """Test that the value parameter correctly filters log values without service_name filtering"""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "or",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()
+
+        for result in results:
+            self.assertIn("or", result["name"].lower(), f"Value '{result['name']}' should contain 'or'")
+
+        value_names = {r["name"] for r in results}
+        self.assertIn("more", value_names, "Should include 'more' level")
+        self.assertIn("error", value_names, "Should include 'error' level")
+
+    def test_log_values_query_with_value_filter_with_service_name(self):
+        """Test that the value parameter correctly filters log values with service_name filtering"""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "DE",
+            "serviceNames": '["argo-rollouts"]',
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()
+
+        for result in results:
+            self.assertIn("de", result["name"].lower(), f"Value '{result['name']}' should contain 'de'")
+
+        self.assertGreater(len(results), 0, "Should return at least one result")
+
+    def test_log_values_query_with_value_filter_no_matches(self):
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+            "value": "DE",
+            "serviceNames": '["cdp-api"]',
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()
+        self.assertEqual(len(results), 0, "Should return no results for non-existent value filter")
+
+    def test_log_values_query_with_empty_value_filter(self):
+        """Test that empty value parameter returns all values (no filtering)"""
+
+        # First get all values without filter
+        query_params_all = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "key": "level",
+            "attribute_type": "log",
+        }
+
+        response_all = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_all)
+        self.assertEqual(response_all.status_code, status.HTTP_200_OK)
+        all_results = response_all.json()
+
+        query_params_empty = {
+            **query_params_all,
+            "value": "",
+        }
+
+        response_empty = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params_empty)
+        self.assertEqual(response_empty.status_code, status.HTTP_200_OK)
+        empty_results = response_empty.json()
+
+        self.assertEqual(len(all_results), len(empty_results), "Empty value filter should return all values")
+
+        all_names = {r["name"] for r in all_results}
+        empty_names = {r["name"] for r in empty_results}
+        self.assertEqual(all_names, empty_names, "Empty value filter should return same values as no filter")
+        self.assertEqual(set(all_names), {"info", "DEBUG", "PING", "more", "error"})

@@ -25,6 +25,12 @@ class ProductTourAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return ProductTour.all_objects.all()
 
+    def get_exclude(self, request, obj=None):
+        exclude = list(super().get_exclude(request, obj) or [])
+        if obj:
+            exclude.extend(["linked_surveys"])
+        return exclude
+
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         for field in ["start_date", "end_date"]:

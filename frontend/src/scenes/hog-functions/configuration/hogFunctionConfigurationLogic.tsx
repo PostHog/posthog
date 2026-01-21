@@ -14,6 +14,7 @@ import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/Cyclot
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +25,15 @@ import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTr
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
-import { DataTableNode, EventsNode, EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -92,6 +101,13 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
 export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
+
+const TYPE_TO_PRODUCT_KEY: Partial<Record<HogFunctionTypeType, ProductKey>> = {
+    destination: ProductKey.PIPELINE_DESTINATIONS,
+    site_destination: ProductKey.PIPELINE_DESTINATIONS,
+    transformation: ProductKey.PIPELINE_TRANSFORMATIONS,
+    site_app: ProductKey.SITE_APPS,
+}
 
 export function sanitizeInputs(
     data: Pick<HogFunctionMappingType, 'inputs_schema' | 'inputs'>
@@ -465,10 +481,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 },
 
                 upsertHogFunction: async ({ configuration }) => {
-                    const res =
-                        props.id && props.id !== 'new'
-                            ? await api.hogFunctions.update(props.id, configuration)
-                            : await api.hogFunctions.create(configuration)
+                    const isNew = !props.id || props.id === 'new'
+                    const res = isNew
+                        ? await api.hogFunctions.create(configuration)
+                        : await api.hogFunctions.update(props.id!, configuration)
 
                     posthog.capture('hog function saved', {
                         id: res.id,
@@ -477,6 +493,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         type: res.type,
                         enabled: res.enabled,
                     })
+
+                    // Track product intent when creating a new hog function
+                    if (isNew) {
+                        const productKey = TYPE_TO_PRODUCT_KEY[res.type]
+                        if (productKey) {
+                            void addProductIntent({
+                                product_type: productKey,
+                                intent_context: ProductIntentContext.DATA_PIPELINE_CREATED,
+                            })
+                        }
+                    }
 
                     // Capture error tracking specific alert event
                     if (

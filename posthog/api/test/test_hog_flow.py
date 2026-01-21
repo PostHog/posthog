@@ -677,3 +677,76 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/99999/batch_jobs", batch_job_data)
 
         assert response.status_code == 404, response.json()
+
+    def test_hog_flow_filter_test_accounts_compiles_bytecode(self):
+        """Test that filter_test_accounts includes team's test account filters in bytecode"""
+        # Set up test account filters on the team
+        self.team.test_account_filters = [
+            {
+                "key": "email",
+                "value": "@posthog.com",
+                "operator": "not_icontains",
+                "type": "person",
+            }
+        ]
+        self.team.save()
+
+        # Create a workflow WITHOUT filter_test_accounts
+        trigger_action_without_filter = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow_without = {
+            "name": "Test Flow Without Filter",
+            "actions": [trigger_action_without_filter],
+        }
+
+        response_without = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_without)
+        assert response_without.status_code == 201, response_without.json()
+
+        # Bytecode should just check for $pageview event
+        bytecode_without = response_without.json()["trigger"]["filters"]["bytecode"]
+        assert bytecode_without == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+
+        # Create a workflow WITH filter_test_accounts: true
+        trigger_action_with_filter = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+                "filter_test_accounts": True,
+            },
+        }
+
+        hog_flow_with = {
+            "name": "Test Flow With Filter",
+            "actions": [trigger_action_with_filter],
+        }
+
+        response_with = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_with)
+        assert response_with.status_code == 201, response_with.json()
+
+        # Bytecode should be in trigger.filters.bytecode
+        trigger_filters = response_with.json()["trigger"]["filters"]
+        bytecode_with = trigger_filters["bytecode"]
+
+        # The bytecode should be longer and include the test account filter check
+        assert len(bytecode_with) > len(bytecode_without), "Bytecode with filter_test_accounts should be longer"
+
+        # Verify the bytecode includes the test account filter pattern
+        # The pattern "%@posthog.com%" indicates the not_icontains check
+        assert "%@posthog.com%" in bytecode_with, "Bytecode should include test account filter value"
+        assert "email" in bytecode_with, "Bytecode should include email property check"
+        assert "person" in bytecode_with, "Bytecode should include person property type"

@@ -677,12 +677,12 @@ export function FeatureFlagReleaseConditions({
                         options={[
                             {
                                 value: 'user',
-                                label: 'User ID',
-                                description: 'Stable assignment for logged-in users based on their unique user ID.',
+                                label: 'User',
+                                description: 'Stable assignment for logged-in users based on their distinct ID.',
                             },
                             {
                                 value: 'device',
-                                label: 'Device ID',
+                                label: 'Device',
                                 description:
                                     'Stable assignment per device. Good fit for experiments on anonymous users.',
                             },
