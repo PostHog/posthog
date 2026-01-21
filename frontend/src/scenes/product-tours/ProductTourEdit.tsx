@@ -43,6 +43,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
         targetingFlagFilters,
         isProductTourFormSubmitting,
         editTab,
+        pendingToolbarOpen,
     } = useValues(productTourLogic({ id }))
     const { editingProductTour, setProductTourFormValue, submitProductTourForm, setEditTab } = useActions(
         productTourLogic({ id })
@@ -74,6 +75,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                             <ProductToursToolbarButton
                                 tourId={id}
                                 mode={isAnnouncement(productTour) ? 'preview' : 'edit'}
+                                saveFirst
                             />
                             <LemonButton type="secondary" size="small" onClick={() => editingProductTour(false)}>
                                 Cancel
@@ -82,7 +84,7 @@ export function ProductTourEdit({ id }: { id: string }): JSX.Element {
                                 type="primary"
                                 size="small"
                                 onClick={() => submitProductTourForm()}
-                                loading={isProductTourFormSubmitting}
+                                loading={isProductTourFormSubmitting && !pendingToolbarOpen}
                             >
                                 Save
                             </LemonButton>
