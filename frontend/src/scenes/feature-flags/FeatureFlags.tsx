@@ -506,8 +506,9 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab, loadFeatureFlags } = useActions(featureFlagsLogic)
+
     return (
-        <SceneContent className="feature_flags">
+        <SceneContent className="feature_flags" productKey={ProductKey.FEATURE_FLAGS}>
             <SceneTitleSection
                 name="Feature flags"
                 resourceType={{

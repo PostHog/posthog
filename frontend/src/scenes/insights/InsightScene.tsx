@@ -24,7 +24,7 @@ export function InsightScene({ tabId }: InsightSceneProps = {}): JSX.Element {
     useEffect(() => {
         // Redirect data viz nodes to the sql editor
         if (insightId && insight?.query?.kind === NodeKind.DataVisualizationNode && insightMode === ItemMode.Edit) {
-            router.actions.push(urls.sqlEditor(undefined, undefined, insightId))
+            router.actions.push(urls.sqlEditor({ insightShortId: insightId }))
         }
     }, [insightId, insight?.query?.kind, insightMode])
 

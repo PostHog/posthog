@@ -19,6 +19,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
@@ -48,7 +49,7 @@ export function Dashboards(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent productKey={ProductKey.PRODUCT_ANALYTICS}>
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />

@@ -60,7 +60,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -850,7 +850,7 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn('saved-insights')}>
+        <SceneContent className={cn('saved-insights')} productKey={ProductKey.PRODUCT_ANALYTICS}>
             <NewInsightShortcuts />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}

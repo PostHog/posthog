@@ -43,6 +43,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
@@ -158,7 +159,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
     return (
         <LLMAnalyticsSetupPrompt>
-            <div className="@container/dashboard">
+            <div className="@container/dashboard" data-attr="llm-analytics-costs">
                 <Filters />
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
@@ -823,7 +824,7 @@ export function LLMAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent>
+            <SceneContent productKey={ProductKey.LLM_ANALYTICS}>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LLMAnalytics].name}
                     description={sceneConfigurations[Scene.LLMAnalytics].description}

@@ -156,7 +156,7 @@ export function ViewsTab(): JSX.Element {
                                         />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor(undefined, view.id)}
+                                            to={urls.sqlEditor({ view_id: view.id })}
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -309,7 +309,7 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor(undefined, view.id)} title={view.name} />
+                                        <LemonTableLink to={urls.sqlEditor({ view_id: view.id })} title={view.name} />
                                     ),
                             },
                             {

@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { OverviewTab } from './scene/OverviewTab'
@@ -33,7 +34,7 @@ export function DataWarehouseScene(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent productKey={ProductKey.DATA_WAREHOUSE}>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.DataWarehouse].name}
                 description={sceneConfigurations[Scene.DataWarehouse].description}
@@ -42,7 +43,7 @@ export function DataWarehouseScene(): JSX.Element {
                 }}
                 actions={
                     <div className="flex gap-2">
-                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small">
+                        <LemonButton type="secondary" to={urls.sqlEditor()} size="small" data-attr="sql-editor-button">
                             Create view
                         </LemonButton>
                         <AppShortcut
@@ -58,6 +59,7 @@ export function DataWarehouseScene(): JSX.Element {
                                 icon={<IconPlusSmall />}
                                 size="small"
                                 tooltip="New source"
+                                data-attr="new-source-button"
                             >
                                 New source
                             </LemonButton>

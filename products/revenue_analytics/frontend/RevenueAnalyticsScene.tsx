@@ -45,7 +45,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-            <SceneContent>
+            <SceneContent productKey={ProductKey.REVENUE_ANALYTICS}>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.RevenueAnalytics].name}
                     description={sceneConfigurations[Scene.RevenueAnalytics].description}

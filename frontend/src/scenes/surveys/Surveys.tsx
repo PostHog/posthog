@@ -110,7 +110,7 @@ function Surveys(): JSX.Element {
     const { setTab } = useActions(surveysLogic)
 
     return (
-        <SceneContent>
+        <SceneContent productKey={ProductKey.SURVEYS}>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Surveys].name}
                 description={sceneConfigurations[Scene.Surveys].description}

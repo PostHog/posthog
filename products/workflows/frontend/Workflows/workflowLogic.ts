@@ -8,6 +8,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
@@ -410,6 +411,34 @@ export const workflowLogic = kea<workflowLogicType>([
                         workflowSceneLogic.findMounted()?.values.currentTab || 'workflow'
                     )
                 )
+            }
+
+            // Mark workflow creation task as completed everytime it's saved for completeness
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstWorkflow)
+
+            // Check trigger configuration
+            const trigger = originalWorkflow.actions.find((a) => a.type === 'trigger')
+            if (trigger) {
+                const config = trigger.config as any
+                const hasValidTrigger =
+                    (config.type === 'event' &&
+                        (config.filters?.events?.length > 0 || config.filters?.actions?.length > 0)) ||
+                    (config.type === 'schedule' && config.scheduled_at) ||
+                    (config.type === 'batch' && config.filters?.properties?.length > 0)
+                if (hasValidTrigger) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ConfigureWorkflowTrigger)
+                }
+            }
+
+            // Check if workflow has actions beyond trigger and exit
+            const actionNodes = originalWorkflow.actions.filter((a) => a.type !== 'trigger' && a.type !== 'exit')
+            if (actionNodes.length > 0) {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddWorkflowAction)
+            }
+
+            // Check if workflow is active (launched)
+            if (originalWorkflow.status === 'active') {
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchWorkflow)
             }
 
             actions.resetWorkflow(originalWorkflow)

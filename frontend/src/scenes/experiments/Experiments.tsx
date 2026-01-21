@@ -511,7 +511,7 @@ export function Experiments(): JSX.Element {
     })
 
     return (
-        <SceneContent>
+        <SceneContent productKey={ProductKey.EXPERIMENTS}>
             <SceneTitleSection
                 name="Experiments"
                 resourceType={{

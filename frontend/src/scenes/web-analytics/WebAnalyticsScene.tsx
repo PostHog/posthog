@@ -6,11 +6,12 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
     return (
         <>
-            <SceneContent>
+            <SceneContent productKey={ProductKey.WEB_ANALYTICS}>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.WebAnalytics].name}
                     description={sceneConfigurations[Scene.WebAnalytics].description}

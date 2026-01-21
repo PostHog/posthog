@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
@@ -31,7 +32,7 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
 
     return (
         <Form logic={messageTemplateLogic} formKey="template">
-            <SceneContent>
+            <SceneContent productKey={ProductKey.WORKFLOWS}>
                 <SceneTitleSection
                     name={template.name}
                     resourceType={{ type: 'template' }}

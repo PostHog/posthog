@@ -159,7 +159,7 @@ export function WorkflowsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent className="workflows">
+        <SceneContent className="workflows" productKey={ProductKey.WORKFLOWS}>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}

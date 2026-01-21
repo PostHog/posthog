@@ -541,7 +541,6 @@
     --color-skeleton-light: rgb(
         190 190 190 / 20%
     ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
-
     --color-skeleton-dark: rgb(
         129 129 129 / 24%
     ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
@@ -1057,10 +1056,12 @@
 }
 
 @layer base {
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    // allowing @import to be inside layer
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
     @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    // allowing @import to be first
+    /* stylelint-disable-next-line order/order */
     *,
     ::after,
     ::before,
@@ -1788,16 +1789,24 @@
         /* themeable variables */
         position: relative;
         display: inline-block;
-        color: transparent; /* hide glyphs under the cover */
+        color: transparent;
+
+        /* hide glyphs under the cover */
         cursor: pointer;
-        background: var(--color-bg-primary); /* the “black bar” */
+        background: var(--color-bg-primary);
+
+        /* the “black bar” */
         border-radius: var(--radius);
     }
 
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
-        color: inherit; /* show the text */
-        background: transparent; /* remove the bar */
+        color: inherit;
+
+        /* show the text */
+        background: transparent;
+
+        /* remove the bar */
     }
 
     .hogqlx-redacted:focus-visible {
@@ -1933,5 +1942,22 @@
             opacity: 1;
             transform: translateY(0);
         }
+    }
+}
+
+// Setup highlight animation - used by quick start to draw attention to UI elements
+.setup-highlight-pulse {
+    animation: setup-highlight-pulse 1.2s ease-in-out 4;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes setup-highlight-pulse {
+    0%,
+    100% {
+        box-shadow: inset 0 0 0 2px transparent;
+    }
+
+    50% {
+        box-shadow: inset 0 0 0 2px var(--color-accent);
     }
 }

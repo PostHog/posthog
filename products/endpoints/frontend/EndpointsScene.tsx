@@ -56,7 +56,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
         <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageScene', tabId: tabId || '' }}>
             <BindLogic logic={endpointsLogic} props={{ key: 'endpointsLogic', tabId: tabId || '' }}>
                 <BindLogic logic={endpointsUsageLogic} props={{ key: 'endpointsUsageLogic', tabId: tabId || '' }}>
-                    <SceneContent>
+                    <SceneContent productKey={ProductKey.ENDPOINTS}>
                         <SceneTitleSection
                             name={sceneConfigurations[Scene.EndpointsScene].name}
                             description={sceneConfigurations[Scene.EndpointsScene].description}
@@ -73,13 +73,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                                 >
                                     <LemonButton
                                         type="primary"
-                                        to={urls.sqlEditor(
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint
-                                        )}
+                                        to={urls.sqlEditor({ outputTab: OutputTab.Endpoint })}
                                         sideAction={{
                                             dropdown: {
                                                 placement: 'bottom-end',
@@ -121,11 +115,7 @@ export function EndpointsScene({ tabId }: { tabId?: string }): JSX.Element {
                             docsURL="https://posthog.com/docs/endpoints"
                             customHog={BigLeaguesHog}
                             isEmpty={false}
-                            action={() =>
-                                router.actions.push(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.Endpoint)
-                                )
-                            }
+                            action={() => router.actions.push(urls.sqlEditor({ outputTab: OutputTab.Endpoint }))}
                         />
                         <LemonTabs activeKey={activeTab} data-attr="endpoints-tabs" tabs={tabs} sceneInset />
                     </SceneContent>

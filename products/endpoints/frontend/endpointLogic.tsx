@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
@@ -169,6 +170,9 @@ export const endpointLogic = kea<endpointLogicType>([
                         },
                     },
                 })
+
+                // Mark endpoint creation task as completed
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateFirstEndpoint)
             },
             createEndpointFailure: () => {
                 lemonToast.error('Failed to create endpoint')
@@ -194,7 +198,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 } else {
                     lemonToast.success('Endpoint updated')
                 }
+
                 reloadMaterializationStatus(response.name)
+
+                // Mark activation task as completed when endpoint is activated
+                if (response.is_active) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ActivateEndpoint)
+                }
             },
             updateEndpointFailure: () => {
                 lemonToast.error('Failed to update endpoint')

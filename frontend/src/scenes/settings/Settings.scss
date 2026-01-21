@@ -6,13 +6,23 @@
 
     .Settings__sections {
         position: sticky;
+        top: calc(var(--scene-padding, 1rem) + var(--scene-title-section-height, 50px));
         flex-shrink: 0;
         width: 20%;
         min-width: 14rem;
         max-width: 20rem;
+        max-height: calc(
+            100vh - var(--scene-padding, 1rem) - var(--scene-padding-bottom, 4rem) - var(
+                    --scene-title-section-height,
+                    50px
+                )
+        );
+        overflow-y: auto;
+        overscroll-behavior: contain;
 
         .SidePanel3000 & {
             top: 0;
+            max-height: 100vh;
         }
     }
 

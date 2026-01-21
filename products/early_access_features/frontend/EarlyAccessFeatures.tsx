@@ -38,7 +38,7 @@ export function EarlyAccessFeatures(): JSX.Element {
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
     return (
-        <SceneContent>
+        <SceneContent productKey={ProductKey.EARLY_ACCESS_FEATURES}>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.EarlyAccessFeatures].name}
                 description={sceneConfigurations[Scene.EarlyAccessFeatures].description}
@@ -58,6 +58,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                             type="primary"
                             to={urls.earlyAccessFeature('new')}
                             tooltip="New feature"
+                            data-attr="create-feature"
                         >
                             New feature
                         </LemonButton>
@@ -117,6 +118,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                       : 'default'
                                             }
                                             className="uppercase cursor-default"
+                                            data-attr="feature-stage"
                                         >
                                             {stage}
                                         </LemonTag>

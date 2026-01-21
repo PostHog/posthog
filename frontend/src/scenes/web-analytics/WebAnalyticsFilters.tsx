@@ -93,37 +93,40 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     return (
         <>
             <IncompatibleFiltersWarning />
-            <FilterBar
-                top={tabs}
-                left={
-                    <>
-                        <ReloadAll iconOnly />
-                        <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                        <WebAnalyticsDomainSelector />
-                        <WebAnalyticsDeviceToggle />
-                        <LiveUserCount
-                            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                            dataAttr="web-analytics-live-user-count"
-                        />
-                    </>
-                }
-                right={
-                    <>
-                        <WebAnalyticsCompareFilter />
+            <div data-attr="web-analytics-filters">
+                <FilterBar
+                    top={tabs}
+                    left={
+                        <>
+                            <ReloadAll iconOnly />
+                            <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
 
-                        <WebConversionGoal />
-                        <TableSortingIndicator />
+                            <WebAnalyticsDomainSelector />
+                            <WebAnalyticsDeviceToggle />
+                            <LiveUserCount
+                                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                                dataAttr="web-analytics-live-user-count"
+                            />
+                        </>
+                    }
+                    right={
+                        <>
+                            <WebAnalyticsCompareFilter />
 
-                        <WebVitalsPercentileToggle />
-                        <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+                            <WebConversionGoal />
+                            <TableSortingIndicator />
 
-                        <WebAnalyticsAIFilters>
-                            <WebPropertyFilters />
-                        </WebAnalyticsAIFilters>
-                    </>
-                }
-            />
+                            <WebVitalsPercentileToggle />
+                            <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
+
+                            <WebAnalyticsAIFilters>
+                                <WebPropertyFilters />
+                            </WebAnalyticsAIFilters>
+                        </>
+                    }
+                />
+            </div>
         </>
     )
 }

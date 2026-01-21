@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -256,14 +256,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 (stepKey && allOnboardingSteps.length > 0 && !currentOnboardingStep) ||
                 (!stepKey && allOnboardingSteps.length > 0),
         ],
-        isFirstProductOnboarding: [
-            (s) => [s.currentTeam],
-            (currentTeam) => {
-                return !Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
-                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
-                )
-            },
-        ],
         billingProduct: [
             (s) => [s.product, s.productKey, s.billing],
             (_product, productKey, billing) => {
@@ -329,14 +321,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         [productKey]: true,
                     },
                 })
-            }
-
-            if (values.isFirstProductOnboarding && !values.modalMode) {
-                // Because the side panel opening has its own actionToUrl,
-                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
-                setTimeout(() => {
-                    actions.openSidePanel(SidePanelTab.Activation)
-                }, 100)
             }
         },
         skipOnboarding: () => {
