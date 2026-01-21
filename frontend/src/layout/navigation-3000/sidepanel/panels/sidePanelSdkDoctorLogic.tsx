@@ -175,7 +175,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         const totalEvents = releasesInfo.reduce((sum, r) => sum + r.count, 0)
 
                         // Check if any outdated version handles significant traffic (≥10% of events)
+                        // Skip for mobile SDKs - users don't auto-update apps, so outdated versions are expected
+                        const isMobileSdk = DEVICE_CONTEXT_CONFIG.mobileSDKs.includes(sdkType as SdkType)
                         const hasSignificantOutdatedTraffic =
+                            !isMobileSdk &&
                             totalEvents > 0 &&
                             releasesInfo.some(
                                 (r) => r.isOutdated && r.count / totalEvents >= SIGNIFICANT_TRAFFIC_THRESHOLD
