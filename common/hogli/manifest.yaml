@@ -1,5 +1,7 @@
 metadata:
     categories:
+        - key: devenv
+          title: Intent-based dev environment
         - key: core
           title: Core development commands
         - key: start
@@ -82,6 +84,21 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+devenv:
+    dev:setup:
+        description: Interactive wizard to configure your dev environment
+    dev:start:
+        description: Start dev environment based on your profile
+    dev:explain:
+        description: Show what services would be started for intents
+    dev:intents:
+        description: List available intents (products you can work on)
+    dev:presets:
+        description: List available presets
+    dev:profile:
+        description: Show current developer profile
+    dev:edit:
+        description: Re-run setup wizard to edit your profile
 core:
     categories:
         description: Show all available commands grouped by category

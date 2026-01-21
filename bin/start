@@ -116,9 +116,16 @@ if [[ "$*" == *"--custom"* ]]; then
         exit 1
     fi
     exec mprocs --config "$config_path"
-    # Use minimal config
-    elif [[ "$*" == *"--minimal"* ]]; then
+# Use minimal config
+elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
 else
-    exec mprocs --config bin/mprocs.yaml
+    # Check for profile-generated config (created by hogli dev:setup + dev:start)
+    GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
+    if [[ -f "$GENERATED_CONFIG" ]]; then
+        echo "📋 Using profile-based config (run 'hogli dev:edit' to change)"
+        exec mprocs --config "$GENERATED_CONFIG"
+    else
+        exec mprocs --config bin/mprocs.yaml
+    fi
 fi

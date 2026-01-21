@@ -1,0 +1,385 @@
+# Intent-based developer environment configuration
+# Maps developer intents (products they're working on) to required processes
+#
+# Key principle: Intent → Capabilities → Units
+# - Intent: What the developer is working on (products like error_tracking, session_replay)
+# - Capabilities: Stable abstractions (event_ingestion, replay_storage, analytics_store)
+# - Units: Actual mprocs processes to run (capture, cymbal, backend)
+
+version: '1.0'
+
+# Capabilities are stable abstractions that map to actual processes
+# Dependencies are resolved transitively
+capabilities:
+    # Core infrastructure - always required
+    core_infra:
+        description: 'Essential infrastructure (docker, postgres, clickhouse)'
+        units: [docker-compose, migrate-postgres, migrate-clickhouse]
+
+    # Event pipeline
+    event_ingestion:
+        description: 'Kafka-based event pipeline for event capture'
+        units: [nodejs, capture]
+        requires: [core_infra]
+
+    # Property definitions tracking
+    property_definitions:
+        description: 'Track and define event/person properties'
+        units: [property-defs-rs]
+        requires: [event_ingestion]
+
+    # Session replay storage
+    replay_storage:
+        description: 'Session replay blob storage and capture'
+        units: [capture-replay]
+        requires: [event_ingestion]
+
+    # Error symbolication
+    error_symbolication:
+        description: 'Error stack trace symbolication service'
+        units: [cymbal]
+        requires: [event_ingestion]
+
+    # Feature flag evaluation
+    flag_evaluation:
+        description: 'Fast feature flag evaluation service'
+        units: [feature-flags]
+        requires: [core_infra]
+
+    # Background jobs
+    celery_workers:
+        description: 'Celery background job processing'
+        units: [celery-worker]
+        requires: [core_infra]
+
+    # Scheduled tasks
+    celery_scheduler:
+        description: 'Celery beat scheduler for periodic tasks'
+        units: [celery-beat]
+        requires: [celery_workers]
+
+    # Temporal workflows
+    temporal_workflows:
+        description: 'Temporal workflow orchestration'
+        units: [temporal-worker]
+        requires: [core_infra]
+
+    # Dagster pipelines
+    dagster_pipelines:
+        description: 'Dagster data pipeline orchestration'
+        units: [dagster]
+        requires: [core_infra]
+
+    # LLM gateway
+    llm_gateway:
+        description: 'LLM gateway for AI features'
+        units: [llm-gateway]
+        requires: [core_infra]
+
+    # AI capture
+    ai_capture:
+        description: 'AI event capture service'
+        units: [capture-ai]
+        requires: [event_ingestion, llm_gateway]
+
+    # Embedding service
+    embedding_service:
+        description: 'Vector embedding worker for AI features'
+        units: [embedding-worker]
+        requires: [core_infra]
+
+    # Livestream
+    livestream:
+        description: 'Real-time event streaming'
+        units: [livestream]
+        requires: [event_ingestion]
+
+    # Cyclotron
+    cyclotron:
+        description: 'Cyclotron janitor service'
+        units: [cyclotron-janitor]
+        requires: [core_infra]
+
+    # Batch imports
+    batch_imports:
+        description: 'Batch data import worker'
+        units: [batch-import-worker]
+        requires: [event_ingestion]
+
+# Intents map to products/features developers work on
+# Each intent specifies which capabilities it needs
+intents:
+    # Core product analytics
+    product_analytics:
+        description: 'Core product analytics - insights, funnels, trends'
+        capabilities: [event_ingestion, property_definitions, celery_workers]
+
+    # Error tracking
+    error_tracking:
+        description: 'Track and analyze application errors'
+        capabilities: [event_ingestion, error_symbolication, property_definitions]
+
+    # Session replay
+    session_replay:
+        description: 'Record and replay user sessions'
+        capabilities: [event_ingestion, replay_storage, property_definitions]
+
+    # Feature flags
+    feature_flags:
+        description: 'Feature flag management and evaluation'
+        capabilities: [flag_evaluation, celery_workers]
+
+    # Experiments (A/B testing)
+    experiments:
+        description: 'A/B testing and experimentation'
+        capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers]
+
+    # LLM analytics (AI observability)
+    llm_analytics:
+        description: 'LLM/AI observability and analytics'
+        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions]
+
+    # Web analytics
+    web_analytics:
+        description: 'Web analytics and traffic analysis'
+        capabilities: [event_ingestion, property_definitions]
+
+    # Surveys
+    surveys:
+        description: 'User surveys and feedback collection'
+        capabilities: [event_ingestion, property_definitions, celery_workers]
+
+    # Data warehouse
+    data_warehouse:
+        description: 'Data warehouse queries and saved queries'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+
+    # Heatmaps
+    heatmaps:
+        description: 'Click and scroll heatmaps'
+        capabilities: [event_ingestion, replay_storage, property_definitions]
+
+    # Cohorts
+    cohorts:
+        description: 'User cohort management'
+        capabilities: [event_ingestion, property_definitions, celery_workers]
+
+    # Notebooks
+    notebooks:
+        description: 'Interactive analysis notebooks'
+        capabilities: [event_ingestion, property_definitions]
+
+    # Pipelines (CDP)
+    pipelines:
+        description: 'Data pipeline transformations and destinations'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+
+    # Max AI assistant
+    max:
+        description: 'Max AI assistant'
+        capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions]
+
+# Unit definitions - all available processes
+# These map to mprocs process names
+units:
+    backend:
+        process: backend
+        type: python
+        checks: [postgres, kafka-clickhouse, ducklake]
+        autostart: true
+
+    frontend:
+        process: frontend
+        type: node
+        checks: []
+        autostart: true
+
+    typegen:
+        process: typegen
+        type: node
+        checks: []
+        autostart: true
+
+    nodejs:
+        process: nodejs
+        type: node
+        checks: [postgres, kafka-clickhouse, ducklake]
+        autostart: true
+
+    capture:
+        process: capture
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: true
+
+    capture-replay:
+        process: capture-replay
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: true
+
+    capture-ai:
+        process: capture-ai
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: false
+
+    cymbal:
+        process: cymbal
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: true
+
+    feature-flags:
+        process: feature-flags
+        type: rust
+        checks: [postgres]
+        autostart: true
+
+    property-defs-rs:
+        process: property-defs-rs
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: true
+
+    celery-worker:
+        process: celery-worker
+        type: python
+        checks: [postgres, kafka-clickhouse, ducklake]
+        autostart: true
+
+    celery-beat:
+        process: celery-beat
+        type: python
+        checks: [postgres, kafka-clickhouse, ducklake]
+        autostart: false
+
+    temporal-worker:
+        process: temporal-worker
+        type: python
+        checks: [kafka-clickhouse, temporal, ducklake]
+        autostart: true
+
+    dagster:
+        process: dagster
+        type: python
+        checks: [postgres, kafka-clickhouse, ducklake]
+        autostart: false
+
+    docker-compose:
+        process: docker-compose
+        type: docker
+        checks: []
+        autostart: true
+
+    migrate-postgres:
+        process: migrate-postgres
+        type: migration
+        checks: [postgres, ducklake]
+        autostart: true
+
+    migrate-clickhouse:
+        process: migrate-clickhouse
+        type: migration
+        checks: [kafka-clickhouse, ducklake]
+        autostart: true
+
+    migrate-persons-db:
+        process: migrate-persons-db
+        type: migration
+        checks: [postgres]
+        autostart: false
+
+    migrate-behavioral-cohorts:
+        process: migrate-behavioral-cohorts
+        type: migration
+        checks: [postgres]
+        autostart: false
+
+    llm-gateway:
+        process: llm-gateway
+        type: python
+        checks: [postgres]
+        autostart: true
+
+    embedding-worker:
+        process: embedding-worker
+        type: rust
+        checks: [kafka-clickhouse]
+        autostart: false
+
+    livestream:
+        process: livestream
+        type: go
+        checks: [postgres, kafka-clickhouse]
+        autostart: false
+
+    cyclotron-janitor:
+        process: cyclotron-janitor
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: false
+
+    batch-import-worker:
+        process: batch-import-worker
+        type: rust
+        checks: [postgres, kafka-clickhouse]
+        autostart: false
+
+    storybook:
+        process: storybook
+        type: node
+        checks: []
+        autostart: false
+
+    generate-demo-data:
+        process: generate-demo-data
+        type: python
+        checks: [postgres, kafka-clickhouse, dagster-graphql, ducklake]
+        autostart: false
+
+    sync-feature-flags:
+        process: sync-feature-flags
+        type: python
+        checks: [postgres, ducklake]
+        autostart: false
+
+    hedgebox-dummy:
+        process: hedgebox-dummy
+        type: node
+        checks: [postgres]
+        autostart: false
+
+    mcp:
+        process: mcp
+        type: python
+        checks: []
+        autostart: false
+
+# Presets for common development scenarios
+presets:
+    minimal:
+        intents: [product_analytics]
+        description: 'Frontend-focused minimal stack - fastest startup'
+
+    backend:
+        intents: [product_analytics, feature_flags]
+        description: 'Backend development with flags'
+
+    replay:
+        intents: [session_replay, error_tracking]
+        description: 'Session replay and error tracking development'
+
+    ai:
+        intents: [llm_analytics, max]
+        description: 'AI/LLM feature development'
+
+    full:
+        all_intents: true
+        description: 'Full stack with all services'
+
+# Always-required units regardless of intent
+always_required:
+    - backend
+    - frontend
+    - docker-compose
