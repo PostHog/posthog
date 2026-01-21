@@ -15,7 +15,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use feature_flags::config::Config;
-use feature_flags::properties::property_matching::set_regex_backtrack_limit;
 use feature_flags::server::serve;
 
 common_alloc::used!();
@@ -69,11 +68,6 @@ fn init_tracer(
 async fn main() {
     let mut config = Config::init_from_env().expect("Invalid configuration:");
     config.validate_and_fix_timeouts();
-
-    // Configure regex backtrack limit from config (0 means use fancy-regex default of 1M)
-    if config.regex_backtrack_limit > 0 {
-        set_regex_backtrack_limit(config.regex_backtrack_limit);
-    }
 
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar

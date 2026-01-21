@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::properties::property_models::{OperatorType, PropertyFilter};
 use crate::properties::relative_date;
@@ -9,20 +8,9 @@ use fancy_regex::RegexBuilder;
 use semver::{Version, VersionReq};
 use serde_json::Value;
 
-/// Default regex backtrack limit (10k steps, ~1ms worst case)
-/// Can be overridden at runtime via set_regex_backtrack_limit()
-const DEFAULT_REGEX_BACKTRACK_LIMIT: usize = 10_000;
-
-static REGEX_BACKTRACK_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_REGEX_BACKTRACK_LIMIT);
-
-/// Set the global regex backtrack limit (call once at startup from config)
-pub fn set_regex_backtrack_limit(limit: usize) {
-    REGEX_BACKTRACK_LIMIT.store(limit, Ordering::Relaxed);
-}
-
-fn get_regex_backtrack_limit() -> usize {
-    REGEX_BACKTRACK_LIMIT.load(Ordering::Relaxed)
-}
+/// Regex backtrack limit to prevent ReDoS attacks.
+/// 10k steps completes in ~1ms worst case, which is acceptable for a hot path.
+const REGEX_BACKTRACK_LIMIT: usize = 10_000;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -175,9 +163,8 @@ pub fn match_property(
                 // - for NotRegex: it is a match (true)
                 return Ok(operator == OperatorType::NotRegex);
             }
-            let backtrack_limit = get_regex_backtrack_limit();
             let pattern = match RegexBuilder::new(&to_string_representation(value))
-                .backtrack_limit(backtrack_limit)
+                .backtrack_limit(REGEX_BACKTRACK_LIMIT)
                 .build()
             {
                 Ok(pattern) => pattern,
