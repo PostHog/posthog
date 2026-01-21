@@ -1,8 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -11,7 +14,10 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { Scene } from 'scenes/sceneTypes'
 
 import {
     AnyPropertyFilter,
@@ -21,22 +27,96 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { logsSceneLogic } from '../../../logsSceneLogic'
+import { logsSceneLogic } from '../../../../logsSceneLogic'
+import { DateRangeFilter } from '../DateRangeFilter'
+import { FilterHistoryDropdown } from '../FilterHistoryDropdown'
+import { LogsDateRangePicker } from '../LogsDateRangePicker/LogsDateRangePicker'
+import { ServiceFilter } from '../ServiceFilter'
+import { SeverityLevelsFilter } from '../SeverityLevelsFilter'
 
-export const taxonomicFilterLogicKey = 'logs'
-export const taxonomicGroupTypes = [
+const taxonomicFilterLogicKey = 'logs'
+const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.Logs,
     TaxonomicFilterGroupType.LogResourceAttributes,
     TaxonomicFilterGroupType.LogAttributes,
 ]
 
-export const LogsFilterGroup = (): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames } = useValues(logsSceneLogic)
+export const LogsFilterBar = (): JSX.Element => {
+    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    const { logsLoading, liveTailRunning, liveTailDisabledReason, dateRange } = useValues(logsSceneLogic)
+    const { runQuery, zoomDateRange, setLiveTailRunning, setDateRange } = useActions(logsSceneLogic)
+
+    return (
+        <LogsFilterGroup>
+            <div className="flex flex-col gap-2 w-full bg-primary">
+                <div className="flex gap-2 flex-wrap w-full justify-between">
+                    <div className="flex shrink-0 flex-1 gap-1.5">
+                        <SeverityLevelsFilter />
+                        <ServiceFilter />
+                        <div className="min-w-[300px] max-w-[350px] w-full">
+                            <LogsFilterSearch />
+                        </div>
+                        <FilterHistoryDropdown />
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                        <LemonButton
+                            size="small"
+                            icon={<IconMinusSquare />}
+                            type="secondary"
+                            onClick={() => zoomDateRange(2)}
+                        />
+                        <LemonButton
+                            size="small"
+                            icon={<IconPlusSquare />}
+                            type="secondary"
+                            onClick={() => zoomDateRange(0.5)}
+                        />
+
+                        {!newLogsDateRangePicker && <DateRangeFilter />}
+                        {newLogsDateRangePicker && (
+                            <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
+                        )}
+
+                        <LemonButton
+                            size="small"
+                            icon={<IconRefresh />}
+                            type="secondary"
+                            onClick={() => runQuery()}
+                            loading={logsLoading || liveTailRunning}
+                            disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
+                        />
+                        <AppShortcut
+                            name="LogsLiveTail"
+                            keybind={[keyBinds.edit]}
+                            intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
+                            interaction="click"
+                            scope={Scene.Logs}
+                        >
+                            <LemonButton
+                                size="small"
+                                type={liveTailRunning ? 'primary' : 'secondary'}
+                                icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                                onClick={() => setLiveTailRunning(!liveTailRunning)}
+                                disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                            >
+                                Live tail
+                            </LemonButton>
+                        </AppShortcut>
+                    </div>
+                </div>
+                <LogsAppliedFilters />
+            </div>
+        </LogsFilterGroup>
+    )
+}
+
+const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
     const { setFilterGroup } = useActions(logsSceneLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: logsFilterGroup,
         serviceNames: serviceNames,
     }
 
@@ -50,12 +130,12 @@ export const LogsFilterGroup = (): JSX.Element => {
                 return setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
             }}
         >
-            <UniversalSearch />
+            {children}
         </UniversalFilters>
     )
 }
 
-const UniversalSearch = (): JSX.Element => {
+const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
@@ -78,9 +158,9 @@ const UniversalSearch = (): JSX.Element => {
             serviceNames: serviceNames,
         },
         onChange: (taxonomicGroup, value, item, originalQuery) => {
-            setVisible(false)
             if (item.value === undefined) {
                 addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                setVisible(false)
                 return
             }
 
@@ -93,6 +173,7 @@ const UniversalSearch = (): JSX.Element => {
             } as AnyPropertyFilter
             newValues.push(newPropertyFilter)
             setGroupValues(newValues)
+            setVisible(false)
         },
         onEnter: onClose,
         autoSelectItem: true,
@@ -117,32 +198,31 @@ const UniversalSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    prefix={<UniversalFilterGroup />}
+                    docLink="https://posthog.com/docs/logs/search"
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
                     onChange={() => setVisible(true)}
-                    size="small"
-                    fullWidth
                 />
             </LemonDropdown>
         </BindLogic>
     )
 }
 
-const UniversalFilterGroup = (): JSX.Element => {
+const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
 
-    useOnMountEffect(() => setAllowInitiallyOpen(true))
+    if (filterGroup.values.length === 0) {
+        return null
+    }
 
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
-                        <UniversalSearch />
+                        <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -156,5 +236,22 @@ const UniversalFilterGroup = (): JSX.Element => {
                 )
             })}
         </>
+    )
+}
+
+const LogsAppliedFilters = (): JSX.Element | null => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
+
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
+
+    if (filterGroup.values.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex gap-1 items-center flex-wrap">
+            <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
+        </div>
     )
 }
