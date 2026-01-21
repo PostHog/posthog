@@ -21,14 +21,14 @@ rules:
           - patterns:
                 - pattern: $VAR
                 - pattern-inside: |
-                    for $VAR in self.query.$FIELD:
-                        ...
+                      for $VAR in self.query.$FIELD:
+                          ...
                 - pattern-inside: f"..."
           - patterns:
                 - pattern: $VAR
                 - pattern-inside: |
-                    for $VAR in self.context.includeProperties:
-                        ...
+                      for $VAR in self.context.includeProperties:
+                          ...
                 - pattern-inside: f"..."
       pattern-sinks:
           - pattern: parse_select(...)
