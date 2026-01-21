@@ -231,9 +231,9 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     )
     filters = models.JSONField(null=True, blank=True)
     # determines the timezone used for daily or weekly exports
-    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC", null=True, blank=True)
+    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
     # interval offset allows for batch exports to start at a custom time
-    # (eg daily exports can be confgured to run at 1am local time by setting this to 3600)
+    # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
     interval_offset = models.IntegerField(
         null=True,
         help_text="The offset in seconds from the start of the default interval that this batch export should run at.",
