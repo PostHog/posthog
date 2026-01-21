@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -13,22 +13,20 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    membershipLevelToName,
-    organizationMembershipLevelIntegers,
-} from 'lib/utils/permissioning'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, OrganizationMemberType } from '~/types'
+import { roleAccessControlLogic } from '~/layout/navigation-3000/sidepanel/panels/access_control/roleAccessControlLogic'
+import { AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
+
+import { MemberAccessModal } from './MemberAccess/MemberAccessModal'
+import { memberAccessModalLogic } from './MemberAccess/memberAccessModalLogic'
 
 function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { user } = useValues(userLogic)
@@ -74,7 +72,8 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { removeMember, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { openModal } = useActions(memberAccessModalLogic({ member: null }))
 
     if (!user) {
         return null
@@ -89,14 +88,12 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
         // unless that user is the organization's owner, in which case they can't leave
         member.level !== OrganizationMembershipLevel.Owner
 
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
+    const canEditAccess =
+        currentMembershipLevel >= OrganizationMembershipLevel.Admin &&
+        member.user.uuid !== user.uuid &&
+        member.level !== OrganizationMembershipLevel.Owner
 
-    const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-    )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
-
-    if (disallowedReason && !allowDeletion) {
+    if (!canEditAccess && !allowDeletion) {
         return null
     }
 
@@ -104,83 +101,145 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
         <More
             overlay={
                 <>
-                    {!disallowedReason &&
-                        allowedLevels.map((listLevel) => (
-                            <LemonButton
-                                fullWidth
-                                key={`${member.user.uuid}-level-${listLevel}`}
-                                onClick={(event) => {
-                                    event.preventDefault()
-                                    if (!user) {
-                                        throw Error
-                                    }
-                                    if (listLevel === OrganizationMembershipLevel.Owner) {
-                                        LemonDialog.open({
-                                            title: `Add additional owner to ${user.organization?.name}?`,
-                                            description: `Please confirm that you would like to make ${fullName(
-                                                member.user
-                                            )} an owner of ${user.organization?.name}.`,
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: `Make ${fullName(member.user)} an owner`,
-                                                onClick: () => changeMemberAccessLevel(member, listLevel),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    } else {
-                                        changeMemberAccessLevel(member, listLevel)
-                                    }
-                                }}
-                                data-test-level={listLevel}
-                            >
-                                {listLevel === OrganizationMembershipLevel.Owner ? (
-                                    <>Make owner</>
-                                ) : listLevel > member.level ? (
-                                    <>Upgrade to {membershipLevelToName.get(listLevel)}</>
-                                ) : (
-                                    <>Downgrade to {membershipLevelToName.get(listLevel)}</>
-                                )}
-                            </LemonButton>
-                        ))}
+                    {canEditAccess && (
+                        <LemonButton fullWidth onClick={() => openModal(member)} data-attr="edit-member-access">
+                            Edit access
+                        </LemonButton>
+                    )}
                     {allowDeletion && (
-                        <>
-                            <LemonButton
-                                status="danger"
-                                data-attr="delete-org-membership"
-                                onClick={() => {
-                                    if (!user) {
-                                        throw Error
-                                    }
-                                    loadMemberScopedApiKeys(member)
-                                    LemonDialog.open({
-                                        title: `${
-                                            member.user.uuid == user.uuid
-                                                ? 'Leave'
-                                                : `Remove ${fullName(member.user)} from`
-                                        } organization ${user.organization?.name}?`,
-                                        primaryButton: {
-                                            children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-                                            status: 'danger',
-                                            onClick: () => removeMember(member),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                        content: <RemoveMemberModal member={member} />,
-                                    })
-                                }}
-                                fullWidth
-                            >
-                                {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
-                            </LemonButton>
-                        </>
+                        <LemonButton
+                            status="danger"
+                            data-attr="delete-org-membership"
+                            onClick={() => {
+                                if (!user) {
+                                    throw Error
+                                }
+                                loadMemberScopedApiKeys(member)
+                                LemonDialog.open({
+                                    title: `${
+                                        member.user.uuid == user.uuid ? 'Leave' : `Remove ${fullName(member.user)} from`
+                                    } organization ${user.organization?.name}?`,
+                                    primaryButton: {
+                                        children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
+                                        status: 'danger',
+                                        onClick: () => removeMember(member),
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                    content: <RemoveMemberModal member={member} />,
+                                })
+                            }}
+                            fullWidth
+                        >
+                            {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
+                        </LemonButton>
                     )}
                 </>
             }
         />
     )
+}
+
+function MemberLevelTooltip({ level }: { level: OrganizationMembershipLevel }): JSX.Element {
+    const descriptions: Record<OrganizationMembershipLevel, string> = {
+        [OrganizationMembershipLevel.Member]:
+            'Members have access based on their project-specific permissions and roles.',
+        [OrganizationMembershipLevel.Admin]:
+            'Admins can manage organization settings and members. They have admin access to all projects.',
+        [OrganizationMembershipLevel.Owner]:
+            'Owners have full control over the organization, including billing and member management.',
+    }
+
+    return (
+        <Tooltip title={descriptions[level] || 'Unknown level'}>
+            <span className="inline-flex items-center gap-1">
+                <LemonTag data-attr="membership-level">
+                    {capitalizeFirstLetter(membershipLevelToName.get(level) ?? `unknown (${level})`)}
+                </LemonTag>
+                <IconInfo className="text-muted text-sm" />
+            </span>
+        </Tooltip>
+    )
+}
+
+function ProjectsPreview({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { currentOrganization } = useValues(organizationLogic)
+    const projects = currentOrganization?.projects ?? []
+
+    // Owners and admins have access to all projects
+    if (member.level >= OrganizationMembershipLevel.Admin) {
+        return <span className="text-secondary">All projects</span>
+    }
+
+    // For regular members, we'd need to fetch their project access
+    // For now, show a placeholder that will be populated when the access data is loaded
+    if (projects.length === 0) {
+        return <span className="text-muted">No projects</span>
+    }
+
+    // Show first two project names as a preview
+    const firstTwo = projects.slice(0, 2).map((p) => p.name)
+    const remaining = projects.length - 2
+
+    if (remaining > 0) {
+        return (
+            <Tooltip title={projects.map((p) => p.name).join(', ')}>
+                <span>
+                    {firstTwo.join(', ')} <span className="text-muted">+{remaining}</span>
+                </span>
+            </Tooltip>
+        )
+    }
+
+    return <span>{firstTwo.join(', ')}</span>
+}
+
+function RolesPreview({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { roles } = useValues(roleAccessControlLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+
+    if (!hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
+        return <span className="text-muted">No roles</span>
+    }
+
+    if (!roles || roles.length === 0) {
+        return <span className="text-muted">No roles</span>
+    }
+
+    // Find roles that include this member
+    const memberRoles = roles.filter((role: RoleType) =>
+        role.members.some((roleMember) => roleMember.user.uuid === member.user.uuid)
+    )
+
+    if (memberRoles.length === 0) {
+        return <span className="text-muted">No roles</span>
+    }
+
+    return (
+        <div className="flex gap-1 flex-wrap">
+            {memberRoles.slice(0, 2).map((role: RoleType) => (
+                <LemonTag key={role.id} type="default">
+                    {role.name}
+                </LemonTag>
+            ))}
+            {memberRoles.length > 2 && (
+                <Tooltip title={memberRoles.map((r: RoleType) => r.name).join(', ')}>
+                    <LemonTag type="muted">+{memberRoles.length - 2}</LemonTag>
+                </Tooltip>
+            )}
+        </div>
+    )
+}
+
+function FeaturesPreview({ member }: { member: OrganizationMemberType }): JSX.Element {
+    // Owners and admins have access to all features
+    if (member.level >= OrganizationMembershipLevel.Admin) {
+        return <span className="text-secondary">All features</span>
+    }
+
+    // For regular members, show default access (full feature access data would require loading)
+    return <span className="text-secondary">Default access</span>
 }
 
 export function Members(): JSX.Element | null {
@@ -191,6 +250,8 @@ export function Members(): JSX.Element | null {
     const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
+    const { openModal } = useActions(memberAccessModalLogic({ member: null }))
+    const { modalOpen, selectedMember } = useValues(memberAccessModalLogic({ member: null }))
 
     const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const membersCanInviteRestrictionReason = useRestrictedArea({
@@ -205,6 +266,8 @@ export function Members(): JSX.Element | null {
     if (!user) {
         return null
     }
+
+    const canEditMembers = (currentOrganization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -247,19 +310,6 @@ export function Members(): JSX.Element | null {
             sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {
-            title: 'Level',
-            dataIndex: 'level',
-            key: 'level',
-            render: function LevelRender(_, member) {
-                return (
-                    <LemonTag data-attr="membership-level">
-                        {capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? `unknown (${member.level})`)}
-                    </LemonTag>
-                )
-            },
-            sorter: (a, b) => a.level - b.level,
-        },
-        {
             title: '2FA',
             dataIndex: 'is_2fa_enabled',
             key: 'is_2fa_enabled',
@@ -282,7 +332,7 @@ export function Members(): JSX.Element | null {
                                 data-attr="2fa-enabled"
                                 type={member.is_2fa_enabled ? 'success' : 'warning'}
                             >
-                                {member.is_2fa_enabled ? '2FA enabled' : '2FA not enabled'}
+                                {member.is_2fa_enabled ? 'Enabled' : 'Not enabled'}
                             </LemonTag>
                         </Tooltip>
                     </>
@@ -291,30 +341,28 @@ export function Members(): JSX.Element | null {
             sorter: (a, b) => (a.is_2fa_enabled != b.is_2fa_enabled ? 1 : 0),
         },
         {
-            title: 'Joined',
-            dataIndex: 'joined_at',
-            key: 'joined_at',
-            render: function RenderJoinedAt(joinedAt) {
-                return (
-                    <div className="whitespace-nowrap">
-                        <TZLabel time={joinedAt as string} />
-                    </div>
-                )
-            },
-            sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+            title: 'Projects',
+            key: 'projects',
+            render: (_, member) => <ProjectsPreview member={member} />,
         },
         {
-            title: 'Last Logged In',
-            dataIndex: 'last_login',
-            key: 'last_login',
-            render: function RenderLastLogin(lastLogin) {
-                return (
-                    <div className="whitespace-nowrap">
-                        {lastLogin ? <TZLabel time={lastLogin as string} /> : 'Never'}
-                    </div>
-                )
+            title: 'Level',
+            dataIndex: 'level',
+            key: 'level',
+            render: function LevelRender(_, member) {
+                return <MemberLevelTooltip level={member.level} />
             },
-            sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
+            sorter: (a, b) => a.level - b.level,
+        },
+        {
+            title: 'Roles',
+            key: 'roles',
+            render: (_, member) => <RolesPreview member={member} />,
+        },
+        {
+            title: 'Features',
+            key: 'features',
+            render: (_, member) => <FeaturesPreview member={member} />,
         },
         {
             key: 'actions',
@@ -322,6 +370,12 @@ export function Members(): JSX.Element | null {
             render: ActionsComponent,
         },
     ]
+
+    const handleRowClick = (member: OrganizationMemberType): void => {
+        if (canEditMembers && member.user.uuid !== user.uuid && member.level !== OrganizationMembershipLevel.Owner) {
+            openModal(member)
+        }
+    }
 
     return (
         <>
@@ -336,7 +390,17 @@ export function Members(): JSX.Element | null {
                 data-attr="org-members-table"
                 defaultSorting={{ columnKey: 'level', order: -1 }}
                 pagination={{ pageSize: 50 }}
+                onRow={(member) => ({
+                    onClick: () => handleRowClick(member),
+                    className:
+                        canEditMembers &&
+                        member.user.uuid !== user.uuid &&
+                        member.level !== OrganizationMembershipLevel.Owner
+                            ? 'cursor-pointer hover:bg-surface-highlight'
+                            : '',
+                })}
             />
+
             <h3 className="mt-4">Two-factor authentication</h3>
             <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>
                 <p>Require all organization members to use two-factor authentication.</p>
@@ -391,6 +455,9 @@ export function Members(): JSX.Element | null {
                     </PayGateMini>
                 </>
             )}
+
+            {/* Member Access Modal */}
+            {modalOpen && selectedMember && <MemberAccessModal member={selectedMember} />}
         </>
     )
 }
