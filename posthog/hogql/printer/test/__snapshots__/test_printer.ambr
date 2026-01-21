@@ -2780,7 +2780,10 @@
          events__person.properties___email AS email_value,
          isNull(events__person.properties___email) AS is_not_set_result,
          or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
-  FROM events
+  FROM
+    (SELECT *
+     FROM events
+     WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))) AS events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2842,7 +2845,10 @@
          events__person.properties___email AS email_value,
          isNull(events__person.properties___email) AS is_not_set_result,
          or(isNull(events__person.properties___email), not(JSONHas(events__person.properties, 'email'))) AS is_not_set_result_historical
-  FROM events
+  FROM
+    (SELECT *
+     FROM events
+     WHERE and(equals(events.team_id, 99999), equals(events.event, 'is_not_set_test'))) AS events
   LEFT OUTER JOIN
     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
