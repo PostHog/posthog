@@ -886,7 +886,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
 ) -> list[tuple[int, int]]:
     # depending on the region, events are stored in different teams
     team_to_query = 1 if get_instance_region() == "EU" else 2
-    validity_token = getattr(settings, "DECIDE_BILLING_ANALYTICS_TOKEN", None)
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
     target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
 
@@ -897,6 +897,48 @@ def get_teams_with_feature_flag_requests_count_in_period(
         WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
         AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
         GROUP BY team
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> list[tuple[int, str, int]]:
+    """
+    Get per-SDK breakdown of feature flag requests for each team.
+    Returns list of (team_id, sdk_name, count) tuples.
+    """
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+
+    result = sync_execute(
+        """
+        SELECT
+            distinct_id as team,
+            arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
+            sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s
+          AND event = %(target_event)s
+          AND timestamp >= %(begin)s AND timestamp < %(end)s
+          AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+          AND JSONHas(properties, 'sdk_breakdown')
+        GROUP BY team, sdk
     """,
         {
             "begin": begin,
