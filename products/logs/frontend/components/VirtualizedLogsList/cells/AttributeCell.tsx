@@ -4,10 +4,11 @@ import { memo } from 'react'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { LogsViewerCellPopover } from 'products/logs/frontend/components/LogsViewer/LogsViewerCellPopover'
+import { SessionIdDisplay } from 'products/logs/frontend/components/LogsViewer/SessionIdDisplay'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { LogRowScrollButtons } from 'products/logs/frontend/components/VirtualizedLogsList/LogRowScrollButtons'
 import { useCellScroll } from 'products/logs/frontend/components/VirtualizedLogsList/useCellScroll'
-import { isDistinctIdKey } from 'products/logs/frontend/utils'
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface AttributeCellProps {
     attributeKey: string
@@ -41,6 +42,10 @@ export const AttributeCell = memo(function AttributeCell({
                     {isDistinctIdKey(attributeKey) ? (
                         <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
                             <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
+                        </span>
+                    ) : isSessionIdKey(attributeKey) ? (
+                        <span className="font-mono text-xs whitespace-nowrap pr-24" title={value}>
+                            <SessionIdDisplay sessionId={value} />
                         </span>
                     ) : (
                         <span className="font-mono text-xs text-muted whitespace-nowrap pr-24" title={value}>

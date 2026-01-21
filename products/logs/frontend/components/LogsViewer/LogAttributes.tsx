@@ -11,8 +11,9 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { AttributeBreakdowns } from 'products/logs/frontend/AttributeBreakdowns'
+import { SessionIdDisplay } from 'products/logs/frontend/components/LogsViewer/SessionIdDisplay'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
-import { isDistinctIdKey } from 'products/logs/frontend/utils'
+import { isDistinctIdKey, isSessionIdKey } from 'products/logs/frontend/utils'
 
 export interface LogAttributesProps {
     attributes: Record<string, string>
@@ -130,6 +131,10 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
                                     {isDistinctIdKey(record.key) ? (
                                         <span onClick={(e) => e.stopPropagation()}>
                                             <PersonDisplay person={{ distinct_id: record.value }} noEllipsis inline />
+                                        </span>
+                                    ) : isSessionIdKey(record.key) ? (
+                                        <span onClick={(e) => e.stopPropagation()}>
+                                            <SessionIdDisplay sessionId={record.value} />
                                         </span>
                                     ) : (
                                         <span>{record.value}</span>
