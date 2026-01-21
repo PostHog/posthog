@@ -50,8 +50,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter) => ({ filter }),
-        openSummaryModal: true,
-        closeSummaryModal: true,
+        toggleSummaryExpanded: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -80,14 +79,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     // Get runs to summarize based on filter
-                    let runsToSummarize = values.evaluationRuns.filter(
-                        (r) => r.status === 'completed' && r.result !== null
-                    )
+                    let runsToSummarize = values.evaluationRuns.filter((r) => r.status === 'completed')
 
                     if (values.evaluationSummaryFilter === 'pass') {
                         runsToSummarize = runsToSummarize.filter((r) => r.result === true)
                     } else if (values.evaluationSummaryFilter === 'fail') {
                         runsToSummarize = runsToSummarize.filter((r) => r.result === false)
+                    } else if (values.evaluationSummaryFilter === 'na') {
+                        runsToSummarize = runsToSummarize.filter((r) => r.result === null)
                     }
 
                     // Sample up to 100 runs
@@ -177,11 +176,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationSummaryFilter: (_, { filter }) => filter,
             },
         ],
-        summaryModalOpen: [
-            false,
+        summaryExpanded: [
+            true,
             {
-                openSummaryModal: () => true,
-                closeSummaryModal: () => false,
+                toggleSummaryExpanded: (state) => !state,
+                generateEvaluationSummarySuccess: () => true,
             },
         ],
     }),

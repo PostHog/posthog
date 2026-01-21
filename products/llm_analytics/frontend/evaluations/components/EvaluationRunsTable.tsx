@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconCheck, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconBolt, IconCheck, IconChevronDown, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -9,12 +9,46 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationRun } from '../types'
-import { EvaluationSummaryModal } from './EvaluationSummaryModal'
+import { EvaluationPattern, EvaluationRun, EvaluationSummaryFilter } from '../types'
+
+interface PatternCardProps {
+    pattern: EvaluationPattern
+    type: 'pass' | 'fail' | 'na'
+}
+
+function PatternCard({ pattern, type }: PatternCardProps): JSX.Element {
+    const borderClass = type === 'pass' ? 'border-success' : type === 'fail' ? 'border-danger' : 'border-muted'
+    const iconClass = type === 'pass' ? 'text-success' : type === 'fail' ? 'text-danger' : 'text-muted'
+    const Icon = type === 'pass' ? IconCheck : type === 'fail' ? IconX : IconMinus
+
+    return (
+        <div className={`border rounded-lg p-3 ${borderClass}`}>
+            <div className="flex items-center gap-2 mb-2">
+                <Icon className={iconClass} />
+                <span className="font-semibold">{pattern.title}</span>
+                <span className="text-xs text-muted bg-bg-light px-2 py-0.5 rounded">{pattern.frequency}</span>
+            </div>
+            <p className="text-sm text-default mb-2">{pattern.description}</p>
+            <div className="text-xs text-muted bg-bg-light p-2 rounded">
+                <strong>Example:</strong> {pattern.example_reasoning}
+            </div>
+        </div>
+    )
+}
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { evaluationRuns, evaluationRunsLoading, runsSummary } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns, openSummaryModal } = useActions(llmEvaluationLogic)
+    const {
+        evaluation,
+        evaluationRuns,
+        evaluationRunsLoading,
+        runsSummary,
+        evaluationSummary,
+        evaluationSummaryLoading,
+        evaluationSummaryFilter,
+        summaryExpanded,
+    } = useValues(llmEvaluationLogic)
+    const { refreshEvaluationRuns, generateEvaluationSummary, setEvaluationSummaryFilter, toggleSummaryExpanded } =
+        useActions(llmEvaluationLogic)
     const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
 
     const columns: LemonTableColumns<EvaluationRun> = [
@@ -52,7 +86,6 @@ export function EvaluationRunsTable(): JSX.Element {
                 if (run.status === 'running') {
                     return <LemonTag type="primary">Running...</LemonTag>
                 }
-                // Handle N/A case (result is null when not applicable)
                 if (run.result === null) {
                     return (
                         <LemonTag type="muted" icon={<IconMinus />}>
@@ -78,7 +111,6 @@ export function EvaluationRunsTable(): JSX.Element {
                 if (a.status !== 'completed' || b.status !== 'completed') {
                     return a.status.localeCompare(b.status)
                 }
-                // N/A (null) sorts between pass (1) and fail (0)
                 const valA = a.result === null ? 0.5 : Number(a.result)
                 const valB = b.result === null ? 0.5 : Number(b.result)
                 return valB - valA
@@ -110,14 +142,37 @@ export function EvaluationRunsTable(): JSX.Element {
         },
     ]
 
+    const hasRuns = runsSummary && runsSummary.total > 0
+
     return (
         <div className="space-y-4">
-            <div className="flex justify-end gap-2">
-                {showSummaryFeature && runsSummary && runsSummary.total > 0 && (
-                    <LemonButton type="secondary" icon={<IconBolt />} onClick={openSummaryModal} size="small">
-                        Summarize
-                    </LemonButton>
-                )}
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    {showSummaryFeature && hasRuns && (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconBolt />}
+                                onClick={generateEvaluationSummary}
+                                loading={evaluationSummaryLoading}
+                                size="small"
+                            >
+                                Summarize
+                            </LemonButton>
+                            <LemonSegmentedButton
+                                value={evaluationSummaryFilter}
+                                onChange={(value) => setEvaluationSummaryFilter(value as EvaluationSummaryFilter)}
+                                options={[
+                                    { value: 'all', label: 'All' },
+                                    { value: 'pass', label: 'Passing' },
+                                    { value: 'fail', label: 'Failing' },
+                                    ...(evaluation?.output_config?.allows_na ? [{ value: 'na', label: 'N/A' }] : []),
+                                ]}
+                                size="small"
+                            />
+                        </>
+                    )}
+                </div>
                 <LemonButton
                     type="secondary"
                     icon={<IconRefresh />}
@@ -128,6 +183,164 @@ export function EvaluationRunsTable(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
+
+            {showSummaryFeature && evaluationSummaryLoading && (
+                <div className="flex items-center justify-center py-6 border rounded-lg bg-bg-light">
+                    <Spinner className="text-primary" />
+                    <span className="ml-2 text-muted">Analyzing evaluation results...</span>
+                </div>
+            )}
+
+            {showSummaryFeature && evaluationSummary && !evaluationSummaryLoading && (
+                <div className="border rounded-lg bg-bg-light">
+                    <button
+                        className="w-full flex items-center justify-between p-3 hover:bg-border-light transition-colors cursor-pointer"
+                        onClick={toggleSummaryExpanded}
+                    >
+                        <div className="text-left">
+                            <span className="font-semibold text-sm">AI Summary</span>
+                            <span className="text-xs text-muted ml-2">
+                                {evaluationSummary.statistics.total_analyzed} runs analyzed
+                            </span>
+                        </div>
+                        <IconChevronDown
+                            className={`text-muted transition-transform ${summaryExpanded ? '' : '-rotate-90'}`}
+                        />
+                    </button>
+
+                    {summaryExpanded && (
+                        <div className="p-4 pt-0 space-y-4">
+                            <div>
+                                <p className="text-sm">{evaluationSummary.overall_assessment}</p>
+                                <div className="mt-1 text-xs text-muted">
+                                    {evaluationSummaryFilter === 'all' && (
+                                        <>
+                                            {evaluationSummary.statistics.pass_count} passed,{' '}
+                                            {evaluationSummary.statistics.fail_count} failed
+                                            {evaluationSummary.statistics.na_count > 0 && (
+                                                <>, {evaluationSummary.statistics.na_count} N/A</>
+                                            )}
+                                        </>
+                                    )}
+                                    {evaluationSummaryFilter === 'pass' && (
+                                        <>{evaluationSummary.statistics.pass_count} passing runs analyzed</>
+                                    )}
+                                    {evaluationSummaryFilter === 'fail' && (
+                                        <>{evaluationSummary.statistics.fail_count} failing runs analyzed</>
+                                    )}
+                                    {evaluationSummaryFilter === 'na' && (
+                                        <>{evaluationSummary.statistics.na_count} N/A runs analyzed</>
+                                    )}
+                                </div>
+                            </div>
+
+                            {evaluationSummaryFilter === 'all' && (
+                                <div
+                                    className={`grid gap-4 ${
+                                        evaluationSummary.pass_patterns.length > 0 &&
+                                        evaluationSummary.fail_patterns.length > 0
+                                            ? 'grid-cols-2'
+                                            : 'grid-cols-1'
+                                    }`}
+                                >
+                                    {evaluationSummary.pass_patterns.length > 0 && (
+                                        <div>
+                                            <h4 className="font-semibold mb-2 flex items-center gap-2 text-sm">
+                                                <IconCheck className="text-success" />
+                                                Passing patterns
+                                            </h4>
+                                            <div className="space-y-2">
+                                                {evaluationSummary.pass_patterns.map((pattern, i) => (
+                                                    <PatternCard key={i} pattern={pattern} type="pass" />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {evaluationSummary.fail_patterns.length > 0 && (
+                                        <div>
+                                            <h4 className="font-semibold mb-2 flex items-center gap-2 text-sm">
+                                                <IconX className="text-danger" />
+                                                Failing patterns
+                                            </h4>
+                                            <div className="space-y-2">
+                                                {evaluationSummary.fail_patterns.map((pattern, i) => (
+                                                    <PatternCard key={i} pattern={pattern} type="fail" />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {evaluationSummaryFilter === 'pass' && (
+                                <div>
+                                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-sm">
+                                        <IconCheck className="text-success" />
+                                        Passing patterns
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {evaluationSummary.pass_patterns.length > 0 ? (
+                                            evaluationSummary.pass_patterns.map((pattern, i) => (
+                                                <PatternCard key={i} pattern={pattern} type="pass" />
+                                            ))
+                                        ) : (
+                                            <p className="text-sm text-muted">No passing patterns identified</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {evaluationSummaryFilter === 'fail' && (
+                                <div>
+                                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-sm">
+                                        <IconX className="text-danger" />
+                                        Failing patterns
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {evaluationSummary.fail_patterns.length > 0 ? (
+                                            evaluationSummary.fail_patterns.map((pattern, i) => (
+                                                <PatternCard key={i} pattern={pattern} type="fail" />
+                                            ))
+                                        ) : (
+                                            <p className="text-sm text-muted">No failing patterns identified</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {evaluationSummaryFilter === 'na' && (
+                                <div>
+                                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-sm">
+                                        <IconMinus className="text-muted" />
+                                        N/A patterns
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {evaluationSummary.na_patterns.length > 0 ? (
+                                            evaluationSummary.na_patterns.map((pattern, i) => (
+                                                <PatternCard key={i} pattern={pattern} type="na" />
+                                            ))
+                                        ) : (
+                                            <p className="text-sm text-muted">No N/A patterns identified</p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {evaluationSummary.recommendations.length > 0 && (
+                                <div>
+                                    <h4 className="font-semibold mb-2 text-sm">Recommendations</h4>
+                                    <ul className="list-disc list-inside space-y-1 text-sm">
+                                        {evaluationSummary.recommendations.map((rec, i) => (
+                                            <li key={i}>{rec}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
 
             <LemonTable
                 columns={columns}
@@ -146,8 +359,6 @@ export function EvaluationRunsTable(): JSX.Element {
                     </div>
                 }
             />
-
-            {showSummaryFeature && <EvaluationSummaryModal />}
         </div>
     )
 }
