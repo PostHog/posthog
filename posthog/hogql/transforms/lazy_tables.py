@@ -354,7 +354,10 @@ class LazyTableResolver(TraversingVisitor):
             and node.select_from.table.chain == ["events"]
             and node.where is not None
         ):
-            from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
+            from posthog.hogql.database.schema.util.where_clause_extractor import (
+                EventsPredicatePushdownExtractor,
+                unwrap_table_aliases,
+            )
 
             # Extract predicates that can be pushed down (events-only predicates).
             # We use an empty set for joined_aliases because we want to exclude
@@ -365,6 +368,10 @@ class LazyTableResolver(TraversingVisitor):
             inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
 
             if inner_where is not None:
+                # Unwrap table aliases so that fields reference the actual table (events)
+                # instead of the alias (e.g., "e") which doesn't exist inside the subquery.
+                inner_where = unwrap_table_aliases(inner_where)
+
                 # Store the pushdown predicates on the JoinExpr.
                 # The printer will wrap the table in a subquery with these predicates.
                 # Always include team_id filter in the inner subquery for security and performance.

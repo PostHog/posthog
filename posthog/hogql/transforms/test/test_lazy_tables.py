@@ -171,6 +171,16 @@ class TestLazyJoins(BaseTest):
         assert printed == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_sessions_join_with_alias(self):
+        # Documents that events table alias is propagated.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events AS e "
+            "WHERE e.timestamp >= '2024-01-01' AND event = 'my-event'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_multiple_predicates(self):
         # Documents events query with session access and multiple event-level predicates.
         printed = self._print_select(

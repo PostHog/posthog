@@ -7,7 +7,7 @@
   FROM (
   SELECT * 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_0)s), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_1)s), parseDateTime64BestEffort(%(hogql_val_2)s, 6, %(hogql_val_3)s)), less(toTimeZone(events.timestamp, %(hogql_val_4)s), parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_7)s), toDateTime(%(hogql_val_8)s, %(hogql_val_9)s)), less(toTimeZone(events.timestamp, %(hogql_val_10)s), toDateTime64(%(hogql_val_11)s, 6, %(hogql_val_12)s))))))) AS events LEFT OUTER JOIN (
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, %(hogql_val_0)s), or(and(greater(toTimeZone(events.timestamp, %(hogql_val_1)s), parseDateTime64BestEffortOrNull(%(hogql_val_2)s, 6, %(hogql_val_3)s)), less(toTimeZone(events.timestamp, %(hogql_val_4)s), parseDateTime64BestEffortOrNull(%(hogql_val_5)s, 6, %(hogql_val_6)s))), and(greater(toTimeZone(events.timestamp, %(hogql_val_7)s), parseDateTime64BestEffortOrNull(%(hogql_val_8)s, 6, %(hogql_val_9)s)), less(toTimeZone(events.timestamp, %(hogql_val_10)s), parseDateTime64BestEffortOrNull(%(hogql_val_11)s, 6, %(hogql_val_12)s))))))) AS events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.issue_id), error_tracking_issue_fingerprint_overrides.version), 1) AS issue_id, error_tracking_issue_fingerprint_overrides.fingerprint AS fingerprint 
   FROM error_tracking_issue_fingerprint_overrides 
   WHERE equals(error_tracking_issue_fingerprint_overrides.team_id, 99999) 
