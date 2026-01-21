@@ -14,6 +14,10 @@ RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 FROM base AS builder
 WORKDIR /app
 ARG BIN
+ARG SCCACHE_LOG=warn
+ARG SCCACHE_NO_DAEMON
+ENV SCCACHE_LOG=${SCCACHE_LOG}
+ENV SCCACHE_NO_DAEMON=${SCCACHE_NO_DAEMON}
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
