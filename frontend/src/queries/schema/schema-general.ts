@@ -5386,4 +5386,5 @@ export interface ReplayInactivityPeriod {
     ts_from_s: integer
     ts_to_s?: integer
     active: boolean
+    recording_ts_from_s: integer
 }

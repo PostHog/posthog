@@ -5686,6 +5686,7 @@ class ReplayInactivityPeriod(BaseModel):
         extra="forbid",
     )
     active: bool
+    recording_ts_from_s: int
     ts_from_s: int
     ts_to_s: int | None = None
 
