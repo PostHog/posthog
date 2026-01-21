@@ -182,9 +182,11 @@ export function EvaluationRunsTable(): JSX.Element {
                 <div className="flex items-center gap-2">
                     {showSummaryFeature && hasRuns && (
                         <>
-                            <LemonButton type="secondary" onClick={generateEvaluationSummary} size="small">
-                                Summarize
-                            </LemonButton>
+                            <Tooltip title={`Use AI to analyze patterns in ${runsToSummarizeCount} evaluation results`}>
+                                <LemonButton type="secondary" onClick={generateEvaluationSummary} size="small">
+                                    Summarize
+                                </LemonButton>
+                            </Tooltip>
                             <LemonSegmentedButton
                                 value={evaluationSummaryFilter}
                                 onChange={(value) => setEvaluationSummaryFilter(value as EvaluationSummaryFilter)}
