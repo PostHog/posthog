@@ -229,6 +229,31 @@ class TestTableAliasUnwrapper:
         assert isinstance(result.left.type, ast.FieldType)
         assert isinstance(result.left.type.table_type, ast.TableType)
 
+    def test_unwraps_property_type_with_aliased_table(self):
+        """PropertyType wrapping FieldType with TableAliasType should be unwrapped."""
+        events_table_type = make_events_table_type()
+        alias_type = make_alias_type("e", events_table_type)
+
+        # Create a field with PropertyType (e.g., e.properties["$filter_prop"])
+        inner_field_type = ast.FieldType(name="properties", table_type=alias_type)
+        property_type = ast.PropertyType(chain=["$filter_prop"], field_type=inner_field_type)
+        field = ast.Field(
+            chain=["e", "properties", "$filter_prop"],
+            type=property_type,
+        )
+
+        # Before: PropertyType wraps FieldType with TableAliasType
+        assert isinstance(field.type, ast.PropertyType)
+        assert isinstance(field.type.field_type.table_type, ast.TableAliasType)
+
+        unwrapper = TableAliasUnwrapper()
+        result = unwrapper.visit(field)
+
+        # After: PropertyType wraps FieldType with TableType (unwrapped)
+        assert isinstance(result.type, ast.PropertyType)
+        assert isinstance(result.type.field_type.table_type, ast.TableType)
+        assert result.type.field_type.table_type == events_table_type
+
 
 def print_expr(expr: Optional[ast.Expr]) -> Optional[str]:
     """Print an expression to HogQL string for comparison."""

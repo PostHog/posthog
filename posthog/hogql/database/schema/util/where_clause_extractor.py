@@ -609,6 +609,19 @@ class TableAliasUnwrapper(CloningVisitor):
                     name=node.type.name,
                     table_type=node.type.table_type.table_type,
                 )
+        elif isinstance(node.type, ast.PropertyType):
+            # Handle PropertyType which wraps a FieldType
+            inner_field_type = node.type.field_type
+            if isinstance(inner_field_type.table_type, ast.TableAliasType):
+                # Unwrap the alias in the inner FieldType
+                new_inner_field_type = ast.FieldType(
+                    name=inner_field_type.name,
+                    table_type=inner_field_type.table_type.table_type,
+                )
+                new_type = ast.PropertyType(
+                    chain=node.type.chain.copy(),
+                    field_type=new_inner_field_type,
+                )
         return ast.Field(
             chain=node.chain.copy(),
             type=new_type,
