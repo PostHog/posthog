@@ -165,6 +165,31 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
+// Scopes required by the PostHog MCP server (https://mcp.posthog.com)
+// These match the scopes_supported in the MCP server's OAuth protected resource metadata
+export const MCP_SERVER_OAUTH_SCOPES = [
+    'openid',
+    'profile',
+    'email',
+    'introspection',
+    'user:read',
+    'organization:read',
+    'project:read',
+    'feature_flag:read',
+    'feature_flag:write',
+    'experiment:read',
+    'experiment:write',
+    'insight:read',
+    'insight:write',
+    'dashboard:read',
+    'dashboard:write',
+    'query:read',
+    'survey:read',
+    'survey:write',
+    'error_tracking:read',
+    'logs:read',
+]
+
 export const getScopeDescription = (scope: string): string | undefined => {
     if (scope === '*') {
         return 'Read and write access to all PostHog data'

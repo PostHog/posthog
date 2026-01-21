@@ -16,7 +16,6 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    decide,
     github,
     hog_flow_template,
     hog_function_template,
@@ -49,6 +48,7 @@ from posthog.temporal.codec_server import decode_payloads
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
 from products.slack_app.backend.api import slack_event_handler
+from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -237,7 +237,6 @@ urlpatterns = [
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
-    opt_slash_path("decide", decide.get_decide),
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
@@ -250,6 +249,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     opt_slash_path("slack/event-callback", slack_event_handler),
+    # GitHub webhooks for task lifecycle events
+    opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

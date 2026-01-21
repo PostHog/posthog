@@ -14,7 +14,6 @@ import { SessionPlayerState } from '~/types'
 import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
 import { ClipRecording } from './controller/ClipRecording'
 import { Screenshot } from './controller/PlayerController'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 const PlayerFrameOverlayActions = (): JSX.Element | null => {
@@ -40,14 +39,13 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
     const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const showActionsOnOverlay = !isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && pausedState
+    const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
