@@ -2,6 +2,7 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
+import { logger } from '../../../utils/logger'
 import { aiCostLookupCounter } from '../metrics'
 import {
     CostModelResult,
@@ -118,7 +119,15 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
             },
         }
 
-        setCostsOnEvent(event, customCost)
+        try {
+            setCostsOnEvent(event, customCost)
+        } catch (error) {
+            logger.error('Error in calculating custom cost', {
+                eventProperties: event.properties,
+                cost: customCost,
+            })
+            throw error
+        }
 
         event.properties['$ai_model_cost_used'] = 'custom'
         event.properties['$ai_cost_model_source'] = CostModelSource.Custom
@@ -155,7 +164,15 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
     const { cost, source } = costResult
 
-    setCostsOnEvent(event, cost)
+    try {
+        setCostsOnEvent(event, cost)
+    } catch (error) {
+        logger.error('Error in calculating special cost', {
+            eventProperties: event.properties,
+            cost,
+        })
+        throw error
+    }
 
     event.properties['$ai_model_cost_used'] = cost.model
     event.properties['$ai_cost_model_source'] = source
