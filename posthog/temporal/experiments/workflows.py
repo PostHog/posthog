@@ -69,7 +69,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
         failed = 0
 
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 failed += 1
             elif result.success:
                 succeeded += 1
