@@ -91,7 +91,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 "create-proxy",
                 inputs,
                 id=workflow_id,
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.MANAGED_PROXY_TASK_QUEUE,
             )
         )
 
@@ -121,7 +121,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     "delete-proxy",
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.MANAGED_PROXY_TASK_QUEUE,
                 )
             )
             record.status = ProxyRecord.Status.DELETING
