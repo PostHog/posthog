@@ -439,12 +439,13 @@ def record_replay_to_file(
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
-            # Collect data on inactivity periods and store in the exported asset
-            inactivity_periods = detect_inactivity_periods(page=page)
-
             # Wait for playback to reach the end, with session_duration as safety timeout
             max_wait_ms = int((opts.recording_duration / playback_speed) * 1000)
             detect_recording_ended(page=page, max_wait_ms=max_wait_ms)
+
+            # Collect data on inactivity periods after playback completes
+            # This ensures recording_ts_from_s is populated for all segments
+            inactivity_periods = detect_inactivity_periods(page=page)
 
             # Stop the recording, either after detecting end or reaching safety timeout
             page.close()
