@@ -475,7 +475,7 @@ There are examples on how to achieve this throughout the codebase: Batch exports
 
 The development stack includes: A Temporal service to act as a local orchestrator, a Temporal UI, and, if you are using `mprocs`, multiple Temporal workers that are started automatically, one per task queue. These workers includes a worker listening on the shared `general-purpose-task-queue`, which can be used for development. If you have deployed a new set of workers, add it to `bin/mprocs.yaml` so that a worker can start automatically for folks doing local development.
 
-By default, Temporal workers automatically hot reload when Python files change (similar to backend and celery workers). If you need to disable hot reloading, set `TEMPORAL_SKIP_HOT_RELOAD=1`.
+By default, Temporal workers automatically hot reload when Python files change (similar to backend and celery workers). If you need to disable hot reloading, set `TEMPORAL_DISABLE_HOT_RELOAD=1`.
 
 Some products or features may require additional configuration, for example: Data warehouse workflows require additional credentials that must be present in the environment (`#team-data-warehouse` can assist with this reached out for help). Check other documentation based on the product you are trying to develop locally for.
 
