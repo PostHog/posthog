@@ -42,11 +42,9 @@ export function PushSubscriptionPicker({
             options={optionsWithLabelComponents}
             loading={pushSubscriptionsLoading}
             emptyStateComponent={
-                !pushSubscriptionsLoading ? (
-                    <p className="text-secondary italic p-1">
-                        No push subscriptions found. Make sure devices have registered push notification tokens.
-                    </p>
-                ) : undefined
+                <p className="text-secondary italic p-1">
+                    No push subscriptions found. Make sure devices have registered push notification tokens.
+                </p>
             }
         />
     )
