@@ -36,6 +36,7 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -220,6 +221,7 @@ export function DataTable({
         showPersistentColumnConfigurator,
         showSavedQueries,
         showSavedFilters,
+        showTableViews,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -713,6 +715,9 @@ export function DataTable({
                 query={query}
                 setQuery={setQuery}
             />
+        ) : null,
+        showTableViews && uniqueKey ? (
+            <TableViewSelector key="table-views" contextKey={String(uniqueKey)} query={query} setQuery={setQuery} />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters

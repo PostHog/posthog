@@ -56,9 +56,10 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     if (!props.contextKey) {
                         return null
                     }
-                    const response = await api.get(
-                        `api/environments/${teamLogic.values.currentTeamId}/column_configurations/?context_key=${props.contextKey}`
-                    )
+                    const response = await api.columnConfigurations.list({
+                        teamId: teamLogic.values.currentTeamId,
+                        context_key: props.contextKey,
+                    })
                     if (response.results && response.results.length > 0) {
                         return { id: response.results[0].id, columns: response.results[0].columns }
                     }
@@ -119,18 +120,19 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
             if (props.contextKey) {
                 try {
                     if (values.savedColumnConfiguration?.id) {
-                        await api.update(
-                            `api/environments/${teamLogic.values.currentTeamId}/column_configurations/${values.savedColumnConfiguration.id}`,
-                            { columns: values.columns }
-                        )
+                        await api.columnConfigurations.update({
+                            teamId: teamLogic.values.currentTeamId,
+                            id: values.savedColumnConfiguration.id,
+                            data: { columns: values.columns },
+                        })
                     } else {
-                        const response = await api.create(
-                            `api/environments/${teamLogic.values.currentTeamId}/column_configurations/`,
-                            {
+                        const response = await api.columnConfigurations.create({
+                            teamId: teamLogic.values.currentTeamId,
+                            data: {
                                 context_key: props.contextKey,
                                 columns: values.columns,
-                            }
-                        )
+                            },
+                        })
                         actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns })
                     }
 
