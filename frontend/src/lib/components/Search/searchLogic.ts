@@ -3,10 +3,13 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
+import { getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
@@ -55,7 +58,16 @@ export const searchLogic = kea<searchLogicType>([
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], commandLogic, ['isCommandOpen']],
+        values: [
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            commandLogic,
+            ['isCommandOpen'],
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['isDev'],
+        ],
     }),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -240,6 +252,35 @@ export const searchLogic = kea<searchLogicType>([
                 })
             },
         ],
+        appsItems: [
+            (s) => [s.featureFlags, s.isDev],
+            (featureFlags, isDev): SearchItem[] => {
+                const allProducts = getTreeItemsProducts()
+                const filteredProducts = allProducts.filter((product) => {
+                    if (!isDev && product.category === 'Unreleased') {
+                        return false
+                    }
+                    if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
+                        return false
+                    }
+                    return true
+                })
+
+                return filteredProducts.map((product) => ({
+                    id: `app-${product.path}`,
+                    name: product.path,
+                    displayName: product.path,
+                    category: 'apps',
+                    href: product.href || '#',
+                    itemType: product.iconType || product.type || null,
+                    record: {
+                        type: product.type || product.iconType,
+                        iconType: product.iconType,
+                        iconColor: product.iconColor,
+                    },
+                }))
+            },
+        ],
         groupItems: [
             (s) => [s.groupSearchResults, s.aggregationLabel],
             (groupSearchResults, aggregationLabel): SearchItem[] => {
@@ -398,6 +439,7 @@ export const searchLogic = kea<searchLogicType>([
         allCategories: [
             (s) => [
                 s.recentItems,
+                s.appsItems,
                 s.personItems,
                 s.groupItems,
                 s.playlistItems,
@@ -411,6 +453,7 @@ export const searchLogic = kea<searchLogicType>([
             ],
             (
                 recentItems,
+                appsItems,
                 personItems,
                 groupItems,
                 playlistItems,
@@ -431,6 +474,15 @@ export const searchLogic = kea<searchLogicType>([
                         key: 'recents',
                         items: recentItems,
                         isLoading: recentsLoading,
+                    })
+                }
+
+                // Always show apps (filtered client-side in Search.tsx)
+                if (appsItems.length > 0) {
+                    categories.push({
+                        key: 'apps',
+                        items: appsItems,
+                        isLoading: false,
                     })
                 }
 

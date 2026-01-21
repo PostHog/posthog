@@ -274,15 +274,18 @@ function SearchRoot({
             const searchLower = searchValue.toLowerCase()
             setFilteredItems(
                 allItems.filter((item) => {
-                    if (item.category === 'recents') {
+                    // Filter recents and apps by name (client-side filtering)
+                    if (item.category === 'recents' || item.category === 'apps') {
                         const name = (item.displayName || item.name || '').toLowerCase()
                         return name.includes(searchLower)
                     }
+                    // Other categories come from server search, keep all
                     return true
                 })
             )
         } else {
-            setFilteredItems(allItems.filter((item) => item.category === 'recents'))
+            // When not searching, show recents and apps
+            setFilteredItems(allItems.filter((item) => item.category === 'recents' || item.category === 'apps'))
         }
     }, [allItems, searchValue])
 
@@ -351,7 +354,9 @@ function SearchRoot({
 
     return (
         <SearchContext.Provider value={contextValue}>
-            <div className={`flex flex-col overflow-hidden ${className}`}>
+            <div
+                className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
+            >
                 <Autocomplete.Root
                     items={filteredItems}
                     filter={null}
