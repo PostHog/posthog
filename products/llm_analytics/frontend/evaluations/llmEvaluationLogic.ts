@@ -11,7 +11,13 @@ import { Breadcrumb } from '~/types'
 import { queryEvaluationRuns } from '../utils'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
-import { EvaluationConditionSet, EvaluationConfig, EvaluationRun } from './types'
+import {
+    EvaluationConditionSet,
+    EvaluationConfig,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+} from './types'
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -41,6 +47,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation runs actions
         refreshEvaluationRuns: true,
+
+        // Evaluation summary actions
+        setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter) => ({ filter }),
+        openSummaryModal: true,
+        closeSummaryModal: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -56,6 +67,46 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
+                },
+            },
+        ],
+        evaluationSummary: [
+            null as EvaluationSummary | null,
+            {
+                generateEvaluationSummary: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+
+                    // Get runs to summarize based on filter
+                    let runsToSummarize = values.evaluationRuns.filter(
+                        (r) => r.status === 'completed' && r.result !== null
+                    )
+
+                    if (values.evaluationSummaryFilter === 'pass') {
+                        runsToSummarize = runsToSummarize.filter((r) => r.result === true)
+                    } else if (values.evaluationSummaryFilter === 'fail') {
+                        runsToSummarize = runsToSummarize.filter((r) => r.result === false)
+                    }
+
+                    // Sample up to 100 runs
+                    const maxSamples = 100
+                    const sampledRuns = runsToSummarize.slice(0, maxSamples)
+
+                    if (sampledRuns.length === 0) {
+                        throw new Error('No evaluation runs to summarize')
+                    }
+
+                    const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_runs: sampledRuns.map((r) => ({
+                            result: r.result,
+                            reasoning: r.reasoning,
+                        })),
+                        filter: values.evaluationSummaryFilter,
+                    })
+
+                    return response as EvaluationSummary
                 },
             },
         ],
@@ -118,6 +169,19 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
+            },
+        ],
+        evaluationSummaryFilter: [
+            'all' as EvaluationSummaryFilter,
+            {
+                setEvaluationSummaryFilter: (_, { filter }) => filter,
+            },
+        ],
+        summaryModalOpen: [
+            false,
+            {
+                openSummaryModal: () => true,
+                closeSummaryModal: () => false,
             },
         ],
     }),
