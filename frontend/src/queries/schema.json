@@ -27878,7 +27878,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["ts_from_s", "active", "recording_ts_from_s"],
+            "required": ["ts_from_s", "active"],
             "type": "object"
         },
         "ResolvedDateRangeResponse": {
