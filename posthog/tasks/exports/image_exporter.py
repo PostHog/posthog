@@ -208,11 +208,16 @@ def _screenshot_asset(
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
 ) -> None:
+    MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
+    CONTENT_PADDING = 80  # Padding for card borders
+
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        # Set initial window size with a more reasonable height to prevent initial rendering issues
-        driver.set_window_size(screenshot_width, screenshot_height)
+        # Set initial window size large enough for wide content like funnels with many steps
+        # Small funnels will be constrained with max-width later
+        initial_width = max(screenshot_width, MAX_WIDTH_PIXELS)
+        driver.set_window_size(initial_width, screenshot_height)
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
@@ -252,6 +257,12 @@ def _screenshot_asset(
         # Get the height of the visualization container specifically
         height = driver.execute_script(
             """
+            // Remove CSS constraints that would clip content before measuring
+            const vizElement = document.querySelector('.InsightCard__viz');
+            if (vizElement) {
+                vizElement.style.maxHeight = 'none';
+            }
+
             const element = document.querySelector('.InsightCard__viz') ||
                           document.querySelector('.ExportedInsight__content') ||
                           document.querySelector('.replayer-wrapper') ||
@@ -273,28 +284,77 @@ def _screenshot_asset(
             )
             height = max_height_pixels
 
-        # For example funnels use a table that can get very wide, so try to get its width
-        # For replay players, check for player width
+        # Calculate width for replay players and non-funnel tables
+        # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
             """
-            // Check for replay player first
             const replayElement = document.querySelector('.replayer-wrapper');
             if (replayElement) {
                 return replayElement.offsetWidth;
             }
-            // Fall back to table width for insights
-            const tableElement = document.querySelector('table');
-            if (tableElement) {
-                return tableElement.offsetWidth * 1.5;
+
+            // For non-funnel tables, use scrollWidth
+            const funnelElement = document.querySelector('.FunnelBarVertical');
+            if (!funnelElement) {
+                const tableElement = document.querySelector('table');
+                if (tableElement) {
+                    return Math.max(tableElement.scrollWidth, tableElement.offsetWidth);
+                }
             }
+            return null;
         """
         )
         if isinstance(width, int):
-            width = max(int(screenshot_width), min(1800, width or screenshot_width))
+            calculated_width = width or screenshot_width
+            if calculated_width > MAX_WIDTH_PIXELS:
+                logger.warning(
+                    "screenshot_width_capped",
+                    original_width=calculated_width,
+                    capped_width=MAX_WIDTH_PIXELS,
+                    url=url_to_render,
+                )
+            width = max(int(screenshot_width), min(MAX_WIDTH_PIXELS, calculated_width))
         else:
             width = screenshot_width
 
-        # Set window size with the calculated dimensions
+        # For funnels, constrain to fit-content and measure actual width needed
+        actual_content_width = driver.execute_script(
+            """
+            const funnelElement = document.querySelector('.FunnelBarVertical');
+            if (funnelElement) {
+                // Force funnel to shrink to content size
+                funnelElement.style.width = 'fit-content';
+                funnelElement.style.maxWidth = 'fit-content';
+
+                const table = funnelElement.querySelector('table');
+                if (table) {
+                    table.style.width = 'fit-content';
+                    table.style.maxWidth = 'fit-content';
+                }
+
+                // Force a reflow
+                void funnelElement.offsetWidth;
+
+                // Now measure the actual content width
+                return funnelElement.offsetWidth;
+            }
+            return null;
+            """
+        )
+
+        # If we got actual content width from funnel measurement, use it
+        if actual_content_width and isinstance(actual_content_width, (int, float)):
+            width = int(actual_content_width) + CONTENT_PADDING
+            if width > MAX_WIDTH_PIXELS:
+                logger.warning(
+                    "screenshot_width_capped",
+                    original_width=width,
+                    capped_width=MAX_WIDTH_PIXELS,
+                    url=url_to_render,
+                )
+                width = MAX_WIDTH_PIXELS
+
+        # Set window size with the final dimensions
         driver.set_window_size(width, height + HEIGHT_OFFSET)
 
         # Allow a moment for any dynamic resizing
