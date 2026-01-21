@@ -7,11 +7,32 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `private` - Private (only visible to creator)
+ * `shared` - Shared with team
+ */
+export type VisibilityEnumApi = (typeof VisibilityEnumApi)[keyof typeof VisibilityEnumApi]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const VisibilityEnumApi = {
+    private: 'private',
+    shared: 'shared',
+} as const
+
 export interface ColumnConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
     context_key: string
     columns?: string[]
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    name?: string | null
+    filters?: unknown
+    visibility?: VisibilityEnumApi
+    /** @nullable */
+    readonly created_by: number | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -30,6 +51,15 @@ export interface PatchedColumnConfigurationApi {
     /** @maxLength 255 */
     context_key?: string
     columns?: string[]
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    name?: string | null
+    filters?: unknown
+    visibility?: VisibilityEnumApi
+    /** @nullable */
+    readonly created_by?: number | null
     readonly created_at?: string
     readonly updated_at?: string
 }

@@ -10515,6 +10515,10 @@
                     "description": "Show actors query options and back to source",
                     "type": "boolean"
                 },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
+                    "type": "boolean"
+                },
                 "showTestAccountFilters": {
                     "description": "Show filter to exclude test accounts",
                     "type": "boolean"
@@ -29160,6 +29164,10 @@
                     "type": "boolean"
                 },
                 "showTable": {
+                    "type": "boolean"
+                },
+                "showTableViews": {
+                    "description": "Show table views feature for this table (requires uniqueKey)",
                     "type": "boolean"
                 },
                 "showTestAccountFilters": {

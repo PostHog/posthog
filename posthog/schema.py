@@ -5790,6 +5790,9 @@ class SavedInsightNode(BaseModel):
         default=None, description="Show actors query options and back to source"
     )
     showTable: bool | None = None
+    showTableViews: bool | None = Field(
+        default=None, description="Show table views feature for this table (requires uniqueKey)"
+    )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
     suppressSessionAnalysisWarning: bool | None = None
@@ -17093,6 +17096,9 @@ class DataTableNode(BaseModel):
     showSearch: bool | None = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showSourceQueryOptions: bool | None = Field(
         default=None, description="Show actors query options and back to source"
+    )
+    showTableViews: bool | None = Field(
+        default=None, description="Show table views feature for this table (requires uniqueKey)"
     )
     showTestAccountFilters: bool | None = Field(default=None, description="Show filter to exclude test accounts")
     showTimings: bool | None = Field(default=None, description="Show a detailed query timing breakdown")
