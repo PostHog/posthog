@@ -39,6 +39,8 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
+    RunEvaluationWorkflow,
 ]
 
 ACTIVITIES = [
@@ -48,4 +50,11 @@ ACTIVITIES = [
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
+    # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
+    fetch_evaluation_activity,
+    increment_trial_eval_count_activity,
+    update_key_state_activity,
+    execute_llm_judge_activity,
+    emit_evaluation_event_activity,
+    emit_internal_telemetry_activity,
 ]
