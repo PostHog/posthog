@@ -22,6 +22,7 @@ WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-clustering-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -77,7 +78,7 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 
 # Cluster labeling agent configuration
-LABELING_AGENT_MODEL = "gpt-5.1"  # OpenAI GPT-5.1 for reasoning
+LABELING_AGENT_MODEL = "gpt-5.2"  # OpenAI GPT-5.2 for reasoning
 LABELING_AGENT_MAX_ITERATIONS = 50  # Max agent iterations before forced finalization
 LABELING_AGENT_RECURSION_LIMIT = 150  # LangGraph recursion limit (> 2 * max_iterations)
 LABELING_AGENT_TIMEOUT = 600.0  # 10 minutes for full agent run

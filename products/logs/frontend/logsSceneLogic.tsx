@@ -901,7 +901,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
             actions.syncUrlAndRunQuery()
         },
-        setOrderBy: () => {
+        setOrderBy: ({ orderBy }) => {
+            posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy })
             actions.syncUrlAndRunQuery()
         },
         setLogsPageSize: () => {
