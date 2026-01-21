@@ -25,6 +25,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: posthog-cloud-infra
+                  permission-contents: read
 
             - name: Get app token for PR creation
               id: app-token
@@ -32,6 +33,8 @@ jobs:
               with:
                   app-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-pull-requests: write
 
             - uses: actions/checkout@v6
               with:
@@ -59,8 +62,26 @@ jobs:
               run: |
                   # Fetch raw content from infra repo files
                   fetch_content() {
-                    gh api "repos/PostHog/posthog-cloud-infra/contents/$1" \
-                      --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || echo ""
+                    local path="$1"
+                    local response
+                    local status_line
+                    local body
+                    local content
+
+                    response=$(gh api -i "repos/PostHog/posthog-cloud-infra/contents/$path" 2>&1 || true)
+                    body=$(printf '%s' "$response" | sed -n '1,/^\r$/d' | tr -d '\r')
+                    content=$(printf '%s' "$body" | jq -r '.content // empty' 2>/dev/null || true)
+
+                    if [ -z "$content" ]; then
+                      status_line=$(printf '%s' "$response" | sed -n '1s/\r$//p')
+                      if [ -z "$status_line" ]; then
+                        status_line="HTTP status unknown"
+                      fi
+                      echo "::warning::Could not fetch $path (${status_line})"
+                      echo ""
+                      return
+                    fi
+                    echo "$content" | base64 --decode 2>/dev/null || echo ""
                   }
 
                   prod_eu_content=$(fetch_content "ansible/roles/clickhouse/defaults/main.yml")
@@ -87,8 +108,30 @@ jobs:
                   GH_TOKEN: ${{ steps.infra-token.outputs.token }}
               run: |
                   # Fetch users.xml from production EU workers
-                  prod_users_xml=$(gh api "repos/PostHog/posthog-cloud-infra/contents/ansible/eu/clickhouse/config/workers/users.xml" \
-                    --jq '.content' 2>/dev/null | base64 --decode 2>/dev/null || echo "")
+                  fetch_content() {
+                    local path="$1"
+                    local response
+                    local status_line
+                    local body
+                    local content
+
+                    response=$(gh api -i "repos/PostHog/posthog-cloud-infra/contents/$path" 2>&1 || true)
+                    body=$(printf '%s' "$response" | sed -n '1,/^\r$/d' | tr -d '\r')
+                    content=$(printf '%s' "$body" | jq -r '.content // empty' 2>/dev/null || true)
+
+                    if [ -z "$content" ]; then
+                      status_line=$(printf '%s' "$response" | sed -n '1s/\r$//p')
+                      if [ -z "$status_line" ]; then
+                        status_line="HTTP status unknown"
+                      fi
+                      echo "::warning::Could not fetch $path (${status_line})"
+                      echo ""
+                      return
+                    fi
+                    echo "$content" | base64 --decode 2>/dev/null || echo ""
+                  }
+
+                  prod_users_xml=$(fetch_content "ansible/eu/clickhouse/config/workers/users.xml")
 
                   if [ -z "$prod_users_xml" ]; then
                     echo "::warning::Could not fetch production users.xml"
