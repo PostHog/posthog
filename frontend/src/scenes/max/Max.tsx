@@ -17,7 +17,6 @@ import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { appLogic } from 'scenes/appLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -229,7 +228,6 @@ export const MaxInstance = React.memo(function MaxInstance({
                             to={urls.ai(conversationId ?? undefined)}
                             onClick={() => {
                                 closeSidePanel()
-                                newInternalTab(urls.ai(conversationId ?? undefined))
                             }}
                             target="_blank"
                             tooltip="Open as main focus"
