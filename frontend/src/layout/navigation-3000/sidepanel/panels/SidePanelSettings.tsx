@@ -5,6 +5,7 @@ import { IconArrowLeft, IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
@@ -19,7 +20,8 @@ import { sidePanelSettingsLogic } from './sidePanelSettingsLogic'
 export const SidePanelSettings = (): JSX.Element => {
     const { settings, previousTab } = useValues(sidePanelSettingsLogic)
     const { setSettings, setPreviousTab } = useActions(sidePanelSettingsLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openAi } = useOpenAi()
 
     const settingsLogicProps: SettingsLogicProps = {
         ...settings,
@@ -49,7 +51,7 @@ export const SidePanelSettings = (): JSX.Element => {
                                 icon={<IconArrowLeft />}
                                 onClick={() => {
                                     setPreviousTab(null)
-                                    openSidePanel(SidePanelTab.Max)
+                                    openAi()
                                 }}
                                 tooltip="Back to PostHog AI"
                                 tooltipPlacement="bottom-end"
