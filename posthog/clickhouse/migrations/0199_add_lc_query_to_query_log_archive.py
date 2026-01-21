@@ -45,7 +45,7 @@ non_us_operations = [
         QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(SHARDED_QUERY_LOG_ARCHIVE_TABLE),
         node_roles=[NodeRole.DATA],
         sharded=True,
-        is_alter_on_replicated_table=False,
+        is_alter_on_replicated_table=True,
     ),
     # Add lc_query column to writable_sharded_query_log_archive distributed table
     run_sql_with_exceptions(
