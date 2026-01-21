@@ -114,7 +114,9 @@ export const BillingProductPricingTable = ({
                                         ...(subscribedAddons?.map((addon) => {
                                             return {
                                                 productName: addon.name,
-                                                usage: formatUsage(addon.tiers?.[i]?.current_usage || 0),
+                                                usage: createProductValueFormatter(addon)(
+                                                    addon.tiers?.[i]?.current_usage || 0
+                                                ),
                                                 price: `$${formatWithDecimals(parseFloat(addon.tiers?.[i]?.unit_amount_usd || '0'))}`,
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
                                                 projectedTotal: `$${parseFloat(

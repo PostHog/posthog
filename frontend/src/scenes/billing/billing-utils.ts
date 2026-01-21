@@ -92,7 +92,7 @@ export const summarizeUsage = (usage: number | null): string => {
  * Check if a product has display formatting configured.
  */
 export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
-    return !!(product.display_divisor || product.display_decimals != null || product.display_unit)
+    return !!(product.display_divisor != null || product.display_decimals != null || product.display_unit)
 }
 
 /**
