@@ -22,6 +22,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         # Detect if this is a count/aggregation query
         self.is_aggregation_query = False
         if self.query.select:
+            # nosemgrep: hogql-injection-taint - self.query.select contains intentional HogQL expressions (e.g. count(*))
             self.is_aggregation_query = any(has_aggregation(parse_expr(col)) for col in self.query.select)
 
         # Handle column logic differently for aggregation queries
