@@ -23,6 +23,8 @@ jobs:
               with:
                   app-id: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_CLOUD_INFRA_WORKFLOW_TRIGGER_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: posthog-cloud-infra
 
             - name: Get app token for PR creation
               id: app-token
