@@ -37,6 +37,7 @@ members = [
     "common/geoip",
     "common/hogvm",
     "kafka-deduplicator",
+    "personhog-proto",
 ]
 
 [workspace.lints.rust]
@@ -89,6 +90,7 @@ opentelemetry = { version = "0.22.0", features = ["trace"] }
 opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
+prost = "0.13"
 rand = "0.8.5"
 rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }

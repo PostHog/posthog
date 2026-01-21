@@ -65,12 +65,8 @@ pub const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
 pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
 
 /// Counter for checkpoint worker status
+/// Tags: result=success|error|skipped, cause=..., export=...
 pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
-
-/// Counts number of times a StoreManager lookup by partition
-/// finds no associated DeduplicationStore, meaning ownership
-/// has changed across a rebalance or other event asynchronously
-pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
 
 /// Histogram for checkpoint upload duration
 pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";

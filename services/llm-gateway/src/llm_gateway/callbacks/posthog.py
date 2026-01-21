@@ -4,7 +4,7 @@ from uuid import uuid4
 import posthoganalytics
 
 from llm_gateway.callbacks.base import InstrumentedCallback
-from llm_gateway.request_context import get_auth_user
+from llm_gateway.request_context import get_auth_user, get_product
 
 
 class PostHogCallback(InstrumentedCallback):
@@ -23,6 +23,7 @@ class PostHogCallback(InstrumentedCallback):
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
+        product = get_product()
 
         trace_id = metadata.get("user_id") or str(uuid4())
         distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
@@ -37,6 +38,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_latency": standard_logging_object.get("response_time", 0.0),
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
+            "ai_product": product,
         }
 
         if team_id:
@@ -65,6 +67,7 @@ class PostHogCallback(InstrumentedCallback):
         standard_logging_object = kwargs.get("standard_logging_object", {})
         metadata = self._extract_metadata(kwargs)
         auth_user = get_auth_user()
+        product = get_product()
 
         trace_id = metadata.get("user_id") or str(uuid4())
         distinct_id = auth_user.distinct_id if auth_user else str(uuid4())
@@ -76,6 +79,7 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
+            "ai_product": product,
         }
 
         if team_id:

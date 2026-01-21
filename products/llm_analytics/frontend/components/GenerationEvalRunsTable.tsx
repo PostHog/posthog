@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 
 import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
-import { LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -84,9 +84,11 @@ function GenerationEvalRunsTableContent(): JSX.Element {
             title: 'Reasoning',
             key: 'reasoning',
             render: (_, run) => (
-                <div className="max-w-md">
-                    <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                </div>
+                <Tooltip title={run.reasoning}>
+                    <div className="max-w-md cursor-default">
+                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
+                    </div>
+                </Tooltip>
             ),
         },
     ]
