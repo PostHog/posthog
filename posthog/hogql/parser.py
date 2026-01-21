@@ -1,3 +1,4 @@
+import random
 from collections.abc import Callable
 from typing import Literal, cast
 
@@ -17,6 +18,7 @@ from hogql_parser import (
 )
 from opentelemetry import trace
 from prometheus_client import Histogram
+from structlog import getLogger
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
@@ -32,18 +34,7 @@ from posthog.hogql.timings import HogQLTimings
 
 tracer = trace.get_tracer(__name__)
 
-
-def _validate_no_final(node: AST) -> None:
-    """Validates that the AST does not use the FINAL keyword, which causes slow queries."""
-    from posthog.hogql.visitor import TraversingVisitor
-
-    class FinalValidator(TraversingVisitor):
-        def visit_join_expr(self, node: ast.JoinExpr):
-            if node.table_final:
-                raise SyntaxError("The FINAL keyword is not supported in HogQL as it causes slow queries")
-            super().visit_join_expr(node)
-
-    FinalValidator().visit(node)
+logger = getLogger(__name__)
 
 
 def safe_lambda(f):
@@ -102,6 +93,55 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
 DEFAULT_BACKEND: HogQLParserBackend = "cpp"
 
 
+def _compare_with_cpp_json(
+    backend: HogQLParserBackend,
+    parsed_ast: ast.AST,
+    rule: Literal["expr", "select", "order_expr", "program"],
+    source: str,
+    start: int | None = None,
+    placeholders: dict[str, ast.Expr] | None = None,
+) -> None:
+    # Only compare a fraction of queries to avoid performance overhead
+    if random.random() > 0.1:
+        return
+
+    if backend == "cpp-json":
+        return
+
+    try:
+        fn = RULE_TO_PARSE_FUNCTION["cpp-json"][rule]
+        cpp_json_ast = fn(source, start=start) if rule == "expr" else fn(source)
+    except Exception as err:
+        logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
+        return
+
+    try:
+        if placeholders:
+            cpp_json_ast = replace_placeholders(cpp_json_ast, placeholders)
+    except Exception as err:
+        logger.warning(
+            "hogql_cpp_json_placeholder_replacement_error",
+            rule=rule,
+            backend=backend,
+            query=source,
+            error=str(err),
+        )
+        return
+
+    try:
+        if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
+            logger.warning(
+                "hogql_cpp_json_mismatch",
+                rule=rule,
+                backend=backend,
+                query=source,
+                parsed_ast=repr(parsed_ast),
+                cpp_json_ast=repr(cpp_json_ast),
+            )
+    except Exception as err:
+        logger.warning("hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err))
+
+
 def parse_string_template(
     string: str,
     placeholders: dict[str, ast.Expr] | None = None,
@@ -139,6 +179,7 @@ def parse_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "expr", expr, start=start, placeholders=placeholders)
     return node
 
 
@@ -157,6 +198,7 @@ def parse_order_expr(
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "order_expr", order_expr, start=None, placeholders=placeholders)
     return node
 
 
@@ -175,10 +217,10 @@ def parse_select(
             tracer.start_as_current_span("parse_statement_to_node"),
         ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
-        _validate_no_final(node)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
+    _compare_with_cpp_json(backend, node, "select", statement, start=None, placeholders=placeholders)
     return node
 
 
@@ -193,6 +235,7 @@ def parse_program(
     with timings.measure(f"parse_expr_{backend}"):
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
+    _compare_with_cpp_json(backend, node, "program", source, start=None, placeholders=None)
     return node
 
 
@@ -542,9 +585,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.sampleClause():
             sample = self.visit(ctx.sampleClause())
         table = self.visit(ctx.tableExpr())
-        if ctx.FINAL():
-            raise SyntaxError("The FINAL keyword is not supported in HogQL as it causes slow queries")
-        table_final = None
+        table_final = True if ctx.FINAL() else None
         if isinstance(table, ast.JoinExpr):
             # visitTableExprAlias returns a JoinExpr to pass the alias
             # visitTableExprFunction returns a JoinExpr to pass the args

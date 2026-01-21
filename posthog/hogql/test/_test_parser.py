@@ -2943,13 +2943,4 @@ def parser_test_factory(backend: HogQLParserBackend):
 
             self.assertEqual(self._select("SELECT 1 UNION ALL SELECT 2;"), self._select("SELECT 1 UNION ALL SELECT 2"))
 
-        def test_final_keyword_not_supported(self):
-            with self.assertRaises(SyntaxError) as e:
-                self._select("SELECT * FROM events FINAL")
-            self.assertIn("FINAL", str(e.exception))
-
-            with self.assertRaises(SyntaxError) as e:
-                self._select("SELECT * FROM events FINAL WHERE timestamp > '2026-01-01'")
-            self.assertIn("FINAL", str(e.exception))
-
     return TestParser
