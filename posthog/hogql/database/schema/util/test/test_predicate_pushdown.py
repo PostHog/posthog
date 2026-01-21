@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 
 from parameterized import parameterized
 
@@ -15,11 +15,12 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import clone_expr
 
 
-def make_field(chain: list[str], table_type: Optional[ast.TableType] = None) -> ast.Field:
+def make_field(chain: list[str | int], table_type: Optional[ast.TableType] = None) -> ast.Field:
     """Create a field with optional type information."""
     field_type = None
     if table_type is not None and len(chain) > 0:
-        field_type = ast.FieldType(name=chain[-1], table_type=table_type)
+        last = chain[-1]
+        field_type = ast.FieldType(name=str(last), table_type=table_type)
     return ast.Field(chain=chain, type=field_type)
 
 
@@ -46,7 +47,7 @@ def make_lazy_join_type(field: str) -> ast.LazyJoinType:
 
 def make_select_query_alias_type(alias: str) -> ast.SelectQueryAliasType:
     """Create a SelectQueryAliasType for testing."""
-    return ast.SelectQueryAliasType(alias=alias, select_query_type=None)
+    return ast.SelectQueryAliasType(alias=alias, select_query_type=None)  # type: ignore[arg-type]
 
 
 class TestJoinedTableReferenceFinder:
@@ -147,6 +148,7 @@ class TestTableAliasUnwrapper:
         )
 
         # Before unwrapping: type is TableAliasType
+        assert isinstance(field.type, ast.FieldType)
         assert isinstance(field.type.table_type, ast.TableAliasType)
 
         unwrapper = TableAliasUnwrapper()
@@ -219,15 +221,17 @@ class TestTableAliasUnwrapper:
         )
 
         # Before: field has TableAliasType
+        assert isinstance(comparison.left.type, ast.FieldType)
         assert isinstance(comparison.left.type.table_type, ast.TableAliasType)
 
         result = unwrap_table_aliases(comparison)
 
         # After: expression prints correctly and type is unwrapped
         assert print_expr(result) == "greaterOrEquals(e.timestamp, '2024-01-01')"
-        assert isinstance(result.left, ast.Field)
-        assert isinstance(result.left.type, ast.FieldType)
-        assert isinstance(result.left.type.table_type, ast.TableType)
+        result_cmp = cast(ast.CompareOperation, result)
+        assert isinstance(result_cmp.left, ast.Field)
+        assert isinstance(result_cmp.left.type, ast.FieldType)
+        assert isinstance(result_cmp.left.type.table_type, ast.TableType)
 
     def test_unwraps_property_type_with_aliased_table(self):
         """PropertyType wrapping FieldType with TableAliasType should be unwrapped."""

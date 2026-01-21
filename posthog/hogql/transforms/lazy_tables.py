@@ -375,7 +375,7 @@ class LazyTableResolver(TraversingVisitor):
                 # Store the pushdown predicates on the JoinExpr.
                 # The printer will wrap the table in a subquery with these predicates.
                 # Always include team_id filter in the inner subquery for security and performance.
-                if self.context.team_id is not None:
+                if self.context.team_id is not None and node.select_from.type is not None:
                     # Get the table type from the events table to properly type the team_id field
                     table_type = node.select_from.type
                     if isinstance(table_type, ast.TableAliasType):

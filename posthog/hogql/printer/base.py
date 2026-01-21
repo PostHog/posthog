@@ -337,7 +337,7 @@ class HogQLPrinter(Visitor[str]):
                 sql = f"(SELECT * FROM {sql} WHERE {pushdown_where_sql})"
                 join_strings.append(sql)
                 # Always add alias after a subquery
-                alias = node.alias or (node.table.chain[0] if isinstance(node.table, ast.Field) else None)
+                alias = node.alias or (str(node.table.chain[0]) if isinstance(node.table, ast.Field) else None)
                 if alias:
                     join_strings.append(f"AS {self._print_identifier(alias)}")
             else:
