@@ -209,7 +209,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                     "type": "OR",
                     "values": [
                         {
-                            "key": "worldcoin_internal",
+                            "key": "internal_user",
                             "type": "person",
                             "negation": False,
                             "value": ["yes", "true"],
@@ -223,14 +223,14 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
                             "operator": "exact",
                         },
                         {
-                            "key": "tfh_internal",
+                            "key": "beta_tester",
                             "type": "person",
                             "value": True,
                             "negation": False,
                             "operator": "exact",
                         },
                         {
-                            "key": "worldapp_alpha",
+                            "key": "alpha_tester",
                             "type": "person",
                             "value": True,
                             "negation": False,
