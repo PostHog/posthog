@@ -80,6 +80,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         quickEmojiIsOpen,
         showingClipParams,
         isMuted,
+        endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
     const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -112,6 +113,13 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isRecentAndInvalid]
     )
+
+    // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            ;(window as any).__POSTHOG_RECORDING_ENDED__ = endReached
+        }
+    }, [endReached])
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
