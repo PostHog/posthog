@@ -128,6 +128,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries"
@@ -169,6 +170,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries"
@@ -902,6 +904,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries"
@@ -943,6 +946,7 @@
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
          "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."enable_iframe_embedding",
          "posthog_survey"."headline_summary",
          "posthog_survey"."headline_response_count",
          "posthog_survey"."question_summaries"
