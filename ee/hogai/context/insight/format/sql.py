@@ -33,7 +33,7 @@ class SQLResultsFormatter:
 
         if is_json_like and len(cell_str) > self.MAX_CELL_LENGTH:
             self._has_truncated_values = True
-            return cell_str[: self.MAX_CELL_LENGTH] + f"... {TRUNCATED_MARKER}"
+            return cell_str[: self.MAX_CELL_LENGTH] + TRUNCATED_MARKER
 
         return cell_str
 
