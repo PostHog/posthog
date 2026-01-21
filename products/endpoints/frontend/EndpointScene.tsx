@@ -20,6 +20,7 @@ import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
 import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
+import { EndpointVersions } from './endpoint-tabs/EndpointVersions'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
 
@@ -36,7 +37,9 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     if (!tabId) {
         throw new Error('<EndpointScene /> must receive a tabId prop')
     }
-    const { endpoint, endpointLoading, activeTab } = useValues(endpointSceneLogic({ tabId }))
+    const { endpoint, endpointLoading, activeTab, isViewingOldVersion, viewingVersion, selectedVersionData } =
+        useValues(endpointSceneLogic({ tabId }))
+    const { updateVersionMaterialization } = useActions(endpointSceneLogic({ tabId }))
     const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
     const { searchParams } = useValues(router)
 
@@ -63,6 +66,14 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             content: <EndpointPlayground tabId={tabId} />,
             link: endpoint
                 ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.PLAYGROUND }).url
+                : undefined,
+        },
+        {
+            key: EndpointTab.VERSIONS,
+            label: 'Versions',
+            content: <EndpointVersions tabId={tabId} />,
+            link: endpoint
+                ? combineUrl(urls.endpoint(endpoint.name), { ...searchParams, tab: EndpointTab.VERSIONS }).url
                 : undefined,
         },
         {
@@ -112,6 +123,41 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
         confirmToggleActive(endpoint)
     }
 
+    const handleToggleVersionActive = (): void => {
+        if (!isViewingOldVersion || viewingVersion === null || !selectedVersionData) {
+            return
+        }
+        const newIsActive = !selectedVersionData.is_active
+        LemonDialog.open({
+            title: newIsActive ? 'Activate version?' : 'Deactivate version?',
+            content: (
+                <div className="text-sm text-secondary">
+                    {newIsActive
+                        ? `This will make version ${viewingVersion} available for execution via the API.`
+                        : `This will prevent version ${viewingVersion} from being executed via the API.`}
+                </div>
+            ),
+            primaryButton: {
+                children: newIsActive ? 'Activate' : 'Deactivate',
+                type: 'primary',
+                status: newIsActive ? undefined : 'danger',
+                onClick: () => {
+                    updateVersionMaterialization(viewingVersion, { is_active: newIsActive })
+                },
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    // When viewing old version, show version's active status; otherwise show endpoint's
+    const displayIsActive =
+        isViewingOldVersion && selectedVersionData ? selectedVersionData.is_active : endpoint?.is_active
+
     return (
         <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
             <SceneContent className="Endpoint">
@@ -122,15 +168,24 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
             {endpoint && (
                 <ScenePanel>
                     <ScenePanelActionsSection>
-                        <ButtonPrimitive menuItem onClick={handleToggleActive}>
-                            {endpoint.is_active ? <IconPause /> : <IconPlay />}
-                            {endpoint.is_active ? 'Deactivate' : 'Activate'}
-                        </ButtonPrimitive>
-                        <LemonDivider />
-                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
-                            <IconTrash />
-                            Delete endpoint
-                        </ButtonPrimitive>
+                        {isViewingOldVersion ? (
+                            <ButtonPrimitive menuItem onClick={handleToggleVersionActive}>
+                                {displayIsActive ? <IconPause /> : <IconPlay />}
+                                {displayIsActive ? 'Deactivate version' : 'Activate version'}
+                            </ButtonPrimitive>
+                        ) : (
+                            <>
+                                <ButtonPrimitive menuItem onClick={handleToggleActive}>
+                                    {endpoint.is_active ? <IconPause /> : <IconPlay />}
+                                    {endpoint.is_active ? 'Deactivate' : 'Activate'}
+                                </ButtonPrimitive>
+                                <LemonDivider />
+                                <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
+                                    <IconTrash />
+                                    Delete endpoint
+                                </ButtonPrimitive>
+                            </>
+                        )}
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}

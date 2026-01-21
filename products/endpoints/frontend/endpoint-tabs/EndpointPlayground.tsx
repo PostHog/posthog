@@ -184,7 +184,7 @@ fetch(url, {
 
 export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading } = useValues(
+    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading, viewingVersion } = useValues(
         endpointSceneLogic({ tabId })
     )
     const { setPayloadJson, setPayloadJsonError, loadEndpointResult } = useActions(endpointSceneLogic({ tabId }))
@@ -224,16 +224,19 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
         return <></>
     }
 
+    // Use selected version from dropdown, or fall back to viewing version if we're viewing an old version
+    const effectiveVersion = selectedCodeExampleVersion ?? viewingVersion ?? endpoint.current_version
+
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint, selectedCodeExampleVersion)
+                return generateTerminalExample(endpoint, effectiveVersion)
             case 'python':
-                return generatePythonExample(endpoint, selectedCodeExampleVersion)
+                return generatePythonExample(endpoint, effectiveVersion)
             case 'nodejs':
-                return generateNodeExample(endpoint, selectedCodeExampleVersion)
+                return generateNodeExample(endpoint, effectiveVersion)
             default:
-                return generateTerminalExample(endpoint, selectedCodeExampleVersion)
+                return generateTerminalExample(endpoint, effectiveVersion)
         }
     }
 
@@ -255,7 +258,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
         const version = i + 1
         return {
             value: version,
-            label: version === endpoint.current_version ? `v${version} (Current)` : `v${version}`,
+            label: version === endpoint.current_version ? `v${version} (Latest)` : `v${version}`,
         }
     })
 
@@ -359,7 +362,7 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                     <LemonSelect
                         options={versionOptions}
                         onChange={setSelectedCodeExampleVersion}
-                        value={selectedCodeExampleVersion || endpoint.current_version}
+                        value={effectiveVersion}
                         placeholder="Select version"
                     />
                     <LemonSelect
