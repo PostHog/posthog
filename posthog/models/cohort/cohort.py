@@ -625,11 +625,16 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
         Remove a user from the cohort by their UUID.
 
+        This operation is idempotent - it succeeds even if the person wasn't in the cohort,
+        to handle cases where ClickHouse and PostgreSQL data may be out of sync.
+
         Args:
             user_uuid: UUID of the user to be removed from the cohort.
             team_id: ID of the team to which the cohort belongs
         Returns:
-            True if user was removed, False if user was not in the cohort.
+            True if the person exists (removal attempted), False if the person doesn't exist.
+        Raises:
+            Exception: If removal fails due to database errors.
         """
         from posthog.models.cohort.util import get_static_cohort_size, remove_person_from_static_cohort
 
