@@ -464,6 +464,14 @@ pub struct Config {
     // Set to 0 to disable retries (fail immediately on first error)
     #[envconfig(from = "REDIS_CLIENT_RETRY_COUNT", default = "3")]
     pub redis_client_retry_count: u32,
+
+    // Regex backtracking limit for fancy-regex patterns
+    // Limits how many backtracking steps are allowed before returning an error
+    // Lower values reduce worst-case latency but may reject complex patterns
+    // Default: 10000 (completes in ~1ms on typical hardware)
+    // Set to 0 to use fancy-regex default (1 million steps, ~100ms worst case)
+    #[envconfig(from = "REGEX_BACKTRACK_LIMIT", default = "10000")]
+    pub regex_backtrack_limit: usize,
 }
 
 impl Config {
@@ -583,6 +591,7 @@ impl Config {
             redis_compression_enabled: FlexBool(true),
             redis_client_retry_count: 3,
             optimize_experience_continuity_lookups: FlexBool(true),
+            regex_backtrack_limit: 10000,
         }
     }
 

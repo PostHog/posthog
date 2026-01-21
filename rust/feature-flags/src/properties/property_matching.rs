@@ -1,12 +1,28 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::properties::property_models::{OperatorType, PropertyFilter};
 use crate::properties::relative_date;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use dateparser::parse as parse_date;
-use fancy_regex::Regex;
+use fancy_regex::RegexBuilder;
 use semver::{Version, VersionReq};
 use serde_json::Value;
+
+/// Default regex backtrack limit (10k steps, ~1ms worst case)
+/// Can be overridden at runtime via set_regex_backtrack_limit()
+const DEFAULT_REGEX_BACKTRACK_LIMIT: usize = 10_000;
+
+static REGEX_BACKTRACK_LIMIT: AtomicUsize = AtomicUsize::new(DEFAULT_REGEX_BACKTRACK_LIMIT);
+
+/// Set the global regex backtrack limit (call once at startup from config)
+pub fn set_regex_backtrack_limit(limit: usize) {
+    REGEX_BACKTRACK_LIMIT.store(limit, Ordering::Relaxed);
+}
+
+fn get_regex_backtrack_limit() -> usize {
+    REGEX_BACKTRACK_LIMIT.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum FlagMatchingError {
@@ -159,15 +175,20 @@ pub fn match_property(
                 // - for NotRegex: it is a match (true)
                 return Ok(operator == OperatorType::NotRegex);
             }
-            let pattern = match Regex::new(&to_string_representation(value)) {
+            let backtrack_limit = get_regex_backtrack_limit();
+            let pattern = match RegexBuilder::new(&to_string_representation(value))
+                .backtrack_limit(backtrack_limit)
+                .build()
+            {
                 Ok(pattern) => pattern,
                 Err(_) => {
                     return Ok(false);
                 }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
-            // fancy_regex returns Result<Option<Match>, Error> to handle backtracking limits
-            let match_ = pattern.find(&haystack).unwrap_or(None);
+            let match_ = pattern
+                .find(&haystack)
+                .map_err(|_| FlagMatchingError::InvalidRegexPattern)?;
 
             if operator == OperatorType::Regex {
                 Ok(match_.is_some())
@@ -3011,46 +3032,55 @@ mod test_match_properties {
 
     #[test]
     fn test_match_properties_regex_backtracking_limit() {
-        // Test that pathological regex patterns don't hang forever
-        // fancy-regex has a default backtracking limit of 1 million steps
-        // This pattern could cause catastrophic backtracking without limits
+        // Test that pathological regex patterns complete quickly due to backtrack limits.
+        // The backtrack limit only applies to patterns using "fancy" features (lookahead,
+        // lookbehind, backreferences) since fancy-regex delegates simple patterns to the
+        // standard regex crate which uses a non-backtracking DFA/NFA algorithm.
+        //
+        // This pattern uses a backreference which forces the backtracking engine,
+        // combined with nested quantifiers that cause exponential backtracking.
         let property = PropertyFilter {
             key: "key".to_string(),
-            value: Some(json!(r"(a+)+b")),
+            value: Some(json!(r"^(a+)+\1$")),
             operator: Some(OperatorType::Regex),
             prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
 
-        // Should match normally
+        // Should match when the string is repeated correctly
         assert!(match_property(
             &property,
-            &HashMap::from([("key".to_string(), json!("aaab"))]),
+            &HashMap::from([("key".to_string(), json!("aaaa"))]),
             true
         )
         .expect("expected match to exist"));
 
-        // This would cause catastrophic backtracking without limits,
-        // but fancy-regex will hit its backtracking limit and return an error
-        // which we handle by returning false (no match)
+        // This causes exponential backtracking: the engine tries many ways to split
+        // the 'a's between the group and the backreference, and with the nested
+        // quantifier (a+)+, each split has many sub-combinations to try.
+        let pathological_input = "a".repeat(30) + "!";
         let start = std::time::Instant::now();
         let result = match_property(
             &property,
-            &HashMap::from([("key".to_string(), json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaac"))]),
+            &HashMap::from([("key".to_string(), json!(pathological_input))]),
             true,
         );
         let elapsed = start.elapsed();
 
         // The key assertion: this should complete quickly (not hang)
-        // Even with backtracking limit hit, should complete in under 1 second
+        // With 10k backtrack limit, should complete in well under 100ms
         assert!(
-            elapsed.as_secs() < 1,
+            elapsed.as_millis() < 100,
             "Regex matching took too long: {:?}",
             elapsed
         );
 
-        // Result should be Ok(false) - either no match or backtracking limit hit
-        assert!(!result.expect("expected match to exist"));
+        // Result should be an error due to backtracking limit being exceeded
+        assert!(
+            matches!(result, Err(FlagMatchingError::InvalidRegexPattern)),
+            "Expected InvalidRegexPattern error due to backtrack limit, got {:?}",
+            result
+        );
     }
 }
