@@ -27628,6 +27628,9 @@
                 "active": {
                     "type": "boolean"
                 },
+                "recording_ts_from_s": {
+                    "$ref": "#/definitions/integer"
+                },
                 "ts_from_s": {
                     "$ref": "#/definitions/integer"
                 },
@@ -27635,7 +27638,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["ts_from_s", "active"],
+            "required": ["ts_from_s", "active", "recording_ts_from_s"],
             "type": "object"
         },
         "ResolvedDateRangeResponse": {
