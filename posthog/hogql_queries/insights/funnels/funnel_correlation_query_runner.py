@@ -563,9 +563,6 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         event_names = self.query.funnelCorrelationEventNames
         exclude_property_names = self.query.funnelCorrelationEventExcludePropertyNames or []
 
-        # Build AST array for safe escaping of user input
-        exclude_prop_names_ast = ast.Array(exprs=[ast.Constant(value=name) for name in exclude_property_names])
-
         if self.support_autocapture_elements():
             event_type_expression, _ = get_property_string_expr(
                 "events",
@@ -650,7 +647,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "date_to": date_to,
                 "event_names": ast.Tuple(exprs=[ast.Constant(value=e) for e in event_names]),
                 "total_identifier": ast.Constant(value=self.TOTAL_IDENTIFIER),
-                **({"exclude_props": exclude_prop_names_ast} if exclude_property_names else {}),
+                **(
+                    {"exclude_props": ast.Tuple(exprs=[ast.Constant(value=name) for name in exclude_property_names])}
+                    if exclude_property_names
+                    else {}
+                ),
             },
         )
 
