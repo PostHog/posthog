@@ -702,7 +702,7 @@ jobs:
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
-                  # Start docker compose in background
+                  # Start docker compose in background with only essential services
                   (
                       max_attempts=3
                       attempt=1
@@ -711,8 +711,9 @@ jobs:
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
 
+                          # Only start db and clickhouse services (temporal will be started conditionally later)
                           if docker compose -f docker-compose.dev.yml --profile '*' down && \
-                            docker compose -f docker-compose.dev.yml --profile batch-exports up -d; then
+                            docker compose -f docker-compose.dev.yml up db clickhouse -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
@@ -855,8 +856,14 @@ jobs:
             - name: Wait for services to be available
               shell: bash
               run: |
-                  bin/check_kafka_clickhouse_up
+                  bin/check_clickhouse_up
                   bin/check_postgres_up
+
+            - name: Start Temporal services for Temporal tests
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
+              shell: bash
+              run: |
+                  docker compose -f docker-compose.dev.yml up temporal elasticsearch -d
 
             - name: Wait for Temporal
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
