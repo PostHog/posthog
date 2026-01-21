@@ -604,6 +604,7 @@ export interface ConversationsSettings {
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
+    notification_recipients?: number[] | null
 }
 
 export interface LogsSettings {
