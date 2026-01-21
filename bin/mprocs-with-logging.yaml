@@ -24,10 +24,10 @@ procs:
             bin/check_temporal_up && \
             bin/check_video_deps && \
             bin/check_ducklake_up && \
-            if [ -n "$TEMPORAL_WATCH" ]; then \
-                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue" 2>&1 | tee /tmp/posthog-temporal-worker.log; \
-            else \
+            if [ -n "$TEMPORAL_SKIP_HOT_RELOAD" ]; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue 2>&1 | tee /tmp/posthog-temporal-worker.log; \
+            else \
+                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue" 2>&1 | tee /tmp/posthog-temporal-worker.log; \
             fi
 
     dagster:
