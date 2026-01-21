@@ -552,6 +552,47 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 send_two_factor_auth_backup_code_used_email.delay(user.id)
                 return self._token_is_valid(request, user, static_device)
 
+        raise serializers.ValidationError(detail="Invalid authentication code", code="2fa_invalid")
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
+        # Validate session state - keys must exist from login flow
+        user_id = request.session.get("user_authenticated_but_no_2fa")
+        auth_time = request.session.get("user_authenticated_time")
+
+        if not user_id or auth_time is None:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError(
+                detail="Invalid 2FA session. Please log in again.",
+                code="invalid_2fa_session",
+            )
+
+        expiration_time = auth_time + getattr(settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600)
+        if int(time.time()) > expiration_time:
+            raise serializers.ValidationError(
+                detail="Login attempt has expired. Re-enter username/password.",
+                code="2fa_expired",
+            )
+
+        # Check if this is a passkey 2FA attempt
+        credential_id = request.data.get("credential_id")
+        response_data = request.data.get("response")
+        if credential_id and response_data:
+            return self._handle_passkey_2fa(request, user, credential_id, response_data)
+
+        # TOTP/backup code flow
+        token = request.data.get("token")
+        if not token:
+            raise serializers.ValidationError(
+                detail="Either token or passkey credentials required.", code="2fa_missing_credentials"
+            )
+
         return self._handle_totp_2fa(request, user, token)
 
 
