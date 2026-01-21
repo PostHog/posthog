@@ -59,7 +59,8 @@ function getPublicUrl(request: Request): URL {
 // allowing us to redirect to the correct EU OAuth server.
 function getRegionFromHostname(request: Request): CloudRegion | undefined {
     const publicUrl = getPublicUrl(request)
-    if (publicUrl.hostname === 'mcp-eu.posthog.com') {
+    // DNS hostnames are case-insensitive, so normalize to lowercase
+    if (publicUrl.hostname.toLowerCase() === 'mcp-eu.posthog.com') {
         return 'eu'
     }
     return undefined
