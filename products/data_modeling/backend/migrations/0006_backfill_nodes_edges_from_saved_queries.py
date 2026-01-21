@@ -36,7 +36,7 @@ def backfill_nodes_and_edges(apps, schema_editor):
         .filter(deleted=False)
         .exclude(id__in=existing_saved_query_ids)
     )
-    backfilled_ids = [q.id for q in saved_queries]
+    total_to_backfill = len(saved_queries)
     logger.info("Starting saved_query -> node and edge model backfill...")
     # first pass: create all nodes
     for i, saved_query in enumerate(saved_queries.iterator(chunk_size=BATCH_SIZE)):
@@ -50,18 +50,16 @@ def backfill_nodes_and_edges(apps, schema_editor):
             properties={"backfilled": True},
         )
         if (i + 1) % LOG_INTERVAL == 0:
-            logger.info("Backfilling nodes...", progress=i + 1, total=len(backfilled_ids))
+            logger.info("Backfilling nodes...", progress=i + 1, total=total_to_backfill)
         # sleep between batches to reduce load on db
         if (i + 1) % BATCH_SIZE == 0:
             time.sleep(BATCH_DELAY_SECONDS)
     logger.info("All nodes backfilled. Backfilling edges...")
-    # recreate query set since iterator is consumed
-    saved_queries = DataWarehouseSavedQuery.objects.select_related("team").filter(deleted=False, id__in=backfilled_ids)
     # second pass: sync to create edges (all nodes now exist)
     for i, saved_query in enumerate(saved_queries.iterator(chunk_size=BATCH_SIZE)):
         sync_saved_query_to_dag(saved_query, extra_properties={"backfilled": True})
         if (i + 1) % LOG_INTERVAL == 0:
-            logger.info("Backfilling edges...", progress=i + 1, total=len(backfilled_ids))
+            logger.info("Backfilling edges...", progress=i + 1, total=total_to_backfill)
         if (i + 1) % BATCH_SIZE == 0:
             time.sleep(BATCH_DELAY_SECONDS)
     logger.info("Done.")
