@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { compactNumber, dateStringToDayJs } from 'lib/utils'
+import { compactNumber, dateStringToDayJs, pluralize } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
@@ -86,6 +86,91 @@ export const summarizeUsage = (usage: number | null): string => {
         return ''
     }
     return compactNumber(usage)
+}
+
+/**
+ * Formats a usage value for human-friendly display based on product display config.
+ * If the product has display formatting fields set, applies them. Otherwise returns the raw value.
+ *
+ * Examples:
+ * - Storage: 27648 MB → "27.65 GB" (divisor=1000, decimals=2, unit="GB")
+ * - No config: 1234567 → "1,234,567"
+ */
+export const formatDisplayUsage = (
+    value: number | null,
+    product: BillingProductV2Type | BillingProductV2AddonType
+): string => {
+    if (value === null) {
+        return ''
+    }
+
+    const { display_divisor, display_decimals, display_unit } = product
+
+    // If no display formatting configured, return raw formatted number
+    // Use loose equality (== null) to handle both null and undefined from API
+    if (!display_divisor && display_decimals == null && !display_unit) {
+        return value.toLocaleString()
+    }
+
+    // Apply divisor if set
+    let displayValue = display_divisor ? value / display_divisor : value
+
+    // Format with decimals if set
+    let formattedValue: string
+    if (typeof display_decimals === 'number') {
+        formattedValue = displayValue.toFixed(display_decimals)
+    } else {
+        formattedValue = displayValue.toLocaleString()
+    }
+
+    // Append unit if set (pluralized appropriately)
+    if (display_unit) {
+        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or units already ending in 's'
+        const isAbbreviation = display_unit === display_unit.toUpperCase() && display_unit.length <= 3
+        const alreadyPlural = display_unit.endsWith('s')
+        const unitLabel =
+            isAbbreviation || alreadyPlural ? display_unit : pluralize(displayValue, display_unit, undefined, false)
+        return `${formattedValue} ${unitLabel}`
+    }
+
+    return formattedValue
+}
+
+/**
+ * Check if a product has display formatting configured.
+ * Uses loose equality (!=) to handle both null and undefined from API responses.
+ */
+export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+    return !!(product.display_divisor || product.display_decimals != null || product.display_unit)
+}
+
+/**
+ * Create a value formatter function for a product.
+ * Uses display formatting if configured, otherwise falls back to summarizeUsage (compact number).
+ */
+export const createProductValueFormatter = (
+    product: BillingProductV2Type | BillingProductV2AddonType
+): ((value: number | null) => string) => {
+    const useDisplayFormat = hasDisplayFormatting(product)
+    return (value: number | null): string => {
+        if (value === null) {
+            return ''
+        }
+        return useDisplayFormat ? formatDisplayUsage(value, product) : summarizeUsage(value)
+    }
+}
+
+/**
+ * Get the unit label for display (pluralized).
+ * Returns empty string when display formatting is enabled, since the unit is already
+ * included in the formatted value from formatDisplayUsage.
+ */
+export const getProductUnitLabel = (product: BillingProductV2Type | BillingProductV2AddonType): string => {
+    // When display formatting is enabled, the unit is already in the formatted value
+    if (hasDisplayFormatting(product)) {
+        return ''
+    }
+    return product.unit ? `${product.unit}s` : ''
 }
 
 export const projectUsage = (usage: number | undefined, period: BillingType['billing_period']): number | undefined => {
