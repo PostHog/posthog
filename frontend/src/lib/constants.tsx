@@ -168,10 +168,12 @@ export const FEATURE_FLAGS = {
     HALLOWEEN_OVERRIDE: 'halloween-override', // owner: #team-growth, overrides the checks for Halloween to return true when this is enabled
     CHRISTMAS_OVERRIDE: 'christmas-override', // owner: #team-growth, overrides the checks for Christmas to return true when this is enabled
 
+    // UX flags, used to control the UX of the app
+    AI_FIRST: 'ai-first', // this a larger change, not released to team yet
+    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
+    UX_REMOVE_SIDEPANEL_MAX: 'ux-remove-sidepanel-max', // building on UX_REMOVE_SIDEPANEL, remove all instances of open sidepanel, maxtool still opens it for now
+
     // Feature flags used to control opt-in for different behaviors, should not be removed
-    AI_UX: 'ai-ux-improvements', // owner: #team-platform-ux, small improvements to the ai experience, this is released to team
-    AI_FIRST: 'ai-first', // owner: #team-platform-ux, this a larger change, not released to team yet
-    UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-platform-ux, used to remove the sidepanel from the experience
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
@@ -259,6 +261,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_SPIKE_ALERTING: 'error-tracking-spike-alerting', // owner: #team-error-tracking
     EXPERIMENT_AI_SUMMARY: 'experiment-ai-summary', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_BREAKDOWN_FILTER: 'experiments-breakdown-filter', // owner: @rodrigoi #team-experiments
+    EXPERIMENTS_FF_CROSS_SELL: 'experiments-ff-cross-sell', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_EXPOSURE_CRITERIA_COLLAPSABLE: 'experiments-exposure-criteria-collapsable', // owner: #team-experiments
@@ -291,6 +294,7 @@ export const FEATURE_FLAGS = {
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     LOGS: 'logs', // owner: #team-logs
     NEW_LOGS_DATE_RANGE_PICKER: 'new-logs-date-range-picker', // owner: #team-logs
+    NEW_LOGS_FILTER_BAR: 'logs-filterbar-v2', // owner: #team-logs
     LOGS_SETTINGS: 'logs-settings', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
     MANAGE_INSIGHTS_THROUGH_TERRAFORM: 'manage-insights-through-terraform', // owner: @vasco #team-analytics-platform
@@ -346,8 +350,6 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
-    SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
-    SURVEY_RESULTS_V2: 'survey-results-v2', // owner: #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate=true

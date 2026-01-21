@@ -12,7 +12,14 @@ from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Organization, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
+from posthog.models.oauth import (
+    OAuthAccessToken,
+    OAuthApplication,
+    OAuthGrant,
+    OAuthIDToken,
+    OAuthRefreshToken,
+    revoke_oauth_session,
+)
 
 
 @override_settings(
@@ -544,3 +551,70 @@ class TestOAuthModels(TestCase):
         app.redirect_uris = ""
         schemes = app.get_allowed_schemes()
         self.assertEqual(schemes, ["https"])
+
+    def test_revoke_oauth_session_revokes_all_tokens_for_user_and_application(self):
+        app = OAuthApplication.objects.create(
+            name="Revoke Test App",
+            client_id="revoke_test_client_id",
+            client_secret="revoke_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="access_token_1",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="access_token_2",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        refresh_token = OAuthRefreshToken.objects.create(
+            application=app,
+            user=self.user,
+            token="refresh_token_1",
+        )
+        OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_session(access_token=access_token)
+
+        self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
+        self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+    def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
+        app = OAuthApplication.objects.create(
+            name="Null User Test App",
+            client_id="null_user_client_id",
+            client_secret="null_user_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=None,
+            token="null_user_access_token",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        token_id = access_token.id
+
+        revoke_oauth_session(access_token=access_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())

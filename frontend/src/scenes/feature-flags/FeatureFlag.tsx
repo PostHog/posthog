@@ -104,6 +104,7 @@ import {
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
@@ -319,6 +320,21 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         key: FeatureFlagsTab.FEEDBACK,
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL]) {
+        tabs.push({
+            label: (
+                <div className="flex flex-row">
+                    <div>Experiments</div>
+                    <LemonTag className="ml-2 float-right uppercase" type="primary">
+                        New
+                    </LemonTag>
+                </div>
+            ),
+            key: FeatureFlagsTab.EXPERIMENTS,
+            content: <ExperimentsTab featureFlag={featureFlag} />,
+        })
+    }
 
     return (
         <>
