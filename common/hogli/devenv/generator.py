@@ -118,8 +118,10 @@ class MprocsGenerator:
         elif skip_typegen and "typegen" in procs:
             del procs["typegen"]
 
-        # Handle docker-compose with profiles
-        if "docker-compose" in procs and resolved.docker_profiles:
+        # Handle docker-compose with profiles overlay
+        # Always use the profiles overlay when generating from intents - this ensures
+        # optional services (temporal, otel, etc.) don't start unless their profile is requested
+        if "docker-compose" in procs:
             procs["docker-compose"] = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
         return MprocsConfig(
@@ -137,13 +139,20 @@ class MprocsGenerator:
         Returns:
             Process configuration dict with modified shell command
         """
-        # Build the profile flags
-        profile_flags = " ".join(f"--profile {p}" for p in profiles)
-
         # Build the compose command with profiles overlay
+        # The profiles overlay adds profile constraints to optional services.
+        # Services without a profile always start; services with profiles only
+        # start when their profile is activated.
         compose_base = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
-        up_cmd = f"{compose_base} {profile_flags} up --pull always -d"
-        logs_cmd = f"{compose_base} {profile_flags} logs --tail=0 -f"
+
+        # Build the profile flags (may be empty for minimal stack)
+        if profiles:
+            profile_flags = " " + " ".join(f"--profile {p}" for p in profiles)
+        else:
+            profile_flags = ""
+
+        up_cmd = f"{compose_base}{profile_flags} up --pull always -d"
+        logs_cmd = f"{compose_base}{profile_flags} logs --tail=0 -f"
 
         return {
             "shell": f"{up_cmd} && {logs_cmd}",
