@@ -78,6 +78,7 @@ def reverse_backfill(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("data_modeling", "0005_remove_node_name_unique_within_team_dag_and_more"),
+        ("posthog", "0979_survey_enable_iframe_embedding"),  # included just to get the latest team/user migrations
     ]
 
     operations = [
