@@ -7,14 +7,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0979_survey_enable_iframe_embedding"),
+        ("posthog", "0980_drop_column_configuration_unique_constraint"),
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="columnconfiguration",
-            name="unique_team_context_key",
-        ),
         migrations.AddField(
             model_name="columnconfiguration",
             name="name",
