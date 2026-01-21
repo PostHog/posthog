@@ -202,6 +202,22 @@ from posthog.test.assert_faster_than import assert_faster_than
 freezegun.configure(extend_ignore_list=["posthog.test.assert_faster_than"])
 
 
+def is_time_frozen() -> bool:
+    """Check if we're currently inside a freezegun freeze_time context."""
+    # Ignore type error because freeze_factories is not typed, but it definitely exists
+    from freezegun.api import freeze_factories  # type: ignore
+
+    return len(freeze_factories) > 0
+
+
+def assert_time_is_frozen() -> None:
+    """Assert that we're inside a freeze_time context. Raises AssertionError if not."""
+    if not is_time_frozen():
+        raise AssertionError(
+            "No freeze_time context found. Make sure you are inside a `freeze_time` context before calling this method."
+        )
+
+
 persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
 persons_ordering_int: int = 0

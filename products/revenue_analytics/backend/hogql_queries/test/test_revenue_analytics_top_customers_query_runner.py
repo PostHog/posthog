@@ -10,7 +10,7 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import ANY, patch
+from unittest.mock import ANY
 
 from posthog.schema import (
     CurrencyCode,
@@ -188,6 +188,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.team.revenue_analytics_config.save()
         self.team.save()
 
+        self._create_managed_viewsets()
+
     def tearDown(self):
         self.invoices_cleanup_filesystem()
         self.products_cleanup_filesystem()
@@ -227,6 +229,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
     def test_no_crash_when_no_invoices_data(self):
         self.invoices_table.delete()
         self.charges_table.delete()
+        self._create_managed_viewsets()  # Recreate viewsets knowing tables don't exist anymore
+
         results = self._run_revenue_analytics_top_customers_query().results
 
         self.assertEqual(results, [])
@@ -246,6 +250,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
     def test_without_customers_data(self):
         self.customers_table.delete()
+        self._create_managed_viewsets()  # Recreate viewsets knowing tables don't exist anymore
+
         results = self._run_revenue_analytics_top_customers_query().results
 
         # Mostly interested in the number of results
@@ -258,16 +264,6 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
         self.assertEqual(len(results), 16)
-
-    def test_with_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            self._create_managed_viewsets()
-
-            results = self._run_revenue_analytics_top_customers_query().results
-
-            # Mostly interested in the number of results
-            # but also the query snapshot is more important than the results
-            self.assertEqual(len(results), 16)
 
     def test_with_data_and_limited_date_range(self):
         results = self._run_revenue_analytics_top_customers_query(
@@ -325,44 +321,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             ],
         )
 
-    def test_with_events_data_with_managed_viewsets_ff(self):
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            s1 = str(uuid7("2023-12-02"))
-            s2 = str(uuid7("2024-01-03"))
-            s3 = str(uuid7("2024-02-04"))
-            self._create_purchase_events(
-                [
-                    ("p1", [("2023-12-02", s1, 42, "USD")]),
-                    ("p2", [("2024-01-01", s2, 43, "BRL"), ("2024-01-02", s3, 87, "BRL")]),  # 2 events, 1 customer
-                ]
-            )
-
-            self._create_managed_viewsets()
-
-            results = self._run_revenue_analytics_top_customers_query(
-                date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
-                properties=[
-                    RevenueAnalyticsPropertyFilter(
-                        key="source_label",
-                        operator=PropertyOperator.EXACT,
-                        value=["revenue_analytics.events.purchase"],
-                    )
-                ],
-            ).results
-
-            self.assertEqual(
-                results,
-                [
-                    (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                    (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
-                ],
-            )
-
     def test_with_events_data_and_currency_aware_divider(self):
         self.team.revenue_analytics_config.events = [
             REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT.model_copy(update={"currencyAwareDecimal": True})
         ]
         self.team.revenue_analytics_config.save()
+        self._create_managed_viewsets()  # Recreate them knowing we have this new event
 
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2024-01-03"))

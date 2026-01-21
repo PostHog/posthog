@@ -179,7 +179,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="managed_view",
+            name="managed_viewset_query",
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             managed_viewset=managed_viewset,
             created_by=self.user,
@@ -1061,7 +1061,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="managed_view",
+            name="managed_viewset_query",
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             managed_viewset=managed_viewset,
             created_by=self.user,
@@ -1071,7 +1071,7 @@ class TestSavedQuery(APIBaseTest):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
                 {
-                    "name": "updated_managed_view",
+                    "name": "updated_managed_viewset_query",
                     "query": {
                         "kind": "HogQLQuery",
                         "query": "select event as event from events LIMIT 200",
@@ -1091,7 +1091,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="managed_view",
+            name="managed_viewset_query",
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             managed_viewset=managed_viewset,
             created_by=self.user,
@@ -1117,7 +1117,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="managed_view",
+            name="managed_viewset_query",
             query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             managed_viewset=managed_viewset,
             created_by=self.user,

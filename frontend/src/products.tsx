@@ -1435,10 +1435,9 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
     },
     {
         path: 'Managed viewsets',
-        category: 'Unreleased',
+        category: 'Schema',
         iconType: 'managed_viewsets',
         href: urls.dataWarehouseManagedViewsets(),
-        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
         sceneKeys: ['DataWarehouse', 'SQLEditor'],
     },
     {

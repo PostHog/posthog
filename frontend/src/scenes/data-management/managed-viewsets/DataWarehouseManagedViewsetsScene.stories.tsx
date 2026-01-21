@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -13,7 +12,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         pageUrl: urls.dataWarehouseManagedViewsets(),
-        featureFlags: [FEATURE_FLAGS.MANAGED_VIEWSETS],
     },
     decorators: [
         mswDecorator({

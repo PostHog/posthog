@@ -4087,16 +4087,7 @@ export namespace Schemas {
         | 'revenue_analytics_product'
         | 'revenue_analytics_revenue_item'
         | 'revenue_analytics_subscription'
-    export type DatabaseSchemaManagedViewTable = {
-        fields: Record<string, unknown>
-        id: string
-        kind: DatabaseSchemaManagedViewTableKind
-        name: string
-        query: HogQLQuery
-        row_count?: (number | null) | undefined
-        source_id?: (string | null) | undefined
-        type?: string | undefined
-    }
+        | 'revenue_analytics_mrr'
     export type DatabaseSchemaMaterializedViewTable = {
         fields: Record<string, unknown>
         id: string

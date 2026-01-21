@@ -189,7 +189,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         url: urls.dataWarehouseManagedViewsets(),
         label: 'Managed viewsets',
         content: <DataWarehouseManagedViewsetsScene />,
-        flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
     },
 }
 
