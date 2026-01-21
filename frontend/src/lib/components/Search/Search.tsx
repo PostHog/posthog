@@ -568,7 +568,7 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, handleItemClick, highlightedItemRef } = useSearchContext()
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching } = useSearchContext()
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -592,7 +592,7 @@ function SearchResults({
                                     </Label>
                                 }
                             />
-                            {group.isLoading ? (
+                            {group.isLoading && !isSearching ? (
                                 <>
                                     {Array.from({
                                         length: group.category === 'recents' ? RECENTS_LIMIT : 10,
