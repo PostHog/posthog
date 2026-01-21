@@ -1,5 +1,6 @@
 export * from './android'
 export * from './astro'
+export * from './django'
 export * from './flutter'
 export * from './ios'
 export * from './next-js'

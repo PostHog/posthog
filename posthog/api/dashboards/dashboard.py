@@ -589,13 +589,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
         # Use the specified layout size to get the correct order for the current viewport
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
