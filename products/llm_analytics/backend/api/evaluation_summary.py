@@ -30,8 +30,8 @@ from posthog.rate_limit import (
 )
 
 from products.llm_analytics.backend.api.metrics import llma_track_latency
-from products.llm_analytics.backend.summarization.constants import DEFAULT_MODEL_OPENAI
 from products.llm_analytics.backend.summarization.llm.evaluation_summary import summarize_evaluation_runs
+from products.llm_analytics.backend.summarization.models import OpenAIModel
 
 logger = structlog.get_logger(__name__)
 
@@ -220,7 +220,7 @@ and failing evaluations, providing actionable recommendations.
             summary = async_to_sync(summarize_evaluation_runs)(
                 evaluation_runs=runs,
                 team_id=self.team_id,
-                model=DEFAULT_MODEL_OPENAI,
+                model=OpenAIModel.GPT_5_MINI,
                 filter_type=filter_type,
             )
             duration_seconds = time.time() - start_time
