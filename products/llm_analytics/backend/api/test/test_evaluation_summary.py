@@ -32,7 +32,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
                 "evaluation_runs": [
-                    {"result": True, "reasoning": "Good response"},
+                    {"generation_id": "gen_123", "result": True, "reasoning": "Good response"},
                 ],
             },
             format="json",
@@ -82,6 +82,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
                     description="Responses were well structured",
                     frequency="common",
                     example_reasoning="Good response with clear structure",
+                    example_generation_ids=["gen_001", "gen_002"],
                 )
             ],
             fail_patterns=[
@@ -90,6 +91,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
                     description="Some responses lacked context",
                     frequency="occasional",
                     example_reasoning="Response did not address user question",
+                    example_generation_ids=["gen_003"],
                 )
             ],
             na_patterns=[],
@@ -108,9 +110,13 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
                 "evaluation_runs": [
-                    {"result": True, "reasoning": "Good response"},
-                    {"result": True, "reasoning": "Another good response"},
-                    {"result": False, "reasoning": "Response did not address user question"},
+                    {"generation_id": "gen_001", "result": True, "reasoning": "Good response"},
+                    {"generation_id": "gen_002", "result": True, "reasoning": "Another good response"},
+                    {
+                        "generation_id": "gen_003",
+                        "result": False,
+                        "reasoning": "Response did not address user question",
+                    },
                 ],
                 "filter": "all",
             },
@@ -126,10 +132,12 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         assert "pass_patterns" in data
         assert len(data["pass_patterns"]) == 1
         assert data["pass_patterns"][0]["title"] == "Clear Communication"
+        assert data["pass_patterns"][0]["example_generation_ids"] == ["gen_001", "gen_002"]
 
         assert "fail_patterns" in data
         assert len(data["fail_patterns"]) == 1
         assert data["fail_patterns"][0]["title"] == "Missing Context"
+        assert data["fail_patterns"][0]["example_generation_ids"] == ["gen_003"]
 
         assert "recommendations" in data
         assert len(data["recommendations"]) == 2
@@ -165,8 +173,8 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
                 "evaluation_runs": [
-                    {"result": True, "reasoning": "Good response 1"},
-                    {"result": True, "reasoning": "Good response 2"},
+                    {"generation_id": "gen_101", "result": True, "reasoning": "Good response 1"},
+                    {"generation_id": "gen_102", "result": True, "reasoning": "Good response 2"},
                 ],
                 "filter": "pass",
             },
@@ -180,7 +188,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-        runs = [{"result": True, "reasoning": f"Reasoning {i}"} for i in range(101)]
+        runs = [{"generation_id": f"gen_{i}", "result": True, "reasoning": f"Reasoning {i}"} for i in range(101)]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
@@ -206,6 +214,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
                     description="Evaluation criteria did not apply",
                     frequency="common",
                     example_reasoning="The response was a clarifying question",
+                    example_generation_ids=["gen_na_001", "gen_na_002"],
                 )
             ],
             recommendations=["Consider updating evaluation criteria"],
@@ -223,8 +232,16 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
                 "evaluation_runs": [
-                    {"result": None, "reasoning": "The response was a clarifying question"},
-                    {"result": None, "reasoning": "Evaluation criteria did not apply to this case"},
+                    {
+                        "generation_id": "gen_na_001",
+                        "result": None,
+                        "reasoning": "The response was a clarifying question",
+                    },
+                    {
+                        "generation_id": "gen_na_002",
+                        "result": None,
+                        "reasoning": "Evaluation criteria did not apply to this case",
+                    },
                 ],
                 "filter": "na",
             },

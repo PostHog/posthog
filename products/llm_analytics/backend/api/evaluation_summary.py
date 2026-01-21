@@ -37,6 +37,7 @@ logger = structlog.get_logger(__name__)
 
 
 class EvaluationRunDataSerializer(serializers.Serializer):
+    generation_id = serializers.CharField(help_text="Unique identifier for the generation being evaluated")
     result = serializers.BooleanField(
         allow_null=True,
         help_text="Whether the evaluation passed (true), failed (false), or was N/A (null)",
@@ -64,6 +65,7 @@ class EvaluationPatternSerializer(serializers.Serializer):
     description = serializers.CharField()
     frequency = serializers.CharField()
     example_reasoning = serializers.CharField()
+    example_generation_ids = serializers.ListField(child=serializers.CharField())
 
 
 class EvaluationSummaryStatisticsSerializer(serializers.Serializer):
@@ -124,9 +126,21 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Summarize evaluation results",
                 value={
                     "evaluation_runs": [
-                        {"result": True, "reasoning": "Response was accurate and helpful"},
-                        {"result": False, "reasoning": "Response contained factual errors"},
-                        {"result": True, "reasoning": "Good formatting and clear explanation"},
+                        {
+                            "generation_id": "gen_abc123",
+                            "result": True,
+                            "reasoning": "Response was accurate and helpful",
+                        },
+                        {
+                            "generation_id": "gen_def456",
+                            "result": False,
+                            "reasoning": "Response contained factual errors",
+                        },
+                        {
+                            "generation_id": "gen_ghi789",
+                            "result": True,
+                            "reasoning": "Good formatting and clear explanation",
+                        },
                     ],
                     "filter": "all",
                 },
@@ -142,6 +156,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "description": "Responses consistently provided well-structured information",
                             "frequency": "common",
                             "example_reasoning": "Good formatting and clear explanation",
+                            "example_generation_ids": ["gen_abc123", "gen_ghi789"],
                         }
                     ],
                     "fail_patterns": [
@@ -150,6 +165,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                             "description": "Some responses contained inaccurate information",
                             "frequency": "occasional",
                             "example_reasoning": "Response contained factual errors",
+                            "example_generation_ids": ["gen_def456"],
                         }
                     ],
                     "recommendations": [

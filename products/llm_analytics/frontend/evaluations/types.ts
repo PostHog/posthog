@@ -49,6 +49,7 @@ export interface EvaluationPattern {
     description: string
     frequency: string
     example_reasoning: string
+    example_generation_ids: string[]
 }
 
 export interface EvaluationSummaryStatistics {

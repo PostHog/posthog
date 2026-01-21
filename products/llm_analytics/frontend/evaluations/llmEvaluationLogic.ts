@@ -99,6 +99,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_runs: sampledRuns.map((r) => ({
+                            generation_id: r.generation_id,
                             result: r.result,
                             reasoning: r.reasoning,
                         })),
