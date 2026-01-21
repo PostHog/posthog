@@ -285,6 +285,7 @@ def detect_inactivity_periods(
                     ts_from_s: Number(p.ts_from_s),
                     ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
                     active: Boolean(p.active),
+                    recording_ts_from_s: p.recording_ts_from_s !== undefined ? Number(p.recording_ts_from_s) : null,
                 }));
             }
             """,
