@@ -16,12 +16,13 @@ import {
 } from 'react'
 
 import { IconSearch, IconX } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -33,7 +34,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { RECENTS_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
 import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
 // ============================================================================
@@ -196,7 +197,7 @@ interface SearchContextValue {
     searchValue: string
     setSearchValue: (value: string) => void
     filteredItems: SearchItem[]
-    groupedItems: { category: string; items: SearchItem[] }[]
+    groupedItems: { category: string; items: SearchItem[]; isLoading?: boolean }[]
     isSearching: boolean
     isActive: boolean
     inputRef: RefObject<HTMLInputElement>
@@ -249,7 +250,6 @@ function SearchRoot({
     const { setSearch } = useActions(searchLogic({ logicKey }))
 
     const [searchValue, setSearchValue] = useState('')
-    const [filteredItems, setFilteredItems] = useState<SearchItem[]>([])
     const inputRef = useRef<HTMLInputElement>(null!)
     const actionsRef = useRef<Autocomplete.Root.Actions>(null)
     const highlightedItemRef = useRef<SearchItem | null>(null)
@@ -262,29 +262,30 @@ function SearchRoot({
         return items
     }, [allCategories])
 
+    // Compute filteredItems synchronously to avoid render gap between loading and content
+    const filteredItems = useMemo(() => {
+        if (searchValue.trim()) {
+            const searchLower = searchValue.toLowerCase()
+            return allItems.filter((item) => {
+                // Filter recents and apps by name (client-side filtering)
+                if (item.category === 'recents' || item.category === 'apps') {
+                    const name = (item.displayName || item.name || '').toLowerCase()
+                    return name.includes(searchLower)
+                }
+                // Other categories come from server search, keep all
+                return true
+            })
+        }
+        // When not searching, show recents and apps
+        return allItems.filter((item) => item.category === 'recents' || item.category === 'apps')
+    }, [allItems, searchValue])
+
     useEffect(() => {
         if (!isActive) {
             return
         }
         setSearch(searchValue)
     }, [searchValue, setSearch, isActive])
-
-    useEffect(() => {
-        if (searchValue.trim()) {
-            const searchLower = searchValue.toLowerCase()
-            setFilteredItems(
-                allItems.filter((item) => {
-                    if (item.category === 'recents') {
-                        const name = (item.displayName || item.name || '').toLowerCase()
-                        return name.includes(searchLower)
-                    }
-                    return true
-                })
-            )
-        } else {
-            setFilteredItems(allItems.filter((item) => item.category === 'recents'))
-        }
-    }, [allItems, searchValue])
 
     useEffect(() => {
         if (isActive && inputRef.current) {
@@ -313,7 +314,7 @@ function SearchRoot({
     )
 
     const groupedItems = useMemo(() => {
-        const groups: { category: string; items: SearchItem[] }[] = []
+        const groups: { category: string; items: SearchItem[]; isLoading?: boolean }[] = []
         const categoryMap = new Map<string, SearchItem[]>()
 
         for (const item of filteredItems) {
@@ -325,12 +326,40 @@ function SearchRoot({
             }
         }
 
+        // Build loading state lookup from allCategories
+        const loadingByCategory = new Map<string, boolean>()
+        for (const cat of allCategories) {
+            loadingByCategory.set(cat.key, cat.isLoading ?? false)
+        }
+
+        // Fixed order: recents first, then apps, then everything else
+        const orderedCategories = ['recents', 'apps']
+        const hasSearchValue = searchValue.trim().length > 0
+
+        for (const category of orderedCategories) {
+            const items = categoryMap.get(category) ?? []
+            const isLoading = loadingByCategory.get(category) ?? false
+
+            // When searching: hide empty groups (unless still loading)
+            // When not searching: always show recents/apps (with skeleton if loading)
+            const shouldShow = hasSearchValue
+                ? items.length > 0 || isLoading
+                : category === 'recents' || category === 'apps' || items.length > 0
+
+            if (shouldShow) {
+                groups.push({ category, items, isLoading })
+            }
+        }
+
+        // Add remaining categories
         for (const [category, items] of categoryMap) {
-            groups.push({ category, items })
+            if (!orderedCategories.includes(category)) {
+                groups.push({ category, items, isLoading: loadingByCategory.get(category) })
+            }
         }
 
         return groups
-    }, [filteredItems])
+    }, [filteredItems, allCategories, searchValue])
 
     const contextValue: SearchContextValue = useMemo(
         () => ({
@@ -351,7 +380,9 @@ function SearchRoot({
 
     return (
         <SearchContext.Provider value={contextValue}>
-            <div className={`flex flex-col overflow-hidden ${className}`}>
+            <div
+                className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
+            >
                 <Autocomplete.Root
                     items={filteredItems}
                     filter={null}
@@ -502,7 +533,7 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recent items'
+                return 'Recents and apps'
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
@@ -537,20 +568,18 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, isSearching, handleItemClick, highlightedItemRef } = useSearchContext()
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching } = useSearchContext()
+
+    // Don't show "no results" while any category is still loading
+    const isAnyLoading = groupedItems.some((g) => g.isLoading)
 
     return (
         <ScrollableShadows direction="vertical" styledScrollbars className={cn('flex-1 overflow-y-auto', className)}>
-            <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
-                {isSearching ? (
-                    <div className="flex flex-col items-center gap-2">
-                        <Spinner className="size-5" />
-                        <span>Searching...</span>
-                    </div>
-                ) : (
+            {!isAnyLoading && (
+                <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
                     <span>No results found. Try a different search term.</span>
-                )}
-            </Autocomplete.Empty>
+                </Autocomplete.Empty>
+            )}
 
             <Autocomplete.List className={cn('pt-3 pb-1', listClassName)} tabIndex={-1}>
                 {groupedItems.map((group) => {
@@ -563,73 +592,118 @@ function SearchResults({
                                     </Label>
                                 }
                             />
-                            <Autocomplete.Collection>
-                                {(item: SearchItem) => {
-                                    const typeLabel = getItemTypeDisplayName(item.itemType)
-                                    const icon = getIconForItem(item)
+                            {group.isLoading && !isSearching ? (
+                                <>
+                                    {Array.from({
+                                        length: group.category === 'recents' ? RECENTS_LIMIT : 10,
+                                    }).map((_, i) => (
+                                        <div key={i} className="px-1">
+                                            <WrappingLoadingSkeleton fullWidth>
+                                                <ButtonPrimitive fullWidth className="invisible">
+                                                    &nbsp;
+                                                </ButtonPrimitive>
+                                            </WrappingLoadingSkeleton>
+                                        </div>
+                                    ))}
+                                </>
+                            ) : (
+                                <Autocomplete.Collection>
+                                    {(item: SearchItem) => {
+                                        const typeLabel = getItemTypeDisplayName(item.itemType)
+                                        const icon = getIconForItem(item)
 
-                                    return (
-                                        <ContextMenu key={item.id}>
-                                            <ContextMenuTrigger asChild>
-                                                <Autocomplete.Item
-                                                    value={item}
-                                                    onClick={() => handleItemClick(item)}
-                                                    render={(props) => {
-                                                        const isHighlighted =
-                                                            (props as Record<string, unknown>)['data-highlighted'] ===
-                                                            ''
-                                                        if (isHighlighted) {
-                                                            highlightedItemRef.current = item
-                                                        }
-                                                        return (
-                                                            <div className="px-1">
-                                                                <Link
-                                                                    to={item.href}
-                                                                    buttonProps={{
-                                                                        fullWidth: true,
-                                                                    }}
-                                                                    {...props}
-                                                                    tabIndex={-1}
-                                                                >
-                                                                    {icon}
-                                                                    <span className="truncate">
-                                                                        {item.displayName || item.name}
-                                                                    </span>
-                                                                    {(group.category === 'recents' ||
-                                                                        group.category === 'groups') &&
-                                                                        (item.groupNoun || typeLabel) && (
+                                        return (
+                                            <ContextMenu key={item.id}>
+                                                <ContextMenuTrigger asChild>
+                                                    <Autocomplete.Item
+                                                        value={item}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            handleItemClick(item)
+                                                        }}
+                                                        render={(props) => {
+                                                            const isHighlighted =
+                                                                (props as Record<string, unknown>)[
+                                                                    'data-highlighted'
+                                                                ] === ''
+                                                            if (isHighlighted) {
+                                                                highlightedItemRef.current = item
+                                                            }
+                                                            return (
+                                                                <div className="px-1">
+                                                                    <Link
+                                                                        to={item.href}
+                                                                        buttonProps={{
+                                                                            fullWidth: true,
+                                                                        }}
+                                                                        {...props}
+                                                                        tabIndex={-1}
+                                                                    >
+                                                                        {icon}
+                                                                        <span className="truncate">
+                                                                            {item.displayName || item.name}
+                                                                        </span>
+                                                                        {(group.category === 'recents' ||
+                                                                            group.category === 'groups') &&
+                                                                            (item.groupNoun || typeLabel) && (
+                                                                                <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                    {capitalizeFirstLetter(
+                                                                                        item.groupNoun ||
+                                                                                            typeLabel ||
+                                                                                            ''
+                                                                                    )}
+                                                                                </span>
+                                                                            )}
+                                                                        {item.productCategory && (
                                                                             <span className="text-xs text-tertiary shrink-0 mt-[2px]">
-                                                                                {capitalizeFirstLetter(
-                                                                                    item.groupNoun || typeLabel || ''
+                                                                                {item.productCategory}
+                                                                            </span>
+                                                                        )}
+                                                                        {item.tags?.map((tag) => (
+                                                                            <LemonTag
+                                                                                key={tag}
+                                                                                type={
+                                                                                    tag === 'alpha'
+                                                                                        ? 'completion'
+                                                                                        : tag === 'beta'
+                                                                                          ? 'warning'
+                                                                                          : 'success'
+                                                                                }
+                                                                                size="small"
+                                                                                className="shrink-0"
+                                                                            >
+                                                                                {tag.toUpperCase()}
+                                                                            </LemonTag>
+                                                                        ))}
+                                                                        {item.lastViewedAt && (
+                                                                            <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                {formatRelativeTimeShort(
+                                                                                    item.lastViewedAt
                                                                                 )}
                                                                             </span>
                                                                         )}
-                                                                    {item.lastViewedAt && (
-                                                                        <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
-                                                                            {formatRelativeTimeShort(item.lastViewedAt)}
-                                                                        </span>
-                                                                    )}
-                                                                </Link>
-                                                            </div>
-                                                        )
-                                                    }}
-                                                />
-                                            </ContextMenuTrigger>
-                                            <ContextMenuContent loop className="max-w-[250px] z-top">
-                                                <ContextMenuGroup>
-                                                    <MenuItems
-                                                        item={commandItemToTreeDataItem(item)}
-                                                        type="context"
-                                                        root="project://"
-                                                        onlyTree={false}
-                                                        showSelectMenuOption={false}
+                                                                    </Link>
+                                                                </div>
+                                                            )
+                                                        }}
                                                     />
-                                                </ContextMenuGroup>
-                                            </ContextMenuContent>
-                                        </ContextMenu>
-                                    )
-                                }}
-                            </Autocomplete.Collection>
+                                                </ContextMenuTrigger>
+                                                <ContextMenuContent loop className="max-w-[250px] z-top">
+                                                    <ContextMenuGroup>
+                                                        <MenuItems
+                                                            item={commandItemToTreeDataItem(item)}
+                                                            type="context"
+                                                            root="project://"
+                                                            onlyTree={false}
+                                                            showSelectMenuOption={false}
+                                                        />
+                                                    </ContextMenuGroup>
+                                                </ContextMenuContent>
+                                            </ContextMenu>
+                                        )
+                                    }}
+                                </Autocomplete.Collection>
+                            )}
                         </Autocomplete.Group>
                     )
                 })}
