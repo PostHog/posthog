@@ -36,6 +36,7 @@ class TestTranslateText:
 
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["model"] == TRANSLATION_MODEL
+        assert call_kwargs["user"] == "llma-translation"
 
     @parameterized.expand(list(SUPPORTED_LANGUAGES.items()))
     @patch("openai.OpenAI")

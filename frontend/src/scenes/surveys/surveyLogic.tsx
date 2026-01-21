@@ -543,11 +543,6 @@ export const surveyLogic = kea<surveyLogicType>([
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
     }),
     loaders(({ props, actions, values }) => ({
-        responseSummary: {
-            summarize: async ({ questionIndex, questionId }: { questionIndex?: number; questionId?: string }) => {
-                return api.surveys.summarize_responses(props.id, questionIndex, questionId)
-            },
-        },
         surveyHeadline: [
             null as { headline: string; responses_sampled: number; has_more: boolean } | null,
             {
@@ -1350,18 +1345,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     .map((uuid) => `'${uuid}'`)
                     .join(', ')
                 return `AND uuid NOT IN (${uuidList})`
-            },
-        ],
-        isSurveyAnalysisMaxToolEnabled: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.SURVEY_ANALYSIS_MAX_TOOL]
-            },
-        ],
-        isSurveyResultsV2Enabled: [
-            (s) => [s.enabledFlags],
-            (enabledFlags: FeatureFlagsSet): boolean => {
-                return !!enabledFlags[FEATURE_FLAGS.SURVEY_RESULTS_V2]
             },
         ],
         isAdaptiveLimitFFEnabled: [
