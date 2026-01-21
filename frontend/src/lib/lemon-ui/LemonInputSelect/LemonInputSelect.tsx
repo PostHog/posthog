@@ -9,7 +9,7 @@ import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'r
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
 
-import { IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -643,6 +643,27 @@ export function LemonInputSelect<T = string>({
         return mode === 'multiple' ? `Add "${option.key}"` : option.key
     }
 
+    const getOptionIcon = (option: LemonInputSelectOption<T>, isSelected: boolean): React.ReactNode => {
+        if (option.__isInput) {
+            return undefined
+        }
+
+        if (isSelected) {
+            return mode === 'multiple' ? (
+                // No pointer events, since it's only for visual feedback
+                <LemonCheckbox checked={true} className="pointer-events-none" />
+            ) : (
+                <IconCheck />
+            )
+        }
+
+        if (mode === 'multiple') {
+            return <LemonCheckbox checked={false} className="pointer-events-none" />
+        }
+
+        return undefined
+    }
+
     return (
         <LemonDropdown
             matchWidth
@@ -755,15 +776,7 @@ export function LemonInputSelect<T = string>({
                                                             isDisabled ? `Limit of ${limit} options reached` : undefined
                                                         }
                                                         tooltip={option.tooltip}
-                                                        icon={
-                                                            mode === 'multiple' && !option.__isInput ? (
-                                                                // No pointer events, since it's only for visual feedback
-                                                                <LemonCheckbox
-                                                                    checked={isSelected}
-                                                                    className="pointer-events-none"
-                                                                />
-                                                            ) : undefined
-                                                        }
+                                                        icon={getOptionIcon(option, isSelected)}
                                                         sideAction={
                                                             !option.__isInput && allowCustomValues && !disableEditing
                                                                 ? {
@@ -821,12 +834,7 @@ export function LemonInputSelect<T = string>({
                                         onMouseEnter={() => setSelectedIndex(index)}
                                         disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
                                         tooltip={option.tooltip}
-                                        icon={
-                                            mode === 'multiple' && !option.__isInput ? (
-                                                // No pointer events, since it's only for visual feedback
-                                                <LemonCheckbox checked={isSelected} className="pointer-events-none" />
-                                            ) : undefined
-                                        }
+                                        icon={getOptionIcon(option, isSelected)}
                                         sideAction={
                                             !option.__isInput && allowCustomValues && !disableEditing
                                                 ? {
