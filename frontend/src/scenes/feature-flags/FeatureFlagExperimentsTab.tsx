@@ -5,6 +5,7 @@ import { LemonBanner, LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { StatusTag } from 'scenes/experiments/ExperimentView/components'
 import { experimentsLogic, getExperimentStatus } from 'scenes/experiments/experimentsLogic'
@@ -14,12 +15,11 @@ import { Experiment, FeatureFlagType } from '~/types'
 
 export function ExperimentsTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { experiments } = useValues(experimentsLogic)
-    const experimentIds = featureFlag.experiment_set || []
-    const relatedExperiments = experiments.results.filter(
-        (exp) => typeof exp.id === 'number' && experimentIds.includes(exp.id)
+    const relatedExperiments = experiments.results.filter((exp) =>
+        featureFlag.experiment_set?.includes(exp.id as number)
     )
 
-    if (experimentIds.length === 0) {
+    if (relatedExperiments.length === 0) {
         return (
             <div className="flex flex-col items-center pt-5">
                 <div className="w-full max-w-5xl">
@@ -78,7 +78,7 @@ export function ExperimentsTab({ featureFlag }: { featureFlag: FeatureFlagType }
                             return <StatusTag status={status} />
                         },
                     },
-                    createdAtColumn() as any,
+                    createdAtColumn<Experiment>() as LemonTableColumn<Experiment, keyof Experiment | undefined>,
                 ]}
             />
         </div>
