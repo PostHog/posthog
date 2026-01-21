@@ -7,7 +7,10 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    ONE_SECOND_MS,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
@@ -105,8 +108,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                             <br />
                         </>
                     ) : null}
-                    {capitalizeFirstLetter(direction)} 1 frame ({ONE_FRAME_MS}ms){' '}
-                    <KeyboardShortcut option {...arrowKey} />
+                    {capitalizeFirstLetter(direction)} 1s <KeyboardShortcut option {...arrowKey} />
                 </div>
             }
         >
@@ -114,7 +116,10 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 data-attr={`seek-skip-${direction}`}
                 size="xsmall"
                 noPadding={true}
-                onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+                onClick={() => {
+                    const amount = altKeyHeld ? ONE_SECOND_MS : undefined
+                    direction === 'forward' ? seekForward(amount) : seekBackward(amount)
+                }}
                 className="ph-no-rageclick"
             >
                 <div className="PlayerControlSeekIcon">

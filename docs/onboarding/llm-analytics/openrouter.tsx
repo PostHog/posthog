@@ -7,6 +7,12 @@ export const OpenRouterInstallation = (): JSX.Element => {
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
     return (
         <Steps>
+            <CalloutBox type="fyi" icon="IconInfo" title="Alternative: OpenRouter Broadcast">
+                <Markdown>
+                    OpenRouter also offers a native [Broadcast feature](https://openrouter.ai/docs/guides/features/broadcast/posthog) that can automatically send LLM analytics data to PostHog without requiring SDK instrumentation. This is a simpler option if you don't need the additional customization that our SDK provides.
+                </Markdown>
+            </CalloutBox>
+
             <Step title="Install the PostHog SDK" badge="required">
                 <Markdown>
                     Setting up analytics starts with installing the PostHog SDK for your language. LLM analytics works

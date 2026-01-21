@@ -157,6 +157,10 @@ pub struct ConfigResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub surveys: Option<Value>,
 
+    /// Whether product tours are enabled
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_tours: Option<Value>,
+
     /// Logs product options
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<LogsConfig>,

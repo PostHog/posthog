@@ -18,6 +18,7 @@ export interface UserBasic {
 
 export interface Ticket {
     id: string
+    ticket_number: number
     distinct_id: string
     status: TicketStatus
     priority?: TicketPriority
@@ -34,16 +35,29 @@ export interface Ticket {
     last_message_text: string | null
     unread_team_count: number
     unread_customer_count: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
 }
 
 export interface ConversationTicket {
     id: string
+    ticket_number?: number
     status: TicketStatus
     last_message?: string
     last_message_at?: string
     message_count: number
     created_at: string
     unread_count?: number
+    session_id?: string
+    session_context?: {
+        session_replay_url?: string
+        current_url?: string
+        [key: string]: any
+    }
 }
 
 export interface ConversationMessage {

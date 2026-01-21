@@ -6,12 +6,20 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { Breadcrumb, FeatureFlagFilters, ProductTour, ProductTourContent, ProductTourStepButton } from '~/types'
+import {
+    Breadcrumb,
+    FeatureFlagFilters,
+    ProductTour,
+    ProductTourBannerConfig,
+    ProductTourContent,
+    ProductTourStepButton,
+} from '~/types'
 
 import { prepareStepsForRender } from './editor/generateStepHtml'
 import type { productTourLogicType } from './productTourLogicType'
@@ -131,7 +139,7 @@ export const productTourLogic = kea<productTourLogicType>([
     props({} as ProductTourLogicProps),
     key((props) => props.id),
     connect(() => ({
-        actions: [productToursLogic, ['loadProductTours']],
+        actions: [productToursLogic, ['loadProductTours'], eventUsageLogic, ['reportProductTourViewed']],
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
@@ -294,10 +302,28 @@ export const productTourLogic = kea<productTourLogicType>([
                     return undefined
                 }
 
+                const validateBannerAction = (
+                    action: ProductTourBannerConfig['action'] | undefined,
+                    errorLabel: string
+                ): string | undefined => {
+                    if (!action?.type) {
+                        return undefined
+                    }
+                    if (action.type === 'link' && !action.link?.trim()) {
+                        return `${errorLabel} requires a URL`
+                    }
+                    if (action.type === 'trigger_tour' && !action.tourId) {
+                        return `${errorLabel} requires a tour selection`
+                    }
+                    return undefined
+                }
+
                 for (const step of content.steps || []) {
                     const error =
-                        validateButton(step.buttons?.primary, 'Primary button') ||
-                        validateButton(step.buttons?.secondary, 'Secondary button')
+                        step.type === 'banner'
+                            ? validateBannerAction(step.bannerConfig?.action, 'Banner click action')
+                            : validateButton(step.buttons?.primary, 'Primary button') ||
+                              validateButton(step.buttons?.secondary, 'Secondary button')
 
                     if (error) {
                         errors._form = error
@@ -358,12 +384,6 @@ export const productTourLogic = kea<productTourLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        submitProductTourFormSuccess: () => {
-            // don't navigate away if we're on steps page, it's a weird UX
-            if (values.editTab !== ProductTourEditTab.Steps) {
-                actions.editingProductTour(false)
-            }
-        },
         launchProductTour: async () => {
             if (values.productTour) {
                 await api.productTours.update(values.productTour.id, {
@@ -395,6 +415,9 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
+            if (productTour) {
+                actions.reportProductTourViewed(productTour)
+            }
             // Set date range to start from tour's start_date (or keep default -30d)
             // This will trigger loadTourStats via the setDateRange listener
             if (productTour?.start_date) {
@@ -419,8 +442,8 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         editingProductTour: ({ editing }) => {
-            if (editing && values.productTour) {
-                // Reset form to current tour values when entering edit mode
+            // Only reset form when transitioning from not-editing to editing
+            if (editing && !values.isEditingProductTour && values.productTour) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ;(actions.setProductTourFormValues as any)({
                     name: values.productTour.name,

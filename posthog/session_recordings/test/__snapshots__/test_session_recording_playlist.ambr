@@ -129,6 +129,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -194,6 +196,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T4."id",
@@ -224,6 +227,7 @@
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
          T4."shortcut_position",
+         T4."passkeys_enabled_for_2fa",
          T4."events_column_config",
          T4."email_opt_in"
   FROM "posthog_sessionrecordingplaylist"
@@ -286,6 +290,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -387,6 +392,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -677,6 +684,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -742,6 +751,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T4."id",
@@ -772,6 +782,7 @@
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
          T4."shortcut_position",
+         T4."passkeys_enabled_for_2fa",
          T4."events_column_config",
          T4."email_opt_in"
   FROM "posthog_sessionrecordingplaylist"
@@ -1007,6 +1018,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1154,6 +1166,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -1255,6 +1268,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1556,6 +1571,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -1621,6 +1638,7 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T4."id",
@@ -1651,6 +1669,7 @@
          T4."hedgehog_config",
          T4."allow_sidebar_suggestions",
          T4."shortcut_position",
+         T4."passkeys_enabled_for_2fa",
          T4."events_column_config",
          T4."email_opt_in"
   FROM "posthog_sessionrecordingplaylist"
@@ -1769,6 +1788,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -2111,6 +2132,22 @@
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.61
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE ("posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+         AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
+                  AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL))
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.62
+  '''
+  SELECT "posthog_sessionrecordingplaylistitem"."session_id"
+  FROM "posthog_sessionrecordingplaylistitem"
+  WHERE "posthog_sessionrecordingplaylistitem"."playlist_id" = 99999
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.63
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingplaylistitem"

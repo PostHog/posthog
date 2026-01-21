@@ -8,16 +8,16 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { LogsFilters } from 'products/logs/frontend/components/LogsFilters'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
+import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar'
 import { LogsSetupPrompt } from 'products/logs/frontend/components/SetupPrompt/SetupPrompt'
 import { logsIngestionLogic } from 'products/logs/frontend/components/SetupPrompt/logsIngestionLogic'
 
-import { logsLogic } from './logsLogic'
+import { logsSceneLogic } from './logsSceneLogic'
 
 export const scene: SceneExport = {
     component: LogsScene,
-    logic: logsLogic,
+    logic: logsSceneLogic,
     settingSectionId: 'environment-logs',
 }
 
@@ -42,10 +42,10 @@ const LogsSceneContent = (): JSX.Element => {
         orderBy,
         sparklineData,
         sparklineBreakdownBy,
-    } = useValues(logsLogic)
+    } = useValues(logsSceneLogic)
     const { teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const { runQuery, fetchNextLogsPage, setOrderBy, addFilter, setDateRange, setSparklineBreakdownBy } =
-        useActions(logsLogic)
+        useActions(logsSceneLogic)
 
     return (
         <>
@@ -80,7 +80,7 @@ const LogsSceneContent = (): JSX.Element => {
                     limits, we want to hear from you.
                 </p>
             </LemonBanner>
-            <LogsFilters />
+            <LogsFilterBar />
             <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px_+_10rem)]">
                 <LogsViewer
                     tabId={tabId}

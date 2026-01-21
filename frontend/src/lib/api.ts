@@ -2233,6 +2233,7 @@ const api = {
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
+                    ActivityScope.PRODUCT_TOUR,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -3751,6 +3752,22 @@ const api = {
             data: { code: string; return_variables?: boolean; timeout?: number }
         ): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/execute').create({ data })
+        },
+        async kernelDataframe(
+            notebookId: NotebookType['short_id'],
+            params: { variable_name: string; offset?: number; limit?: number; timeout?: number }
+        ): Promise<{ columns: string[]; rows: Record<string, any>[]; rowCount: number }> {
+            const response = await new ApiRequest()
+                .notebook(notebookId)
+                .withAction('kernel/dataframe')
+                .withQueryString(params)
+                .get()
+
+            return {
+                columns: response.columns ?? [],
+                rows: response.rows ?? [],
+                rowCount: response.row_count ?? 0,
+            }
         },
         async kernelStart(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/start').create()

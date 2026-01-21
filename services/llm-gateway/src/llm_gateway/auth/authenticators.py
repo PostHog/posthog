@@ -51,7 +51,7 @@ class PersonalApiKeyAuthenticator(Authenticator):
         async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
-                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id
+                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id, u.distinct_id
                 FROM posthog_personalapikey pak
                 JOIN posthog_user u ON pak.user_id = u.id
                 WHERE pak.secure_value = $1 AND u.is_active = true
@@ -70,6 +70,7 @@ class PersonalApiKeyAuthenticator(Authenticator):
                 user_id=row["user_id"],
                 team_id=row["current_team_id"],
                 auth_method=self.auth_type,
+                distinct_id=row["distinct_id"],
                 scopes=scopes,
             )
 
@@ -92,7 +93,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             row = await conn.fetchrow(
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
-                       oat.application_id, u.current_team_id
+                       oat.application_id, u.current_team_id, u.distinct_id
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
@@ -118,6 +119,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 user_id=row["user_id"],
                 team_id=row["current_team_id"],
                 auth_method=self.auth_type,
+                distinct_id=row["distinct_id"],
                 scopes=scopes,
                 token_expires_at=expires,
                 application_id=str(row["application_id"]),
