@@ -46,10 +46,10 @@
   '''
   SELECT
       count(DISTINCT e.`$session_id`) AS total,
-      toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_9)s)) AS day_start,
-      multiIf(and(ifNull(greaterOrEquals(e__session.`$session_duration`, 2.0), 0), ifNull(less(e__session.`$session_duration`, 4.5), 0)), %(hogql_val_10)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 4.5), 0), ifNull(less(e__session.`$session_duration`, 27.0), 0)), %(hogql_val_11)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 27.0), 0), ifNull(less(e__session.`$session_duration`, 44.0), 0)), %(hogql_val_12)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 44.0), 0), ifNull(less(e__session.`$session_duration`, 48.0), 0)), %(hogql_val_13)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 48.0), 0), ifNull(less(e__session.`$session_duration`, 57.5), 0)), %(hogql_val_14)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 57.5), 0), ifNull(less(e__session.`$session_duration`, 61.0), 0)), %(hogql_val_15)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 61.0), 0), ifNull(less(e__session.`$session_duration`, 74.0), 0)), %(hogql_val_16)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 74.0), 0), ifNull(less(e__session.`$session_duration`, 90.0), 0)), %(hogql_val_17)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 90.0), 0), ifNull(less(e__session.`$session_duration`, 98.5), 0)), %(hogql_val_18)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 98.5), 0), ifNull(less(e__session.`$session_duration`, 167.01), 0)), %(hogql_val_19)s, %(hogql_val_20)s) AS breakdown_value
+      toStartOfDay(toTimeZone(e.timestamp, %(hogql_val_16)s)) AS day_start,
+      multiIf(and(ifNull(greaterOrEquals(e__session.`$session_duration`, 2.0), 0), ifNull(less(e__session.`$session_duration`, 4.5), 0)), %(hogql_val_17)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 4.5), 0), ifNull(less(e__session.`$session_duration`, 27.0), 0)), %(hogql_val_18)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 27.0), 0), ifNull(less(e__session.`$session_duration`, 44.0), 0)), %(hogql_val_19)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 44.0), 0), ifNull(less(e__session.`$session_duration`, 48.0), 0)), %(hogql_val_20)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 48.0), 0), ifNull(less(e__session.`$session_duration`, 57.5), 0)), %(hogql_val_21)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 57.5), 0), ifNull(less(e__session.`$session_duration`, 61.0), 0)), %(hogql_val_22)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 61.0), 0), ifNull(less(e__session.`$session_duration`, 74.0), 0)), %(hogql_val_23)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 74.0), 0), ifNull(less(e__session.`$session_duration`, 90.0), 0)), %(hogql_val_24)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 90.0), 0), ifNull(less(e__session.`$session_duration`, 98.5), 0)), %(hogql_val_25)s, and(ifNull(greaterOrEquals(e__session.`$session_duration`, 98.5), 0), ifNull(less(e__session.`$session_duration`, 167.01), 0)), %(hogql_val_26)s, %(hogql_val_27)s) AS breakdown_value
   FROM
-      events AS e
+      (SELECT * FROM events WHERE and(equals(events.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_0)s), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_1)s, 6, %(hogql_val_2)s)))), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_3)s), assumeNotNull(parseDateTime64BestEffortOrNull(%(hogql_val_4)s, 6, %(hogql_val_5)s))), equals(events.event, %(hogql_val_6)s)))) AS e
       LEFT OUTER JOIN (SELECT
           tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -63,17 +63,17 @@
           ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0)
       SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_7)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_8)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_9)s))) AS `$session_duration`,
           sessions.session_id AS session_id
       FROM
           sessions
       WHERE
-          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s))), toIntervalDay(3))), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), plus(assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s)), toIntervalDay(3))))
+          and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_10)s), minus(toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_11)s, %(hogql_val_12)s))), toIntervalDay(3))), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_13)s), plus(assumeNotNull(toDateTime(%(hogql_val_14)s, %(hogql_val_15)s)), toIntervalDay(3))))
       GROUP BY
           sessions.session_id,
           sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
   WHERE
-      and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+      and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_28)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_29)s, %(hogql_val_30)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_31)s), assumeNotNull(toDateTime(%(hogql_val_32)s, %(hogql_val_33)s))), equals(e.event, %(hogql_val_34)s), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                       cohortpeople.person_id AS person_id
                   FROM
                       cohortpeople
@@ -118,19 +118,19 @@
   SELECT
       events__session.`$session_duration` AS duration
   FROM
-      events
+      (SELECT * FROM events WHERE and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_0)s), today()))) AS events
       LEFT JOIN (SELECT
-          dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,
+          dateDiff(%(hogql_val_1)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_2)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_3)s))) AS `$session_duration`,
           sessions.session_id AS session_id
       FROM
           sessions
       WHERE
-          and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), plus(today(), toIntervalDay(3))))
+          and(equals(sessions.team_id, <TEAM_ID>), lessOrEquals(toTimeZone(sessions.min_timestamp, %(hogql_val_4)s), plus(today(), toIntervalDay(3))))
       GROUP BY
           sessions.session_id,
           sessions.session_id) AS events__session ON equals(events.`$session_id`, events__session.session_id)
   WHERE
-      and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))
+      and(equals(events.team_id, <TEAM_ID>), less(toTimeZone(events.timestamp, %(hogql_val_5)s), today()))
   LIMIT 50000
   '''
 # ---
