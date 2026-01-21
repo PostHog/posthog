@@ -3,7 +3,7 @@ import uuid
 import shutil
 import datetime as dt
 import tempfile
-from typing import Any
+from typing import Any, cast
 
 from django.db import close_old_connections
 
@@ -128,6 +128,9 @@ def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
     inactivity_periods = inputs.get("inactivity_periods")
 
     if inactivity_periods:
+        if asset.export_context is None:
+            asset.export_context = {}
+        inactivity_periods = cast(list[dict[str, Any]], inactivity_periods)
         asset.export_context["inactivity_periods"] = inactivity_periods
         asset.save(update_fields=["export_context"])
 
