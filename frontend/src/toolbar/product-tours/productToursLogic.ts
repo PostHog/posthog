@@ -24,12 +24,35 @@ import {
     ProductTourSurveyQuestion,
     ScreenPosition,
     StepOrderVersion,
-    SurveyPosition,
 } from '~/types'
 
-import { inferSelector } from './elementInference'
+import { InferredSelector, inferSelector } from './elementInference'
 import type { productToursLogicType } from './productToursLogicType'
 import { ElementScreenshot, captureAndUploadElementScreenshot, captureScreenshot, getElementMetadata } from './utils'
+
+export type ElementStepConfirmation = {
+    type: 'element'
+    content: JSONContent | null
+    selector: string
+    useManualSelector: boolean
+    maxWidth?: number
+    progressionTrigger?: ProductTourProgressionTriggerType
+}
+
+export type ModalStepConfirmation = {
+    type: 'modal'
+    content: JSONContent | null
+    modalPosition: ScreenPosition
+    maxWidth?: number
+}
+
+export type SurveyStepConfirmation = {
+    type: 'survey'
+    survey: ProductTourSurveyQuestion
+    modalPosition: ScreenPosition
+}
+
+export type StepConfirmation = ElementStepConfirmation | ModalStepConfirmation | SurveyStepConfirmation
 
 const RECENT_GOALS_KEY = 'posthog-product-tours-recent-goals'
 
@@ -158,6 +181,81 @@ function getUpdatedStepOrderHistory(
     return history
 }
 
+async function buildElementStep(
+    data: ElementStepConfirmation,
+    existingStep: TourStep | null,
+    values: {
+        selectedElement: HTMLElement | null
+        pendingScreenshotPromise: { stepIndex: number; promise: Promise<ElementScreenshot | null> } | null
+        editorState: EditorState
+    },
+    actions: { clearPendingScreenshotPromise: () => void }
+): Promise<TourStep> {
+    const { selector, content, useManualSelector, maxWidth, progressionTrigger } = data
+    const { selectedElement, pendingScreenshotPromise, editorState } = values
+    const stepIndex = editorState.mode === 'editing' ? editorState.stepIndex : -1
+
+    const element = selectedElement ?? existingStep?.element
+
+    let inferenceData: InferredSelector | undefined
+    let screenshotMediaId: string | undefined
+
+    if (useManualSelector) {
+        // manual mode: wipe screenshot + inference data; user is on their own
+        // this reduces the risk of weirdness happening when you swap between
+        // modes. the step editor in the toolbar forces re-selection of an element
+        // if you go from manual -> auto.
+        inferenceData = undefined
+        screenshotMediaId = undefined
+    } else {
+        // auto mode: always recompute inference from current DOM state
+        inferenceData = element ? inferSelector(element)?.selector : undefined
+
+        if (pendingScreenshotPromise?.stepIndex === stepIndex) {
+            const screenshot = await pendingScreenshotPromise.promise
+            if (screenshot) {
+                screenshotMediaId = screenshot.mediaId
+            }
+            actions.clearPendingScreenshotPromise()
+        } else {
+            screenshotMediaId = existingStep?.screenshotMediaId
+        }
+    }
+
+    return {
+        id: existingStep?.id ?? uuid(),
+        type: 'element',
+        selector,
+        content,
+        element,
+        inferenceData,
+        useManualSelector,
+        progressionTrigger,
+        maxWidth,
+        screenshotMediaId,
+    }
+}
+
+function buildModalStep(data: ModalStepConfirmation, existingStep: TourStep | null): TourStep {
+    return {
+        id: existingStep?.id ?? uuid(),
+        type: 'modal',
+        content: data.content,
+        modalPosition: data.modalPosition,
+        maxWidth: data.maxWidth,
+    }
+}
+
+function buildSurveyStep(data: SurveyStepConfirmation, existingStep: TourStep | null): TourStep {
+    return {
+        id: existingStep?.id ?? uuid(),
+        type: 'survey',
+        content: null,
+        survey: data.survey,
+        modalPosition: data.modalPosition,
+    }
+}
+
 export const productToursLogic = kea<productToursLogicType>([
     path(['toolbar', 'product-tours', 'productToursLogic']),
 
@@ -174,14 +272,7 @@ export const productToursLogic = kea<productToursLogicType>([
         selectElement: (element: HTMLElement) => ({ element }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         clearSelectedElement: true,
-        confirmStep: (
-            content: JSONContent | null,
-            selector?: string,
-            survey?: ProductTourSurveyQuestion,
-            progressionTrigger?: ProductTourProgressionTriggerType,
-            maxWidth?: number,
-            modalPosition?: ScreenPosition
-        ) => ({ content, selector, survey, progressionTrigger, maxWidth, modalPosition }),
+        confirmStep: (data: StepConfirmation) => ({ data }),
         cancelEditing: true,
         removeStep: (index: number) => ({ index }),
 
@@ -577,6 +668,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     element,
                     screenshotMediaId: undefined,
                     inferenceData,
+                    useManualSelector: false, // clicking an element = auto mode
                 }
                 actions.setTourFormValue('steps', steps)
                 actions.setPendingScreenshotPromise(stepIndex, screenshotPromise)
@@ -590,55 +682,28 @@ export const productToursLogic = kea<productToursLogicType>([
                 })
             }
         },
-        confirmStep: async ({
-            content,
-            selector: selectorOverride,
-            survey,
-            progressionTrigger,
-            maxWidth,
-            modalPosition,
-        }) => {
-            const { editorState, tourForm, selectedElement, pendingScreenshotPromise } = values
+        confirmStep: async ({ data }) => {
+            const { editorState, tourForm } = values
             if (editorState.mode !== 'editing' || !tourForm) {
                 return
             }
 
-            const { stepIndex, stepType } = editorState
+            const { stepIndex } = editorState
             const steps = [...(tourForm.steps || [])]
-            const existingStep = stepIndex < steps.length ? steps[stepIndex] : null
+            const existingStep = steps[stepIndex] ?? null
 
-            // For element steps, use selector from UI (which handles all derivation logic)
-            // Preserve existing selector if none provided (e.g., editing content only)
-            const selector = stepType === 'element' ? (selectorOverride ?? existingStep?.selector) : undefined
-            // Reuse stored inferenceData if element hasn't changed, otherwise recalculate
-            const inferenceData =
-                stepType === 'element' && selectedElement
-                    ? selectedElement === existingStep?.element
-                        ? existingStep?.inferenceData
-                        : inferSelector(selectedElement)?.selector
-                    : undefined
+            let newStep: TourStep
 
-            let screenshotMediaId: string | undefined = existingStep?.screenshotMediaId
-            if (stepType === 'element' && pendingScreenshotPromise?.stepIndex === stepIndex) {
-                const screenshot = await pendingScreenshotPromise.promise
-                if (screenshot) {
-                    screenshotMediaId = screenshot.mediaId
-                }
-                actions.clearPendingScreenshotPromise()
-            }
-
-            const newStep: TourStep = {
-                id: existingStep?.id ?? uuid(),
-                type: stepType,
-                selector,
-                content,
-                element: selectedElement ?? existingStep?.element,
-                inferenceData: inferenceData ?? existingStep?.inferenceData,
-                ...(survey ? { survey } : {}),
-                ...(progressionTrigger ? { progressionTrigger } : {}),
-                ...(maxWidth ? { maxWidth } : {}),
-                ...(screenshotMediaId ? { screenshotMediaId } : {}),
-                ...(stepType !== 'element' ? { modalPosition: modalPosition ?? SurveyPosition.MiddleCenter } : {}),
+            switch (data.type) {
+                case 'element':
+                    newStep = await buildElementStep(data, existingStep, values, actions)
+                    break
+                case 'modal':
+                    newStep = buildModalStep(data, existingStep)
+                    break
+                case 'survey':
+                    newStep = buildSurveyStep(data, existingStep)
+                    break
             }
 
             if (stepIndex < steps.length) {

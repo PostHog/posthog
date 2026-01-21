@@ -6,7 +6,7 @@ import { IconChevronRight, IconCursorClick, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { ProductTourPreview } from 'scenes/product-tours/components/ProductTourPreview'
 import {
     TOUR_STEP_MAX_WIDTH,
@@ -115,6 +115,7 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
     const [selector, setSelector] = useState('')
     const [showAdvanced, setShowAdvanced] = useState(false)
+    const [useManualSelector, setUseManualSelector] = useState(editingStep?.useManualSelector ?? false)
 
     // Progression trigger state (for element steps)
     const [progressionTrigger, setProgressionTrigger] = useState<ProductTourProgressionTriggerType>('button')
@@ -134,6 +135,16 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     const isModalStep = editingStepType === 'modal'
     const isSurveyStep = editingStepType === 'survey'
     const padding = 16
+
+    const getDisabledReason = (): string | undefined => {
+        if (isSurveyStep && !surveyConfig?.questionText?.trim()) {
+            return 'Enter a question'
+        }
+        if (isElementStep && useManualSelector && !selector?.trim()) {
+            return 'Enter a CSS selector'
+        }
+        return undefined
+    }
 
     const handleResizeStart = useCallback(
         (e: React.MouseEvent) => {
@@ -160,29 +171,47 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
         [editorWidth]
     )
 
+    const handleConfirm = (): void => {
+        if (isElementStep) {
+            confirmStep({
+                type: 'element',
+                content: stepContent,
+                selector,
+                useManualSelector,
+                maxWidth: editorWidth,
+                progressionTrigger,
+            })
+        } else if (isSurveyStep) {
+            confirmStep({
+                type: 'survey',
+                survey: surveyConfig!,
+                modalPosition,
+            })
+        } else {
+            confirmStep({
+                type: 'modal',
+                content: stepContent,
+                modalPosition,
+                maxWidth: editorWidth,
+            })
+        }
+    }
+
     useEffect(() => {
         if (editingStep) {
             setEditorWidth(getWidthValue(editingStep.maxWidth))
         }
     }, [editingStep?.id, editingStep?.maxWidth])
 
-    // Initialize selector and progressionTrigger from selectedElement or editingStep
+    // Initialize selector, progressionTrigger, and useManualSelector from selectedElement or editingStep
     useEffect(() => {
-        if (selectedElement) {
-            // Fresh element selection (new step OR changing element) - always derive from element
-            const actionStep = elementToActionStep(selectedElement, dataAttributes)
-            setSelector(actionStep.selector ?? '')
-            // Preserve progressionTrigger if editing existing step, otherwise default to button
-            setProgressionTrigger(editingStep?.progressionTrigger ?? 'button')
-        } else if (editingStep) {
-            // Existing step with no new selection - use saved values
-            setSelector(editingStep.selector ?? '')
-            setProgressionTrigger(editingStep.progressionTrigger ?? 'button')
-        } else {
-            // New modal/survey step - no selector
-            setSelector('')
-            setProgressionTrigger('button')
-        }
+        const newSelector = selectedElement
+            ? (elementToActionStep(selectedElement, dataAttributes).selector ?? '')
+            : (editingStep?.selector ?? '')
+
+        setSelector(newSelector)
+        setProgressionTrigger(editingStep?.progressionTrigger ?? 'button')
+        setUseManualSelector(editingStep?.useManualSelector ?? false)
     }, [editingStep, selectedElement, dataAttributes])
 
     // Initialize survey config and modal position from existing step
@@ -245,10 +274,6 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
     const actionLabel = editingStep
         ? `Editing step ${editingStepIndex! + 1} (${stepTypeLabel})`
         : `Adding ${stepTypeLabel} step`
-
-    const getSurveyConfig = (): ProductTourSurveyQuestion | undefined => {
-        return isSurveyStep ? surveyConfig : undefined
-    }
 
     return (
         <div
@@ -371,30 +396,59 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                     {showAdvanced && (
                         <div className="space-y-3 pt-1">
                             {isElementStep && (
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium">CSS selector</label>
-                                    <LemonInput
-                                        value={selector}
-                                        onChange={setSelector}
-                                        placeholder="CSS selector (e.g., #my-button)"
-                                        size="small"
-                                        fullWidth
-                                        className="font-mono text-xs"
+                                <div className="space-y-2">
+                                    <label className="text-xs font-medium">Element targeting</label>
+                                    <LemonSegmentedButton
+                                        value={useManualSelector ? 'css' : 'auto'}
+                                        onChange={(value) => {
+                                            if (value === 'auto' && useManualSelector) {
+                                                // switching from auto -> manual means you must re-select
+                                                // your element. when you switch from manual -> auto, we wipe
+                                                // inference data to avoid getting into weird states
+                                                changeStepElement()
+                                            }
+                                            setUseManualSelector(value === 'css')
+                                        }}
+                                        options={[
+                                            { value: 'auto', label: 'Auto' },
+                                            { value: 'css', label: 'CSS selector' },
+                                        ]}
+                                        size="xsmall"
                                     />
+                                    {!useManualSelector && (
+                                        <p className="text-[10px] text-muted">
+                                            PostHog automatically finds the element using stored attributes
+                                        </p>
+                                    )}
+                                    {useManualSelector && (
+                                        <LemonInput
+                                            value={selector}
+                                            onChange={setSelector}
+                                            placeholder="#my-button or [data-testid='login']"
+                                            size="small"
+                                            fullWidth
+                                            className="font-mono text-xs"
+                                        />
+                                    )}
                                 </div>
                             )}
                             {isElementStep && (
-                                <div className="space-y-1">
+                                <div className="space-y-2">
                                     <label className="text-xs font-medium">Advance action</label>
-                                    <LemonRadio
+                                    <LemonSegmentedButton
                                         value={progressionTrigger}
                                         onChange={setProgressionTrigger}
                                         options={[
                                             { value: 'button', label: 'Next button' },
                                             { value: 'click', label: 'Element click' },
                                         ]}
-                                        orientation="horizontal"
+                                        size="xsmall"
                                     />
+                                    <p className="text-[10px] text-muted">
+                                        {progressionTrigger === 'button' && 'Display a "Next" button in the tour step'}
+                                        {progressionTrigger === 'click' &&
+                                            'Users click the target element to go to the next step'}
+                                    </p>
                                 </div>
                             )}
                             {!isElementStep && (
@@ -415,19 +469,8 @@ export function StepEditor({ rect, elementNotFound }: { rect?: ElementRect; elem
                         <LemonButton
                             type="primary"
                             size="small"
-                            onClick={() =>
-                                confirmStep(
-                                    stepContent,
-                                    isElementStep ? selector : undefined,
-                                    getSurveyConfig(),
-                                    isElementStep ? progressionTrigger : undefined,
-                                    editorWidth,
-                                    !isElementStep ? modalPosition : undefined
-                                )
-                            }
-                            disabledReason={
-                                isSurveyStep && !surveyConfig?.questionText?.trim() ? 'Enter a question' : undefined
-                            }
+                            onClick={handleConfirm}
+                            disabledReason={getDisabledReason()}
                         >
                             Done
                         </LemonButton>

@@ -12,7 +12,7 @@ import {
     IconQuestion,
     IconTrash,
 } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { PositionSelector } from 'scenes/surveys/survey-appearance/SurveyAppearancePositionSelector'
 
@@ -187,10 +187,14 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                                 onClick={() => setShowScreenshotModal(true)}
                                             />
                                         )}
-                                        {selectedStep.selector && (
+                                        {selectedStep.useManualSelector && selectedStep.selector ? (
                                             <code className="text-xs bg-fill-primary px-2 py-0.5 rounded">
                                                 {selectedStep.selector}
                                             </code>
+                                        ) : (
+                                            <span className="text-xs bg-success-highlight text-success px-2 py-0.5 rounded font-medium">
+                                                Auto
+                                            </span>
                                         )}
                                     </>
                                 )}
@@ -274,6 +278,50 @@ export function ProductTourStepsEditor({ steps, appearance, onChange }: ProductT
                                         totalSteps={steps.length}
                                         layout="horizontal"
                                     />
+
+                                    {selectedStep.type === 'element' && (
+                                        <div>
+                                            <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
+                                                Element targeting
+                                            </div>
+                                            <div className="space-y-3">
+                                                <LemonSegmentedButton
+                                                    value={selectedStep.useManualSelector ? 'css' : 'auto'}
+                                                    onChange={(value) =>
+                                                        updateStep(selectedStepIndex, {
+                                                            useManualSelector: value === 'css',
+                                                        })
+                                                    }
+                                                    options={[
+                                                        { value: 'auto', label: 'Auto' },
+                                                        { value: 'css', label: 'CSS selector' },
+                                                    ]}
+                                                    size="small"
+                                                />
+                                                {!selectedStep.useManualSelector && (
+                                                    <p className="text-xs text-muted">
+                                                        PostHog automatically finds the element using stored attributes
+                                                    </p>
+                                                )}
+                                                {selectedStep.useManualSelector && (
+                                                    <LemonInput
+                                                        value={selectedStep.selector ?? ''}
+                                                        onChange={(value) =>
+                                                            updateStep(selectedStepIndex, {
+                                                                selector: value,
+                                                                screenshotMediaId: undefined,
+                                                            })
+                                                        }
+                                                        placeholder="[data-testid='my-button']"
+                                                        size="small"
+                                                        fullWidth
+                                                        className="font-mono text-xs"
+                                                        status={!selectedStep.selector?.trim() ? 'danger' : undefined}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">
