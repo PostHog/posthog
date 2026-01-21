@@ -371,7 +371,13 @@
           };
           let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
           return inputs;}
-          const source = (function () {let exports={};"use strict";;return exports;})();
+          const source = (function() {
+                      
+                      return {
+                          onLoad: typeof onLoad !== 'undefined' ? onLoad : undefined,
+                          onEvent: typeof onEvent !== 'undefined' ? onEvent : undefined
+                      };
+                  })();
               let processEvent = undefined;
               if ('onEvent' in source) {
                   processEvent = function processEvent(globals, posthog) {
@@ -421,7 +427,13 @@
           };
           let __getGlobal = (key) => key === 'inputs' ? inputs : globals[key];
           return inputs;}
-          const source = (function () {let exports={};"use strict";;return exports;})();
+          const source = (function() {
+                      
+                      return {
+                          onLoad: typeof onLoad !== 'undefined' ? onLoad : undefined,
+                          onEvent: typeof onEvent !== 'undefined' ? onEvent : undefined
+                      };
+                  })();
               let processEvent = undefined;
               if ('onEvent' in source) {
                   processEvent = function processEvent(globals, posthog) {
