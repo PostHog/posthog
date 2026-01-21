@@ -240,7 +240,7 @@ def detect_recording_resolution(
 
         # Wait for resolution to be available from sessionRecordingPlayerLogic global variable
         try:
-            logger.info("video_exporter.waiting_for_resolution_global")
+            logger.debug("video_exporter.waiting_for_resolution_global")
             resolution = page.wait_for_function(
                 """
                 () => {
@@ -255,7 +255,7 @@ def detect_recording_resolution(
 
             detected_width = int(resolution["width"])
             detected_height = int(resolution["height"])
-            logger.info("video_exporter.resolution_detected", width=detected_width, height=detected_height)
+            logger.debug("video_exporter.resolution_detected", width=detected_width, height=detected_height)
             return detected_width, detected_height
 
         except Exception as e:
@@ -275,7 +275,7 @@ def detect_inactivity_periods(
     """Detect inactivity periods when recording session videos."""
     try:
         # Get data from the global variable using browser
-        logger.info("video_exporter.waiting_for_inactivity_periods_global")
+        logger.debug("video_exporter.waiting_for_inactivity_periods_global")
         inactivity_periods_raw = page.wait_for_function(
             """
             () => {
@@ -291,9 +291,10 @@ def detect_inactivity_periods(
             timeout=15000,
         ).json_value()
         inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
+        logger.debug("video_exporter.inactivity_periods_detected", inactivity_periods=inactivity_periods)
         return inactivity_periods
     except Exception as e:
-        logger.warning("video_exporter.inactivity_periods_detection_failed", error=str(e))
+        logger.exception("video_exporter.inactivity_periods_detection_failed", error=str(e))
         return None
 
 
