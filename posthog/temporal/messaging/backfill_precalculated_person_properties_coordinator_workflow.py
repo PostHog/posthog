@@ -21,14 +21,16 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
 
 LOGGER = get_logger(__name__)
 
+# Constants for UUID sampling
+PERSON_ID_SAMPLE_RATE = 0.01  # Sample 1% of person IDs to find partition boundaries
+SAMPLE_RATE_MULTIPLIER = 100  # Multiplier to estimate total from sample (inverse of sample rate)
+
 
 class ChildWorkflowConfig(TypedDict):
     """Type definition for child workflow configuration."""
 
     id: str
     inputs: BackfillPrecalculatedPersonPropertiesInputs
-    offset: int
-    limit: int
     index: int
 
 
@@ -37,8 +39,7 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     team_id: int
-    cohort_id: int
-    filters: list[PersonPropertyFilter]  # Person property filters from cohort
+    filters: list[PersonPropertyFilter]  # Deduplicated person property filters
     parallelism: int = 10  # Number of child workflows to spawn
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
@@ -48,7 +49,6 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "cohort_id": self.cohort_id,
             "filter_count": len(self.filters),
             "parallelism": self.parallelism,
             "batch_size": self.batch_size,
@@ -58,20 +58,28 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
 
 
 @dataclasses.dataclass
-class PersonCountResult:
-    """Result from counting total persons."""
+class UUIDBoundariesResult:
+    """Result from sampling UUID boundaries for partitioning."""
 
-    count: int
+    boundaries: list[str]  # List of UUID strings representing partition boundaries
+    total_persons: int  # Total number of persons for logging
 
 
 @temporalio.activity.defn
-async def get_person_count_activity(
+async def sample_uuid_boundaries_activity(
     inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
-) -> PersonCountResult:
-    """Get the total count of non-deleted persons for the team."""
+) -> UUIDBoundariesResult:
+    """Sample UUID boundaries to partition persons evenly across workers.
 
-    query = """
-        SELECT count() as count
+    Uses reservoir sampling on 1% of person IDs to find percentile boundaries.
+    Returns parallelism-1 boundaries that divide the UUID space into parallelism partitions.
+    """
+    parallelism = inputs.parallelism
+
+    # Query to sample person IDs and get total count
+    # First get total count, then sample using ORDER BY rand() LIMIT for engines that don't support SAMPLE
+    count_query = """
+        SELECT count() as total_count
         FROM (
             SELECT id
             FROM person
@@ -84,19 +92,76 @@ async def get_person_count_activity(
 
     query_params = {"team_id": inputs.team_id}
 
-    # Execute query using async ClickHouse client
+    # Get total count first
+    total_count = 0
+    async with get_client(team_id=inputs.team_id) as client:
+        response = await client.read_query(count_query, query_parameters=query_params)
+        for line in response.decode("utf-8").splitlines():
+            if line.strip():
+                try:
+                    row = json.loads(line)
+                    total_count = int(row["total_count"])
+                    break
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    LOGGER.exception("Failed to parse count result", line=line, error=str(e))
+                    raise
+
+    if total_count == 0:
+        # No persons found, return empty boundaries
+        return UUIDBoundariesResult(boundaries=[], total_persons=0)
+
+    # Calculate sample size (1% of total, minimum 100, maximum 100k)
+    sample_size = max(100, min(int(total_count * PERSON_ID_SAMPLE_RATE), 100_000))
+
+    # Query to sample person IDs using ORDER BY rand() LIMIT (works on all engines)
+    query = """
+        SELECT groupArray(id) as sampled_ids
+        FROM (
+            SELECT id
+            FROM person
+            WHERE team_id = %(team_id)s
+            GROUP BY id
+            HAVING max(is_deleted) = 0
+            ORDER BY rand()
+            LIMIT %(sample_size)s
+        )
+        FORMAT JSONEachRow
+    """
+
+    query_params = {"team_id": inputs.team_id, "sample_size": sample_size}
+
     async with get_client(team_id=inputs.team_id) as client:
         response = await client.read_query(query, query_parameters=query_params)
         for line in response.decode("utf-8").splitlines():
             if line.strip():
                 try:
                     row = json.loads(line)
-                    return PersonCountResult(count=int(row["count"]))
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    LOGGER.exception("Failed to parse person count result", line=line)
+                    sampled_ids = row["sampled_ids"]
+
+                    # Sort sampled UUIDs to find percentile boundaries
+                    sorted_ids = sorted(sampled_ids)
+
+                    # Calculate boundaries at percentiles to divide into N partitions
+                    # For parallelism=10, we need 9 boundaries at 10%, 20%, ..., 90%
+                    boundaries = []
+                    for i in range(1, parallelism):
+                        percentile = i / parallelism
+                        idx = int(percentile * len(sorted_ids))
+                        idx = min(idx, len(sorted_ids) - 1)  # Clamp to valid index
+                        boundaries.append(str(sorted_ids[idx]))
+
+                    LOGGER.info(
+                        f"Sampled {sample_size} person IDs from {total_count} total, "
+                        f"generated {len(boundaries)} UUID boundaries for {parallelism} workers"
+                    )
+
+                    return UUIDBoundariesResult(boundaries=boundaries, total_persons=total_count)
+
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    LOGGER.exception("Failed to parse UUID sampling result", line=line, error=str(e))
                     raise
 
-    return PersonCountResult(count=0)
+    return UUIDBoundariesResult(boundaries=[], total_persons=0)
 
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")
@@ -113,53 +178,52 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(
-            f"Starting person properties precalculation coordinator for cohort {inputs.cohort_id} "
-            f"(team {inputs.team_id}) with parallelism={inputs.parallelism}"
+            f"Starting person properties precalculation coordinator for team {inputs.team_id} "
+            f"with parallelism={inputs.parallelism}, {len(inputs.filters)} unique condition hashes"
         )
 
-        # Step 1: Get total count of persons for this team
-        count_result = await temporalio.workflow.execute_activity(
-            get_person_count_activity,
+        # Step 1: Sample UUID boundaries to partition persons across workers
+        boundaries_result = await temporalio.workflow.execute_activity(
+            sample_uuid_boundaries_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
-        total_persons = count_result.count
+        total_persons = boundaries_result.total_persons
+        boundaries = boundaries_result.boundaries
+
         if total_persons == 0:
             workflow_logger.warning(f"No persons found for team {inputs.team_id}")
             return
 
         workflow_logger.info(
-            f"Scheduling {total_persons} persons across {inputs.parallelism} child workflows "
+            f"Scheduling ~{total_persons} persons across {inputs.parallelism} child workflows "
+            f"using {len(boundaries)} UUID boundaries, "
             f"in batches of {inputs.workflows_per_batch} every {inputs.batch_delay_minutes} minutes"
         )
 
-        # Step 2: Calculate ranges for each child workflow
-        persons_per_workflow = math.ceil(total_persons / inputs.parallelism)
-
-        # Step 3: Prepare all workflow configs first
+        # Step 2: Create UUID range-based workflow configs
+        # boundaries = [uuid1, uuid2, ..., uuid_N-1] for N workers
+        # Worker 0: [None, uuid1)
+        # Worker 1: [uuid1, uuid2)
+        # ...
+        # Worker N-1: [uuid_N-1, None)
         workflow_configs: list[ChildWorkflowConfig] = []
         for i in range(inputs.parallelism):
-            offset = i * persons_per_workflow
-            limit = min(persons_per_workflow, total_persons - offset)
-
-            if limit <= 0:
-                break
+            min_uuid = boundaries[i - 1] if i > 0 else None
+            max_uuid = boundaries[i] if i < len(boundaries) else None
 
             workflow_configs.append(
                 ChildWorkflowConfig(
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
                     inputs=BackfillPrecalculatedPersonPropertiesInputs(
                         team_id=inputs.team_id,
-                        cohort_id=inputs.cohort_id,
                         filters=inputs.filters,
                         batch_size=inputs.batch_size,
-                        offset=offset,
-                        limit=limit,
+                        min_person_id=min_uuid,
+                        max_person_id=max_uuid,
                     ),
-                    offset=offset,
-                    limit=limit,
                     index=i + 1,
                 )
             )
@@ -204,8 +268,10 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                     # Await the child workflow start (not completion, due to ABANDON policy)
                     await task
                     workflows_scheduled += 1
+                    min_uuid = config["inputs"].min_person_id or "MIN"
+                    max_uuid = config["inputs"].max_person_id or "MAX"
                     workflow_logger.info(
-                        f"Scheduled workflow {config['index']} for persons {config['offset']}-{config['offset'] + config['limit'] - 1}"
+                        f"Scheduled workflow {config['index']} for UUID range [{min_uuid}, {max_uuid})"
                     )
                 except Exception as e:
                     workflow_logger.error(
@@ -230,8 +296,9 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
 
         # Explicitly log completion before returning
         workflow_logger.info(
-            f"Coordinator workflow completed successfully for cohort {inputs.cohort_id}. "
-            f"Total workflows scheduled: {workflows_scheduled}"
+            f"Coordinator workflow completed successfully for team {inputs.team_id}. "
+            f"Total workflows scheduled: {workflows_scheduled}, "
+            f"processing {len(inputs.filters)} unique condition hashes"
         )
 
         return None
