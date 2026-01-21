@@ -1,8 +1,12 @@
+from typing import Any
+
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
@@ -40,22 +44,18 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         context_key = self.request.GET.get("context_key")
         if context_key:
             queryset = queryset.filter(
-                Q(context_key=context_key) & Q(visibility="private", created_by=self.request.user)
-                | Q(visibility="shared")
+                Q(context_key=context_key)
+                & (Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
             )
         return queryset.order_by("visibility", "-created_at")
 
-    def perform_create(self, serializer):
-        try:
-            instance = serializer.save(team=self.team, created_by=self.request.user)
-            self._log_activity(instance=instance, previous=None)
-        except IntegrityError as e:
-            error_str = str(e)
-            if "unique_user_view_name" in error_str:
-                raise Conflict(detail="A private view with this name already exists")
-            elif "unique_team_view_name" in error_str:
-                raise Conflict(detail="A shared view with this name already exists")
-            raise
+    def safely_get_object(self, queryset: QuerySet) -> Any:
+        object = queryset.get(pk=self.kwargs["pk"])
+
+        if self.request.method not in SAFE_METHODS and object.created_by != self.request.user:
+            raise PermissionDenied("You do not have permission to change this view")
+
+        return object
 
     def create(self, request, *args, **kwargs):
         context_key = request.data.get("context_key")
@@ -81,12 +81,17 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
-    def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if instance.visibility == "private" and instance.created_by != self.request.user:
-            return Response({"error": "You don't have permission to edit this view"}, status=403)
-
-        return super().update(request, *args, **kwargs)
+    def perform_create(self, serializer):
+        try:
+            instance = serializer.save(team=self.team, created_by=self.request.user)
+            self._log_activity(instance=instance, previous=None)
+        except IntegrityError as e:
+            error_str = str(e)
+            if "unique_user_view_name" in error_str:
+                raise Conflict(detail="A private view with this name already exists")
+            elif "unique_team_view_name" in error_str:
+                raise Conflict(detail="A shared view with this name already exists")
+            raise
 
     def perform_update(self, serializer):
         previous = self.get_object()
