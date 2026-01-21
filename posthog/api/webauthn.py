@@ -43,6 +43,7 @@ from posthog.helpers.two_factor_session import set_two_factor_verified_in_sessio
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.rate_limit import SignupIPThrottle
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
 
 logger = structlog.get_logger(__name__)
@@ -435,6 +436,7 @@ class WebAuthnSignupRegistrationViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [SignupIPThrottle]
 
     @action(detail=False, methods=["POST"], url_path="begin")
     def begin(self, request: Request) -> Response:

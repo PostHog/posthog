@@ -138,16 +138,13 @@ class SignupSerializer(serializers.Serializer):
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
         session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) if request else None
 
-        logger.info(
-            "validate_email_debug",
-            value=value,
-            passkey_credential_exists=bool(passkey_credential),
-            session_email=session_email,
-            session_keys=list(request.session.keys()) if request else [],
-        )
-
         # For passkey signup, use the email from session (already validated during registration)
         if passkey_credential and session_email:
+            if session_email.lower() != value.lower():
+                raise serializers.ValidationError(
+                    "Email does not match the email used for passkey registration", code="email_mismatch"
+                )
+
             return session_email
 
         if not settings.DEMO and EmailValidationHelper.user_exists(value):
@@ -205,6 +202,7 @@ class SignupSerializer(serializers.Serializer):
             # This can happen if:
             # 1. A user with this email was created between validation and creation (race condition)
             # 2. For passkey signup, a user was created after passkey registration but before signup completion
+            # 3. A user is created with uuid that another user has
             logger.warning(
                 "signup_integrity_error",
                 email=validated_data.get("email"),
