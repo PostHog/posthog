@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import log_activity_from_viewset
 from posthog.exceptions import Conflict
 from posthog.models import ColumnConfiguration
 
@@ -51,7 +52,8 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         try:
-            serializer.save(team=self.team, created_by=self.request.user)
+            instance = serializer.save(team=self.team, created_by=self.request.user)
+            self._log_activity(instance=instance, previous=None)
         except IntegrityError as e:
             error_str = str(e)
             if "unique_user_view_name" in error_str:
@@ -86,26 +88,20 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Check permissions
-        if not (instance.created_by == request.user or instance.visibility == "shared"):
+        if instance.visibility == "private" and instance.created_by != self.request.user:
             return Response({"error": "You don't have permission to edit this view"}, status=403)
 
-        # Log the change for version control
-        try:
-            from posthog.models.activity_logging.activity_log import log_activity
-
-            # TODO: Review this, I think this is entirely wrong.
-            log_activity(
-                team_id=self.team_id,
-                user=request.user,
-                item_type="column_configuration",
-                item_id=str(instance.id),
-                activity="updated",
-                detail={"name": instance.name, "changes": dict(request.data)},
-            )
-        except Exception:
-            # Don't fail the update if logging fails
-            # TODO: Log the error
-            pass
-
         return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        previous = self.get_object()
+        instance = serializer.save()
+        self._log_activity(instance=instance, previous=previous)
+
+    def _log_activity(self, instance, previous):
+        log_activity_from_viewset(
+            self,
+            instance=instance,
+            previous=previous,
+            name=f"{instance.context_key.split(':')[0].replace('-', ' ').capitalize()} column configuration",
+        )
