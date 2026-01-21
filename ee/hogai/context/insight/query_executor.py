@@ -45,6 +45,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
+    TRUNCATED_MARKER,
     FunnelResultsFormatter,
     RetentionResultsFormatter,
     RevenueAnalyticsGrossRevenueResultsFormatter,
@@ -537,6 +538,11 @@ async def execute_and_format_query(
     if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
         insight_schema = query.model_dump_json(exclude_none=True)
 
+    # Check if SQL results contain truncated values
+    has_truncated_values = (
+        isinstance(query, AssistantHogQLQuery | HogQLQuery) and TRUNCATED_MARKER in results and not used_fallback
+    )
+
     query_result = format_prompt_string(
         QUERY_RESULTS_PROMPT,
         query_kind=query.kind,
@@ -546,6 +552,7 @@ async def execute_and_format_query(
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         currency=currency if is_revenue_analytics_query(query) else None,
+        has_truncated_values=has_truncated_values,
     )
 
     return f"{example_prompt}\n\n{query_result}"

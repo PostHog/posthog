@@ -12,14 +12,17 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.hog_functions import HogFunction
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.utils import SingletonDecorator
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+
+_WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
 
 
 class CDPProducer:
@@ -123,6 +126,12 @@ class CDPProducer:
             use_dictionary=True,
         )
 
+    def _kafka_producer(self) -> _KafkaProducer:
+        return _WarpStreamKafkaProducer(
+            kafka_hosts=settings.KAFKA_CYCLOTRON_WARPSTREAM_HOSTS,
+            kafka_security_protocol=settings.KAFKA_CYCLOTRON_WARPSTREAM_PROTOCOL,
+        )
+
     def produce_to_kafka_from_s3(self) -> None:
         fs = self._get_fs()
 
@@ -132,7 +141,7 @@ class CDPProducer:
 
         self.logger.debug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        kafka_producer = KafkaProducer()
+        kafka_producer = self._kafka_producer()
 
         for file_path in files_to_produce:
             self.logger.debug(f"Producing file {file_path} to Kafka")

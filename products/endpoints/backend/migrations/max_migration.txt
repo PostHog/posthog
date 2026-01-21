@@ -1,1 +1,1 @@
-0008_endpoint_last_executed_at
+0012_remove_deprecated_endpoint_fields
