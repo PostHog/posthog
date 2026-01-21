@@ -6,11 +6,15 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
 
 import {
+    buildUsageLimitApproachingMessage,
+    buildUsageLimitExceededMessage,
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
+    formatProductNames,
     formatWithDecimals,
     getProration,
+    getUsageLimitConsequence,
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
@@ -325,5 +329,128 @@ describe('formatWithDecimals', () => {
 
         // Negative numbers
         expect(formatWithDecimals(-0.000000625)).toEqual('-0.000000625')
+    })
+})
+
+describe('formatProductNames', () => {
+    it('should return empty string for empty array', () => {
+        expect(formatProductNames([])).toEqual('')
+    })
+
+    it('should return single product name as-is', () => {
+        expect(formatProductNames(['Session replay'])).toEqual('Session replay')
+    })
+
+    it('should join two products with "and"', () => {
+        expect(formatProductNames(['Session replay', 'Feature flags & Experiments'])).toEqual(
+            'Session replay and Feature flags & Experiments'
+        )
+    })
+
+    it('should join three or more products with commas and "and"', () => {
+        expect(formatProductNames(['Product analytics', 'Session replay', 'Feature flags & Experiments'])).toEqual(
+            'Product analytics, Session replay and Feature flags & Experiments'
+        )
+    })
+})
+
+describe('getUsageLimitConsequence', () => {
+    it('should return specific message for Data warehouse', () => {
+        expect(getUsageLimitConsequence('Data warehouse')).toEqual('data will not be synced')
+    })
+
+    it('should return specific message for Feature flags & Experiments', () => {
+        expect(getUsageLimitConsequence('Feature flags & Experiments')).toEqual('feature flags will not evaluate')
+    })
+
+    it('should return generic message for other products', () => {
+        expect(getUsageLimitConsequence('Session replay')).toEqual('data loss may occur')
+        expect(getUsageLimitConsequence('Product analytics')).toEqual('data loss may occur')
+        expect(getUsageLimitConsequence('Surveys')).toEqual('data loss may occur')
+    })
+})
+
+describe('buildUsageLimitExceededMessage', () => {
+    it('should return empty strings for empty array', () => {
+        expect(buildUsageLimitExceededMessage([])).toEqual({ title: '', message: '' })
+    })
+
+    it('should build message for single subscribed product', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.title).toEqual('Usage limit exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
+        )
+    })
+
+    it('should build message for single unsubscribed product', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: false }])
+        expect(result.message).toContain('upgrade your plan')
+    })
+
+    it('should build message for multiple products with unique consequences', () => {
+        const result = buildUsageLimitExceededMessage([
+            { name: 'Session replay', subscribed: true },
+            { name: 'Feature flags & Experiments', subscribed: true },
+        ])
+        expect(result.title).toEqual('Usage limits exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.'
+        )
+    })
+
+    it('should deduplicate consequences for products with same consequence', () => {
+        const result = buildUsageLimitExceededMessage([
+            { name: 'Session replay', subscribed: true },
+            { name: 'Product analytics', subscribed: true },
+        ])
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.'
+        )
+    })
+
+    it('should use upgrade message when any product is not subscribed', () => {
+        const result = buildUsageLimitExceededMessage([
+            { name: 'Session replay', subscribed: true },
+            { name: 'Feature flags & Experiments', subscribed: false },
+        ])
+        expect(result.message).toContain('upgrade your plan')
+    })
+})
+
+describe('buildUsageLimitApproachingMessage', () => {
+    it('should return empty strings for empty array', () => {
+        expect(buildUsageLimitApproachingMessage([])).toEqual({ title: '', message: '' })
+    })
+
+    it('should build message for single product', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
+        ])
+        expect(result.title).toEqual('You will soon hit your usage limit')
+        expect(result.message).toEqual('You have currently used 90% of your recordings allocation.')
+    })
+
+    it('should build message for multiple products', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
+            { name: 'Feature flags & Experiments', percentage_usage: 0.87, usage_key: 'feature_flag_requests' },
+        ])
+        expect(result.title).toEqual('You will soon hit your usage limits')
+        expect(result.message).toEqual(
+            'You are approaching your usage limits: 90% of your recordings allocation, 87% of your feature_flag_requests allocation.'
+        )
+    })
+
+    it('should handle missing usage_key', () => {
+        const result = buildUsageLimitApproachingMessage([{ name: 'Session replay', percentage_usage: 0.9 }])
+        expect(result.message).toContain('usage allocation')
+    })
+
+    it('should format percentage with up to 2 decimal places', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: 'Session replay', percentage_usage: 0.8567, usage_key: 'recordings' },
+        ])
+        expect(result.message).toContain('85.67%')
     })
 })
