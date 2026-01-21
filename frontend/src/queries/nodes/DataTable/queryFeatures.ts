@@ -111,6 +111,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.linkDataButton)
+        features.add(QueryFeature.showCount)
     }
 
     if (

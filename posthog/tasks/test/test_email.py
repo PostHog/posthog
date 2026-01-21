@@ -30,6 +30,7 @@ from posthog.tasks.email import (
     send_hog_functions_digest_email,
     send_invite,
     send_member_join,
+    send_new_ticket_notification,
     send_password_reset,
     should_send_pipeline_error_notification,
 )
@@ -908,3 +909,96 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Email/password" in html_body
+
+    def test_send_new_ticket_notification(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Set up notification recipients in team settings
+        self.team.conversations_settings = {"notification_recipients": [self.user.id]}
+        self.team.save()
+
+        # Create a ticket
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+            anonymous_traits={"name": "Test Customer", "email": "customer@example.com"},
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello, I need help with something",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert f"Ticket #{ticket.ticket_number}" in mocked_email_messages[0].subject
+        assert mocked_email_messages[0].html_body
+        assert "Test Customer" in mocked_email_messages[0].html_body
+        assert "Hello, I need help with something" in mocked_email_messages[0].html_body
+
+    def test_send_new_ticket_notification_no_recipients(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # No notification recipients configured
+        self.team.conversations_settings = {}
+        self.team.save()
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello",
+        )
+
+        # No email should be sent
+        assert len(mocked_email_messages) == 0
+
+    def test_send_new_ticket_notification_recipient_without_access(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create another org and user who shouldn't have access
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(
+            organization=other_org,
+            email="other@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+
+        # Set the other user as recipient (they don't have access to this team)
+        self.team.conversations_settings = {"notification_recipients": [other_user.id]}
+        self.team.save()
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello",
+        )
+
+        # No email should be sent since recipient doesn't have access
+        assert len(mocked_email_messages) == 0
