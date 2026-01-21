@@ -23,7 +23,6 @@ LOGGER = get_logger(__name__)
 
 # Constants for UUID sampling
 PERSON_ID_SAMPLE_RATE = 0.01  # Sample 1% of person IDs to find partition boundaries
-SAMPLE_RATE_MULTIPLIER = 100  # Multiplier to estimate total from sample (inverse of sample rate)
 
 
 class ChildWorkflowConfig(TypedDict):
