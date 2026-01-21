@@ -145,6 +145,11 @@ _task_queue_specs = [
         DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     ),
     (
+        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES,
+    ),
+    (
         settings.DATA_MODELING_TASK_QUEUE,
         DATA_MODELING_WORKFLOWS,
         DATA_MODELING_ACTIVITIES,
