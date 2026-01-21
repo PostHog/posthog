@@ -115,6 +115,13 @@ import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { webAnalyticsFilterLogic } from './webAnalyticsFilterLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
+export interface DateFilterState {
+    dateFrom: string | null
+    dateTo: string | null
+    interval: IntervalType
+    isIntervalManuallySet: boolean
+}
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -341,7 +348,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 dateTo: INITIAL_DATE_TO,
                 interval: INITIAL_INTERVAL,
                 isIntervalManuallySet: false,
-            },
+            } as DateFilterState,
             persistConfig,
             {
                 setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
