@@ -673,6 +673,9 @@ export function LemonInputSelect<T = string>({
             onClickOutside={() => {
                 popoverFocusRef.current = false
                 setShowPopover(false)
+                // It seems more intuitive to lose focus of drop down entirely when clicking outside of the field.
+                // If this behavior at some point is not desired for multiple mode anymore, it should be kept for single mode.
+                inputRef.current?.blur()
             }}
             onClickInside={(e) => {
                 popoverFocusRef.current = true
