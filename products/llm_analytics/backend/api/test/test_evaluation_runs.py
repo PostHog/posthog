@@ -75,7 +75,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
 
         assert call_args[0][0] == "run-evaluation"  # workflow name
-        assert call_args[1]["task_queue"] == settings.GENERAL_PURPOSE_TASK_QUEUE
+        assert call_args[1]["task_queue"] == settings.LLMA_EVALS_TASK_QUEUE
 
         # Verify the workflow inputs contain event data
         workflow_inputs = call_args[0][1]

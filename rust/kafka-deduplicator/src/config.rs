@@ -367,17 +367,15 @@ impl Config {
     // Check multiple conditions for safe checkpoint export enablement
     pub fn checkpoint_export_enabled(&self) -> bool {
         self.checkpoint_export_enabled
-            && self.s3_endpoint.is_some()
-            && self.aws_region.is_some()
             && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
-    // Check mulitple conditions for safe checkpoint import enablement
+    // Check multiple conditions for safe checkpoint import enablement
     pub fn checkpoint_import_enabled(&self) -> bool {
         self.checkpoint_import_enabled
-            && self.s3_endpoint.is_some()
-            && self.aws_region.is_some()
             && self.s3_bucket.is_some()
+            && (self.s3_endpoint.is_some() || self.aws_region.is_some())
     }
 
     /// Get checkpoint interval as Duration
@@ -543,5 +541,97 @@ mod tests {
 
         config.max_store_capacity = "".to_string();
         assert!(config.parse_storage_capacity().is_err());
+    }
+
+    #[test]
+    fn test_checkpoint_export_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_export_enabled = true;
+        assert!(!config.checkpoint_export_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_export_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_export_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_export_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_export_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_export_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_export_enabled());
+    }
+
+    #[test]
+    fn test_checkpoint_import_enabled() {
+        let mut config = Config::init_with_defaults().unwrap();
+
+        // All disabled by default (no bucket, no endpoint, no region)
+        config.checkpoint_import_enabled = true;
+        assert!(!config.checkpoint_import_enabled());
+
+        // Flag disabled - should be false regardless of other settings
+        config.checkpoint_import_enabled = false;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Production AWS: region + bucket (no endpoint)
+        config.checkpoint_import_enabled = true;
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        config.s3_endpoint = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO: endpoint + bucket (no region)
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = None;
+        assert!(config.checkpoint_import_enabled());
+
+        // Local dev MinIO with region: endpoint + bucket + region
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(config.checkpoint_import_enabled());
+
+        // Missing bucket - should be false
+        config.s3_bucket = None;
+        config.s3_endpoint = Some("http://localhost:9000".to_string());
+        config.aws_region = Some("us-east-1".to_string());
+        assert!(!config.checkpoint_import_enabled());
+
+        // Missing both endpoint and region - should be false
+        config.s3_bucket = Some("test-bucket".to_string());
+        config.s3_endpoint = None;
+        config.aws_region = None;
+        assert!(!config.checkpoint_import_enabled());
     }
 }

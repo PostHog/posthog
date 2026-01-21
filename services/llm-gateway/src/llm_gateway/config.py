@@ -10,6 +10,13 @@ class ProductCostLimit(BaseModel):
     window_seconds: int
 
 
+DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
+    "llm_gateway": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+    "wizard": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+    "array": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
+}
+
+
 class Settings(BaseSettings):
     debug: bool = False
 
@@ -48,11 +55,7 @@ class Settings(BaseSettings):
 
     team_rate_limit_multipliers: dict[int, int] = {}
 
-    product_cost_limits: dict[str, ProductCostLimit] = {
-        "llm_gateway": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
-        "wizard": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
-        "array": ProductCostLimit(limit_usd=500.0, window_seconds=3600),
-    }
+    product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
     default_user_cost_limit_usd: float = 500.0
     default_user_cost_window_seconds: int = 3600
@@ -64,7 +67,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_product_cost_limits(cls, v: str | dict | None) -> dict[str, ProductCostLimit]:
         if v is None or v == "":
-            return {"llm_gateway": ProductCostLimit(limit_usd=20.0, window_seconds=3600)}
+            return DEFAULT_PRODUCT_COST_LIMITS
         if isinstance(v, dict):
             result = {}
             for product, config in v.items():

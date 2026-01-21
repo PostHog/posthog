@@ -13,7 +13,7 @@ export const manifest: ProductManifest = {
             name: 'Workflows',
             iconType: 'workflows',
             projectBased: true,
-            description: 'Create and manage your workflows',
+            description: 'Automate user communication and internal processes',
         },
         Workflow: {
             import: () => import('./frontend/Workflows/WorkflowScene'),

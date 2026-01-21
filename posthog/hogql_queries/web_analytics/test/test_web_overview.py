@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
@@ -19,6 +21,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     DateRange,
     HogQLQueryModifiers,
+    IntervalType,
     SessionPropertyFilter,
     SessionTableVersion,
     WebOverviewQuery,
@@ -955,3 +958,19 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert runner_tz.query_date_range._timezone_info == ZoneInfo("Asia/Tokyo")
         assert runner_tz.query_compare_to_date_range._timezone_info == ZoneInfo("Asia/Tokyo")
+
+    @parameterized.expand(
+        [
+            (IntervalType.HOUR, IntervalType.HOUR),
+            (IntervalType.DAY, IntervalType.DAY),
+            (None, IntervalType.DAY),
+        ]
+    )
+    def test_query_date_range_uses_query_interval(self, query_interval, expected_interval):
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="-24h"),
+            properties=[],
+            interval=query_interval,
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+        assert runner.query_date_range._interval == expected_interval

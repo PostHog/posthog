@@ -239,7 +239,7 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsOrderBy) => ({ orderBy }),
+        setOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar' = 'toolbar') => ({ orderBy, source }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
@@ -901,7 +901,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             }
             actions.syncUrlAndRunQuery()
         },
-        setOrderBy: () => {
+        setOrderBy: ({ orderBy, source }) => {
+            posthog.capture('logs setting changed', { setting: 'order_by', value: orderBy, source })
             actions.syncUrlAndRunQuery()
         },
         setLogsPageSize: () => {
