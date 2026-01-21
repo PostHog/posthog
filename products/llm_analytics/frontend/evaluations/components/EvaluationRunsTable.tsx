@@ -42,7 +42,7 @@ function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Eleme
                             return (
                                 <Link
                                     key={genId}
-                                    to={urls.llmAnalyticsTrace(run.trace_id, { event: genId })}
+                                    to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
                                     className="text-xs font-mono text-primary hover:underline"
                                 >
                                     {genId.slice(0, 8)}...
