@@ -84,6 +84,32 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["detail"] == "A shared view with this name already exists"
 
+    def test_user_can_only_access_their_private_views(self):
+        user = User.objects.create_and_join(self.organization, email="foo@bar.com", password="top-secret")
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=user,
+        )
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "context-key"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == str(config.id)
+
     def test_update_via_patch(self):
         create_response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",

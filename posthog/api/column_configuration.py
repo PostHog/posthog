@@ -1,4 +1,5 @@
-from django.db import IntegrityError, models
+from django.db import IntegrityError
+from django.db.models import Q
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -36,17 +37,11 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ColumnConfigurationSerializer
 
     def safely_get_queryset(self, queryset):
-        # TODO: Review this to ensure users only access their own views or shared views
         context_key = self.request.GET.get("context_key")
         if context_key:
-            # Get named views (user's own private + all shared) and legacy unnamed config
             queryset = queryset.filter(
-                models.Q(context_key=context_key)
-                & (
-                    models.Q(name__isnull=False, visibility="private", created_by=self.request.user)
-                    | models.Q(name__isnull=False, visibility="shared")
-                    | models.Q(name__isnull=True)  # Legacy unnamed config
-                )
+                Q(context_key=context_key) & Q(visibility="private", created_by=self.request.user)
+                | Q(visibility="shared")
             )
         return queryset.order_by("visibility", "-created_at")
 
