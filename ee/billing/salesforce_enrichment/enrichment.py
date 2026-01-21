@@ -151,11 +151,89 @@ def _is_yc_funded(investors: list | None) -> bool:
 
     for investor in investors:
         if isinstance(investor, dict):
-            # Only check company names, not person fullNames
+            # Harmonic returns investors as a union type: Company (has 'name') or Person
+            # (has 'fullName'). We only match company names since Y Combinator is an
+            # institutional investor, not an individual.
             name = investor.get("name", "")
             if name and YC_INVESTOR_NAME in name.lower():
                 return True
     return False
+
+
+def _normalize_text_value(value: str | None, uppercase: bool = False) -> str | None:
+    """Normalize text value for consistent storage.
+
+    Args:
+        value: Raw string value
+        uppercase: If True, convert to uppercase (for category fields)
+
+    Returns:
+        Normalized string or None if empty/whitespace-only
+    """
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized.upper() if uppercase else normalized
+
+
+def _prepare_harmonic_tags(tags: list, tags_v2: list) -> list[dict[str, Any]]:
+    """Prepare tag records from Harmonic data.
+
+    Combines tags from both arrays, deduplicating by display value (case-insensitive).
+    Tags from 'tags' array include isPrimary status; tags_v2 entries are never primary.
+
+    Args:
+        tags: Primary tags array from Harmonic API
+        tags_v2: Secondary tags array from Harmonic API
+
+    Returns:
+        List of tag dicts ready for Salesforce insertion
+
+    TODO: This function prepares tag records for Salesforce `Harmonic_Tag__c` objects
+    but is not yet integrated into the enrichment pipeline. Integration requires:
+    - Adding a bulk insert/upsert function for the Harmonic_Tag__c object
+    - Calling this function from `_enrich_specific_domain_debug` or the production pipeline
+    - Linking tags to their parent Account via a lookup field
+    """
+    if not tags and not tags_v2:
+        return []
+
+    combined_tags: list[dict[str, Any]] = []
+    seen_values: set[str] = set()
+
+    def process_tag(tag: dict[str, Any], use_is_primary: bool) -> None:
+        raw_value = tag.get("displayValue")
+        if not raw_value:
+            return
+
+        value = _normalize_text_value(raw_value)
+        if not value or value.lower() in seen_values:
+            return
+
+        seen_values.add(value.lower())
+        date_added = tag.get("dateAdded", "")
+        category = _normalize_text_value(tag.get("type"), uppercase=True)
+        combined_tags.append(
+            {
+                "Name": value,
+                "Category__c": category,
+                "Industry__c": value if category == "INDUSTRY" else None,
+                "Date_Added__c": date_added.split("T")[0] if date_added and "T" in date_added else None,
+                "Is_Primary__c": tag.get("isPrimaryTag", False) if use_is_primary else False,
+            }
+        )
+
+    for tag in tags:
+        if isinstance(tag, dict):
+            process_tag(tag, use_is_primary=True)
+
+    for tag in tags_v2:
+        if isinstance(tag, dict):
+            process_tag(tag, use_is_primary=False)
+
+    return combined_tags
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
