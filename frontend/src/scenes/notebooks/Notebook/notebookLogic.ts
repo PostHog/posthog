@@ -28,7 +28,12 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { collectNodeIndices, collectPythonNodes } from '../Nodes/notebookNodeContent'
+import {
+    buildNotebookDependencyGraph,
+    collectDuckSqlNodes,
+    collectNodeIndices,
+    collectPythonNodes,
+} from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from the types file
@@ -40,7 +45,9 @@ import {
     NotebookType,
     TableOfContentData,
 } from '../types'
+import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -90,6 +97,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookKernelInfoLogic({ shortId: props.shortId }),
+            ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo', 'showTableOfContents'],
         ],
@@ -381,24 +390,40 @@ export const notebookLogic = kea<notebookLogicType>([
                         return null
                     }
 
-                    // We use the local content if set otherwise the notebook content. That way it supports templates, scratchpad etc.
+                    const duplicationSource =
+                        values.mode === 'canvas'
+                            ? 'Canvas'
+                            : values.notebook?.short_id === 'scratchpad'
+                              ? 'Scratchpad'
+                              : values.isTemplate
+                                ? 'Template'
+                                : null
+                    const isRegularNotebookDuplication = duplicationSource === null
+
+                    const title = isRegularNotebookDuplication ? `${values.title} (duplicate)` : values.title
+
+                    const content = isRegularNotebookDuplication
+                        ? updateContentHeading(values.content, title)
+                        : values.content
+
+                    let textContent = values.editor?.getText() || ''
+                    if (isRegularNotebookDuplication && textContent.startsWith(values.title)) {
+                        textContent = title + textContent.slice(values.title.length)
+                    }
+
                     const response = await api.notebooks.create({
-                        content: values.content,
-                        text_content: values.editor?.getText() || '',
-                        title: values.title,
+                        content,
+                        text_content: textContent,
+                        title,
                     })
 
                     posthog.capture(`notebook duplicated`, {
                         short_id: response.short_id,
                     })
 
-                    const source =
-                        values.mode === 'canvas'
-                            ? 'Canvas'
-                            : values.notebook?.short_id === 'scratchpad'
-                              ? 'Scratchpad'
-                              : 'Template'
-                    lemonToast.success(`Notebook created from ${source}!`)
+                    lemonToast.success(
+                        duplicationSource ? `Notebook created from ${duplicationSource}!` : 'Notebook duplicated!'
+                    )
 
                     if (values.notebook?.short_id === 'scratchpad') {
                         // If duplicating the scratchpad, we assume they don't want the scratchpad content anymore
@@ -512,6 +537,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
+        duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
+        dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
             (s) => [s.content],
@@ -528,6 +555,10 @@ export const notebookLogic = kea<notebookLogicType>([
                         (isHogQLQuery(node.attrs?.query) ||
                             (node.attrs?.query?.source && isHogQLQuery(node.attrs.query.source)))
                 ),
+        ],
+        duckSqlNodeIndices: [
+            (s) => [s.content],
+            (content) => collectNodeIndices(content, (node) => node.type === NotebookNodeType.DuckSQL),
         ],
 
         isShowingLeftColumn: [

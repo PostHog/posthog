@@ -196,64 +196,43 @@ describe.each([
 
                 expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
 
-                expect(
-                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
-                ).toMatchObject(
-                    [
-                        {
-                            key: expect.any(String),
-                            topic: 'clickhouse_app_metrics2_test',
-                            value: {
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+
+                // Check triggered metrics (one per destination)
+                const triggeredMetrics = metrics.filter((m: any) => m.value.metric_name === 'triggered')
+                expect(triggeredMetrics).toHaveLength(2)
+                expect(triggeredMetrics).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            value: expect.objectContaining({
                                 app_source: 'hog_function',
                                 app_source_id: fnFetchNoFilters.id,
-                                count: 1,
-                                metric_kind: 'other',
                                 metric_name: 'triggered',
-                                team_id: 2,
-                                timestamp: expect.any(String),
-                            },
-                        },
-                        hogType === 'destination' && {
-                            key: expect.any(String),
-                            topic: 'clickhouse_app_metrics2_test',
-                            value: {
-                                app_source: 'hog_function',
-                                app_source_id: fnFetchNoFilters.id,
-                                count: 1,
-                                metric_kind: 'billing',
-                                metric_name: 'billable_invocation',
-                                team_id: 2,
-                                timestamp: expect.any(String),
-                            },
-                        },
-                        {
-                            key: expect.any(String),
-                            topic: 'clickhouse_app_metrics2_test',
-                            value: {
+                            }),
+                        }),
+                        expect.objectContaining({
+                            value: expect.objectContaining({
                                 app_source: 'hog_function',
                                 app_source_id: fnPrinterPageviewFilters.id,
-                                count: 1,
-                                metric_kind: 'other',
                                 metric_name: 'triggered',
-                                team_id: 2,
-                                timestamp: expect.any(String),
-                            },
-                        },
-                        hogType === 'destination' && {
-                            key: expect.any(String),
-                            topic: 'clickhouse_app_metrics2_test',
-                            value: {
-                                app_source: 'hog_function',
-                                app_source_id: fnPrinterPageviewFilters.id,
-                                count: 1,
-                                metric_kind: 'billing',
-                                metric_name: 'billable_invocation',
-                                team_id: 2,
-                                timestamp: expect.any(String),
-                            },
-                        },
-                    ].filter((x) => !!x)
+                            }),
+                        }),
+                    ])
                 )
+
+                // Billing is per-event, not per-destination: 1 event → 2 destinations = 1 billable_invocation
+                if (hogType === 'destination') {
+                    const billingMetrics = metrics.filter((m: any) => m.value.metric_name === 'billable_invocation')
+                    expect(billingMetrics).toHaveLength(1)
+                    expect(billingMetrics[0].value).toMatchObject({
+                        app_source: 'hog_function',
+                        app_source_id: '_event_trigger',
+                        instance_id: globals.event.uuid,
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                        team_id: 2,
+                    })
+                }
             })
 
             it("should filter out functions that don't match the filter", async () => {
@@ -297,6 +276,7 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
+                    // Billing is per-event: 1 event → 1 destination = 1 billable_invocation
                     ...(hogType !== 'destination'
                         ? []
                         : [
@@ -305,7 +285,8 @@ describe.each([
                                   topic: 'clickhouse_app_metrics2_test',
                                   value: {
                                       app_source: 'hog_function',
-                                      app_source_id: fnFetchNoFilters.id,
+                                      app_source_id: '_event_trigger',
+                                      instance_id: globals.event.uuid,
                                       count: 1,
                                       metric_kind: 'billing',
                                       metric_name: 'billable_invocation',
@@ -351,6 +332,58 @@ describe.each([
                     },
                 ])
             })
+
+            if (hogType === 'destination') {
+                it('should bill once per event, not per destination (multiple events)', async () => {
+                    // Create a second event with different UUID
+                    const globals2 = createHogExecutionGlobals({
+                        project: {
+                            id: team.id,
+                        } as any,
+                        event: {
+                            uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+                            event: '$pageview',
+                            properties: {
+                                $current_url: 'https://posthog.com',
+                                $lib_version: '1.0.0',
+                            },
+                        } as any,
+                    })
+
+                    // Process both events - each should trigger both destinations
+                    const { invocations } = await processor.processBatch([globals, globals2])
+
+                    // 2 events × 2 destinations = 4 invocations
+                    expect(invocations).toHaveLength(4)
+
+                    const billingMetrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter((m: any) => m.value.metric_name === 'billable_invocation')
+
+                    // 2 events = 2 billable_invocations (not 4)
+                    expect(billingMetrics).toHaveLength(2)
+
+                    // Each billing metric should have app_source_id='_event_trigger' and unique event UUID
+                    expect(billingMetrics).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                value: expect.objectContaining({
+                                    app_source_id: '_event_trigger',
+                                    instance_id: globals.event.uuid,
+                                    metric_name: 'billable_invocation',
+                                }),
+                            }),
+                            expect.objectContaining({
+                                value: expect.objectContaining({
+                                    app_source_id: '_event_trigger',
+                                    instance_id: globals2.event.uuid,
+                                    metric_name: 'billable_invocation',
+                                }),
+                            }),
+                        ])
+                    )
+                })
+            }
         })
 
         describe('quota limiting', () => {

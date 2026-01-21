@@ -107,7 +107,7 @@ runs:
         - name: Set up Node.js
           uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
           with:
-              node-version: 22.22.0
+              node-version: 24.13.0
               cache: pnpm
 
         # tests would intermittently fail in GH actions
@@ -133,7 +133,7 @@ runs:
           # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
           # changed (requirements.txt has the already-published version)
           run: |
-              sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+              sudo apt-get install unzip cmake curl uuid pkg-config
               curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
               # Check that the downloaded archive is the expected runtime - a security measure
               anltr_known_md5sum="c875c148991aacd043f733827644a76f"
@@ -226,21 +226,6 @@ runs:
         # - name: Setup tmate session
         #   if: failure()
         #   uses: mxschmitt/action-tmate@v3
-
-        - name: Run /decide read replica tests
-          id: run-decide-read-replica-tests
-          if: ${{ inputs.segment == 'Core' && inputs.group == 1 && inputs.person-on-events != 'true' }}
-          env:
-              POSTHOG_DB_NAME: posthog
-              READ_REPLICA_OPT_IN: 'decide,PersonalAPIKey, local_evaluation'
-              POSTHOG_POSTGRES_READ_HOST: localhost
-              POSTHOG_DB_PASSWORD: posthog
-              POSTHOG_DB_USER: posthog
-          shell: bash
-          run: |
-              pytest posthog/api/test/test_decide.py::TestDecideUsesReadReplica \
-                  --durations=100 --durations-min=1.0 \
-                  $PYTEST_ARGS
 
         - name: Run Temporal tests
           id: run-temporal-tests

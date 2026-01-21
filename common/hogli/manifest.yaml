@@ -311,26 +311,33 @@ build:
 docker:
     docker:services:up:
         cmd: docker compose -f docker-compose.dev.yml up -d
-        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
-            Kafka)
+        description: Start Docker infrastructure services
         services:
             - docker
             - postgresql
             - clickhouse
             - redis
             - kafka
+    docker:services:up:minimal:
+        extends: docker:services:up
+        cmd: docker compose -f docker-compose.dev-minimal.yml up -d
     docker:services:down:
         cmd: docker compose -f docker-compose.dev.yml down
         description: Stop Docker infrastructure services
         services:
             - docker
+    docker:services:down:minimal:
+        extends: docker:services:down
+        cmd: docker compose -f docker-compose.dev-minimal.yml down
     docker:services:remove:
         cmd: docker compose -f docker-compose.dev.yml down -v
-        description: Stop Docker infrastructure services and remove all volumes (complete
-            wipe)
+        description: Stop Docker infrastructure services and remove all volumes (complete wipe)
         services:
             - docker
         prompt: true
+    docker:services:remove:minimal:
+        extends: docker:services:remove
+        cmd: docker compose -f docker-compose.dev-minimal.yml down -v
     docker:deprecated:
         bin_script: docker
         description: '[DEPRECATED] Use `hogli start` instead'
