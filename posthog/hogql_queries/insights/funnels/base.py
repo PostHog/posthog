@@ -572,7 +572,6 @@ class FunnelBase(ABC):
         exprs: list[ast.Expr] = []
 
         for prop in self.context.includeProperties:
-            # nosemgrep: hogql-injection-taint - includeProperties allows custom property expressions
             prop_expr = parse_expr(prop)
             if aggregate:
                 exprs.append(ast.Alias(alias=prop, expr=ast.Call(name="any", args=[prop_expr])))

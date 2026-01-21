@@ -3,44 +3,71 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 
 
 # ============================================================================
-# hogql-injection-taint: SHOULD FIND (vulnerable patterns)
+# hogql-injection-taint: SHOULD FIND (user data interpolated into f-strings)
 # ============================================================================
 
 
 class TestTaintVulnerable:
-    def test_query_field_to_parse_expr(self):
-        # ruleid: hogql-injection-taint
-        parse_expr(self.query.someField)
+    def test_query_field_in_fstring(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_expr(f"field = {self.query.someField}")
 
-    def test_query_field_to_parse_select(self):
-        # ruleid: hogql-injection-taint
-        parse_select(self.query.queryString)
+    def test_query_field_in_fstring_to_select(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_select(f"SELECT * WHERE {self.query.filter}")
 
-    def test_query_field_to_parse_order_expr(self):
-        # ruleid: hogql-injection-taint
-        parse_order_expr(self.query.orderBy)
+    def test_query_field_in_fstring_to_order(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_order_expr(f"{self.query.orderBy} DESC")
 
-    def test_context_include_properties(self):
+    def test_context_in_fstring_loop(self):
         for prop in self.context.includeProperties:
-            # ruleid: hogql-injection-taint
-            parse_expr(prop)
+            # ruleid: hogql-injection-taint, hogql-fstring-audit
+            parse_expr(f"has({prop})")
 
-    def test_series_math_hogql(self):
-        # ruleid: hogql-injection-taint
-        parse_expr(self.series.math_hogql)
+    def test_series_math_in_fstring(self):
+        # ruleid: hogql-injection-taint, hogql-fstring-audit
+        parse_expr(f"SELECT {self.series.math_hogql}")
 
-    def test_indirect_flow(self):
-        x = self.query.expression
+    def test_indirect_fstring_flow(self):
+        query = f"field = {self.query.expression}"
         # ruleid: hogql-injection-taint
-        parse_expr(x)
+        parse_expr(query)
 
 
 # ============================================================================
-# hogql-injection-taint: SHOULD NOT FIND (sanitized/safe patterns)
+# hogql-injection-taint: SHOULD NOT FIND (safe patterns)
 # ============================================================================
 
 
 class TestTaintSafe:
+    def test_entire_expression_direct(self):
+        # Safe: user provides entire HogQL expression (no context to escape)
+        # ok: hogql-injection-taint
+        parse_expr(self.query.someField)
+
+    def test_entire_expression_select(self):
+        # ok: hogql-injection-taint
+        parse_select(self.query.queryString)
+
+    def test_entire_expression_order(self):
+        # ok: hogql-injection-taint
+        parse_order_expr(self.query.orderBy)
+
+    def test_loop_variable_direct(self):
+        for prop in self.context.includeProperties:
+            # ok: hogql-injection-taint
+            parse_expr(prop)
+
+    def test_series_math_direct(self):
+        # ok: hogql-injection-taint
+        parse_expr(self.series.math_hogql)
+
+    def test_indirect_flow_no_fstring(self):
+        x = self.query.expression
+        # ok: hogql-injection-taint
+        parse_expr(x)
+
     def test_sanitized_with_ast_constant(self):
         value = self.query.someField
         # ok: hogql-injection-taint
@@ -59,6 +86,11 @@ class TestTaintSafe:
         x = "some_column"
         # ok: hogql-injection-taint
         parse_expr(x)
+
+    def test_fstring_no_user_data(self):
+        i = 5
+        # ok: hogql-injection-taint
+        parse_expr(f"step_{i}")
 
 
 # ============================================================================

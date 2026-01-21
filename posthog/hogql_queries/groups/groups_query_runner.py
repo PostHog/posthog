@@ -22,7 +22,6 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         # Detect if this is a count/aggregation query
         self.is_aggregation_query = False
         if self.query.select:
-            # nosemgrep: hogql-injection-taint - self.query.select contains intentional HogQL expressions (e.g. count(*))
             self.is_aggregation_query = any(has_aggregation(parse_expr(col)) for col in self.query.select)
 
         # Handle column logic differently for aggregation queries
@@ -114,7 +113,6 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                         )
                     )
                 else:
-                    # nosemgrep: hogql-injection-taint - orderBy is parsed as HogQL and validated
                     order_by.append(parse_order_expr(col, timings=self.timings))
 
             if similarity_order is not None:

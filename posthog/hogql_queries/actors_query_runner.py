@@ -349,7 +349,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
                             order_by.append(ast.OrderExpr(expr=order_expr, order="DESC" if is_desc else "ASC"))
                         else:
-                            # nosemgrep: hogql-injection-taint - orderBy is parsed as HogQL and validated
                             order_by.append(parse_order_expr(col, timings=self.timings))
             elif "count()" in self.input_columns():
                 order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
