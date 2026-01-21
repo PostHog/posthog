@@ -100,7 +100,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         if (hidePlayerElements && !showMetadataFooter) {
             setSkipInactivitySetting(false)
         }
-    }, [mode, setSkipInactivitySetting, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, hidePlayerElements, showMetadataFooter])
 
     useEffect(
         () => {
