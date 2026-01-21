@@ -108,9 +108,24 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
+                # Update session data if provided
+                if session_id:
+                    ticket.session_id = session_id
+                if session_context:
+                    ticket.session_context = session_context
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.save(
+                    update_fields=[
+                        "distinct_id",
+                        "anonymous_traits",
+                        "session_id",
+                        "session_context",
+                        "unread_team_count",
+                        "updated_at",
+                    ]
+                )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
