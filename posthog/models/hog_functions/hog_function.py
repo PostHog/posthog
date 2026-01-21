@@ -308,7 +308,7 @@ def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: 
                         break
         except requests.exceptions.Timeout:
             logger.exception(
-                f"Timeout after {timeout_seconds} seconds while syncing GeoIP template from Node.js"
+                f"Timeout after {timeout_seconds} seconds while syncing GeoIP template from Node.js. "
                 "Is the Node.js server running? You can skip this by setting DISABLE_MMDB=1",
                 team_id=instance.id,
             )
