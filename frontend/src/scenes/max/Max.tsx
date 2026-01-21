@@ -52,7 +52,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
-    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'posthog-ai' }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
     const isRemovingSidePanelMax = useFeatureFlag('UX_REMOVE_SIDEPANEL_MAX')
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
