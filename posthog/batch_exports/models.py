@@ -236,6 +236,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
     interval_offset = models.IntegerField(
         null=True,
+        blank=True,
         help_text="The offset in seconds from the start of the default interval that this batch export should run at.",
     )
 
