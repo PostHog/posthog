@@ -18,7 +18,6 @@ from hogql_parser import (
 )
 from opentelemetry import trace
 from prometheus_client import Histogram
-from structlog import getLogger
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
@@ -34,7 +33,12 @@ from posthog.hogql.timings import HogQLTimings
 
 tracer = trace.get_tracer(__name__)
 
-logger = getLogger(__name__)
+
+def _get_logger():
+    """Lazy logger initialization to avoid triggering Django settings during module import."""
+    from structlog import getLogger
+
+    return getLogger(__name__)
 
 
 def safe_lambda(f):
@@ -112,14 +116,14 @@ def _compare_with_cpp_json(
         fn = RULE_TO_PARSE_FUNCTION["cpp-json"][rule]
         cpp_json_ast = fn(source, start=start) if rule == "expr" else fn(source)
     except Exception as err:
-        logger.warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
+        _get_logger().warning("hogql_cpp_json_parse_error", rule=rule, backend=backend, query=source, error=str(err))
         return
 
     try:
         if placeholders:
             cpp_json_ast = replace_placeholders(cpp_json_ast, placeholders)
     except Exception as err:
-        logger.warning(
+        _get_logger().warning(
             "hogql_cpp_json_placeholder_replacement_error",
             rule=rule,
             backend=backend,
@@ -130,7 +134,7 @@ def _compare_with_cpp_json(
 
     try:
         if parsed_ast.to_hogql() != cpp_json_ast.to_hogql():
-            logger.warning(
+            _get_logger().warning(
                 "hogql_cpp_json_mismatch",
                 rule=rule,
                 backend=backend,
@@ -139,7 +143,9 @@ def _compare_with_cpp_json(
                 cpp_json_ast=repr(cpp_json_ast),
             )
     except Exception as err:
-        logger.warning("hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err))
+        _get_logger().warning(
+            "hogql_cpp_json_comparison_error", rule=rule, backend=backend, query=source, error=str(err)
+        )
 
 
 def parse_string_template(
