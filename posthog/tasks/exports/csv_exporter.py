@@ -43,10 +43,6 @@ RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
 
-# Query kinds that support offset/limit pagination via schema parameters.
-# HogQLQuery doesn't support these yet
-PAGINATED_QUERY_KINDS = {"EventsQuery", "ActorsQuery", "GroupsQuery"}
-
 
 class TabularWriter(Protocol):
     def write_header(self, columns: list[str]) -> None: ...
@@ -416,21 +412,30 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
     assert query is not None
 
     breakdown_filter = query.get("breakdownFilter") if query else None
-    query_kind = query.get("kind")
-    supports_pagination = query_kind in PAGINATED_QUERY_KINDS
-
-    offset = 0
     total = 0
 
+    # Pagination state - detected from response
+    cursor: str | None = None
+    offset = 0
+    use_cursor = False
+    supports_pagination: bool | None = None  # None = not yet detected
+
     while total < CSV_EXPORT_LIMIT:
+        # Build paginated query
+        paginated_query = query.copy()
+
+        # Only add pagination parameters after confirming the query supports pagination
         if supports_pagination:
-            query["limit"] = QUERY_PAGE_SIZE
-            query["offset"] = offset
+            paginated_query["limit"] = QUERY_PAGE_SIZE
+            if cursor is not None:
+                paginated_query["after"] = cursor
+            elif offset > 0:
+                paginated_query["offset"] = offset
 
         try:
             query_response = process_query_dict(
                 team=exported_asset.team,
-                query_json=query,
+                query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             )
@@ -444,22 +449,34 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
             continue
 
         if isinstance(query_response, BaseModel):
-            query_response = query_response.model_dump(by_alias=True)
+            response_dict = query_response.model_dump(by_alias=True)
+        else:
+            response_dict = query_response
 
-        rows = list(_convert_response_to_csv_data(query_response, breakdown_filter=breakdown_filter))
+        rows = list(_convert_response_to_csv_data(response_dict, breakdown_filter=breakdown_filter))
         rows = rows[: CSV_EXPORT_LIMIT - total]
         total += len(rows)
         yield from rows
 
-        if total >= CSV_EXPORT_LIMIT or not supports_pagination:
+        if total >= CSV_EXPORT_LIMIT or len(rows) == 0:
             break
 
-        # Check if there are more results
-        has_more = query_response.get("hasMore", False)
-        if not has_more or len(rows) == 0:
-            break
+        # Detect pagination support from response
+        next_cursor = response_dict.get("nextCursor") or response_dict.get("next_cursor")
+        has_more = response_dict.get("hasMore", False)
 
-        offset += QUERY_PAGE_SIZE
+        if next_cursor:
+            # Priority 1: Cursor pagination
+            cursor = next_cursor
+            use_cursor = True
+            supports_pagination = True
+        elif has_more and not use_cursor:
+            # Priority 2: Offset pagination
+            offset += QUERY_PAGE_SIZE
+            supports_pagination = True
+        else:
+            # No pagination indicators - single query only
+            break
 
 
 def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None, None]:
