@@ -117,7 +117,7 @@ jobs:
         name: Frontend bundle size
         needs: [changes]
         if: needs.changes.outputs.frontend == 'true' && github.event_name != 'merge_group'
-        runs-on: depot-ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
@@ -153,13 +153,41 @@ jobs:
                   compression: 'none'
                   # Check all JS bundles in the dist folder
                   pattern: 'frontend/dist/*.js'
-                  # Exclude source maps
-                  exclude: 'frontend/dist/*.js.map'
+                  # Exclude source maps and chunk files (chunk hashes change every build)
+                  exclude: |
+                      frontend/dist/*.js.map
+                      frontend/dist/chunk-*.js
                   # Only show large changes
                   minimum-change-threshold: 1000
+                  order-by: 'Size:desc'
+                  strip-hash: "-[A-Za-z0-9]{8}\\.js$"
 
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
+
+            - name: Calculate dist folder size
+              id: dist-size
+              run: |
+                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
+                  echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
+
+            - name: Capture bundle size to PostHog
+              if: |
+                  (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+                  (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')
+              uses: PostHog/posthog-github-action@8c42e50f2c52e002eabb9bee3f69b152ee8fc1dd # v1.0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-ci-frontend-bundle-size'
+                  properties: |
+                      {
+                        "size_bytes": ${{ steps.dist-size.outputs.size_bytes }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "event_type": ${{ toJSON(github.event_name) }}
+                      }
 
     frontend-typescript-checks:
         name: Frontend typechecking

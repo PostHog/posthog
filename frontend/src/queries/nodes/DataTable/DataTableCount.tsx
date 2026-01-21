@@ -26,7 +26,7 @@ export function DataTableCount(): JSX.Element | null {
         ? `${pluralize(displayFilteredCount, entityType.singular, entityType.plural)} matched out of ${totalCount.toLocaleString()}`
         : `Total count: ${pluralize(totalCount, entityType.singular, entityType.plural)}`
 
-    return <span className="text-xs">{text}</span>
+    return <span className="text-small">{text}</span>
 }
 
 function getEntityType(query: any): { singular: string; plural: string } {
