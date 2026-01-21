@@ -871,7 +871,7 @@ export const billingLogic = kea<billingLogicType>([
                     message,
                     dismissKey: 'usage-limit-exceeded',
                     onClose: () => {
-                        // Store dismissal for all affected products
+                        // Store dismissal for all affected products in localStorage
                         const billingPeriodEnd =
                             values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
                         for (const product of productsOverLimit) {

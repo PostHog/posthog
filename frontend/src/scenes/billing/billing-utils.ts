@@ -605,7 +605,7 @@ export function buildUsageLimitApproachingMessage(
     }
 
     const usageDetails = products.map((p) => {
-        const percentage = (p.percentage_usage * 100).toFixed(2)
+        const percentage = parseFloat((p.percentage_usage * 100).toFixed(2))
         const usageKey = p.usage_key?.toLowerCase() || 'usage'
         return `${percentage}% of your ${usageKey} allocation`
     })
