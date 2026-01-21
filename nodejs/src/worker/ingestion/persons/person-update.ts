@@ -23,6 +23,23 @@ export interface PropertyUpdates {
 const NO_PERSON_UPDATE_EVENTS = new Set(['$exception', '$$heatmap'])
 const PERSON_EVENTS = new Set(['$identify', '$create_alias', '$merge_dangerously', '$set'])
 
+// Platform-level event-to-person property mappings
+// These automatically set person properties based on event name for all customers/SDKs
+export const SURVEY_EVENTS = {
+    SHOWN: 'survey shown',
+} as const
+
+export const SURVEY_PERSON_PROPERTIES = {
+    LAST_SEEN_DATE: '$survey_last_seen_date',
+} as const
+
+function getEventBasedPersonProperties(event: PluginEvent): Properties {
+    if (event.event === SURVEY_EVENTS.SHOWN) {
+        return { [SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]: event.timestamp }
+    }
+    return {}
+}
+
 // For tracking what property keys cause us to update persons
 // tracking all properties we add from the event, 'geoip' for '$geoip_*' or '$initial_geoip_*' and 'other' for anything outside of those
 export function getMetricKey(key: string): string {
@@ -59,7 +76,10 @@ export function computeEventPropertyUpdates(
     // Also force update when updateAllProperties is enabled
     const shouldForceUpdate = PERSON_EVENTS.has(event.event) || updateAllProperties
 
-    const properties: Properties = event.properties!['$set'] || {}
+    const properties: Properties = {
+        ...getEventBasedPersonProperties(event),
+        ...(event.properties!['$set'] || {}),
+    }
     const propertiesOnce: Properties = event.properties!['$set_once'] || {}
     const unsetProps = event.properties!['$unset']
     const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []

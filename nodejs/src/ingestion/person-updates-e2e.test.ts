@@ -23,6 +23,7 @@ import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/he
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
+import { SURVEY_EVENTS, SURVEY_PERSON_PROPERTIES } from '../worker/ingestion/persons/person-update'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {
@@ -565,6 +566,80 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 const person = await hub.personRepository.fetchPerson(team.id, identifiedDistinctId)
                 expect(person).toBeDefined()
                 expect(person!.is_identified).toBe(true)
+            })
+        })
+
+        it('should set $survey_last_seen_date on survey shown event', async () => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+            const isoTimestamp = DateTime.fromMillis(timestamp).toISO()
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent(SURVEY_EVENTS.SHOWN)
+                        .withProperties({
+                            $survey_id: 'test-survey-123',
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties[SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]).toBe(isoTimestamp)
+            })
+        })
+
+        it('should update $survey_last_seen_date on subsequent survey shown events', async () => {
+            const distinctId = new UUIDT().toString()
+            const firstTimestamp = DateTime.now().toMillis()
+            const secondTimestamp = firstTimestamp + 60000 // 1 minute later
+
+            // First survey shown
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent(SURVEY_EVENTS.SHOWN)
+                        .withProperties({ $survey_id: 'survey-1' })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties[SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]).toBe(
+                    DateTime.fromMillis(firstTimestamp).toISO()
+                )
+            })
+
+            // Second survey shown - should update the timestamp
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent(SURVEY_EVENTS.SHOWN)
+                        .withProperties({ $survey_id: 'survey-2' })
+                        .withTimestamp(secondTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties[SURVEY_PERSON_PROPERTIES.LAST_SEEN_DATE]).toBe(
+                    DateTime.fromMillis(secondTimestamp).toISO()
+                )
             })
         })
     })
