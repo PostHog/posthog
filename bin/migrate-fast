@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+"""Fast migrate command that disables migrations and creates schema directly from models."""
+import os
+import sys
+
+# Set Django settings before importing Django
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+
+import django
+django.setup()
+
+from django.conf import settings
+from django.core.management.commands import migrate
+
+
+class DisableMigrations:
+    def __contains__(self, item: str) -> bool:
+        return True
+
+    def __getitem__(self, item: str) -> None:
+        return None
+
+
+class MigrateSilentCommand(migrate.Command):
+    def handle(self, *args, **kwargs):
+        from django.db import connection
+
+        # :TRICKY: Create extension and function depended on by models.
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
+
+        return super().handle(*args, **kwargs)
+
+
+# Disable migrations - create tables directly from models
+settings.MIGRATION_MODULES = DisableMigrations()
+migrate.Command = MigrateSilentCommand  # type: ignore
+
+# Run migrate - use execute_from_command_line to preserve all argument handling
+from django.core.management import execute_from_command_line
+
+# Reconstruct sys.argv as if we're calling "python manage.py migrate ..."
+sys.argv = ["manage.py", "migrate"] + sys.argv[1:]
+execute_from_command_line(sys.argv)

@@ -91,7 +91,16 @@ if [ "$RUN_POSTGRES" = "1" ]; then
     MIGRATE_START_TIME=$(date +%s.%N)
 
     # Build migrate command - use direct connection if available
-    if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
+    # If DEBUG=1, use fast migration (disables migrations, creates schema from models)
+    if [ "$DEBUG" = "1" ]; then
+        if [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
+            MIGRATE_CMD="python bin/migrate-fast --noinput --database=default_direct"
+            echo "[migrate] Using fast migration (DEBUG=1) with direct database connection"
+        else
+            MIGRATE_CMD="python bin/migrate-fast --noinput"
+            echo "[migrate] Using fast migration (DEBUG=1) - creating schema directly from models"
+        fi
+    elif [ -n "$POSTHOG_POSTGRES_DIRECT_HOST" ]; then
         MIGRATE_CMD="python manage.py migrate --noinput --database=default_direct"
         echo "[migrate] Using direct database connection (lock_timeout enabled)"
     else
