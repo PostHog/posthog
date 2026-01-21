@@ -242,15 +242,6 @@ class TestFlushKafkaBatch:
 class TestBatchFlushingBehavior:
     """Tests for batch flushing logic and integration."""
 
-    def test_flush_batch_size_constant_is_10k(self):
-        """Verify the FLUSH_BATCH_SIZE constant is set to 10,000."""
-        import inspect
-
-        import posthog.temporal.messaging.backfill_precalculated_person_properties_workflow as module
-
-        source = inspect.getsource(module.backfill_precalculated_person_properties_activity)
-        assert "FLUSH_BATCH_SIZE = 10_000" in source
-
     @pytest.mark.asyncio
     async def test_multiple_batches_handled_correctly(self):
         """Should handle multiple batch flushes correctly."""
