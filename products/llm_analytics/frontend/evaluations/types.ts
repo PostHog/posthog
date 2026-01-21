@@ -55,14 +55,16 @@ export interface EvaluationSummaryStatistics {
     total_analyzed: number
     pass_count: number
     fail_count: number
+    na_count: number
 }
 
 export interface EvaluationSummary {
     overall_assessment: string
     pass_patterns: EvaluationPattern[]
     fail_patterns: EvaluationPattern[]
+    na_patterns: EvaluationPattern[]
     recommendations: string[]
     statistics: EvaluationSummaryStatistics
 }
 
-export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail'
+export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
