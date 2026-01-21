@@ -14,6 +14,7 @@ pub enum JobState {
     Completed,
     Failed,
     Paused,
+    Canceled,
 }
 
 impl FromStr for JobState {
@@ -25,6 +26,7 @@ impl FromStr for JobState {
             "running" => Ok(JobState::Running),
             "completed" => Ok(JobState::Completed),
             "failed" => Ok(JobState::Failed),
+            "canceled" => Ok(JobState::Canceled),
             _ => Err(()),
         }
     }

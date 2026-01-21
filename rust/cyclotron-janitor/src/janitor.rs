@@ -20,6 +20,7 @@ use crate::{
 pub struct CleanupResult {
     pub completed: u64,
     pub failed: u64,
+    pub canceled: u64,
     pub poisoned: u64,
     pub stalled: u64,
 }
@@ -76,15 +77,19 @@ impl Janitor {
 
         let mut completed_count = 0u64;
         let mut failed_count = 0u64;
+        let mut canceled_count = 0u64;
         for delete in &aggregated_deletes {
             if delete.state == "completed" {
                 completed_count += delete.count as u64;
             } else if delete.state == "failed" {
                 failed_count += delete.count as u64;
+            } else if delete.state == "canceled" {
+                canceled_count += delete.count as u64;
             }
         }
         common_metrics::inc(COMPLETED_COUNT, &self.metrics_labels, completed_count);
         common_metrics::inc(FAILED_COUNT, &self.metrics_labels, failed_count);
+        common_metrics::inc(CANCELED_COUNT, &self.metrics_labels, canceled_count);
 
         match send_iter_to_kafka(
             &self.kafka_producer,
@@ -156,6 +161,7 @@ impl Janitor {
         Ok(CleanupResult {
             completed: completed_count,
             failed: failed_count,
+            canceled: canceled_count,
             poisoned,
             stalled,
         })

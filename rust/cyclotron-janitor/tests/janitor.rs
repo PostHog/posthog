@@ -92,6 +92,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 1);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
@@ -121,7 +122,53 @@ async fn janitor_test(db: PgPool) {
         );
     }
 
-    // Second test - if we mark a job as failed, the janitor will clean it up
+    // Second test - if we mark a job as canceled, the janitor will clean it up
+    job_now = Utc::now();
+    manager.create_job(job_init.clone()).await.unwrap();
+    let job = worker
+        .dequeue_jobs(&queue_name, 1)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    worker.set_state(job.id, JobState::Canceled).unwrap();
+    worker.release_job(job.id, None).await.unwrap();
+
+    let result = janitor.run_once().await.unwrap();
+    assert_eq!(result.completed, 0);
+    assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 1);
+    assert_eq!(result.poisoned, 0);
+    assert_eq!(result.stalled, 0);
+
+    {
+        let kafka_msg = kafka_consumer.recv().await.unwrap();
+        let payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+        let app_metric: AppMetric2 = serde_json::from_str(&payload_str).unwrap();
+
+        assert_eq!(
+            app_metric,
+            AppMetric2 {
+                team_id: 1,
+                timestamp: job_now
+                    .with_minute(0)
+                    .unwrap()
+                    .with_second(0)
+                    .unwrap()
+                    .with_nanosecond(0)
+                    .unwrap(),
+                app_source: AppMetric2Source::Cyclotron,
+                app_source_id: uuid.to_string(),
+                instance_id: None,
+                metric_kind: AppMetric2Kind::Unknown,
+                metric_name: "finished_state".to_owned(),
+                count: 1
+            }
+        );
+    }
+
+    // Third test - if we mark a job as failed, the janitor will clean it up
     job_now = Utc::now();
     manager.create_job(job_init.clone()).await.unwrap();
     let job = worker
@@ -137,6 +184,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
     assert_eq!(result.failed, 1);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
@@ -166,7 +214,7 @@ async fn janitor_test(db: PgPool) {
         );
     }
 
-    // Third test - if we pick up a job, and then hold it for longer than
+    // Fourth test - if we pick up a job, and then hold it for longer than
     // the stall timeout, the janitor will reset it. After this, the worker
     // cannot flush updates to the job, and must re-dequeue it.
 
@@ -182,6 +230,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
@@ -192,6 +241,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 1);
 
@@ -212,7 +262,7 @@ async fn janitor_test(db: PgPool) {
 
     janitor.run_once().await.unwrap(); // Clean up the completed job to reset for the next test
 
-    // Fourth test - if a worker holds a job for longer than the stall
+    // Fifth test - if a worker holds a job for longer than the stall
     // time, but calls heartbeat, the job will not be reset
 
     manager.create_job(job_init.clone()).await.unwrap();
@@ -235,6 +285,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
@@ -246,10 +297,11 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 1);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 
-    // Fifth test - if a job stalls more than max_touches
+    // Sixth test - if a job stalls more than max_touches
     // it will be marked as poisoned and deleted
 
     manager.create_job(job_init.clone()).await.unwrap();
@@ -265,6 +317,7 @@ async fn janitor_test(db: PgPool) {
         let result = janitor.run_once().await.unwrap();
         assert_eq!(result.completed, 0);
         assert_eq!(result.failed, 0);
+        assert_eq!(result.canceled, 0);
         assert_eq!(result.poisoned, 0);
         assert_eq!(result.stalled, 1);
 
@@ -290,6 +343,7 @@ async fn janitor_test(db: PgPool) {
     let result: cyclotron_janitor::janitor::CleanupResult = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 0);
     assert_eq!(result.failed, 0);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 1);
     assert_eq!(result.stalled, 0);
 
@@ -298,7 +352,7 @@ async fn janitor_test(db: PgPool) {
     let result = worker.release_job(job.id, None).await;
     assert!(result.is_err());
 
-    // Sixth test - the janitor can operate on multiple jobs at once
+    // Seventh test - the janitor can operate on multiple jobs at once
     manager.create_job(job_init.clone()).await.unwrap();
     manager.create_job(job_init.clone()).await.unwrap();
 
@@ -313,6 +367,7 @@ async fn janitor_test(db: PgPool) {
     let result = janitor.run_once().await.unwrap();
     assert_eq!(result.completed, 1);
     assert_eq!(result.failed, 1);
+    assert_eq!(result.canceled, 0);
     assert_eq!(result.poisoned, 0);
     assert_eq!(result.stalled, 0);
 }
