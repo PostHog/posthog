@@ -111,6 +111,7 @@ async function registerSkillResources(server: McpServer, context: Context): Prom
             }
 
             const installCommand = generateInstallCommand(skill.id, skill.downloadUrl)
+            console.log(`Registering skill: ${skill.id}`)
 
             server.registerResource(
                 skill.name,
@@ -136,7 +137,7 @@ async function registerSkillResources(server: McpServer, context: Context): Prom
             )
         }
 
-
+        console.log(`Registered ${manifest.skills.length} skills (returning install commands)`)
     } catch (error) {
         // Skills are optional - log error but don't fail startup
         console.error('Failed to register skill resources:', error)
