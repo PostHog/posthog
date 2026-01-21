@@ -35,6 +35,7 @@ def translate_text(text: str, target_language: str) -> str:
             },
             {"role": "user", "content": text},
         ],
+        user="llma-translation",
     )
 
     content = response.choices[0].message.content
