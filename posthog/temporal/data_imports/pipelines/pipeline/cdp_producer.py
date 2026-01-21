@@ -87,13 +87,13 @@ class CDPProducer:
         dot_notated_table_name = get_data_warehouse_table_name(schema.source, raw_table_name)
 
         self.logger.debug(f"Checking if table {dot_notated_table_name} is used in any HogQL functions")
-        self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse")
+        self.logger.debug(f"Using table_name = {dot_notated_table_name}, source = data-warehouse-table")
 
         return (
             HogFunction.objects.filter(
                 team_id=self.team_id,
                 enabled=True,
-                filters__source="data-warehouse",
+                filters__source="data-warehouse-table",
                 filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
             )
             .exclude(deleted=True)

@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React from 'react'
@@ -20,7 +19,6 @@ import {
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
-import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -45,7 +43,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { DashboardPlacement, EventType } from '~/types'
 
@@ -95,14 +92,9 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
         selectedDashboardId,
     } = useValues(llmAnalyticsLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
-
-    const useCustomizableDashboard =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -123,7 +115,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 </>
             )}
             {hidePropertyFilters && <div className="flex-1" />}
-            {activeTab === 'dashboard' && useCustomizableDashboard && selectedDashboardId && (
+            {activeTab === 'dashboard' && selectedDashboardId && (
                 <LemonButton type="secondary" size="small" to={urls.dashboard(selectedDashboardId)}>
                     Edit dashboard
                 </LemonButton>
@@ -133,39 +125,10 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
     )
 }
 
-const Tiles = (): JSX.Element => {
-    const { tiles } = useValues(llmAnalyticsLogic)
-
-    return (
-        <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query, context }, i) => (
-                <QueryCard
-                    key={i}
-                    attachTo={llmAnalyticsLogic}
-                    title={title}
-                    description={description}
-                    query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
-                    context={context}
-                    sceneSource="llm-analytics"
-                    className={clsx(
-                        'h-96',
-                        /* Second row is the only one to have 2 tiles in the xl layout */
-                        i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'
-                    )}
-                />
-            ))}
-        </div>
-    )
-}
-
 function LLMAnalyticsDashboard(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { selectedDashboardId, availableDashboardsLoading, dashboardDateFilter, propertyFilters } =
         useValues(llmAnalyticsLogic)
 
-    const useCustomizableDashboard =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
     const dashboardLogicInstance = React.useMemo(
         () =>
             selectedDashboardId
@@ -198,16 +161,12 @@ function LLMAnalyticsDashboard(): JSX.Element {
             <div className="@container/dashboard">
                 <Filters />
 
-                {useCustomizableDashboard ? (
-                    availableDashboardsLoading || !selectedDashboardId ? (
-                        <div className="text-center p-8">
-                            <Spinner />
-                        </div>
-                    ) : (
-                        <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
-                    )
+                {availableDashboardsLoading || !selectedDashboardId ? (
+                    <div className="text-center p-8">
+                        <Spinner />
+                    </div>
                 ) : (
-                    <Tiles />
+                    <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
                 )}
             </div>
         </LLMAnalyticsSetupPrompt>
@@ -633,6 +592,15 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
     )
 }
 
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DOCS_URLS_BY_TAB: Record<string, string> = {
+    traces: 'https://posthog.com/docs/llm-analytics/traces',
+    generations: 'https://posthog.com/docs/llm-analytics/generations',
+    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
+    errors: 'https://posthog.com/docs/llm-analytics/errors',
+    evaluations: 'https://posthog.com/docs/llm-analytics/evaluations',
+}
+
 export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -740,14 +708,7 @@ export function LLMAnalyticsScene(): JSX.Element {
     ) {
         tabs.push({
             key: 'sessions',
-            label: (
-                <>
-                    Sessions{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Sessions',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSessionsScene />
@@ -872,7 +833,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                     actions={
                         <>
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/installation"
+                                to={DOCS_URLS_BY_TAB[activeTab] || DEFAULT_DOCS_URL}
                                 type="secondary"
                                 targetBlank
                                 size="small"

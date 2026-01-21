@@ -193,10 +193,12 @@ event_property_group_definitions = {
             lambda key: key.startswith("$ai_") and key not in large_ai_properties,
             column_type_name="group",
         ),
+        # Kept for backwards compatibility with migration 0197, dropped in migration 0198
         "ai_large": PropertyGroupDefinition(
             f"key IN (" + f", ".join(f"'{name}'" for name in large_ai_properties) + f")",
             lambda key: key in large_ai_properties,
             column_type_name="group",
+            hidden=True,
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",

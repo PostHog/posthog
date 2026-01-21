@@ -16,7 +16,6 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    decide,
     github,
     hog_flow_template,
     hog_function_template,
@@ -238,7 +237,6 @@ urlpatterns = [
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
-    opt_slash_path("decide", decide.get_decide),
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),

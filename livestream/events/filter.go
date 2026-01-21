@@ -20,7 +20,8 @@ type Subscription struct {
 	DistinctId string
 	EventTypes []string
 
-	Geo bool
+	Geo        bool
+	Columns []string
 
 	// Channels
 	EventChan   chan interface{}
@@ -66,14 +67,26 @@ func convertToResponseGeoEvent(event PostHogEvent) *ResponseGeoEvent {
 	}
 }
 
-func convertToResponsePostHogEvent(event PostHogEvent, teamId int) *ResponsePostHogEvent {
+func convertToResponsePostHogEvent(event PostHogEvent, teamId int, columns []string) *ResponsePostHogEvent {
+	var properties map[string]interface{}
+	if columns == nil {
+		properties = event.Properties
+	} else {
+		properties = make(map[string]interface{})
+		for _, key := range columns {
+			if val, ok := event.Properties[key]; ok {
+				properties[key] = val
+			}
+		}
+	}
+
 	return &ResponsePostHogEvent{
 		Uuid:       event.Uuid,
 		Timestamp:  event.Timestamp,
 		DistinctId: event.DistinctId,
 		PersonId:   uuidFromDistinctId(teamId, event.DistinctId),
 		Event:      event.Event,
-		Properties: event.Properties,
+		Properties: properties,
 	}
 }
 
@@ -110,16 +123,13 @@ func (c *Filter) Run() {
 		case unSub := <-c.UnSubChan:
 			c.subs = removeSubscription(unSub.SubID, c.subs)
 		case event := <-c.inboundChan:
-			var responseEvent *ResponsePostHogEvent
 			var responseGeoEvent *ResponseGeoEvent
 
 			for _, sub := range c.subs {
 				if sub.ShouldClose.Load() {
-					log.Println("User has unsubscribed, but not been removed from the slice of subs")
 					continue
 				}
 
-				// log.Printf("event.Token: %s, sub.Token: %s", event.Token, sub.Token)
 				if sub.Token != "" && event.Token != sub.Token {
 					continue
 				}
@@ -146,9 +156,7 @@ func (c *Filter) Run() {
 						}
 					}
 				} else {
-					if responseEvent == nil {
-						responseEvent = convertToResponsePostHogEvent(event, sub.TeamId)
-					}
+					responseEvent := convertToResponsePostHogEvent(event, sub.TeamId, sub.Columns)
 
 					select {
 					case sub.EventChan <- *responseEvent:
