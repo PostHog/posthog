@@ -3510,6 +3510,7 @@ export interface Survey extends WithAccessControl {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
@@ -5053,6 +5054,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    PRODUCT_TOUR = 'ProductTour',
 }
 
 export type CommentType = {
@@ -5698,6 +5700,9 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
+/*
+    WARNING: Everything below 'Notebooks' is to be removed in future releases
+*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
@@ -6399,7 +6404,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    AI_CONSENT = 'ai_consent',
     TELL_US_MORE = 'tell_us_more',
 }
 

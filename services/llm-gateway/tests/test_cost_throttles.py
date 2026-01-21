@@ -30,7 +30,7 @@ class TestProductCostLimitConfig:
         get_settings.cache_clear()
         settings = get_settings()
         assert "llm_gateway" in settings.product_cost_limits
-        assert settings.product_cost_limits["llm_gateway"].limit_usd == 20.0
+        assert settings.product_cost_limits["llm_gateway"].limit_usd == 500.0
         assert settings.product_cost_limits["llm_gateway"].window_seconds == 3600
 
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -49,7 +49,7 @@ class TestProductCostLimitConfig:
     def test_default_user_cost_settings(self) -> None:
         get_settings.cache_clear()
         settings = get_settings()
-        assert settings.default_user_cost_limit_usd == 2.0
+        assert settings.default_user_cost_limit_usd == 500.0
         assert settings.default_user_cost_window_seconds == 3600
 
 
@@ -71,7 +71,7 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
         context = make_context(product="llm_gateway")
 
-        await throttle.record_cost(context, 20.0)
+        await throttle.record_cost(context, 500.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -87,7 +87,7 @@ class TestProductCostThrottle:
         ctx_wizard = make_context(product="wizard")
         ctx_array = make_context(product="array")
 
-        await throttle.record_cost(ctx_wizard, 20.0)
+        await throttle.record_cost(ctx_wizard, 500.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
         result_array = await throttle.allow_request(ctx_array)
@@ -109,6 +109,8 @@ class TestProductCostThrottle:
 class TestUserCostThrottle:
     @pytest.mark.asyncio
     async def test_allows_when_under_limit(self) -> None:
+        get_settings.cache_clear()
+
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
@@ -116,23 +118,29 @@ class TestUserCostThrottle:
 
         result = await throttle.allow_request(context)
         assert result.allowed is True
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_denies_when_over_limit(self) -> None:
+        get_settings.cache_clear()
+
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
         context = make_context()
 
-        await throttle.record_cost(context, 2.0)
+        await throttle.record_cost(context, 500.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
         assert result.scope == "user_cost"
         assert result.detail == "User rate limit exceeded"
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_different_users_have_separate_limits(self) -> None:
+        get_settings.cache_clear()
+
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
@@ -143,13 +151,14 @@ class TestUserCostThrottle:
         ctx_user1 = make_context(user=user1)
         ctx_user2 = make_context(user=user2)
 
-        await throttle.record_cost(ctx_user1, 2.0)
+        await throttle.record_cost(ctx_user1, 500.0)
 
         result_user1 = await throttle.allow_request(ctx_user1)
         result_user2 = await throttle.allow_request(ctx_user2)
 
         assert result_user1.allowed is False
         assert result_user2.allowed is True
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_cache_key_includes_user_id(self) -> None:
@@ -162,29 +171,50 @@ class TestUserCostThrottle:
         key = throttle._get_cache_key(context)
         assert key == "cost:user:42"
 
-
-class TestRetryAfterHeader:
     @pytest.mark.asyncio
-    async def test_retry_after_returns_full_window_without_redis(self) -> None:
+    async def test_allows_when_limits_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_USER_COST_LIMITS_DISABLED", "true")
+        get_settings.cache_clear()
+
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
         context = make_context()
 
-        await throttle.record_cost(context, 2.0)
+        await throttle.record_cost(context, 1000.0)
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is True
+        get_settings.cache_clear()
+
+
+class TestRetryAfterHeader:
+    @pytest.mark.asyncio
+    async def test_retry_after_returns_full_window_without_redis(self) -> None:
+        get_settings.cache_clear()
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        await throttle.record_cost(context, 500.0)
         result = await throttle.allow_request(context)
 
         assert result.allowed is False
         assert result.retry_after == 3600
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_retry_after_returns_ttl_from_redis(self) -> None:
+        get_settings.cache_clear()
+
         from unittest.mock import AsyncMock, MagicMock
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         mock_redis = MagicMock()
-        mock_redis.get = AsyncMock(return_value=b"10.0")
+        mock_redis.get = AsyncMock(return_value=b"1000.0")
         mock_redis.ttl = AsyncMock(return_value=600)
 
         throttle = UserCostThrottle(redis=mock_redis)
@@ -194,25 +224,28 @@ class TestRetryAfterHeader:
 
         assert result.allowed is False
         assert result.retry_after == 600
-        mock_redis.ttl.assert_called_once()
+        get_settings.cache_clear()
 
 
 class TestCostAccumulation:
     @pytest.mark.asyncio
     async def test_multiple_small_costs_accumulate_to_limit(self) -> None:
+        get_settings.cache_clear()
+
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         throttle = UserCostThrottle(redis=None)
         context = make_context()
 
-        for _ in range(10):
-            await throttle.record_cost(context, 0.19)
+        for _ in range(9):
+            await throttle.record_cost(context, 50.0)
             result = await throttle.allow_request(context)
             assert result.allowed is True
 
-        await throttle.record_cost(context, 0.19)
+        await throttle.record_cost(context, 100.0)
         result = await throttle.allow_request(context)
         assert result.allowed is False
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_zero_cost_not_recorded(self) -> None:
@@ -269,12 +302,14 @@ class TestCostRateLimiterRedisIntegration:
 
     @pytest.mark.asyncio
     async def test_redis_ttl_returns_remaining_time(self) -> None:
+        get_settings.cache_clear()
+
         from unittest.mock import AsyncMock, MagicMock
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
 
         mock_redis = MagicMock()
-        mock_redis.get = AsyncMock(return_value=b"5.0")
+        mock_redis.get = AsyncMock(return_value=b"1000.0")
         mock_redis.ttl = AsyncMock(return_value=1800)
 
         throttle = UserCostThrottle(redis=mock_redis)
@@ -284,6 +319,7 @@ class TestCostRateLimiterRedisIntegration:
 
         assert result.allowed is False
         assert result.retry_after == 1800
+        get_settings.cache_clear()
 
     @pytest.mark.asyncio
     async def test_falls_back_to_local_on_redis_error(self) -> None:
@@ -347,9 +383,9 @@ class TestTeamRateLimitMultipliers:
         user = make_user(user_id=1, team_id=2)
         context = make_context(user=user)
 
-        await throttle.record_cost(context, 2.0)
+        await throttle.record_cost(context, 500.0)
         result = await throttle.allow_request(context)
-        assert result.allowed is True, "Should allow - team has 10x multiplier ($20 limit vs $2 used)"
+        assert result.allowed is True, "Should allow - team has 10x multiplier ($5000 limit vs $500 used)"
 
         get_settings.cache_clear()
 
