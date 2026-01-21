@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
+import { PushSubscriptionType } from 'lib/integrations/pushSubscriptionLogic'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { humanFriendlyDuration, objectClean, toParams } from 'lib/utils'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -4497,7 +4498,7 @@ const api = {
         },
     },
 
-    pushSubscriptionsList(teamId?: TeamType['id']): Promise<PaginatedResponse<any>> {
+    pushSubscriptionsList(teamId?: TeamType['id']): Promise<PaginatedResponse<PushSubscriptionType>> {
         return new ApiRequest().pushSubscriptions(teamId).get()
     },
 

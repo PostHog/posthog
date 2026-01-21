@@ -13,6 +13,5 @@ export function PushSubscriptionPickerField({
     value,
     onChange,
 }: PushSubscriptionPickerFieldProps): JSX.Element {
-    const platform = schema.platform as 'android' | 'ios' | undefined
-    return <PushSubscriptionPicker value={value} onChange={onChange} platform={platform} />
+    return <PushSubscriptionPicker value={value} onChange={onChange} platform={schema.platform} />
 }
