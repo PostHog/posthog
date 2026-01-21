@@ -27,6 +27,7 @@ class Capability:
     description: str
     units: list[str]
     requires: list[str] = field(default_factory=list)
+    docker_profiles: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -57,6 +58,7 @@ class Preset:
     description: str
     intents: list[str] = field(default_factory=list)
     all_intents: bool = False
+    include_capabilities: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -88,6 +90,7 @@ class IntentMap:
                 description=cap_data.get("description", ""),
                 units=cap_data.get("units", []),
                 requires=cap_data.get("requires", []),
+                docker_profiles=cap_data.get("docker_profiles", []),
             )
 
         intents = {}
@@ -115,6 +118,7 @@ class IntentMap:
                 description=preset_data.get("description", ""),
                 intents=preset_data.get("intents", []),
                 all_intents=preset_data.get("all_intents", False),
+                include_capabilities=preset_data.get("include_capabilities", []),
             )
 
         return cls(
@@ -134,11 +138,16 @@ class ResolvedEnvironment:
     units: set[str]
     capabilities: set[str]
     intents: set[str]
+    docker_profiles: set[str] = field(default_factory=set)
     overrides_applied: dict[str, list[str]] = field(default_factory=dict)
 
     def get_unit_list(self) -> list[str]:
         """Get sorted list of units for consistent output."""
         return sorted(self.units)
+
+    def get_docker_profiles_list(self) -> list[str]:
+        """Get sorted list of docker profiles for consistent output."""
+        return sorted(self.docker_profiles)
 
 
 class IntentResolver:
@@ -152,6 +161,7 @@ class IntentResolver:
         intents: list[str],
         include_units: list[str] | None = None,
         exclude_units: list[str] | None = None,
+        include_capabilities: list[str] | None = None,
     ) -> ResolvedEnvironment:
         """Resolve intents to the minimal set of units.
 
@@ -159,15 +169,20 @@ class IntentResolver:
             intents: List of intent names to resolve
             include_units: Additional units to include (overrides)
             exclude_units: Units to exclude (overrides)
+            include_capabilities: Additional capabilities to include (for docker profiles, etc.)
 
         Returns:
             ResolvedEnvironment with the resolved units and metadata
         """
         include_units = include_units or []
         exclude_units = exclude_units or []
+        include_capabilities = include_capabilities or []
 
         # 1. Intents → Capabilities
         capabilities = self._intents_to_capabilities(intents)
+
+        # 1b. Add any explicitly included capabilities
+        capabilities.update(include_capabilities)
 
         # 2. Expand capability dependencies (transitive)
         expanded_capabilities = self._expand_capability_dependencies(capabilities)
@@ -175,11 +190,14 @@ class IntentResolver:
         # 3. Capabilities → Units
         units = self._capabilities_to_units(expanded_capabilities)
 
-        # 4. Apply overrides
+        # 4. Capabilities → Docker profiles
+        docker_profiles = self._capabilities_to_docker_profiles(expanded_capabilities)
+
+        # 5. Apply overrides
         units = units | set(include_units)
         units = units - set(exclude_units)
 
-        # 5. Add always-required
+        # 6. Add always-required
         units = units | set(self.intent_map.always_required)
 
         # Track what overrides were applied
@@ -193,6 +211,7 @@ class IntentResolver:
             units=units,
             capabilities=expanded_capabilities,
             intents=set(intents),
+            docker_profiles=docker_profiles,
             overrides_applied=overrides_applied,
         )
 
@@ -201,6 +220,7 @@ class IntentResolver:
         preset_name: str,
         include_units: list[str] | None = None,
         exclude_units: list[str] | None = None,
+        include_capabilities: list[str] | None = None,
     ) -> ResolvedEnvironment:
         """Resolve a preset to units.
 
@@ -208,6 +228,7 @@ class IntentResolver:
             preset_name: Name of the preset to resolve
             include_units: Additional units to include
             exclude_units: Units to exclude
+            include_capabilities: Additional capabilities to include
 
         Returns:
             ResolvedEnvironment with the resolved units
@@ -226,7 +247,12 @@ class IntentResolver:
         else:
             intents = preset.intents
 
-        return self.resolve(intents, include_units, exclude_units)
+        # Merge preset's include_capabilities with any additional ones
+        all_include_capabilities = list(preset.include_capabilities)
+        if include_capabilities:
+            all_include_capabilities.extend(include_capabilities)
+
+        return self.resolve(intents, include_units, exclude_units, all_include_capabilities or None)
 
     def _intents_to_capabilities(self, intents: list[str]) -> set[str]:
         """Map intents to their required capabilities."""
@@ -277,6 +303,16 @@ class IntentResolver:
 
         return units
 
+    def _capabilities_to_docker_profiles(self, capabilities: set[str]) -> set[str]:
+        """Map capabilities to their docker profiles."""
+        profiles: set[str] = set()
+
+        for cap_name in capabilities:
+            capability = self.intent_map.capabilities[cap_name]
+            profiles.update(capability.docker_profiles)
+
+        return profiles
+
     def get_available_intents(self) -> list[tuple[str, str]]:
         """Get list of available intents with descriptions."""
         return [(name, intent.description) for name, intent in sorted(self.intent_map.intents.items())]
@@ -309,6 +345,14 @@ class IntentResolver:
             cap = self.intent_map.capabilities.get(cap_name)
             desc = cap.description if cap else "Unknown"
             lines.append(f"  • {cap_name}: {desc}")
+
+        # Docker profiles
+        if resolved.docker_profiles:
+            lines.append("\nDocker profiles:")
+            for profile in sorted(resolved.docker_profiles):
+                lines.append(f"  • {profile}")
+        else:
+            lines.append("\nDocker profiles: (core only)")
 
         # Units
         lines.append("\nUnits to start:")

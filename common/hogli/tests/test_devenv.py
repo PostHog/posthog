@@ -240,6 +240,158 @@ class TestIntentResolver:
         assert "cymbal" in explanation
 
 
+class TestDockerProfiles:
+    """Test docker profile resolution."""
+
+    def test_capability_with_docker_profile(self) -> None:
+        """Capability with docker_profiles includes them in resolution."""
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities={
+                "core_infra": Capability(
+                    name="core_infra",
+                    description="Core",
+                    units=["docker-compose"],
+                    docker_profiles=[],
+                ),
+                "temporal_workflows": Capability(
+                    name="temporal_workflows",
+                    description="Temporal",
+                    units=["temporal-worker"],
+                    requires=["core_infra"],
+                    docker_profiles=["temporal"],
+                ),
+            },
+            intents={
+                "data_warehouse": Intent(
+                    name="data_warehouse",
+                    description="Data warehouse",
+                    capabilities=["temporal_workflows"],
+                ),
+            },
+            units={
+                "docker-compose": Unit(name="docker-compose", process="docker-compose", type="docker"),
+                "temporal-worker": Unit(name="temporal-worker", process="temporal-worker", type="python"),
+            },
+            presets={},
+            always_required=[],
+        )
+        resolver = IntentResolver(intent_map)
+
+        result = resolver.resolve(["data_warehouse"])
+
+        assert "temporal" in result.docker_profiles
+
+    def test_multiple_capabilities_aggregate_profiles(self) -> None:
+        """Multiple capabilities aggregate their docker profiles."""
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities={
+                "core_infra": Capability(
+                    name="core_infra",
+                    description="Core",
+                    units=[],
+                    docker_profiles=[],
+                ),
+                "replay_storage": Capability(
+                    name="replay_storage",
+                    description="Replay",
+                    units=[],
+                    requires=["core_infra"],
+                    docker_profiles=["replay"],
+                ),
+                "observability": Capability(
+                    name="observability",
+                    description="Observability",
+                    units=[],
+                    requires=["core_infra"],
+                    docker_profiles=["observability"],
+                ),
+            },
+            intents={
+                "session_replay": Intent(
+                    name="session_replay",
+                    description="Session replay",
+                    capabilities=["replay_storage"],
+                ),
+            },
+            units={},
+            presets={},
+            always_required=[],
+        )
+        resolver = IntentResolver(intent_map)
+
+        result = resolver.resolve(["session_replay"], include_capabilities=["observability"])
+
+        assert "replay" in result.docker_profiles
+        assert "observability" in result.docker_profiles
+
+    def test_preset_include_capabilities_adds_profiles(self) -> None:
+        """Preset with include_capabilities adds their docker profiles."""
+        intent_map = IntentMap(
+            version="1.0",
+            capabilities={
+                "core_infra": Capability(
+                    name="core_infra",
+                    description="Core",
+                    units=[],
+                    docker_profiles=[],
+                ),
+                "dev_tools": Capability(
+                    name="dev_tools",
+                    description="Dev tools",
+                    units=[],
+                    requires=["core_infra"],
+                    docker_profiles=["dev_tools"],
+                ),
+            },
+            intents={
+                "product_analytics": Intent(
+                    name="product_analytics",
+                    description="Analytics",
+                    capabilities=["core_infra"],
+                ),
+            },
+            units={},
+            presets={
+                "backend": Preset(
+                    name="backend",
+                    description="Backend dev",
+                    intents=["product_analytics"],
+                    include_capabilities=["dev_tools"],
+                ),
+            },
+            always_required=[],
+        )
+        resolver = IntentResolver(intent_map)
+
+        result = resolver.resolve_preset("backend")
+
+        assert "dev_tools" in result.docker_profiles
+
+    def test_no_profiles_returns_empty_set(self) -> None:
+        """Resolution without docker profiles returns empty set."""
+        intent_map = create_test_intent_map()
+        resolver = IntentResolver(intent_map)
+
+        result = resolver.resolve(["product_analytics"])
+
+        assert result.docker_profiles == set()
+
+    def test_real_intent_map_resolves_docker_profiles(self) -> None:
+        """Real intent map resolves docker profiles for relevant intents."""
+        intent_map = load_intent_map()
+        resolver = IntentResolver(intent_map)
+
+        # data_warehouse needs temporal
+        result = resolver.resolve(["data_warehouse"])
+        assert "temporal" in result.docker_profiles
+
+        # session_replay needs replay (seaweedfs)
+        result = resolver.resolve(["session_replay"])
+        assert "replay" in result.docker_profiles
+
+
 class TestIntentMapLoading:
     """Test intent map loading from YAML."""
 
@@ -271,6 +423,16 @@ class TestIntentMapLoading:
             # Should not raise
             result = resolver.resolve([intent_name])
             assert len(result.units) > 0
+
+    def test_real_intent_map_has_docker_profiles(self) -> None:
+        """Real intent map capabilities have docker_profiles defined."""
+        intent_map = load_intent_map()
+
+        # Check that capabilities with docker services have profiles
+        assert intent_map.capabilities["temporal_workflows"].docker_profiles == ["temporal"]
+        assert intent_map.capabilities["replay_storage"].docker_profiles == ["replay"]
+        assert intent_map.capabilities["observability"].docker_profiles == ["observability"]
+        assert intent_map.capabilities["dev_tools"].docker_profiles == ["dev_tools"]
 
 
 class TestDeveloperProfile:

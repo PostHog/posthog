@@ -118,11 +118,36 @@ class MprocsGenerator:
         elif skip_typegen and "typegen" in procs:
             del procs["typegen"]
 
+        # Handle docker-compose with profiles
+        if "docker-compose" in procs and resolved.docker_profiles:
+            procs["docker-compose"] = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
+
         return MprocsConfig(
             procs=procs,
             mouse_scroll_speed=self.base_config.mouse_scroll_speed,
             scrollback=self.base_config.scrollback,
         )
+
+    def _generate_docker_compose_config(self, profiles: list[str]) -> dict[str, Any]:
+        """Generate docker-compose process config with profile flags.
+
+        Args:
+            profiles: List of docker compose profiles to activate
+
+        Returns:
+            Process configuration dict with modified shell command
+        """
+        # Build the profile flags
+        profile_flags = " ".join(f"--profile {p}" for p in profiles)
+
+        # Build the compose command with profiles overlay
+        compose_base = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
+        up_cmd = f"{compose_base} {profile_flags} up --pull always -d"
+        logs_cmd = f"{compose_base} {profile_flags} logs --tail=0 -f"
+
+        return {
+            "shell": f"{up_cmd} && {logs_cmd}",
+        }
 
     def generate_and_save(
         self,
