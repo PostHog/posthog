@@ -99,7 +99,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             <Query
                 uniqueKey={`persons-query-${tabId}`}
                 attachTo={personsSceneLogic({ tabId })}
-                query={{ ...query, showCount: true }}
+                query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',

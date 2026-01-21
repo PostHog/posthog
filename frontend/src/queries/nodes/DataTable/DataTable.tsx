@@ -36,6 +36,7 @@ import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTable
 import { eventRowActionsContent } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { TableViewSelector } from '~/queries/nodes/DataTable/TableView/TableViewSelector'
 import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { getContextColumn, renderColumn } from '~/queries/nodes/DataTable/renderColumn'
@@ -94,6 +95,7 @@ import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
 import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
+import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -220,6 +222,7 @@ export function DataTable({
         showPersistentColumnConfigurator,
         showSavedQueries,
         showSavedFilters,
+        showTableViews,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -712,6 +715,16 @@ export function DataTable({
                 uniqueKey={String(uniqueKey)}
                 query={query}
                 setQuery={setQuery}
+            />
+        ) : null,
+        showTableViews &&
+        query.contextKey &&
+        (isActorsQuery(query.source) || isGroupsQuery(query.source) || isEventsQuery(query.source)) ? (
+            <TableViewSelector
+                key="table-views"
+                contextKey={String(query.contextKey)}
+                query={query.source as TableViewSupportedQueryType}
+                setQuery={setQuerySource}
             />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
