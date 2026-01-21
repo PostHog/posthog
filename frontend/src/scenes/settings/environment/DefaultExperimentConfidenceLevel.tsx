@@ -5,6 +5,7 @@ import { LemonLabel } from '@posthog/lemon-ui'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { CONFIDENCE_LEVEL_OPTIONS } from 'scenes/experiments/constants'
 
 import { teamLogic } from '~/scenes/teamLogic'
@@ -33,7 +34,9 @@ export function DefaultExperimentConfidenceLevel(): JSX.Element {
             <div className="flex flex-col space-y-2">
                 <LemonLabel className="text-base">Default confidence level</LemonLabel>
                 <p className="text-secondary">
-                    Set the default confidence level for new experiments. This can be overridden per experiment.
+                    Higher confidence level reduces false positives but requires more data. Can be overridden per
+                    experiment. <Link to="https://posthog.com/docs/experiments/statistics-frequentist">Learn more</Link>
+                    .
                 </p>
                 <div className="space-y-2">
                     <LemonSelect
