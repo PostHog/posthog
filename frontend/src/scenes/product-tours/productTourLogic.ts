@@ -6,6 +6,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -138,7 +139,7 @@ export const productTourLogic = kea<productTourLogicType>([
     props({} as ProductTourLogicProps),
     key((props) => props.id),
     connect(() => ({
-        actions: [productToursLogic, ['loadProductTours']],
+        actions: [productToursLogic, ['loadProductTours'], eventUsageLogic, ['reportProductTourViewed']],
     })),
     actions({
         editingProductTour: (editing: boolean) => ({ editing }),
@@ -414,6 +415,9 @@ export const productTourLogic = kea<productTourLogicType>([
             }
         },
         loadProductTourSuccess: ({ productTour }) => {
+            if (productTour) {
+                actions.reportProductTourViewed(productTour)
+            }
             // Set date range to start from tour's start_date (or keep default -30d)
             // This will trigger loadTourStats via the setDateRange listener
             if (productTour?.start_date) {

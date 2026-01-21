@@ -89,6 +89,35 @@ class TestWidgetAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["ticket_id"], str(ticket.id))
 
+    def test_create_message_updates_session_data_on_existing_ticket(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+            session_id="old-session-id",
+            session_context={"current_url": "/some-page", "replay_url": "https://app.posthog.com/replay/old"},
+        )
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "message": "Follow up message",
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "ticket_id": str(ticket.id),
+                "session_id": "new-session-id",
+                "session_context": {"replay_url": "https://app.posthog.com/replay/new"},
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.session_id, "new-session-id")
+        # session_context should merge, not replace - preserves current_url while updating replay_url
+        self.assertEqual(ticket.session_context["current_url"], "/some-page")
+        self.assertEqual(ticket.session_context["replay_url"], "https://app.posthog.com/replay/new")
+
     def test_create_message_wrong_widget_session_forbidden(self):
         ticket = Ticket.objects.create_with_number(
             team=self.team,

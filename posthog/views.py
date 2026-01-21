@@ -37,6 +37,7 @@ from posthog.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.plugins.plugin_server_api import validate_messaging_preferences_token
 from posthog.redis import get_client
@@ -434,6 +435,14 @@ def api_key_search_view(request: HttpRequest):
         except Team.DoesNotExist:
             pass
 
+    oauth_access_token_object = None
+    if query is not None and query.startswith("pha_"):
+        oauth_access_token_object = find_oauth_access_token(query)
+
+    oauth_refresh_token_object = None
+    if query is not None and query.startswith("phr_"):
+        oauth_refresh_token_object = find_oauth_refresh_token(query)
+
     context = {
         **admin_site.each_context(request),
         **{
@@ -443,6 +452,8 @@ def api_key_search_view(request: HttpRequest):
             "personal_api_key_hash_mode": personal_api_key_hash_mode,
             "team_object": team_object,
             "team_object_key_type": team_object_key_type,
+            "oauth_access_token_object": oauth_access_token_object,
+            "oauth_refresh_token_object": oauth_refresh_token_object,
         },
     }
 
