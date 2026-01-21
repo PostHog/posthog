@@ -156,11 +156,25 @@ class TestSESProvider(TestCase):
                     "status": "pending",
                 },
                 {
-                    "type": "spf",
+                    "type": "verification",
                     "recordType": "TXT",
                     "recordHostname": "@",
                     "recordValue": "v=spf1 include:amazonses.com ~all",
                     "status": "pending",
+                },
+                {
+                    "recordHostname": "mail.test.posthog.com",
+                    "recordType": "MX",
+                    "recordValue": "feedback-smtp.us-east-1.amazonses.com",
+                    "status": "pending",
+                    "type": "mail_from",
+                },
+                {
+                    "recordHostname": "mail.test.posthog.com",
+                    "recordType": "TXT",
+                    "recordValue": "v=spf1 include:amazonses.com ~all",
+                    "status": "pending",
+                    "type": "mail_from",
                 },
             ],
         }
@@ -172,6 +186,7 @@ class TestSESProvider(TestCase):
         with (
             patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
             patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+            patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs,
         ):
             mock_verif_attrs.return_value = {
                 "VerificationAttributes": {
@@ -182,10 +197,12 @@ class TestSESProvider(TestCase):
                 }
             }
             mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
-
+            mock_mail_from_attrs.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Success"}}
+            }
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
-        # Should return verified status with DNS records
-        assert result["status"] == "success"
-        assert len(result["dnsRecords"]) > 0  # Records are now always returned
 
+            # Should return verified status with DNS records
+            assert result["status"] == "success"
+            assert len(result["dnsRecords"]) > 0  # Records are now always returned
