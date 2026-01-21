@@ -166,6 +166,10 @@ export class Clickhouse {
                 const queryResult = await this.client.query({
                     query,
                     format: 'JSON',
+                    clickhouse_settings: {
+                        output_format_json_quote_64bit_integers: 0,
+                        output_format_json_quote_denormals: 0,
+                    },
                 })
 
                 const jsonData = (await queryResult.json()).data as T[]
