@@ -37,7 +37,10 @@ logger = structlog.get_logger(__name__)
 
 
 class EvaluationRunDataSerializer(serializers.Serializer):
-    result = serializers.BooleanField(help_text="Whether the evaluation passed (true) or failed (false)")
+    result = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the evaluation passed (true), failed (false), or was N/A (null)",
+    )
     reasoning = serializers.CharField(help_text="The LLM judge's explanation for the result")
 
 
@@ -49,10 +52,10 @@ class EvaluationSummaryRequestSerializer(serializers.Serializer):
         help_text="List of evaluation runs to summarize (max 100)",
     )
     filter = serializers.ChoiceField(
-        choices=["all", "pass", "fail"],
+        choices=["all", "pass", "fail", "na"],
         default="all",
         required=False,
-        help_text="Filter type that was applied (for tracking purposes)",
+        help_text="Filter type that was applied ('all', 'pass', 'fail', or 'na')",
     )
 
 
@@ -67,12 +70,14 @@ class EvaluationSummaryStatisticsSerializer(serializers.Serializer):
     total_analyzed = serializers.IntegerField()
     pass_count = serializers.IntegerField()
     fail_count = serializers.IntegerField()
+    na_count = serializers.IntegerField()
 
 
 class EvaluationSummaryResponseSerializer(serializers.Serializer):
     overall_assessment = serializers.CharField()
     pass_patterns = EvaluationPatternSerializer(many=True)
     fail_patterns = EvaluationPatternSerializer(many=True)
+    na_patterns = EvaluationPatternSerializer(many=True)
     recommendations = serializers.ListField(child=serializers.CharField())
     statistics = EvaluationSummaryStatisticsSerializer()
 
@@ -200,6 +205,7 @@ and failing evaluations, providing actionable recommendations.
                 evaluation_runs=runs,
                 team_id=self.team_id,
                 model=DEFAULT_MODEL_OPENAI,
+                filter_type=filter_type,
             )
             duration_seconds = time.time() - start_time
 
