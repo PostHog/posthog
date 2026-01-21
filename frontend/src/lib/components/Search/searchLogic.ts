@@ -43,7 +43,7 @@ export interface SearchLogicProps {
 
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
-const RECENTS_LIMIT = 5
+export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
 
 function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
@@ -214,6 +214,20 @@ export const searchLogic = kea<searchLogicType>([
                 loadRecentsFailure: () => false,
                 loadUnifiedSearchResultsSuccess: () => false,
                 loadUnifiedSearchResultsFailure: () => false,
+            },
+        ],
+        recentsHasLoaded: [
+            false,
+            {
+                loadRecentsSuccess: () => true,
+                loadRecentsFailure: () => true,
+            },
+        ],
+        sceneLogViewsHasLoaded: [
+            false,
+            {
+                loadSceneLogViewsSuccess: () => true,
+                loadSceneLogViewsFailure: () => true,
             },
         ],
     }),
@@ -487,6 +501,9 @@ export const searchLogic = kea<searchLogicType>([
                 s.playlistItems,
                 s.unifiedSearchItems,
                 s.recentsLoading,
+                s.recentsHasLoaded,
+                s.sceneLogViewsLoading,
+                s.sceneLogViewsHasLoaded,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.playlistSearchResultsLoading,
@@ -501,6 +518,9 @@ export const searchLogic = kea<searchLogicType>([
                 playlistItems,
                 unifiedSearchItems,
                 recentsLoading,
+                recentsHasLoaded,
+                sceneLogViewsLoading,
+                sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
@@ -510,23 +530,21 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Always show recents first
-                if (recentItems.length > 0 || recentsLoading) {
-                    categories.push({
-                        key: 'recents',
-                        items: recentItems,
-                        isLoading: recentsLoading,
-                    })
-                }
+                // Always show recents first - show loading skeleton until first load completes
+                const isRecentsLoading = recentsLoading || !recentsHasLoaded
+                categories.push({
+                    key: 'recents',
+                    items: recentItems,
+                    isLoading: isRecentsLoading,
+                })
 
-                // Always show apps (filtered client-side in Search.tsx)
-                if (appsItems.length > 0) {
-                    categories.push({
-                        key: 'apps',
-                        items: appsItems,
-                        isLoading: false,
-                    })
-                }
+                // Always show apps - show loading skeleton until sceneLogViews loads (for lastViewedAt sorting)
+                const isAppsLoading = sceneLogViewsLoading || !sceneLogViewsHasLoaded
+                categories.push({
+                    key: 'apps',
+                    items: isAppsLoading ? [] : appsItems,
+                    isLoading: isAppsLoading,
+                })
 
                 // Only show unified search results when searching
                 if (hasSearch) {
