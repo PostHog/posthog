@@ -643,7 +643,10 @@ export function LemonInputSelect<T = string>({
         return mode === 'multiple' ? `Add "${option.key}"` : option.key
     }
 
-    const getOptionIcon = (option: LemonInputSelectOption<T>, isSelected: boolean): React.ReactNode => {
+    const getOptionIcon = (
+        option: LemonInputSelectOption<T>,
+        isSelected: boolean
+    ): React.ReactElement | null | undefined => {
         if (option.__isInput) {
             return undefined
         }
