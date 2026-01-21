@@ -31,10 +31,10 @@ const RedisRestrictionItemSchemaV2 = z.object({
     version: z.literal(2),
     token: z.string(),
     pipelines: pipelinesSchema,
-    distinct_ids: z.array(z.string()).optional().default([]),
-    session_ids: z.array(z.string()).optional().default([]),
-    event_names: z.array(z.string()).optional().default([]),
-    event_uuids: z.array(z.string()).optional().default([]),
+    distinct_ids: z.array(z.string()).optional(),
+    session_ids: z.array(z.string()).optional(),
+    event_names: z.array(z.string()).optional(),
+    event_uuids: z.array(z.string()).optional(),
 })
 
 // Preprocess to normalize version: missing/undefined -> 0
