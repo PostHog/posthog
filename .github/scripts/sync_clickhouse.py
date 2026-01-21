@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+# !/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "defusedxml>=0.7.1",
+# ]
+# ///
 # ruff: noqa: T201 - print statements are intentional for GitHub Actions workflow commands
 
 import os
