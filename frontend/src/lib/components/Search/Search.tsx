@@ -578,7 +578,10 @@ function SearchResults({
                                             <ContextMenuTrigger asChild>
                                                 <Autocomplete.Item
                                                     value={item}
-                                                    onClick={() => handleItemClick(item)}
+                                                    onClick={(e) => {
+                                                        e.preventDefault()
+                                                        handleItemClick(item)
+                                                    }}
                                                     render={(props) => {
                                                         const isHighlighted =
                                                             (props as Record<string, unknown>)['data-highlighted'] ===
