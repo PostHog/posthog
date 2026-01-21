@@ -19,14 +19,16 @@ async def summarize_evaluation_runs(
     evaluation_runs: list[dict],
     team_id: int,
     model: OpenAIModel,
+    filter_type: str = "all",
 ) -> EvaluationSummaryResponse:
     """
     Generate summary of evaluation runs using OpenAI API with structured outputs.
 
     Args:
-        evaluation_runs: List of dicts with 'result' (bool) and 'reasoning' (str)
+        evaluation_runs: List of dicts with 'result' (bool or None) and 'reasoning' (str)
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
+        filter_type: The filter applied ('all', 'pass', 'fail', 'na')
 
     Returns:
         Structured evaluation summary response
@@ -34,17 +36,32 @@ async def summarize_evaluation_runs(
     if not evaluation_runs:
         raise exceptions.ValidationError("No evaluation runs provided")
 
+    def result_label(result: bool | None) -> str:
+        if result is None:
+            return "N/A"
+        return "PASS" if result else "FAIL"
+
     # Format the evaluation runs for the prompt
     runs_text = "\n\n".join(
-        [f"- Result: {'PASS' if run['result'] else 'FAIL'}\n  Reasoning: {run['reasoning']}" for run in evaluation_runs]
+        [f"- Result: {result_label(run['result'])}\n  Reasoning: {run['reasoning']}" for run in evaluation_runs]
     )
 
     # Count statistics for the prompt
-    pass_count = sum(1 for run in evaluation_runs if run["result"])
-    fail_count = len(evaluation_runs) - pass_count
+    pass_count = sum(1 for run in evaluation_runs if run["result"] is True)
+    fail_count = sum(1 for run in evaluation_runs if run["result"] is False)
+    na_count = sum(1 for run in evaluation_runs if run["result"] is None)
 
-    system_prompt = load_summarization_template("prompts/evaluation_summary.djt", {})
-    user_prompt = f"""Analyze these {len(evaluation_runs)} evaluation results ({pass_count} passed, {fail_count} failed):
+    system_prompt = load_summarization_template("prompts/evaluation_summary.djt", {"filter": filter_type})
+    stats_parts = []
+    if pass_count > 0:
+        stats_parts.append(f"{pass_count} passed")
+    if fail_count > 0:
+        stats_parts.append(f"{fail_count} failed")
+    if na_count > 0:
+        stats_parts.append(f"{na_count} N/A")
+    stats_text = ", ".join(stats_parts) if stats_parts else "no results"
+
+    user_prompt = f"""Analyze these {len(evaluation_runs)} evaluation results ({stats_text}):
 
 {runs_text}"""
 
