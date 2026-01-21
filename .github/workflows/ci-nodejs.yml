@@ -246,8 +246,7 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-                  TEST: 1
-              run: bin/turbo run test --filter=@posthog/nodejs
+              run: TEST=1 bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure
               if: failure()
