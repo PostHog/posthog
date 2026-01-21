@@ -124,7 +124,7 @@ export function SceneTabs(): JSX.Element {
                                     e.preventDefault()
                                     const currentPath = router.values.location.pathname
                                     // If on /sql route, open a new /sql tab, otherwise default to /search
-                                    const isSqlRoute = currentPath.includes('/sql')
+                                    const isSqlRoute = currentPath.endsWith('/sql')
                                     newTab(isSqlRoute ? '/sql' : null)
                                 }}
                                 tooltip="New tab"
