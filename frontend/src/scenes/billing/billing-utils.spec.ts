@@ -375,4 +375,21 @@ describe('formatDisplayUsage', () => {
         expect(formatDisplayUsage(5000, product)).toEqual('5.0 MB')
         expect(formatDisplayUsage(1000, product)).toEqual('1.0 MB')
     })
+
+    it('should use compact fallback when option is set and no display config', () => {
+        const product = { display_unit: null, display_decimals: null, display_divisor: null } as any
+        // Without compactFallback: full number with commas
+        expect(formatDisplayUsage(1234567, product)).toEqual('1,234,567')
+        // With compactFallback: uses compactNumber (same as summarizeUsage)
+        expect(formatDisplayUsage(1234567, product, { compactFallback: true })).toEqual(summarizeUsage(1234567))
+        expect(formatDisplayUsage(1000, product, { compactFallback: true })).toEqual(summarizeUsage(1000))
+        expect(formatDisplayUsage(500, product, { compactFallback: true })).toEqual(summarizeUsage(500))
+    })
+
+    it('should ignore compactFallback when display config is set', () => {
+        const product = { display_divisor: 1000, display_decimals: 2, display_unit: 'GB' } as any
+        // compactFallback has no effect when display formatting is configured
+        expect(formatDisplayUsage(27648, product, { compactFallback: true })).toEqual('27.65 GB')
+        expect(formatDisplayUsage(27648, product, { compactFallback: false })).toEqual('27.65 GB')
+    })
 })

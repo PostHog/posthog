@@ -5,7 +5,7 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { compactNumber, dateStringToDayJs, pluralize } from 'lib/utils'
+import { compactNumber, dateStringToDayJs, wordPluralize } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 
 import { OrganizationType } from '~/types'
@@ -89,28 +89,36 @@ export const summarizeUsage = (usage: number | null): string => {
 }
 
 /**
+ * Check if a product has display formatting configured.
+ */
+export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
+    return !!(product.display_divisor || product.display_decimals != null || product.display_unit)
+}
+
+/**
  * Formats a usage value for human-friendly display based on product display config.
- * If the product has display formatting fields set, applies them. Otherwise returns the raw value.
+ * If the product has display formatting fields set, applies them. Otherwise returns
+ * either a compact number (compactFallback: true) or full number with commas.
  *
  * Examples:
  * - Storage: 27648 MB → "27.65 GB" (divisor=1000, decimals=2, unit="GB")
- * - No config: 1234567 → "1,234,567"
+ * - No config: 1234567 → "1,234,567" (default) or "1.23 M" (compactFallback)
  */
 export const formatDisplayUsage = (
     value: number | null,
-    product: BillingProductV2Type | BillingProductV2AddonType
+    product: BillingProductV2Type | BillingProductV2AddonType,
+    options?: { compactFallback?: boolean }
 ): string => {
     if (value === null) {
         return ''
     }
 
-    const { display_divisor, display_decimals, display_unit } = product
-
-    // If no display formatting configured, return raw formatted number
-    // Use loose equality (== null) to handle both null and undefined from API
-    if (!display_divisor && display_decimals == null && !display_unit) {
-        return value.toLocaleString()
+    // If no display formatting configured, return appropriate fallback
+    if (!hasDisplayFormatting(product)) {
+        return options?.compactFallback ? compactNumber(value) : value.toLocaleString()
     }
+
+    const { display_divisor, display_decimals, display_unit } = product
 
     // Apply divisor if set
     let displayValue = display_divisor ? value / display_divisor : value
@@ -125,11 +133,10 @@ export const formatDisplayUsage = (
 
     // Append unit if set (pluralized appropriately)
     if (display_unit) {
-        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or units already ending in 's'
-        const isAbbreviation = display_unit === display_unit.toUpperCase() && display_unit.length <= 3
-        const alreadyPlural = display_unit.endsWith('s')
-        const unitLabel =
-            isAbbreviation || alreadyPlural ? display_unit : pluralize(displayValue, display_unit, undefined, false)
+        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or if value is 1
+        const isAbbreviation = display_unit === display_unit.toUpperCase()
+        const shouldPluralize = !isAbbreviation && displayValue !== 1
+        const unitLabel = shouldPluralize ? wordPluralize(display_unit) : display_unit
         return `${formattedValue} ${unitLabel}`
     }
 
@@ -137,27 +144,13 @@ export const formatDisplayUsage = (
 }
 
 /**
- * Check if a product has display formatting configured.
- * Uses loose equality (!=) to handle both null and undefined from API responses.
- */
-export const hasDisplayFormatting = (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
-    return !!(product.display_divisor || product.display_decimals != null || product.display_unit)
-}
-
-/**
  * Create a value formatter function for a product.
- * Uses display formatting if configured, otherwise falls back to summarizeUsage (compact number).
+ * Uses formatDisplayUsage with compactFallback for non-configured products.
  */
 export const createProductValueFormatter = (
     product: BillingProductV2Type | BillingProductV2AddonType
 ): ((value: number | null) => string) => {
-    const useDisplayFormat = hasDisplayFormatting(product)
-    return (value: number | null): string => {
-        if (value === null) {
-            return ''
-        }
-        return useDisplayFormat ? formatDisplayUsage(value, product) : summarizeUsage(value)
-    }
+    return (value: number | null): string => formatDisplayUsage(value, product, { compactFallback: true })
 }
 
 /**
