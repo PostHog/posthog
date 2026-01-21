@@ -162,7 +162,7 @@ export function VariantsPanel({
                             formatCreateLabel={(input) => (
                                 <span>
                                     {input}
-                                    <span className="text-muted italic"> (new entry)</span>
+                                    <span className="text-muted italic"> (new feature flag)</span>
                                 </span>
                             )}
                             loading={featureFlagsLoading}
