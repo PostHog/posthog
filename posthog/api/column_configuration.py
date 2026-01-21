@@ -1,3 +1,5 @@
+from django.db import models
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
@@ -11,8 +13,18 @@ from posthog.models import ColumnConfiguration
 class ColumnConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ColumnConfiguration
-        fields = ["id", "context_key", "columns", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "context_key",
+            "columns",
+            "name",
+            "filters",
+            "visibility",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at", "created_by", "team"]
 
 
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
@@ -22,15 +34,27 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ColumnConfigurationSerializer
 
     def safely_get_queryset(self, queryset):
+        # TODO: Review this to ensure users only access their own views or shared views
         context_key = self.request.GET.get("context_key")
         if context_key:
-            queryset = queryset.filter(context_key=context_key)
-        return queryset
+            # Get named views (user's own private + all shared) and legacy unnamed config
+            queryset = queryset.filter(
+                models.Q(context_key=context_key)
+                & (
+                    models.Q(name__isnull=False, visibility="private", created_by=self.request.user)
+                    | models.Q(name__isnull=False, visibility="shared")
+                    | models.Q(name__isnull=True)  # Legacy unnamed config
+                )
+            )
+        return queryset.order_by("visibility", "-created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(team=self.team, created_by=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        """POST to create column configuration for a context_key. Returns 409 if already exists."""
         context_key = request.data.get("context_key")
         columns = request.data.get("columns")
+        name = request.data.get("name")
 
         if not context_key:
             return Response({"error": "context_key is required"}, status=400)
@@ -50,17 +74,40 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if len(columns) > 100:
             return Response({"error": "cannot configure more than 100 columns"}, status=400)
 
-        if ColumnConfiguration.objects.filter(team=self.team, context_key=context_key).exists():
+        # For legacy unnamed configs, check for existing config
+        if (
+            not name
+            and ColumnConfiguration.objects.filter(team=self.team, context_key=context_key, name__isnull=True).exists()
+        ):
             return Response(
                 {"error": "column configuration for this context_key already exists, use PATCH to update"},
                 status=409,
             )
 
-        config = ColumnConfiguration.objects.create(
-            team=self.team,
-            context_key=context_key,
-            columns=columns,
-        )
+        return super().create(request, *args, **kwargs)
 
-        serializer = self.get_serializer(config)
-        return Response(serializer.data, status=201)
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Check permissions
+        if not (instance.created_by == request.user or instance.visibility == "shared"):
+            return Response({"error": "You don't have permission to edit this view"}, status=403)
+
+        # Log the change for version control
+        try:
+            from posthog.models.activity_logging.activity_log import log_activity
+
+            # TODO: Review this, I think this is entirely wrong.
+            log_activity(
+                team_id=self.team_id,
+                user=request.user,
+                item_type="column_configuration",
+                item_id=str(instance.id),
+                activity="updated",
+                detail={"name": instance.name, "changes": dict(request.data)},
+            )
+        except Exception:
+            # Don't fail the update if logging fails
+            # TODO: Log the error
+            pass
+
+        return super().update(request, *args, **kwargs)

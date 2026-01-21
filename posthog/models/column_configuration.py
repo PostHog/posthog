@@ -6,16 +6,42 @@ from posthog.models.utils import UUIDModel
 
 
 class ColumnConfiguration(UUIDModel):
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private (only visible to creator)"
+        SHARED = "shared", "Shared with team"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, null=True, blank=True)
     context_key = models.CharField(max_length=255, db_index=True)
     columns = ArrayField(models.TextField(), null=False, blank=False, default=list)
+    filters = models.JSONField(default=dict, null=True, blank=True)
+    visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE)
 
+    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "context_key"], name="unique_team_context_key")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "context_key"],
+                name="unique_team_context_key_no_name",
+                condition=models.Q(name__isnull=True),
+            ),
+            models.UniqueConstraint(
+                fields=["team", "context_key", "name", "created_by"],
+                name="unique_user_view_name",
+                condition=models.Q(visibility="private"),
+            ),
+            models.UniqueConstraint(
+                fields=["team", "context_key", "name"],
+                name="unique_team_view_name",
+                condition=models.Q(visibility="shared"),
+            ),
+        ]
         indexes = [models.Index(fields=["team", "context_key"])]
 
     def __str__(self):
+        if self.name:
+            return f"ColumnConfig(team={self.team_id}, context={self.context_key}, name={self.name})"
         return f"ColumnConfig(team={self.team_id}, context={self.context_key})"
