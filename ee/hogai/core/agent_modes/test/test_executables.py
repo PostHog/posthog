@@ -843,6 +843,49 @@ class TestRootNodeTools(BaseTest):
 
     @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
     @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
+    async def test_successful_tool_execution_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
+        """Test that successful tool execution emits an 'ai tool executed' analytics event."""
+        read_taxonomy_mock.return_value = ("Content", None)
+
+        node = _create_agent_tools_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Using tool",
+                    id="test-id",
+                    tool_calls=[
+                        AssistantToolCall(id="tool-123", name="read_taxonomy", args={"query": {"kind": "events"}})
+                    ],
+                )
+            ],
+            root_tool_call_id="tool-123",
+        )
+
+        # Provide a config with distinct_id so the capture is triggered
+        config = RunnableConfig(configurable={"distinct_id": "test-user-123"})
+        await node.arun(state, config)
+
+        # Verify posthoganalytics.capture was called
+        capture_mock.assert_called_once()
+        call_args = capture_mock.call_args
+
+        # Verify event name
+        self.assertEqual(call_args.kwargs["event"], "ai tool executed")
+
+        # Verify distinct_id is set
+        self.assertEqual(call_args.kwargs["distinct_id"], "test-user-123")
+
+        # Verify properties
+        properties = call_args.kwargs["properties"]
+        self.assertEqual(properties["tool_name"], "read_taxonomy")
+
+        # Verify groups are set
+        groups = call_args.kwargs["groups"]
+        self.assertIn("organization", groups)
+        self.assertIn("project", groups)
+
+    @patch("ee.hogai.core.agent_modes.executables.posthoganalytics.capture")
+    @patch("ee.hogai.tools.read_taxonomy.ReadTaxonomyTool._run_impl")
     async def test_max_tool_fatal_error_emits_analytics_event(self, read_taxonomy_mock, capture_mock):
         """Test that MaxToolFatalError emits a PostHog analytics event."""
         error_message = "Configuration error: INKEEP_API_KEY environment variable is not set"
