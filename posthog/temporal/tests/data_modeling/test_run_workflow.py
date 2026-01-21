@@ -1726,9 +1726,9 @@ async def test_hogql_table_applies_custom_modifier_to_sessions_query(ateam):
     async def mock_astream_query(self, query, *args, **kwargs):
         nonlocal captured_sql
         captured_sql = query
-        # returns early but yield makes this a generator
+        # returns early but yield makes this a generator. intentional unreachable
         return
-        yield
+        yield  # type: ignore[unreachable]
 
     logger = unittest.mock.AsyncMock()
     query = "SELECT $is_bounce FROM sessions LIMIT 1"
