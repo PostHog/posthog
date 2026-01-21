@@ -298,7 +298,7 @@ class TestSurvey(APIBaseTest):
         assert "<script>" not in q0_es["upperBoundLabel"]
 
         q1_es = survey.questions[1]["translations"]["es"]
-        assert "https://ejemplo.com" in q1_es["link"]
+        assert q1_es["link"] == "https://ejemplo.com"
 
         q2_es = survey.questions[2]["translations"]["es"]
         assert "<b>Opción A</b>" in q2_es["choices"][0]
