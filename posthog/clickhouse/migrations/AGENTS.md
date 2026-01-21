@@ -381,10 +381,10 @@ python manage.py migrate_clickhouse --cluster=logs --plan
 ## Creating migrations for logs cluster
 
 1. Create migration files in `posthog/clickhouse/migrations_logs/` directory
-2. Use `run_sql_with_exceptions()` with `cluster=MigrationCluster.LOGS`:
+2. Use `run_sql_with_exceptions()` with `node_roles=NodeRole.LOGS`:
 
 ```python
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions, MigrationCluster
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.client.connection import NodeRole
 
 operations = [
@@ -392,15 +392,14 @@ operations = [
         """
         CREATE TABLE IF NOT EXISTS my_logs_table (...)
         """,
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
-        cluster=MigrationCluster.LOGS
+        node_roles=NodeRole.LOGS,
     ),
 ]
 ```
 
 3. Update `posthog/clickhouse/migrations_logs/max_migration.txt` with the new migration name
 
-Note: If you omit the `cluster` parameter, it defaults to `MigrationCluster.MAIN` (the main PostHog cluster).
+Note: `NodeRole.LOGS` targets nodes with the "logs" role in the ClickHouse cluster. Use `cluster=MigrationCluster.LOGS` to specify which cluster to run migrations on.
 
 ## Configuration
 
