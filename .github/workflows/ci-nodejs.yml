@@ -145,6 +145,7 @@ jobs:
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
+            TEST: '1'
 
         steps:
             - name: Code check out
@@ -246,7 +247,7 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-              run: TEST=1 bin/turbo run test --filter=@posthog/nodejs
+              run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Output logs on failure
               if: failure()
