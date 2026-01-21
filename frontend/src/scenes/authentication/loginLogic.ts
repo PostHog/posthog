@@ -197,6 +197,7 @@ export const loginLogic = kea<loginLogicType>([
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('./passkeyLogic')
+                breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
             }
         },
