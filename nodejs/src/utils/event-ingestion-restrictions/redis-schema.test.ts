@@ -20,7 +20,7 @@ describe('RedisRestrictionItemSchema', () => {
             expect(result.data).toEqual(input)
         })
 
-        it('defaults empty arrays for missing filter fields', () => {
+        it('allows missing filter fields (undefined)', () => {
             const input = {
                 version: 2,
                 token: 'test-token',
@@ -34,10 +34,6 @@ describe('RedisRestrictionItemSchema', () => {
                 version: 2,
                 token: 'test-token',
                 pipelines: ['analytics'],
-                distinct_ids: [],
-                session_ids: [],
-                event_names: [],
-                event_uuids: [],
             })
         })
     })
@@ -184,6 +180,19 @@ describe('toRestrictionRule', () => {
                 session_ids: [],
                 event_names: [],
                 event_uuids: [],
+            }
+
+            const rule = toRestrictionRule(item, RestrictionType.SKIP_PERSON_PROCESSING)
+
+            expect(rule.restrictionType).toBe(RestrictionType.SKIP_PERSON_PROCESSING)
+            expect(rule.scope.type).toBe('all')
+        })
+
+        it('creates "all" scope when filter arrays are undefined', () => {
+            const item = {
+                version: 2 as const,
+                token: 'test-token',
+                pipelines: ['analytics' as const],
             }
 
             const rule = toRestrictionRule(item, RestrictionType.SKIP_PERSON_PROCESSING)
