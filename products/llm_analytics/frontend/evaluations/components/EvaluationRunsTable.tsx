@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconCheck, IconChevronDown, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -181,13 +181,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 <div className="flex items-center gap-2">
                     {showSummaryFeature && hasRuns && (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconBolt />}
-                                onClick={generateEvaluationSummary}
-                                loading={evaluationSummaryLoading}
-                                size="small"
-                            >
+                            <LemonButton type="secondary" onClick={generateEvaluationSummary} size="small">
                                 Summarize
                             </LemonButton>
                             <LemonSegmentedButton
