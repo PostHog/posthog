@@ -24,7 +24,9 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    cargo chef cook --release --recipe-path recipe.json --bin $BIN
+    SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    cargo chef cook --release --recipe-path recipe.json --bin $BIN && \
+    sccache --show-stats
 
 COPY . .
 RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
@@ -33,13 +35,12 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
-    SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
-    SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
-    cargo build --release --bin $BIN; \
-    else \
-    cargo build --release --bin $BIN; \
-    fi
-
+        export SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT); \
+        export SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN); \
+    fi && \
+    SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    cargo build --release --bin $BIN && \
+    sccache --show-stats
 
 FROM debian:bookworm-slim AS runtime
 
