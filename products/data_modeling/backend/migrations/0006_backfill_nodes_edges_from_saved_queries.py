@@ -1,8 +1,16 @@
 # manually created by andrewjmcgehee
 
+import time
+
 from django.db import migrations
 
-BATCH_SIZE = 100
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+BATCH_SIZE = 1000
+LOG_INTERVAL = 100
+BATCH_DELAY_SECONDS = 0.1
 
 
 def backfill_nodes_and_edges(apps, schema_editor):
@@ -28,8 +36,10 @@ def backfill_nodes_and_edges(apps, schema_editor):
         .filter(deleted=False)
         .exclude(id__in=existing_saved_query_ids)
     )
+    backfilled_ids = [q.id for q in saved_queries]
+    logger.info("Starting saved_query -> node and edge model backfill...")
     # first pass: create all nodes
-    for saved_query in saved_queries.iterator(chunk_size=BATCH_SIZE):
+    for i, saved_query in enumerate(saved_queries.iterator(chunk_size=BATCH_SIZE)):
         node_type = NodeType.MAT_VIEW if saved_query.table_id else NodeType.VIEW
         Node.objects.create(
             team=saved_query.team,
@@ -39,9 +49,22 @@ def backfill_nodes_and_edges(apps, schema_editor):
             type=node_type,
             properties={"backfilled": True},
         )
+        if (i + 1) % LOG_INTERVAL == 0:
+            logger.info("Backfilling nodes...", progress=i + 1, total=len(backfilled_ids))
+        # sleep between batches to reduce load on db
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_DELAY_SECONDS)
+    logger.info("All nodes backfilled. Backfilling edges...")
+    # recreate query set since iterator is consumed
+    saved_queries = DataWarehouseSavedQuery.objects.select_related("team").filter(deleted=False, id__in=backfilled_ids)
     # second pass: sync to create edges (all nodes now exist)
-    for saved_query in saved_queries.iterator(chunk_size=BATCH_SIZE):
+    for i, saved_query in enumerate(saved_queries.iterator(chunk_size=BATCH_SIZE)):
         sync_saved_query_to_dag(saved_query, extra_properties={"backfilled": True})
+        if (i + 1) % LOG_INTERVAL == 0:
+            logger.info("Backfilling edges...", progress=i + 1, total=len(backfilled_ids))
+        if (i + 1) % BATCH_SIZE == 0:
+            time.sleep(BATCH_DELAY_SECONDS)
+    logger.info("Done.")
 
 
 def reverse_backfill(apps, schema_editor):
