@@ -152,7 +152,7 @@ export class EventIngestionRestrictionManager {
                         }
 
                         for (const item of parseResult.data) {
-                            if (!item.pipelines?.includes(this.pipeline)) {
+                            if (!item.pipelines || !item.pipelines.includes(this.pipeline)) {
                                 continue
                             }
 
