@@ -41,7 +41,10 @@ def test_readyz_returns_200_if_everything_is_ok(client: Client):
 def test_readyz_supports_excluding_checks(client: Client):
     # NOTE: In CI, we don't run kafka or celery services to speed up tests.
     with simulate_postgres_error(), simulate_kafka_cannot_connect(), simulate_celery_cannot_connect():
-        resp = get_readyz(client, exclude=["postgres", "postgres_flags", "postgres_migrations_uptodate", "kafka_connected", "celery_broker"])
+        resp = get_readyz(
+            client,
+            exclude=["postgres", "postgres_flags", "postgres_migrations_uptodate", "kafka_connected", "celery_broker"],
+        )
 
     assert resp.status_code == 200, resp.content
     data = resp.json()
@@ -166,8 +169,8 @@ def test_readyz_accepts_role_web_and_filters_by_relevant_services(client: Client
 def test_readyz_accepts_role_worker_and_filters_by_relevant_services(client: Client):
     # NOTE: In CI, we don't run kafka or celery services to speed up tests.
     # Worker role checks: postgres, clickhouse, celery_broker (but not kafka or cache)
-    with simulate_kafka_cannot_connect():
-        resp = get_readyz(client=client, role="worker")
+    with simulate_kafka_cannot_connect(), simulate_celery_cannot_connect():
+        resp = get_readyz(client=client, role="worker", exclude=["celery_broker"])
 
     assert resp.status_code == 200, resp.content
 
