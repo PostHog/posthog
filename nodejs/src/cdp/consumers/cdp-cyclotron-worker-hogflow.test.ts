@@ -315,8 +315,8 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // Mark the hogflow for refresh so it fetches fresh data
             ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
 
-            // Mock dequeueInvocations to track what gets skipped
-            const dequeueInvocationsSpy = jest.spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations')
+            // Mock cancelInvocations to track what gets skipped
+            const cancelInvocationsSpy = jest.spyOn(processor['cyclotronJobQueue'], 'cancelInvocations')
 
             // Second batch: invocation2 should be skipped because workflow is now disabled
             const results2 = (await processor.processInvocations([
@@ -326,8 +326,8 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // No results because the workflow is disabled
             expect(results2).toHaveLength(0)
 
-            // The invocation should have been dequeued (skipped, not failed)
-            expect(dequeueInvocationsSpy).toHaveBeenCalledWith([invocation2])
+            // The invocation should have been canceled (not failed)
+            expect(cancelInvocationsSpy).toHaveBeenCalledWith([invocation2])
         })
     })
 })

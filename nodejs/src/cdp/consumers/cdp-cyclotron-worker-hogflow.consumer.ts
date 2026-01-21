@@ -107,7 +107,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
-        await this.cyclotronJobQueue.dequeueInvocations(skippedInvocations)
+        await this.cyclotronJobQueue.cancelInvocations(skippedInvocations)
 
         return loadedInvocations
     }
