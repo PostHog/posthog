@@ -134,6 +134,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         self.visit(node.constraint)
         self.visit(node.next_join)
+        self.visit(node.pushdown_where)
 
     def visit_select_query(self, node: ast.SelectQuery):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
@@ -616,6 +617,7 @@ class CloningVisitor(Visitor[Any]):
             join_type=node.join_type,
             constraint=self.visit(node.constraint),
             sample=self.visit(node.sample),
+            pushdown_where=self.visit(node.pushdown_where),
         )
 
     def visit_select_query(self, node: ast.SelectQuery):

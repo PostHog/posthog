@@ -50,7 +50,10 @@
                                                           ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE equals(events.team_id, 99999)) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -97,7 +100,10 @@
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
                     if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -150,7 +156,10 @@
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'USD' AS currency,
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                 FROM events
+                 FROM
+                   (SELECT *
+                    FROM events
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -254,7 +263,10 @@
                                                           ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE equals(events.team_id, 99999)) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -301,7 +313,10 @@
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
                     if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -354,7 +369,10 @@
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'USD' AS currency,
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                 FROM events
+                 FROM
+                   (SELECT *
+                    FROM events
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2154,7 +2172,10 @@
                                                           ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE equals(events.team_id, 99999)) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2201,7 +2222,10 @@
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
                     if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2254,7 +2278,10 @@
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'USD' AS currency,
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                 FROM events
+                 FROM
+                   (SELECT *
+                    FROM events
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2291,7 +2318,10 @@
                            min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
                            max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
                            addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE and(equals(events.team_id, 99999), isNotNull(subscription_id))) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2373,7 +2403,10 @@
                                                           ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT DISTINCT events__person.id AS person_id
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE equals(events.team_id, 99999)) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2420,7 +2453,10 @@
                     divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                     'USD' AS currency,
                     if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-           FROM events
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2473,7 +2509,10 @@
                           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                           'USD' AS currency,
                           if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                 FROM events
+                 FROM
+                   (SELECT *
+                    FROM events
+                    WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2510,7 +2549,10 @@
                            min(toTimeZone(events.timestamp, 'UTC')) AS min_timestamp,
                            max(toTimeZone(events.timestamp, 'UTC')) AS max_timestamp,
                            addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE and(equals(events.team_id, 99999), isNotNull(subscription_id))) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3004,7 +3046,10 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                      tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -3057,7 +3102,10 @@
                                                                    ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__pdi__person.id AS person_id
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE equals(events.team_id, 99999)) AS events
                     INNER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
                               tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -3105,7 +3153,10 @@
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
                              if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                     INNER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                               person_distinct_id2.distinct_id AS distinct_id
@@ -3158,7 +3209,10 @@
                                    divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                    'USD' AS currency,
                                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                          FROM events
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                     person_distinct_id2.distinct_id AS distinct_id
@@ -3259,7 +3313,10 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      revenue_analytics_customer.id AS person_id,
@@ -3471,7 +3528,10 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3516,7 +3576,10 @@
                                                                    ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE equals(events.team_id, 99999)) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3557,7 +3620,10 @@
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
                              if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3610,7 +3676,10 @@
                                    divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                    'USD' AS currency,
                                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                          FROM events
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3711,7 +3780,10 @@
           (SELECT count() AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                   ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
+           FROM
+             (SELECT *
+              FROM events
+              WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3763,7 +3835,10 @@
                                                                    ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                  INNER JOIN
                    (SELECT DISTINCT events__person.id AS person_id
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE equals(events.team_id, 99999)) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3810,7 +3885,10 @@
                              divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                              'USD' AS currency,
                              if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                    FROM events
+                    FROM
+                      (SELECT *
+                       FROM events
+                       WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                     LEFT OUTER JOIN
                       (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                               person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3863,7 +3941,10 @@
                                    divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                    'USD' AS currency,
                                    if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                          FROM events
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -3985,7 +4066,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4038,7 +4122,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT events__pdi__person.id AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    INNER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
                                              tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4086,7 +4173,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    INNER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                              person_distinct_id2.distinct_id AS distinct_id
@@ -4139,7 +4229,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                    person_distinct_id2.distinct_id AS distinct_id
@@ -4206,7 +4299,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4259,7 +4355,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT events__pdi__person.id AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
                                                    tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4307,7 +4406,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                    person_distinct_id2.distinct_id AS distinct_id
@@ -4360,7 +4462,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                INNER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                          person_distinct_id2.distinct_id AS distinct_id
@@ -4432,7 +4537,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           INNER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                     tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4485,7 +4593,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT events__pdi__person.id AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    INNER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
                                              tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4533,7 +4644,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    INNER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                              person_distinct_id2.distinct_id AS distinct_id
@@ -4586,7 +4700,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                    person_distinct_id2.distinct_id AS distinct_id
@@ -4653,7 +4770,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__pdi__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 INNER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS e__pdi___person_id,
                                           tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4706,7 +4826,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT events__pdi__person.id AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS events__pdi___person_id,
                                                    tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
@@ -4754,7 +4877,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          INNER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                    person_distinct_id2.distinct_id AS distinct_id
@@ -4807,7 +4933,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                INNER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                                                          person_distinct_id2.distinct_id AS distinct_id
@@ -4930,7 +5059,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     revenue_analytics_customer.id AS person_id,
@@ -5108,7 +5240,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           revenue_analytics_customer.id AS person_id,
@@ -5291,7 +5426,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT JOIN
                             (SELECT 99999 AS team_id,
                                     revenue_analytics_customer.id AS person_id,
@@ -5469,7 +5607,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT JOIN
                                   (SELECT 99999 AS team_id,
                                           revenue_analytics_customer.id AS person_id,
@@ -5703,7 +5844,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5748,7 +5892,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5789,7 +5936,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5842,7 +5992,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5909,7 +6062,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5954,7 +6110,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -5995,7 +6154,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6048,7 +6210,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                LEFT OUTER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                          person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6120,7 +6285,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6165,7 +6333,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6206,7 +6377,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6259,7 +6433,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6326,7 +6503,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__poe__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6371,7 +6551,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6412,7 +6595,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6465,7 +6651,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                LEFT OUTER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                          person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6588,7 +6777,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6640,7 +6832,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT events__person.id AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6687,7 +6882,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6740,7 +6938,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6807,7 +7008,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6859,7 +7063,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT events__person.id AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6906,7 +7113,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -6959,7 +7169,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                LEFT OUTER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                          person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7031,7 +7244,10 @@
                          (SELECT count() AS total,
                                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                  ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                          FROM events AS e
+                          FROM
+                            (SELECT *
+                             FROM events
+                             WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                           LEFT OUTER JOIN
                             (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                     person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7083,7 +7299,10 @@
                                                                                   ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                 INNER JOIN
                                   (SELECT DISTINCT events__person.id AS person_id
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE equals(events.team_id, 99999)) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7130,7 +7349,10 @@
                                             divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                             'USD' AS currency,
                                             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                   FROM events
+                                   FROM
+                                     (SELECT *
+                                      FROM events
+                                      WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                    LEFT OUTER JOIN
                                      (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                              person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7183,7 +7405,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7250,7 +7475,10 @@
                                (SELECT count() AS total,
                                        toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                                        ifNull(nullIf(toString(e__person__revenue_analytics.revenue), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-                                FROM events AS e
+                                FROM
+                                  (SELECT *
+                                   FROM events
+                                   WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-29 00:00:00', 6, 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-05-30 23:59:59', 6, 'UTC'))), equals(events.event, '$pageview')))) AS e
                                 LEFT OUTER JOIN
                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                           person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7302,7 +7530,10 @@
                                                                                         ORDER BY argMax(toTimeZone(person.created_at, 'UTC'), person.version) DESC))) SETTINGS optimize_aggregation_in_order=1) AS persons
                                       INNER JOIN
                                         (SELECT DISTINCT events__person.id AS person_id
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE equals(events.team_id, 99999)) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7349,7 +7580,10 @@
                                                   divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                   'USD' AS currency,
                                                   if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                         FROM events
+                                         FROM
+                                           (SELECT *
+                                            FROM events
+                                            WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                          LEFT OUTER JOIN
                                            (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                    person_distinct_id_overrides.distinct_id AS distinct_id
@@ -7402,7 +7636,10 @@
                                                         divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
                                                         'USD' AS currency,
                                                         if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-                                               FROM events
+                                               FROM
+                                                 (SELECT *
+                                                  FROM events
+                                                  WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))) AS events
                                                LEFT OUTER JOIN
                                                  (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                                                          person_distinct_id_overrides.distinct_id AS distinct_id
