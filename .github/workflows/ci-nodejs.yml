@@ -224,7 +224,7 @@ jobs:
                   fi
 
             - name: Set up databases (fast path - restore schema)
-              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'false'
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
@@ -272,7 +272,7 @@ jobs:
                   cd nodejs && pnpm run setup:test:rust
 
             - name: Set up databases (slow path - run migrations)
-              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'true'
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
               env:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
