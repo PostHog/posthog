@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonDialog, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -60,6 +60,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         })
     }
 
+    const showRolesError = activeTab === 'roles' && !canUseRoles
+
     return (
         <>
             <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
@@ -78,35 +80,43 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                         ]}
                     />
 
-                    <AccessControlFilters
-                        activeTab={activeTab}
-                        searchText={searchText}
-                        setSearchText={setSearchText}
-                        filters={filters}
-                        setFilters={setFilters}
-                        roles={roles ?? []}
-                        members={allMembers}
-                        resources={resourcesWithProject}
-                        ruleOptions={ruleOptions}
-                        canUseRoles={canUseRoles}
-                        canEditAny={canEditAny}
-                        onAdd={() =>
-                            openRuleModal({
-                                mode: 'add',
-                                initialScopeType: scopeTypeForAccessControlsTab(activeTab),
-                            })
-                        }
-                    />
+                    {showRolesError ? (
+                        <LemonBanner type="error">
+                            You must upgrade your plan to use role-based access control.
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            <AccessControlFilters
+                                activeTab={activeTab}
+                                searchText={searchText}
+                                setSearchText={setSearchText}
+                                filters={filters}
+                                setFilters={setFilters}
+                                roles={roles ?? []}
+                                members={allMembers}
+                                resources={resourcesWithProject}
+                                ruleOptions={ruleOptions}
+                                canUseRoles={canUseRoles}
+                                canEditAny={canEditAny}
+                                onAdd={() =>
+                                    openRuleModal({
+                                        mode: 'add',
+                                        initialScopeType: scopeTypeForAccessControlsTab(activeTab),
+                                    })
+                                }
+                            />
 
-                    <AccessControlTable
-                        activeTab={activeTab}
-                        rows={filteredSortedRows}
-                        loading={loading}
-                        canEditAccessControls={canEditAccessControls}
-                        canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
-                        onEdit={(row) => openRuleModal({ mode: 'edit', row })}
-                        onDelete={confirmDelete}
-                    />
+                            <AccessControlTable
+                                activeTab={activeTab}
+                                rows={filteredSortedRows}
+                                loading={loading}
+                                canEditAccessControls={canEditAccessControls}
+                                canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
+                                onEdit={(row) => openRuleModal({ mode: 'edit', row })}
+                                onDelete={confirmDelete}
+                            />
+                        </>
+                    )}
                 </div>
             </PayGateMini>
 
