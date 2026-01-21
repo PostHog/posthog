@@ -66,7 +66,9 @@ async def delete_property_definitions_from_clickhouse(
     delete_query_id = str(uuid4())
     logger.info(f"Executing lightweight delete with query_id: {delete_query_id}")
 
-    async with get_client() as client:
+    # Use lightweight_deletes_sync=0 to avoid waiting for all replicas to be online.
+    # The delete is applied immediately on the current replica and propagates asynchronously.
+    async with get_client(lightweight_deletes_sync=0) as client:
         await client.execute_query(
             delete_query,
             query_parameters={
