@@ -31,12 +31,12 @@ export const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterGroup = (): JSX.Element => {
-    const { filterGroup, tabId, utcDateRange, serviceNames, filterGroup: logsFilterGroup } = useValues(logsSceneLogic)
+    const { filterGroup, tabId, utcDateRange, serviceNames } = useValues(logsSceneLogic)
     const { setFilterGroup } = useActions(logsSceneLogic)
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup: logsFilterGroup,
+        filterGroup,
         serviceNames: serviceNames,
     }
 
@@ -93,7 +93,6 @@ const UniversalSearch = (): JSX.Element => {
             } as AnyPropertyFilter
             newValues.push(newPropertyFilter)
             setGroupValues(newValues)
-            setVisible(false)
         },
         onEnter: onClose,
         autoSelectItem: true,

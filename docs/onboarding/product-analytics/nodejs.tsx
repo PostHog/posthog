@@ -5,7 +5,7 @@ import { StepDefinition } from '../steps'
 export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): StepDefinition[] => {
     return [
         {
-            title: 'Install',
+            title: 'Install the package',
             badge: 'required',
             content: (
                 <>
@@ -39,7 +39,7 @@ export const getNodeJSSteps = (CodeBlock: any, Markdown: any, dedent: any): Step
             ),
         },
         {
-            title: 'Configure',
+            title: 'Initialize PostHog',
             badge: 'required',
             content: (
                 <>

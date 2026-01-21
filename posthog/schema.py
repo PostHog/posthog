@@ -13122,7 +13122,7 @@ class WebExternalClicksTableQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: int | None = None
@@ -13159,7 +13159,7 @@ class WebGoalsQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: int | None = None
@@ -13195,7 +13195,7 @@ class WebOverviewQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -13230,7 +13230,7 @@ class WebPageURLSearchQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
     limit: int | None = None
@@ -13272,7 +13272,7 @@ class WebStatsTableQuery(BaseModel):
     includeScrollDepth: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: int | None = None
@@ -14340,7 +14340,7 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -14381,7 +14381,7 @@ class MarketingAnalyticsTableQuery(BaseModel):
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
@@ -14484,7 +14484,7 @@ class NonIntegratedConversionsTableQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["NonIntegratedConversionsTableQuery"] = "NonIntegratedConversionsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
@@ -14830,7 +14830,7 @@ class WebTrendsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     interval: IntervalType = Field(
-        ..., description="For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+        ..., description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
     )
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: int | None = None
@@ -14868,7 +14868,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
@@ -16660,7 +16660,7 @@ class WebVitalsQuery(BaseModel):
     includeRevenue: bool | None = None
     interval: IntervalType | None = Field(
         default=None,
-        description="For Product Analytics UI compatibility only - not used in Web Analytics query execution",
+        description="Interval for date range calculation (affects date_to rounding for hour vs day ranges)",
     )
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
