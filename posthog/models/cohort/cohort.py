@@ -656,9 +656,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 # Remove from PostgreSQL if record exists
                 cohort_person.delete()
             else:
-                # Log when we find CH/PG inconsistency (person was in CH but not PG)
+                # Log when person not found in PostgreSQL (may or may not have existed in ClickHouse)
                 logger.warning(
-                    "Removed person from ClickHouse cohort but no PostgreSQL record existed",
+                    "Person not in PostgreSQL CohortPeople table (may or may not have existed in ClickHouse)",
                     cohort_id=self.id,
                     team_id=team_id,
                     user_uuid=user_uuid,
