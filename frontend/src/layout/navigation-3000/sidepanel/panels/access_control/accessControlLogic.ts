@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -33,6 +34,12 @@ export type AccessControlLogicProps = {
     resource_id: string
     title: string
     description: string
+}
+
+export type AccessControlRuleForm = {
+    scopeId: string | null
+    resourceKey: APIScopeObject
+    level: AccessControlLevel
 }
 
 export const accessControlLogic = kea<accessControlLogicType>([
@@ -154,6 +161,15 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 },
             },
         ],
+    })),
+    forms(() => ({
+        ruleForm: {
+            defaults: {
+                scopeId: null,
+                resourceKey: 'project' as APIScopeObject,
+                level: AccessControlLevel.Viewer,
+            } as AccessControlRuleForm,
+        },
     })),
     listeners(({ actions }) => ({
         updateAccessControlDefaultSuccess: () => actions.loadAccessControls(),

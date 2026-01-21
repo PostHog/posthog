@@ -134,6 +134,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     canEditRoleBasedAccessControls={canEditRoleBasedAccessControls ?? false}
                     onSave={saveRule}
                     loading={loading}
+                    projectId={projectId}
                 />
             )}
         </>

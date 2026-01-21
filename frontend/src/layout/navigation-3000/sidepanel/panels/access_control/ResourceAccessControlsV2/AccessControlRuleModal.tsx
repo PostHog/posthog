@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
 
 import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
@@ -6,6 +7,7 @@ import { capitalizeFirstLetter, fullName, wordPluralize } from 'lib/utils'
 
 import { APIScopeObject, AccessControlLevel, OrganizationMemberType, RoleType } from '~/types'
 
+import { accessControlLogic } from '../accessControlLogic'
 import { SearchableSelect } from './SearchableSelect'
 import { getScopeTypeNoun, humanizeAccessControlLevel } from './helpers'
 import { RuleModalState, ScopeType } from './types'
@@ -28,20 +30,44 @@ export function AccessControlRuleModal(props: {
         level: AccessControlLevel
     }) => void
     loading: boolean
+    projectId: string
 }): JSX.Element {
+    const logic = accessControlLogic({
+        resource: 'project',
+        resource_id: props.projectId,
+        title: '',
+        description: '',
+    })
+    const { ruleForm } = useValues(logic)
+    const { setRuleFormValue, setRuleFormValues } = useActions(logic)
     const editingRow = props.state.mode === 'edit' ? props.state.row : null
     const initialScopeType = props.state.mode === 'add' ? props.state.initialScopeType : undefined
     const scopeType: ScopeType = editingRow?.scopeType ?? initialScopeType ?? 'default'
 
-    const [scopeId, setScopeId] = useState<string | null>(editingRow?.scopeId ?? null)
-    const [resourceKey, setResourceKey] = useState<APIScopeObject>(editingRow?.resourceKey ?? 'project')
-    const [level, setLevel] = useState<AccessControlLevel>(editingRow?.level ?? AccessControlLevel.Viewer)
+    const scopeId = ruleForm.scopeId
+    const resourceKey = ruleForm.resourceKey
+    const level = ruleForm.level
     const canEdit = resourceKey === 'project' ? props.canEditAccessControls : props.canEditRoleBasedAccessControls
 
     const availableLevelsForResource = useMemo((): AccessControlLevel[] => {
         const availableLevels = resourceKey === 'project' ? props.projectAvailableLevels : props.resourceAvailableLevels
         return Array.from(new Set(availableLevels))
     }, [props.projectAvailableLevels, props.resourceAvailableLevels, resourceKey])
+
+    useEffect(() => {
+        setRuleFormValues({
+            scopeId: editingRow?.scopeId ?? null,
+            resourceKey: editingRow?.resourceKey ?? 'project',
+            level: editingRow?.level ?? AccessControlLevel.Viewer,
+        })
+    }, [
+        editingRow,
+        props.state.mode,
+        setRuleFormValues,
+        editingRow?.level,
+        editingRow?.resourceKey,
+        editingRow?.scopeId,
+    ])
 
     useEffect(() => {
         if (props.state.mode === 'edit') {
@@ -57,8 +83,8 @@ export function AccessControlRuleModal(props: {
             availableLevelsForResource[0] ??
             AccessControlLevel.Viewer
 
-        setLevel(fallbackLevel)
-    }, [availableLevelsForResource, level, props.state.mode])
+        setRuleFormValue('level', fallbackLevel)
+    }, [availableLevelsForResource, level, props.state.mode, setRuleFormValue])
 
     const isValid = scopeType === 'default' || !!scopeId
 
@@ -96,11 +122,11 @@ export function AccessControlRuleModal(props: {
             <AccessControlRuleModalContent
                 state={props.state}
                 level={level}
-                setLevel={setLevel}
+                setLevel={(nextLevel) => setRuleFormValue('level', nextLevel)}
                 resourceKey={resourceKey}
-                setResourceKey={setResourceKey}
+                setResourceKey={(nextKey) => setRuleFormValue('resourceKey', nextKey)}
                 scopeId={scopeId}
-                setScopeId={setScopeId}
+                setScopeId={(nextScopeId) => setRuleFormValue('scopeId', nextScopeId)}
                 scopeType={scopeType}
                 roles={props.roles}
                 members={props.members}
@@ -153,11 +179,11 @@ function AccessControlRuleModalContent(props: {
     state: RuleModalState
     scopeType: ScopeType
     scopeId: string | null
-    setScopeId: React.Dispatch<React.SetStateAction<string | null>>
+    setScopeId: (value: string | null) => void
     resourceKey: APIScopeObject
-    setResourceKey: React.Dispatch<React.SetStateAction<APIScopeObject>>
+    setResourceKey: (value: APIScopeObject) => void
     level: AccessControlLevel
-    setLevel: React.Dispatch<React.SetStateAction<AccessControlLevel>>
+    setLevel: (value: AccessControlLevel) => void
     roles: RoleType[]
     members: OrganizationMemberType[]
     resources: { key: APIScopeObject; label: string }[]
