@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from posthog.approvals.actions.registry import get_action
 from posthog.approvals.exceptions import ApprovalRequired
 from posthog.approvals.models import ChangeRequest, ChangeRequestState
+from posthog.approvals.notifications import send_approval_requested_notification
 from posthog.approvals.policies import PolicyDecision, PolicyEngine
 from posthog.approvals.serializers import ChangeRequestSerializer
 from posthog.event_usage import report_user_action
@@ -148,6 +149,8 @@ def _create_change_request(
             "resource_type": action_class.resource_type,
         },
     )
+
+    send_approval_requested_notification(change_request)
 
     return change_request
 
