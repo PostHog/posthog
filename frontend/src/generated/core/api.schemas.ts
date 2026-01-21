@@ -3275,6 +3275,11 @@ export interface UserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export interface PaginatedUserListApi {
@@ -3341,6 +3346,11 @@ export interface PatchedUserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export type EnvironmentsDashboardsListParams = {
