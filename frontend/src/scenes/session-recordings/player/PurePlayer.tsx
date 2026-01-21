@@ -96,7 +96,8 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         mode === SessionRecordingPlayerMode.Kiosk
 
     useEffect(() => {
-        if (hidePlayerElements) {
+        // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
+        if (hidePlayerElements && !showMetadataFooter) {
             setSkipInactivitySetting(false)
         }
     }, [mode, setSkipInactivitySetting, hidePlayerElements])
