@@ -62,7 +62,7 @@ def _create_resolver() -> IntentResolver:
     "--without",
     "without_units",
     multiple=True,
-    help="Temporarily exclude unit(s) from this run",
+    help="Temporarily exclude unit(s) from this run (e.g., --without typegen)",
 )
 @click.option(
     "--preset",
@@ -73,17 +73,11 @@ def _create_resolver() -> IntentResolver:
     is_flag=True,
     help="Show what would be started without actually starting",
 )
-@click.option(
-    "--skip-typegen",
-    is_flag=True,
-    help="Skip typegen process",
-)
 def dev_start(
     with_intents: tuple[str, ...],
     without_units: tuple[str, ...],
     preset: str | None,
     explain: bool,
-    skip_typegen: bool,
 ) -> None:
     """Start development environment based on your profile.
 
@@ -98,9 +92,6 @@ def dev_start(
         raise SystemExit(1)
 
     manager = ProfileManager()
-
-    # Track effective skip_typegen
-    effective_skip_typegen = skip_typegen
 
     # Determine intents to use
     if preset:
@@ -141,15 +132,14 @@ def dev_start(
         # Merge overrides
         include_units = list(profile.overrides.include_units)
         exclude_units = list(profile.overrides.exclude_units) + list(without_units)
-
-        # Apply skip_typegen from profile or flag
-        effective_skip_typegen = skip_typegen or profile.overrides.skip_typegen
+        skip_autostart = list(profile.overrides.skip_autostart)
 
         try:
             resolved = resolver.resolve(
                 intents,
                 include_units=include_units,
                 exclude_units=exclude_units,
+                skip_autostart=skip_autostart,
             )
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
@@ -168,7 +158,7 @@ def dev_start(
     output_path = manager.get_generated_mprocs_path()
     manager.ensure_generated_dir()
 
-    generator.generate_and_save(resolved, output_path, skip_typegen=effective_skip_typegen)
+    generator.generate_and_save(resolved, output_path)
 
     click.echo(f"Generated mprocs config from {intents_source}")
     click.echo(f"  Intents: {', '.join(sorted(resolved.intents))}")

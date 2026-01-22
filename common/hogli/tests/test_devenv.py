@@ -16,8 +16,9 @@ from parameterized import parameterized
 class MockRegistry(ProcessRegistry):
     """Mock registry for testing that returns predefined capability→units mappings."""
 
-    def __init__(self, capability_units: dict[str, list[str]]):
+    def __init__(self, capability_units: dict[str, list[str]], ask_skip: list[str] | None = None):
         self._capability_units = capability_units
+        self._ask_skip = ask_skip or []
         self._processes = {
             unit: {"shell": f"./bin/start-{unit}", "capability": cap}
             for cap, units in capability_units.items()
@@ -41,6 +42,9 @@ class MockRegistry(ProcessRegistry):
 
     def get_global_settings(self) -> dict:
         return {"mouse_scroll_speed": 1, "scrollback": 10000}
+
+    def get_ask_skip_processes(self) -> list[str]:
+        return self._ask_skip
 
 
 def create_test_intent_map() -> IntentMap:
@@ -529,14 +533,14 @@ class TestDeveloperProfile:
             intents=["error_tracking"],
             overrides=ProfileOverrides(
                 include_units=["storybook"],
-                skip_typegen=True,
+                exclude_units=["typegen"],
             ),
         )
 
         data = profile.to_dict()
 
         assert data["overrides"]["include_units"] == ["storybook"]
-        assert data["overrides"]["skip_typegen"] is True
+        assert data["overrides"]["exclude_units"] == ["typegen"]
 
     def test_profile_from_dict_roundtrip(self) -> None:
         """Profile survives dict roundtrip."""
@@ -544,8 +548,7 @@ class TestDeveloperProfile:
             intents=["error_tracking", "session_replay"],
             overrides=ProfileOverrides(
                 include_units=["storybook"],
-                exclude_units=["dagster"],
-                skip_typegen=True,
+                exclude_units=["dagster", "typegen"],
             ),
         )
 
@@ -555,7 +558,6 @@ class TestDeveloperProfile:
         assert restored.intents == original.intents
         assert restored.overrides.include_units == original.overrides.include_units
         assert restored.overrides.exclude_units == original.overrides.exclude_units
-        assert restored.overrides.skip_typegen == original.overrides.skip_typegen
 
     def test_profile_with_preset(self) -> None:
         """Profile can use preset instead of intents."""

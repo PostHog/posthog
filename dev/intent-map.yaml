@@ -189,4 +189,5 @@ presets:
 always_required:
     - backend
     - frontend
+    - typegen
     - docker-compose

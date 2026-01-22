@@ -22,11 +22,7 @@ class ConfigGenerator(ABC):
     """Abstract generator for process manager configurations."""
 
     @abstractmethod
-    def generate(
-        self,
-        resolved: ResolvedEnvironment,
-        skip_typegen: bool = False,
-    ) -> Any:
+    def generate(self, resolved: ResolvedEnvironment) -> Any:
         """Generate configuration for resolved environment."""
         ...
 
@@ -35,14 +31,9 @@ class ConfigGenerator(ABC):
         """Save configuration to file."""
         ...
 
-    def generate_and_save(
-        self,
-        resolved: ResolvedEnvironment,
-        output_path: Path,
-        skip_typegen: bool = False,
-    ) -> Path:
+    def generate_and_save(self, resolved: ResolvedEnvironment, output_path: Path) -> Path:
         """Generate and save configuration in one step."""
-        config = self.generate(resolved, skip_typegen)
+        config = self.generate(resolved)
         return self.save(config, output_path)
 
 
@@ -74,16 +65,11 @@ class MprocsGenerator(ConfigGenerator):
         """
         self.registry = registry
 
-    def generate(
-        self,
-        resolved: ResolvedEnvironment,
-        skip_typegen: bool = False,
-    ) -> MprocsConfig:
+    def generate(self, resolved: ResolvedEnvironment) -> MprocsConfig:
         """Generate mprocs configuration for resolved environment.
 
         Args:
             resolved: The resolved environment with required units
-            skip_typegen: Whether to skip typegen process
 
         Returns:
             MprocsConfig with only the required processes
@@ -92,10 +78,6 @@ class MprocsGenerator(ConfigGenerator):
 
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
-            # Skip typegen here - handled separately below
-            if name == "typegen":
-                continue
-
             proc_config = self.registry.get_process_config(name)
             if not proc_config:
                 continue
@@ -107,11 +89,16 @@ class MprocsGenerator(ConfigGenerator):
             if not is_resolved and not is_manual_start:
                 continue
 
-            # Remove the capability field - it's metadata, not mprocs config
+            # Remove metadata fields - not mprocs config
             proc_config.pop("capability", None)
+            proc_config.pop("ask_skip", None)
+
+            # Set autostart: false for skipped processes
+            if name in resolved.skip_autostart:
+                proc_config["autostart"] = False
 
             # Add startup message for resolved units (not manual-start ones)
-            if is_resolved:
+            if is_resolved and name not in resolved.skip_autostart:
                 reason = resolved.get_unit_reason(name)
                 proc_config = self._add_startup_message(proc_config, name, reason)
 
@@ -120,14 +107,6 @@ class MprocsGenerator(ConfigGenerator):
                 proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
             procs[name] = proc_config
-
-        # Handle typegen specially - add after other processes
-        if not skip_typegen:
-            typegen_config = self.registry.get_process_config("typegen")
-            if typegen_config:
-                typegen_config.pop("capability", None)
-                typegen_config = self._add_startup_message(typegen_config, "typegen", "always required")
-                procs["typegen"] = typegen_config
 
         # Get global settings from registry
         global_settings = self.registry.get_global_settings()

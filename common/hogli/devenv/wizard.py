@@ -195,9 +195,14 @@ class SetupWizard:
         if exclude.strip():
             overrides.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
 
-        # Skip typegen
-        click.echo("")
-        overrides.skip_typegen = click.confirm("Skip typegen?", default=False)
+        # Ask about skippable processes (marked with ask_skip: true in mprocs.yaml)
+        # These stay in the config but with autostart: false
+        ask_skip_processes = self.registry.get_ask_skip_processes()
+        for process_name in ask_skip_processes:
+            click.echo("")
+            if click.confirm(f"Skip auto-start for {process_name}?", default=False):
+                if process_name not in overrides.skip_autostart:
+                    overrides.skip_autostart.append(process_name)
 
         profile.overrides = overrides
         return profile

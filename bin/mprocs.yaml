@@ -21,8 +21,8 @@ procs:
         # no capability - always_required via intent-map.yaml
 
     typegen:
-        shell: 'if [ -n "$SKIP_TYPEGEN" ]; then exit 0; fi && cd frontend && pnpm run typegen:watch'
-        # no capability - special handling in generator
+        shell: 'cd frontend && pnpm run typegen:watch'
+        ask_skip: true # wizard asks if user wants to skip this
 
     temporal-worker:
         shell: |-

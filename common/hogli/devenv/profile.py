@@ -19,7 +19,7 @@ class ProfileOverrides:
 
     include_units: list[str] = field(default_factory=list)
     exclude_units: list[str] = field(default_factory=list)
-    skip_typegen: bool = False
+    skip_autostart: list[str] = field(default_factory=list)  # processes to include but not auto-start
 
 
 @dataclass
@@ -46,8 +46,8 @@ class DeveloperProfile:
             overrides_data["include_units"] = self.overrides.include_units
         if self.overrides.exclude_units:
             overrides_data["exclude_units"] = self.overrides.exclude_units
-        if self.overrides.skip_typegen:
-            overrides_data["skip_typegen"] = True
+        if self.overrides.skip_autostart:
+            overrides_data["skip_autostart"] = self.overrides.skip_autostart
 
         if overrides_data:
             data["overrides"] = overrides_data
@@ -61,7 +61,7 @@ class DeveloperProfile:
         overrides = ProfileOverrides(
             include_units=overrides_data.get("include_units", []),
             exclude_units=overrides_data.get("exclude_units", []),
-            skip_typegen=overrides_data.get("skip_typegen", False),
+            skip_autostart=overrides_data.get("skip_autostart", []),
         )
 
         return cls(
@@ -218,8 +218,8 @@ class ProfileManager:
             lines.append(f"Include: {', '.join(profile.overrides.include_units)}")
         if profile.overrides.exclude_units:
             lines.append(f"Exclude: {', '.join(profile.overrides.exclude_units)}")
-        if profile.overrides.skip_typegen:
-            lines.append("Typegen: skipped")
+        if profile.overrides.skip_autostart:
+            lines.append(f"Manual start: {', '.join(profile.overrides.skip_autostart)}")
 
         return "\n".join(lines)
 

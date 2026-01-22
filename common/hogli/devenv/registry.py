@@ -110,6 +110,10 @@ class MprocsRegistry(ProcessRegistry):
         """Get mprocs global settings (scrollback, mouse_scroll_speed, etc.)."""
         return {k: v for k, v in self.data.items() if k != "procs"}
 
+    def get_ask_skip_processes(self) -> list[str]:
+        """Get process names that have ask_skip: true."""
+        return [name for name, proc in self.processes.items() if proc.config.get("ask_skip") is True]
+
 
 def get_default_mprocs_path() -> Path:
     """Get the default path to mprocs.yaml."""
