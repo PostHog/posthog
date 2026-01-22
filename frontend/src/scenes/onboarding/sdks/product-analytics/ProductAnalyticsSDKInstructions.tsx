@@ -1,39 +1,34 @@
 import {
-    ProductAnalyticsAndroidInstructions,
-    ProductAnalyticsAstroInstructions,
-    ProductAnalyticsDjangoInstructions,
-    ProductAnalyticsFlutterInstructions,
-    ProductAnalyticsIOSInstructions,
-    ProductAnalyticsNextJSInstructions,
-    ProductAnalyticsRNInstructions,
-    ProductAnalyticsReactInstructions,
-    ProductAnalyticsSvelteJSInstructions,
-    ProductAnalyticsTanStackInstructions,
-} from '.'
-
-import {
     APIInstallation,
+    AndroidInstallation,
     AngularInstallation,
+    AstroInstallation,
     BubbleInstallation,
+    DjangoInstallation,
     DocusaurusInstallation,
     ElixirInstallation,
+    FlutterInstallation,
     FramerInstallation,
     GoInstallation,
     GoogleTagManagerInstallation,
     HTMLSnippetInstallation,
     HeliconeInstallation,
+    IOSInstallation,
     JSEventCapture,
     JSWebInstallation,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
     N8nInstallation,
+    NextJSInstallation,
     NodeEventCapture,
     NodeJSInstallation,
     NuxtInstallation,
     PHPInstallation,
     PythonEventCapture,
     PythonInstallation,
+    ReactInstallation,
+    ReactNativeInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -41,6 +36,8 @@ import {
     SegmentInstallation,
     SentryInstallation,
     ShopifyInstallation,
+    SvelteInstallation,
+    TanStackInstallation,
     TraceloopInstallation,
     VueInstallation,
     WebflowInstallation,
@@ -50,14 +47,10 @@ import {
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
+import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations (defined once, not recreated on render)
 const JS_WEB_SNIPPETS = {
-    JSEventCapture,
-}
-
-const ANGULAR_SNIPPETS = {
     JSEventCapture,
 }
 
@@ -69,79 +62,101 @@ const PYTHON_SNIPPETS = {
     PythonEventCapture,
 }
 
-const ProductAnalyticsAngularInstructionsWrapper = withOnboardingDocsWrapper(AngularInstallation, ANGULAR_SNIPPETS)
-const ProductAnalyticsAPIInstructionsWrapper = withOnboardingDocsWrapper(APIInstallation)
-const ProductAnalyticsBubbleInstructionsWrapper = withOnboardingDocsWrapper(BubbleInstallation, JS_WEB_SNIPPETS)
-const ProductAnalyticsDocusaurusInstructionsWrapper = withOnboardingDocsWrapper(DocusaurusInstallation)
-const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper(ElixirInstallation)
-const ProductAnalyticsFramerInstructionsWrapper = withOnboardingDocsWrapper(FramerInstallation, JS_WEB_SNIPPETS)
-const ProductAnalyticsGoogleTagManagerInstructionsWrapper = withOnboardingDocsWrapper(
-    GoogleTagManagerInstallation,
-    JS_WEB_SNIPPETS
+// Mobile SDKs with AdvertiseMobileReplay
+const ProductAnalyticsAndroidInstructionsWrapper = withMobileReplay(
+    AndroidInstallation,
+    SDKKey.ANDROID,
+    'product-analytics-onboarding'
 )
-const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation)
-const ProductAnalyticsHeliconeInstructionsWrapper = withOnboardingDocsWrapper(HeliconeInstallation)
+const ProductAnalyticsIOSInstructionsWrapper = withMobileReplay(
+    IOSInstallation,
+    SDKKey.IOS,
+    'product-analytics-onboarding'
+)
+const ProductAnalyticsFlutterInstructionsWrapper = withMobileReplay(
+    FlutterInstallation,
+    SDKKey.FLUTTER,
+    'product-analytics-onboarding'
+)
+const ProductAnalyticsRNInstructionsWrapper = withMobileReplay(
+    ReactNativeInstallation,
+    SDKKey.REACT_NATIVE,
+    'product-analytics-onboarding',
+    undefined,
+    'React Native'
+)
+
+// JS Web SDKs
+const ProductAnalyticsJSWebInstructionsWrapper = withOnboardingDocsWrapper(JSWebInstallation, JS_WEB_SNIPPETS)
 const ProductAnalyticsHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper(
     HTMLSnippetInstallation,
     JS_WEB_SNIPPETS
 )
-const ProductAnalyticsJSWebInstructionsWrapper = withOnboardingDocsWrapper(JSWebInstallation, JS_WEB_SNIPPETS)
-const ProductAnalyticsLangfuseInstructionsWrapper = withOnboardingDocsWrapper(LangfuseInstallation)
-const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper(LaravelInstallation)
-const ProductAnalyticsMoEngageInstructionsWrapper = withOnboardingDocsWrapper(MoEngageInstallation)
-const ProductAnalyticsN8nInstructionsWrapper = withOnboardingDocsWrapper(N8nInstallation)
-const ProductAnalyticsNodeInstructionsWrapper = withOnboardingDocsWrapper(NodeJSInstallation, NODE_SNIPPETS)
-const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper(NuxtInstallation, JS_WEB_SNIPPETS)
-const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper(PHPInstallation)
-const ProductAnalyticsPythonInstructionsWrapper = withOnboardingDocsWrapper(PythonInstallation, PYTHON_SNIPPETS)
-const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper(RemixInstallation, JS_WEB_SNIPPETS)
-const ProductAnalyticsRetoolInstructionsWrapper = withOnboardingDocsWrapper(RetoolInstallation)
-const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstallation)
-const ProductAnalyticsRudderstackInstructionsWrapper = withOnboardingDocsWrapper(RudderstackInstallation)
-const ProductAnalyticsSegmentInstructionsWrapper = withOnboardingDocsWrapper(SegmentInstallation)
-const ProductAnalyticsSentryInstructionsWrapper = withOnboardingDocsWrapper(SentryInstallation)
-const ProductAnalyticsShopifyInstructionsWrapper = withOnboardingDocsWrapper(ShopifyInstallation)
-const ProductAnalyticsTraceloopInstructionsWrapper = withOnboardingDocsWrapper(TraceloopInstallation)
+
+// Frontend frameworks with wizard support where applicable
+const ProductAnalyticsReactInstructionsWrapper = withOnboardingDocsWrapper(ReactInstallation, JS_WEB_SNIPPETS, 'React')
+const ProductAnalyticsNextJSInstructionsWrapper = withOnboardingDocsWrapper(
+    NextJSInstallation,
+    JS_WEB_SNIPPETS,
+    'Next.js'
+)
+const ProductAnalyticsSvelteInstructionsWrapper = withOnboardingDocsWrapper(
+    SvelteInstallation,
+    JS_WEB_SNIPPETS,
+    'Svelte'
+)
+const ProductAnalyticsAstroInstructionsWrapper = withOnboardingDocsWrapper(AstroInstallation, JS_WEB_SNIPPETS, 'Astro')
+const ProductAnalyticsTanStackInstructionsWrapper = withOnboardingDocsWrapper(TanStackInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsAngularInstructionsWrapper = withOnboardingDocsWrapper(AngularInstallation, JS_WEB_SNIPPETS)
 const ProductAnalyticsVueInstructionsWrapper = withOnboardingDocsWrapper(VueInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper(NuxtInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper(RemixInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsBubbleInstructionsWrapper = withOnboardingDocsWrapper(BubbleInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsFramerInstructionsWrapper = withOnboardingDocsWrapper(FramerInstallation, JS_WEB_SNIPPETS)
 const ProductAnalyticsWebflowInstructionsWrapper = withOnboardingDocsWrapper(WebflowInstallation, JS_WEB_SNIPPETS)
+const ProductAnalyticsDocusaurusInstructionsWrapper = withOnboardingDocsWrapper(DocusaurusInstallation)
+const ProductAnalyticsGoogleTagManagerInstructionsWrapper = withOnboardingDocsWrapper(
+    GoogleTagManagerInstallation,
+    JS_WEB_SNIPPETS
+)
+
+// Server-side SDKs
+const ProductAnalyticsNodeInstructionsWrapper = withOnboardingDocsWrapper(NodeJSInstallation, NODE_SNIPPETS)
+const ProductAnalyticsPythonInstructionsWrapper = withOnboardingDocsWrapper(PythonInstallation, PYTHON_SNIPPETS)
+const ProductAnalyticsDjangoInstructionsWrapper = withOnboardingDocsWrapper(
+    DjangoInstallation,
+    PYTHON_SNIPPETS,
+    'Django'
+)
+const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper(GoInstallation)
+const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper(PHPInstallation)
+const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper(LaravelInstallation)
+const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper(RubyInstallation)
+const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper(ElixirInstallation)
+
+// API
+const ProductAnalyticsAPIInstructionsWrapper = withOnboardingDocsWrapper(APIInstallation)
+
+// Integrations
+const ProductAnalyticsSegmentInstructionsWrapper = withOnboardingDocsWrapper(SegmentInstallation)
+const ProductAnalyticsRudderstackInstructionsWrapper = withOnboardingDocsWrapper(RudderstackInstallation)
+const ProductAnalyticsSentryInstructionsWrapper = withOnboardingDocsWrapper(SentryInstallation)
+const ProductAnalyticsRetoolInstructionsWrapper = withOnboardingDocsWrapper(RetoolInstallation)
+const ProductAnalyticsShopifyInstructionsWrapper = withOnboardingDocsWrapper(ShopifyInstallation)
 const ProductAnalyticsWordpressInstructionsWrapper = withOnboardingDocsWrapper(WordpressInstallation)
 const ProductAnalyticsZapierInstructionsWrapper = withOnboardingDocsWrapper(ZapierInstallation)
+const ProductAnalyticsN8nInstructionsWrapper = withOnboardingDocsWrapper(N8nInstallation)
+const ProductAnalyticsMoEngageInstructionsWrapper = withOnboardingDocsWrapper(MoEngageInstallation)
 
-// Wrap complex instruction components that have their own content
-const ProductAnalyticsAndroidInstructionsWrapper = withOnboardingDocsWrapper(ProductAnalyticsAndroidInstructions)
-const ProductAnalyticsDjangoInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsDjangoInstructions,
-    PYTHON_SNIPPETS
-)
-const ProductAnalyticsIOSInstructionsWrapper = withOnboardingDocsWrapper(ProductAnalyticsIOSInstructions)
-const ProductAnalyticsFlutterInstructionsWrapper = withOnboardingDocsWrapper(ProductAnalyticsFlutterInstructions)
-const ProductAnalyticsRNInstructionsWrapper = withOnboardingDocsWrapper(ProductAnalyticsRNInstructions)
-const ProductAnalyticsReactInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsReactInstructions,
-    JS_WEB_SNIPPETS
-)
-const ProductAnalyticsNextJSInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsNextJSInstructions,
-    JS_WEB_SNIPPETS
-)
-const ProductAnalyticsSvelteJSInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsSvelteJSInstructions,
-    JS_WEB_SNIPPETS
-)
-const ProductAnalyticsAstroInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsAstroInstructions,
-    JS_WEB_SNIPPETS
-)
-const ProductAnalyticsTanStackInstructionsWrapper = withOnboardingDocsWrapper(
-    ProductAnalyticsTanStackInstructions,
-    JS_WEB_SNIPPETS
-)
+// LLM Integrations
+const ProductAnalyticsHeliconeInstructionsWrapper = withOnboardingDocsWrapper(HeliconeInstallation)
+const ProductAnalyticsLangfuseInstructionsWrapper = withOnboardingDocsWrapper(LangfuseInstallation)
+const ProductAnalyticsTraceloopInstructionsWrapper = withOnboardingDocsWrapper(TraceloopInstallation)
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: ProductAnalyticsJSWebInstructionsWrapper,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructionsWrapper,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructionsWrapper,
-    [SDKKey.REACT]: ProductAnalyticsReactInstructionsWrapper,
     [SDKKey.API]: ProductAnalyticsAPIInstructionsWrapper,
     [SDKKey.ASTRO]: ProductAnalyticsAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: ProductAnalyticsBubbleInstructionsWrapper,
@@ -164,6 +179,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NUXT_JS]: ProductAnalyticsNuxtJSInstructionsWrapper,
     [SDKKey.PHP]: ProductAnalyticsPHPInstructionsWrapper,
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructionsWrapper,
+    [SDKKey.REACT]: ProductAnalyticsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructionsWrapper,
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
@@ -172,7 +188,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.SEGMENT]: ProductAnalyticsSegmentInstructionsWrapper,
     [SDKKey.SENTRY]: ProductAnalyticsSentryInstructionsWrapper,
     [SDKKey.SHOPIFY]: ProductAnalyticsShopifyInstructionsWrapper,
-    [SDKKey.SVELTE]: ProductAnalyticsSvelteJSInstructionsWrapper,
+    [SDKKey.SVELTE]: ProductAnalyticsSvelteInstructionsWrapper,
     [SDKKey.TANSTACK_START]: ProductAnalyticsTanStackInstructionsWrapper,
     [SDKKey.TRACELOOP]: ProductAnalyticsTraceloopInstructionsWrapper,
     [SDKKey.VITE]: ProductAnalyticsReactInstructionsWrapper,
