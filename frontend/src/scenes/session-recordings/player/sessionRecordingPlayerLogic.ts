@@ -1897,15 +1897,51 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
     beforeUnmount(({ values, actions, cache, props }) => {
         if (props.mode === SessionRecordingPlayerMode.Preview) {
-            values.player?.replayer?.destroy()
+            const replayer = values.player?.replayer
+            if (replayer) {
+                const iframe = replayer.iframe
+                replayer.destroy()
+                // Clear iframe content to release DOM references
+                if (iframe?.contentDocument) {
+                    iframe.contentDocument.body.innerHTML = ''
+                    iframe.contentDocument.head.innerHTML = ''
+                }
+            }
+            if (values.rootFrame) {
+                values.rootFrame.innerHTML = ''
+            }
             return
         }
 
         actions.stopAnimation()
 
+        // Dispose all registered cleanup functions (timers, event listeners, etc.)
+        // This must happen before destroying the replayer to ensure proper cleanup order
+        cache.disposables.disposeAll()
+
         cache.hasInitialized = false
         cache.pausedMediaElements = []
-        values.player?.replayer?.destroy()
+
+        // Destroy the replayer and clean up DOM references
+        const replayer = values.player?.replayer
+        if (replayer) {
+            // Get reference to the iframe before destroying to clean up any lingering references
+            const iframe = replayer.iframe
+            replayer.destroy()
+
+            // Clear the iframe's content to help release DOM references held by rrweb
+            // This addresses memory leaks where rrweb holds references to detached DOM nodes
+            if (iframe?.contentDocument) {
+                iframe.contentDocument.body.innerHTML = ''
+                iframe.contentDocument.head.innerHTML = ''
+            }
+        }
+
+        // Clear the root frame to ensure no stale DOM references remain
+        if (values.rootFrame) {
+            values.rootFrame.innerHTML = ''
+        }
+
         actions.setPlayer(null)
 
         const playTimeMs = values.playingTimeTracking.watchTime || 0
