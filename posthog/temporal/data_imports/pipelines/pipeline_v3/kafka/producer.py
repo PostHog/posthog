@@ -1,52 +1,16 @@
-import time
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Optional
-
-from django.conf import settings
+from typing import Any, Optional
 
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PIPELINES_EXPORT_SIGNALS
-from posthog.temporal.data_imports.pipelines.pipeline_v3.s3_batch_writer import BatchWriteResult
-from posthog.utils import SingletonDecorator
-
-SyncTypeLiteral = Literal["full_refresh", "incremental", "append"]
-
-# TODO: Move this to posthog/kafka_client/client.py before rollout
-_WarpStreamKafkaProducer = SingletonDecorator(_KafkaProducer)
-
-
-def _warpstream_kafka_producer() -> _KafkaProducer:
-    return _WarpStreamKafkaProducer(
-        kafka_hosts=settings.WAREHOUSE_PIPELINES_KAFKA_HOSTS,
-        kafka_security_protocol=settings.WAREHOUSE_PIPELINES_KAFKA_SECURITY_PROTOCOL,
-    )
-
-
-@dataclass
-class ExportSignalMessage:
-    team_id: int
-    job_id: str
-    schema_id: str
-    source_id: str
-    resource_name: str
-    run_uuid: str
-    batch_index: int
-    s3_path: str
-    row_count: int
-    byte_size: int
-    is_final_batch: bool
-    total_batches: Optional[int]
-    total_rows: Optional[int]
-    sync_type: SyncTypeLiteral
-    data_folder: Optional[str]
-    schema_path: Optional[str]
-    timestamp_ns: int = field(default_factory=time.time_ns)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
+    ExportSignalMessage,
+    SyncTypeLiteral,
+    get_warpstream_kafka_producer,
+)
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 
 class KafkaBatchProducer:
@@ -57,9 +21,19 @@ class KafkaBatchProducer:
     _resource_name: str
     _sync_type: SyncTypeLiteral
     _run_uuid: str
+    _primary_keys: list[str] | None
+    _is_resume: bool
     _logger: FilteringBoundLogger
     _producer: Any
     _pending_futures: list[Any]
+    # Partitioning fields
+    _partition_count: int | None
+    _partition_size: int | None
+    _partition_keys: list[str] | None
+    _partition_format: PartitionFormat | None
+    _partition_mode: PartitionMode | None
+    # Partial data loading fields
+    _is_first_ever_sync: bool
 
     def __init__(
         self,
@@ -71,6 +45,14 @@ class KafkaBatchProducer:
         sync_type: SyncTypeLiteral,
         run_uuid: str,
         logger: FilteringBoundLogger,
+        primary_keys: list[str] | None = None,
+        is_resume: bool = False,
+        partition_count: int | None = None,
+        partition_size: int | None = None,
+        partition_keys: list[str] | None = None,
+        partition_format: PartitionFormat | None = None,
+        partition_mode: PartitionMode | None = None,
+        is_first_ever_sync: bool = False,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -79,9 +61,19 @@ class KafkaBatchProducer:
         self._resource_name = resource_name
         self._sync_type = sync_type
         self._run_uuid = run_uuid
+        self._primary_keys = primary_keys
+        self._is_resume = is_resume
         self._logger = logger
-        self._producer = _warpstream_kafka_producer()
+        self._producer = get_warpstream_kafka_producer()
         self._pending_futures = []
+        # Partitioning fields
+        self._partition_count = partition_count
+        self._partition_size = partition_size
+        self._partition_keys = partition_keys
+        self._partition_format = partition_format
+        self._partition_mode = partition_mode
+        # Partial data loading fields
+        self._is_first_ever_sync = is_first_ever_sync
 
     def _get_key(self) -> str:
         return f"{self._team_id}:{self._schema_id}"  # we want ordering across multiple runs for the same schema
@@ -94,6 +86,7 @@ class KafkaBatchProducer:
         total_rows: Optional[int] = None,
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
+        cumulative_row_count: int = 0,
     ) -> None:
         message = ExportSignalMessage(
             team_id=self._team_id,
@@ -112,7 +105,16 @@ class KafkaBatchProducer:
             sync_type=self._sync_type,
             data_folder=data_folder,
             schema_path=schema_path,
+            primary_keys=self._primary_keys,
+            is_resume=self._is_resume,
             timestamp_ns=batch_result.timestamp_ns,
+            partition_count=self._partition_count,
+            partition_size=self._partition_size,
+            partition_keys=self._partition_keys,
+            partition_format=self._partition_format,
+            partition_mode=self._partition_mode,
+            is_first_ever_sync=self._is_first_ever_sync,
+            cumulative_row_count=cumulative_row_count,
         )
 
         self._logger.debug(

@@ -1,25 +1,22 @@
 import json
 import time
 import uuid
-from dataclasses import dataclass, field
-
-from django.conf import settings
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
+    BatchWriteResult,
+    cleanup_folder,
+    ensure_bucket,
+    get_base_folder,
+    get_data_folder,
+    strip_s3_protocol,
+)
+
 from products.data_warehouse.backend.models import ExternalDataJob
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-
-
-@dataclass
-class BatchWriteResult:
-    s3_path: str
-    row_count: int
-    byte_size: int
-    batch_index: int
-    timestamp_ns: int = field(default_factory=time.time_ns)
+from products.data_warehouse.backend.s3 import get_s3_client
 
 
 class S3BatchWriter:
@@ -39,34 +36,12 @@ class S3BatchWriter:
         self._logger = logger
         self._run_uuid = (
             run_uuid if run_uuid is not None else f"generated-{str(uuid.uuid4())}"
-        )  # in some edge cases the temporal uuid it not available yet
-        self._base_folder = self._get_base_folder()
-        self._data_folder = f"{self._base_folder}/data"
+        )  # in some edge cases the temporal uuid it not available yet or for the future when we don't necessarily run this with a temporal schedule
+        self._base_folder = get_base_folder(self._job.team_id, self._schema_id, self._run_uuid)
+        self._data_folder = get_data_folder(self._base_folder)
         self._schema = None
 
-        self._ensure_bucket()
-
-    def _ensure_bucket(self) -> None:
-        if settings.USE_LOCAL_SETUP:
-            if (
-                not settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
-                or not settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
-                or not settings.DATAWAREHOUSE_LOCAL_BUCKET_REGION
-            ):
-                raise KeyError(
-                    "Missing env vars for data warehouse. Required vars: DATAWAREHOUSE_LOCAL_ACCESS_KEY, "
-                    "DATAWAREHOUSE_LOCAL_ACCESS_SECRET, DATAWAREHOUSE_LOCAL_BUCKET_REGION"
-                )
-
-            ensure_bucket_exists(
-                settings.BUCKET_URL,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
-                settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
-                settings.OBJECT_STORAGE_ENDPOINT,
-            )
-
-    def _get_base_folder(self) -> str:
-        return f"{settings.BUCKET_URL}/data_pipelines_extract/{self._job.team_id}/{self._schema_id}/{self._run_uuid}"  # TODO: decide if we want to add date info in the path
+        ensure_bucket()
 
     def write_batch(self, pa_table: pa.Table, batch_index: int) -> BatchWriteResult:
         timestamp_ns = time.time_ns()
@@ -81,7 +56,7 @@ class S3BatchWriter:
 
         s3 = get_s3_client()
 
-        s3_path_without_protocol = s3_path.replace("s3://", "")
+        s3_path_without_protocol = strip_s3_protocol(s3_path)
         with s3.open(s3_path_without_protocol, "wb") as f:
             pq.write_table(pa_table, f, compression="snappy")
 
@@ -114,7 +89,7 @@ class S3BatchWriter:
             return None
 
         schema_path = f"{self._base_folder}/schema.json"
-        s3_path_without_protocol = schema_path.replace("s3://", "")
+        s3_path_without_protocol = strip_s3_protocol(schema_path)
 
         schema_dict = {
             "fields": [
@@ -152,10 +127,5 @@ class S3BatchWriter:
         return self._schema
 
     def cleanup(self) -> None:
-        s3 = get_s3_client()
-        base_folder_without_protocol = self._base_folder.replace("s3://", "")
-        try:
-            s3.delete(base_folder_without_protocol, recursive=True)
-            self._logger.debug(f"Cleaned up extraction folder: {self._base_folder}")
-        except FileNotFoundError:
-            self._logger.debug(f"Extraction folder not found during cleanup: {self._base_folder}")
+        cleanup_folder(self._base_folder)
+        self._logger.debug(f"Cleaned up extraction folder: {self._base_folder}")
