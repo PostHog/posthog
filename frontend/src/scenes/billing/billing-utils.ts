@@ -133,9 +133,11 @@ export const formatDisplayUsage = (
 
     // Append unit if set (pluralized appropriately)
     if (display_unit) {
-        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or if value is 1
+        // Don't pluralize abbreviations (all uppercase like "GB", "MB") or if value rounds to 1
         const isAbbreviation = display_unit === display_unit.toUpperCase()
-        const shouldPluralize = !isAbbreviation && displayValue !== 1
+        const roundedValue =
+            typeof display_decimals === 'number' ? parseFloat(displayValue.toFixed(display_decimals)) : displayValue
+        const shouldPluralize = !isAbbreviation && roundedValue !== 1
         const unitLabel = shouldPluralize ? wordPluralize(display_unit) : display_unit
         return `${formattedValue} ${unitLabel}`
     }

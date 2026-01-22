@@ -376,6 +376,15 @@ describe('formatDisplayUsage', () => {
         expect(formatDisplayUsage(1000, product)).toEqual('1.0 MB')
     })
 
+    it('should use rounded value for pluralization', () => {
+        // When raw value rounds to 1.00, should use singular
+        const product = { display_divisor: 100, display_decimals: 2, display_unit: 'coin' } as any
+        expect(formatDisplayUsage(99.95, product)).toEqual('1.00 coin') // 0.9995 rounds to 1.00
+        expect(formatDisplayUsage(100.4, product)).toEqual('1.00 coin') // 1.004 rounds to 1.00
+        expect(formatDisplayUsage(99, product)).toEqual('0.99 coins') // 0.99 doesn't round to 1
+        expect(formatDisplayUsage(101, product)).toEqual('1.01 coins') // 1.01 doesn't round to 1
+    })
+
     it('should use compact fallback when option is set and no display config', () => {
         const product = { display_unit: null, display_decimals: null, display_divisor: null } as any
         // Without compactFallback: full number with commas
