@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from django.db import connection
@@ -57,7 +58,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if key not in columns:
             raise serializers.ValidationError("The provided key does not exist on this table")
 
-        chain: list[str | int] = key.split(".")
+        chain: list[str | int] = cast(list[str | int], key.split("."))
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq,
@@ -87,7 +88,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query = ast.SelectQuery(
             select=[ast.Field(chain=chain)],
             distinct=True,
-            select_from=ast.JoinExpr(table=ast.Field(chain=table.name_chain)),
+            select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
             where=ast.And(exprs=conditions),
             order_by=order_by,
             limit=ast.Constant(value=10),
