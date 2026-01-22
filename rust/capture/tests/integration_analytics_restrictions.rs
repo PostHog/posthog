@@ -15,13 +15,13 @@ use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
-use capture::v0_request::ProcessedEvent;
+use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -125,9 +125,6 @@ async fn setup_analytics_router_with_restriction(
 
     (router, sink_clone)
 }
-
-use capture::v0_request::DataType;
-use serde_json::Value;
 
 struct ExpectedEvent<'a> {
     // CapturedEvent fields
