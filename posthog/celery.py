@@ -107,7 +107,7 @@ def _initialize_worker_metrics() -> None:
 
 def _is_longrunning_worker() -> bool:
     """Check if this is a long-running worker that handles cohort calculations."""
-    import os
+    from posthog.tasks.utils import CeleryQueue
 
     from posthog.tasks.utils import CeleryQueue
 
