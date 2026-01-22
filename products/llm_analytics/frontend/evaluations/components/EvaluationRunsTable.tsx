@@ -191,15 +191,19 @@ export function EvaluationRunsTable(): JSX.Element {
                     {showSummaryFeature && hasRuns && (
                         <>
                             <Tooltip
-                                title={`Use AI to analyze patterns in ${runsToSummarizeCount} ${
-                                    evaluationSummaryFilter === 'all'
-                                        ? ''
-                                        : evaluationSummaryFilter === 'pass'
-                                          ? 'passing '
-                                          : evaluationSummaryFilter === 'fail'
-                                            ? 'failing '
-                                            : 'N/A '
-                                }evaluation results`}
+                                title={
+                                    runsToSummarizeCount === 0
+                                        ? 'No runs match the current filter'
+                                        : `Use AI to analyze patterns in ${runsToSummarizeCount} ${
+                                              evaluationSummaryFilter === 'all'
+                                                  ? ''
+                                                  : evaluationSummaryFilter === 'pass'
+                                                    ? 'passing '
+                                                    : evaluationSummaryFilter === 'fail'
+                                                      ? 'failing '
+                                                      : 'N/A '
+                                          }evaluation results`
+                                }
                             >
                                 <LemonButton
                                     type="secondary"
@@ -211,6 +215,7 @@ export function EvaluationRunsTable(): JSX.Element {
                                         generateEvaluationSummary()
                                     }}
                                     size="small"
+                                    disabled={runsToSummarizeCount === 0}
                                     data-attr="llma-evaluation-summarize"
                                 >
                                     Summarize

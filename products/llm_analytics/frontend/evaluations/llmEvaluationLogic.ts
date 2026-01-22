@@ -177,6 +177,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationSummaryFilter: (_, { filter }) => filter,
             },
         ],
+        // Clear summary when filter changes so stale summary doesn't mismatch current filter
+        evaluationSummary: {
+            setEvaluationSummaryFilter: () => null,
+        },
         summaryExpanded: [
             true,
             {

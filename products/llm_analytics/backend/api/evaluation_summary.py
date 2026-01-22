@@ -172,7 +172,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                         "Implement fact-checking for critical claims",
                         "Add source citations where applicable",
                     ],
-                    "statistics": {"total_analyzed": 3, "pass_count": 2, "fail_count": 1},
+                    "statistics": {"total_analyzed": 3, "pass_count": 2, "fail_count": 1, "na_count": 0},
                 },
                 response_only=True,
                 status_codes=["200"],
@@ -226,6 +226,14 @@ and failing evaluations, providing actionable recommendations.
             duration_seconds = time.time() - start_time
 
             result = summary.model_dump()
+
+            # Override LLM-generated stats with ground truth computed from input
+            result["statistics"] = {
+                "total_analyzed": len(runs),
+                "pass_count": sum(1 for r in runs if r["result"] is True),
+                "fail_count": sum(1 for r in runs if r["result"] is False),
+                "na_count": sum(1 for r in runs if r["result"] is None),
+            }
 
             logger.info(
                 "Generated evaluation summary",
