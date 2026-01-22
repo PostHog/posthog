@@ -15,7 +15,7 @@ use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
-use capture::v0_request::ProcessedEvent;
+use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
@@ -187,8 +187,6 @@ async fn setup_ai_router_with_restriction(
 
     (router, sink_clone)
 }
-
-use capture::v0_request::DataType;
 
 struct ExpectedEvent<'a> {
     // CapturedEvent fields
