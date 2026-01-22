@@ -78,25 +78,22 @@ class ModelRegistryService:
         """Get models available to a product, filtered by configured providers."""
         config = get_product_config(product)
         configured_providers = _get_configured_providers()
+        allowed_models = config.allowed_models if config else None
 
-        # If product has explicit allowed_models, use those
-        if config is not None and config.allowed_models is not None:
-            models = []
-            for model_id in config.allowed_models:
-                model = self.get_model(model_id)
-                if model is not None and model.provider in configured_providers:
-                    models.append(model)
-            return models
-
-        # Otherwise, return all chat models from configured providers
-        all_models = ModelCostService.get_instance().get_all_models()
+        # Fetch all chat models from LiteLLM, filtered by configured providers
+        all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
-        for model_id, cost_data in all_models.items():
+        for model_id, cost_data in all_litellm_models.items():
             provider = cost_data.get("litellm_provider", "")
-            if provider in configured_providers and _is_chat_model(cost_data):
-                model = self.get_model(model_id)
-                if model is not None:
-                    models.append(model)
+            if provider not in configured_providers:
+                continue
+            if not _is_chat_model(cost_data):
+                continue
+            if allowed_models is not None and model_id not in allowed_models:
+                continue
+            model = self.get_model(model_id)
+            if model is not None:
+                models.append(model)
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
