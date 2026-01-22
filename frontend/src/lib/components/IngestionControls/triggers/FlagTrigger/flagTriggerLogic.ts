@@ -33,10 +33,9 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
         },
     })),
     selectors({
-        flag: [(_, p) => [p.flag], (flag) => flag],
-        linkedFeatureFlagId: [(s) => [s.flag], (flag) => flag?.id || null],
+        linkedFeatureFlagId: [(_, p) => [p.flag], (flag) => flag?.id || null],
         linkedFlag: [
-            (s) => [s.featureFlag, s.flag],
+            (s, p) => [s.featureFlag, p.flag],
             // an existing linked flag is loaded from the API,
             // a newly chosen flag is selected and can be passed in
             // the original value is used to ensure that we don't

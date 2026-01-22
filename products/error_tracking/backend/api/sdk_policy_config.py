@@ -54,7 +54,7 @@ class ErrorTrackingSDKPolicyConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         queryset = self.get_queryset()
         if not queryset:
             with transaction.atomic():
-                config = queryset.create(team=self.team)
+                config = SdkPolicyConfig.objects.create(team=self.team)
                 SdkPolicyConfigAssignment.objects.bulk_create(
                     [
                         SdkPolicyConfigAssignment(

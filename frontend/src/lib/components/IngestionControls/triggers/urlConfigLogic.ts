@@ -61,7 +61,7 @@ export const urlConfigLogic = kea<urlConfigLogicType>([
             {
                 setEditUrlTriggerIndex: (_, { originalIndex }) => originalIndex,
                 removeUrlTrigger: (editUrlTriggerIndex, { index }) =>
-                    editUrlTriggerIndex && index < editUrlTriggerIndex
+                    editUrlTriggerIndex !== null && index < editUrlTriggerIndex
                         ? editUrlTriggerIndex - 1
                         : index === editUrlTriggerIndex
                           ? null

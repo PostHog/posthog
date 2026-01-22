@@ -186,7 +186,7 @@ function EventTriggers({
     onChange: (eventTriggers: SDKPolicyConfig['event_triggers']) => void
 }): JSX.Element | null {
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-2">
+        <div className="flex flex-col space-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">Event emitted</LemonLabel>
                 <IngestionControls.EventTriggerSelect events={value} onChange={onChange} />
@@ -215,7 +215,7 @@ function LinkedFlagSelector({
 }): JSX.Element | null {
     return (
         <IngestionControls.FlagTrigger logicKey="error-tracking-linked-flag" flag={value} onChange={onChange}>
-            <div className="flex flex-col deprecated-space-y-2 mt-2">
+            <div className="flex flex-col space-y-2 mt-2">
                 <LemonLabel className="text-base">Feature flag</LemonLabel>
                 <IngestionControls.FlagSelector />
 
