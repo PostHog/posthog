@@ -1494,17 +1494,17 @@ class JiraIntegration:
 
         self.integration = integration
 
-    def cloud_id(self) -> str:
+    def cloud_id(self) -> str | None:
         """Get the Atlassian cloud ID from the integration config"""
         return dot_get(self.integration.config, "cloud_id")
 
-    def site_name(self) -> str:
+    def site_name(self) -> str | None:
         """Get the Jira site name from the integration config"""
         return dot_get(self.integration.config, "site_name")
 
     def site_url(self) -> str:
         """Get the Jira site URL from the integration config"""
-        return dot_get(self.integration.config, "site_url") or ""
+        return dot_get(self.integration.config, "site_url", "")
 
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         """Check if the Atlassian access token has expired or is close to expiring"""

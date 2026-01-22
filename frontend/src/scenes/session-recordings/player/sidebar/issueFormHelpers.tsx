@@ -18,7 +18,7 @@ export const createLinearIssueForm = (
         title: 'Create Linear issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             description: '',
             integrationId: integration.id,
             teamIds: [],
@@ -53,7 +53,7 @@ export const createGitHubIssueForm = (
         title: 'Create GitHub issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             body: '',
             integrationId: integration.id,
             repositories: [],
@@ -89,7 +89,7 @@ export const createGitLabIssueForm = (
         title: 'Create GitLab issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             body: '',
             integrationId: integration.id,
         },
@@ -121,7 +121,7 @@ export const createJiraIssueForm = (
         title: 'Create Jira issue',
         shouldAwaitSubmit: true,
         initialValues: {
-            title: `Issue from session replay ${sessionRecordingId.slice(0, 8)}`,
+            title: `Issue from Session Replay ${sessionRecordingId.slice(0, 8)}`,
             description: '',
             integrationId: integration.id,
             projectKeys: [],
