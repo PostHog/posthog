@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
