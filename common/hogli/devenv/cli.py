@@ -11,8 +11,7 @@ from pathlib import Path
 import click
 from hogli.core.cli import cli
 
-from .generator import MprocsGenerator
-from .profile import DeveloperProfile, ProfileManager
+from .generator import DevenvConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
 from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
 
@@ -26,24 +25,6 @@ def _get_repo_root() -> Path:
     return current
 
 
-def _ensure_profile_or_prompt(manager: ProfileManager) -> DeveloperProfile:
-    """Ensure a profile exists, prompting to create one if not.
-
-    Returns:
-        The developer profile
-    """
-    profile = manager.load_profile()
-
-    if profile is None:
-        click.echo("No developer profile found.")
-        click.echo("Run 'hogli dev:setup' to configure your environment.")
-        click.echo("")
-        click.echo("Starting with minimal preset for now...")
-        profile = manager.create_preset_profile("minimal")
-
-    return profile
-
-
 def _create_resolver() -> IntentResolver:
     """Create an IntentResolver with the default intent map and mprocs registry."""
     intent_map = load_intent_map()
@@ -51,7 +32,39 @@ def _create_resolver() -> IntentResolver:
     return IntentResolver(intent_map, registry)
 
 
-@cli.command(name="dev:start", help="Start dev environment based on your profile")
+def _resolve_from_config(resolver: IntentResolver, config: DevenvConfig) -> tuple:
+    """Resolve intents from a DevenvConfig.
+
+    Returns:
+        Tuple of (resolved_environment, intents_list)
+    """
+    if config.preset:
+        preset_obj = resolver.intent_map.presets.get(config.preset)
+        if not preset_obj:
+            raise ValueError(f"Unknown preset '{config.preset}'")
+
+        if preset_obj.all_intents:
+            intents = list(resolver.intent_map.intents.keys())
+        else:
+            intents = preset_obj.intents.copy()
+
+        include_caps = list(preset_obj.include_capabilities) or None
+    else:
+        intents = config.intents.copy()
+        include_caps = None
+
+    resolved = resolver.resolve(
+        intents,
+        include_units=config.include_units,
+        exclude_units=config.exclude_units,
+        include_capabilities=include_caps,
+        skip_autostart=config.skip_autostart,
+    )
+
+    return resolved, intents
+
+
+@cli.command(name="dev:start", help="Start dev environment based on your config")
 @click.option(
     "--with",
     "with_intents",
@@ -66,7 +79,7 @@ def _create_resolver() -> IntentResolver:
 )
 @click.option(
     "--preset",
-    help="Use a preset instead of profile (minimal, backend, replay, ai, full)",
+    help="Use a preset instead of saved config (minimal, backend, replay, ai, full)",
 )
 @click.option(
     "--explain",
@@ -79,10 +92,9 @@ def dev_start(
     preset: str | None,
     explain: bool,
 ) -> None:
-    """Start development environment based on your profile.
+    """Start development environment based on saved config or preset.
 
-    Uses your saved profile from .posthog/dev.yaml or prompts to create one.
-    Generated mprocs configuration is saved to .posthog/.generated/mprocs.yaml.
+    Uses config from .posthog/.generated/mprocs.yaml or prompts to create one.
     """
     try:
         resolver = _create_resolver()
@@ -91,9 +103,9 @@ def dev_start(
         click.echo("Are you in the PostHog repository root?", err=True)
         raise SystemExit(1)
 
-    manager = ProfileManager()
+    output_path = get_generated_mprocs_path()
 
-    # Determine intents to use
+    # Determine config to use
     if preset:
         # Use preset directly, merging any additional intents
         try:
@@ -111,6 +123,11 @@ def dev_start(
         # Merge additional intents from --with
         intents.extend(with_intents)
 
+        source_config = DevenvConfig(
+            preset=preset,
+            exclude_units=list(without_units),
+        )
+
         try:
             resolved = resolver.resolve(
                 intents,
@@ -123,44 +140,61 @@ def dev_start(
 
         intents_source = f"preset '{preset}'"
     else:
-        # Load profile
-        profile = _ensure_profile_or_prompt(manager)
+        # Load saved config from generated mprocs.yaml
+        saved_config = load_devenv_config(output_path)
 
-        # Merge profile intents with temporary additions
-        if profile.preset:
-            # Profile uses a preset
-            try:
-                preset_obj = resolver.intent_map.presets[profile.preset]
-                if preset_obj.all_intents:
-                    intents = list(resolver.intent_map.intents.keys())
-                else:
-                    intents = preset_obj.intents.copy()
-            except KeyError:
-                click.echo(f"Warning: Unknown preset '{profile.preset}' in profile", err=True)
+        if saved_config is None:
+            click.echo("No dev environment config found.")
+            click.echo("Run 'hogli dev:setup' to configure your environment.")
+            click.echo("")
+            click.echo("Starting with minimal preset for now...")
+            saved_config = DevenvConfig(preset="minimal")
+
+        # Build effective config with temporary overrides
+        if saved_config.preset:
+            preset_obj = resolver.intent_map.presets.get(saved_config.preset)
+            if not preset_obj:
+                click.echo(f"Warning: Unknown preset '{saved_config.preset}' in config", err=True)
                 intents = ["product_analytics"]
+                include_caps = None
+            elif preset_obj.all_intents:
+                intents = list(resolver.intent_map.intents.keys())
+                include_caps = list(preset_obj.include_capabilities) or None
+            else:
+                intents = preset_obj.intents.copy()
+                include_caps = list(preset_obj.include_capabilities) or None
         else:
-            intents = profile.intents.copy()
+            intents = saved_config.intents.copy()
+            include_caps = None
 
-        # Add temporary intents
+        # Add temporary intents from --with
         intents.extend(with_intents)
 
-        # Merge overrides
-        include_units = list(profile.overrides.include_units)
-        exclude_units = list(profile.overrides.exclude_units) + list(without_units)
-        skip_autostart = list(profile.overrides.skip_autostart)
+        # Merge exclude_units
+        exclude_units = list(saved_config.exclude_units) + list(without_units)
+
+        # Build source config (what gets saved)
+        source_config = DevenvConfig(
+            intents=saved_config.intents if not saved_config.preset else [],
+            preset=saved_config.preset,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+            skip_autostart=saved_config.skip_autostart,
+        )
 
         try:
             resolved = resolver.resolve(
                 intents,
-                include_units=include_units,
+                include_units=saved_config.include_units,
                 exclude_units=exclude_units,
-                skip_autostart=skip_autostart,
+                include_capabilities=include_caps,
+                skip_autostart=saved_config.skip_autostart,
             )
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
             raise SystemExit(1)
 
-        intents_source = "profile"
+        intents_source = "saved config"
 
     if explain:
         # Just show what would happen
@@ -170,10 +204,9 @@ def dev_start(
     # Generate mprocs config
     registry = create_mprocs_registry()
     generator = MprocsGenerator(registry)
-    output_path = manager.get_generated_mprocs_path()
-    manager.ensure_generated_dir()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    generator.generate_and_save(resolved, output_path)
+    generator.generate_and_save(resolved, output_path, source_config)
 
     click.echo(f"Generated mprocs config from {intents_source}")
     click.echo(f"  Intents: {', '.join(sorted(resolved.intents))}")
@@ -199,7 +232,7 @@ def dev_start(
 def dev_explain(intents: tuple[str, ...], preset: str | None) -> None:
     """Show resolution of intents to services.
 
-    If no intents are provided, shows resolution for your current profile.
+    If no intents are provided, shows resolution for your current config.
     """
     try:
         resolver = _create_resolver()
@@ -220,27 +253,24 @@ def dev_explain(intents: tuple[str, ...], preset: str | None) -> None:
             click.echo(f"Error: {e}", err=True)
             raise SystemExit(1)
     else:
-        # Use profile
-        manager = ProfileManager()
-        profile = manager.load_profile()
+        # Use saved config
+        output_path = get_generated_mprocs_path()
+        saved_config = load_devenv_config(output_path)
 
-        if profile is None:
-            click.echo("No profile found and no intents specified.")
+        if saved_config is None:
+            click.echo("No config found and no intents specified.")
             click.echo("")
             click.echo("Usage:")
             click.echo("  hogli dev:explain error_tracking session_replay")
             click.echo("  hogli dev:explain --preset minimal")
-            click.echo("  hogli dev:setup  # to create a profile")
+            click.echo("  hogli dev:setup  # to create a config")
             return
 
-        if profile.preset:
-            resolved = resolver.resolve_preset(profile.preset)
-        else:
-            resolved = resolver.resolve(
-                profile.intents,
-                include_units=profile.overrides.include_units,
-                exclude_units=profile.overrides.exclude_units,
-            )
+        try:
+            resolved, _ = _resolve_from_config(resolver, saved_config)
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1)
 
     click.echo(resolver.explain_resolution(resolved))
 
@@ -288,22 +318,35 @@ def dev_presets() -> None:
         click.echo("")
 
 
-@cli.command(name="dev:profile", help="Show current developer profile")
+@cli.command(name="dev:profile", help="Show current dev environment config")
 def dev_profile() -> None:
-    """Display the current developer profile."""
-    manager = ProfileManager()
-    profile = manager.load_profile()
+    """Display the current dev environment configuration."""
+    output_path = get_generated_mprocs_path()
+    config = load_devenv_config(output_path)
 
-    if profile is None:
-        click.echo("No developer profile found.")
+    if config is None:
+        click.echo("No dev environment config found.")
         click.echo("")
         click.echo("Run 'hogli dev:setup' to create one.")
         return
 
-    click.echo("Current profile:")
-    click.echo(f"  Path: {manager.profile_path}")
+    click.echo("Current config:")
+    click.echo(f"  Path: {output_path}")
     click.echo("")
-    click.echo(manager.get_profile_summary(profile))
+
+    if config.preset:
+        click.echo(f"  Preset: {config.preset}")
+    elif config.intents:
+        click.echo(f"  Intents: {', '.join(config.intents)}")
+    else:
+        click.echo("  No intents configured")
+
+    if config.include_units:
+        click.echo(f"  Include: {', '.join(config.include_units)}")
+    if config.exclude_units:
+        click.echo(f"  Exclude: {', '.join(config.exclude_units)}")
+    if config.skip_autostart:
+        click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
 
 
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
@@ -318,5 +361,4 @@ def dev_setup() -> None:
         click.echo("Are you in the PostHog repository root?", err=True)
         raise SystemExit(1)
 
-    manager = ProfileManager()
-    run_setup_wizard(intent_map, manager)
+    run_setup_wizard(intent_map)

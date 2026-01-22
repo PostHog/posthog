@@ -7,7 +7,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,11 +18,54 @@ if TYPE_CHECKING:
     from .resolver import ResolvedEnvironment
 
 
+@dataclass
+class DevenvConfig:
+    """Source configuration for dev environment (what the user selected).
+
+    This gets embedded in the generated mprocs.yaml under _posthog key,
+    allowing re-resolution when intent-map changes.
+    """
+
+    intents: list[str] = field(default_factory=list)
+    preset: str | None = None
+    include_units: list[str] = field(default_factory=list)
+    exclude_units: list[str] = field(default_factory=list)
+    skip_autostart: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for YAML serialization."""
+        data: dict[str, Any] = {}
+        if self.preset:
+            data["preset"] = self.preset
+        elif self.intents:
+            data["intents"] = self.intents
+
+        if self.include_units:
+            data["include_units"] = self.include_units
+        if self.exclude_units:
+            data["exclude_units"] = self.exclude_units
+        if self.skip_autostart:
+            data["skip_autostart"] = self.skip_autostart
+
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DevenvConfig:
+        """Create from dictionary."""
+        return cls(
+            intents=data.get("intents", []),
+            preset=data.get("preset"),
+            include_units=data.get("include_units", []),
+            exclude_units=data.get("exclude_units", []),
+            skip_autostart=data.get("skip_autostart", []),
+        )
+
+
 class ConfigGenerator(ABC):
     """Abstract generator for process manager configurations."""
 
     @abstractmethod
-    def generate(self, resolved: ResolvedEnvironment) -> Any:
+    def generate(self, resolved: ResolvedEnvironment, source_config: DevenvConfig | None = None) -> Any:
         """Generate configuration for resolved environment."""
         ...
 
@@ -31,9 +74,11 @@ class ConfigGenerator(ABC):
         """Save configuration to file."""
         ...
 
-    def generate_and_save(self, resolved: ResolvedEnvironment, output_path: Path) -> Path:
+    def generate_and_save(
+        self, resolved: ResolvedEnvironment, output_path: Path, source_config: DevenvConfig | None = None
+    ) -> Path:
         """Generate and save configuration in one step."""
-        config = self.generate(resolved)
+        config = self.generate(resolved, source_config)
         return self.save(config, output_path)
 
 
@@ -44,14 +89,21 @@ class MprocsConfig:
     procs: dict[str, dict[str, Any]]
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
+    posthog_config: DevenvConfig | None = None  # embedded source config
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for YAML serialization."""
-        return {
-            "procs": self.procs,
-            "mouse_scroll_speed": self.mouse_scroll_speed,
-            "scrollback": self.scrollback,
-        }
+        result: dict[str, Any] = {}
+
+        # Put _posthog first for visibility
+        if self.posthog_config:
+            result["_posthog"] = self.posthog_config.to_dict()
+
+        result["procs"] = self.procs
+        result["mouse_scroll_speed"] = self.mouse_scroll_speed
+        result["scrollback"] = self.scrollback
+
+        return result
 
 
 class MprocsGenerator(ConfigGenerator):
@@ -65,11 +117,12 @@ class MprocsGenerator(ConfigGenerator):
         """
         self.registry = registry
 
-    def generate(self, resolved: ResolvedEnvironment) -> MprocsConfig:
+    def generate(self, resolved: ResolvedEnvironment, source_config: DevenvConfig | None = None) -> MprocsConfig:
         """Generate mprocs configuration for resolved environment.
 
         Args:
             resolved: The resolved environment with required units
+            source_config: Optional source config to embed for re-resolution
 
         Returns:
             MprocsConfig with only the required processes
@@ -118,6 +171,7 @@ class MprocsGenerator(ConfigGenerator):
             procs=procs,
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
+            posthog_config=source_config,
         )
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
@@ -174,3 +228,38 @@ class MprocsGenerator(ConfigGenerator):
         with open(output_path, "w") as f:
             yaml.dump(config.to_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
+
+
+def load_devenv_config(mprocs_path: Path) -> DevenvConfig | None:
+    """Load DevenvConfig from a generated mprocs.yaml file.
+
+    Args:
+        mprocs_path: Path to generated mprocs.yaml
+
+    Returns:
+        DevenvConfig if _posthog section exists, None otherwise
+    """
+    if not mprocs_path.exists():
+        return None
+
+    try:
+        with open(mprocs_path) as f:
+            data = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, OSError):
+        return None
+
+    posthog_data = data.get("_posthog")
+    if not posthog_data:
+        return None
+
+    return DevenvConfig.from_dict(posthog_data)
+
+
+def get_generated_mprocs_path() -> Path:
+    """Get the default path for generated mprocs config."""
+    # Walk up from cwd to find repo root
+    current = Path.cwd().resolve()
+    for parent in [current, *current.parents]:
+        if (parent / ".git").exists():
+            return parent / ".posthog" / ".generated" / "mprocs.yaml"
+    return current / ".posthog" / ".generated" / "mprocs.yaml"

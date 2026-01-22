@@ -1,228 +1,187 @@
 """Interactive wizard for developer environment setup.
 
-Provides a user-friendly interface for selecting intents and configuring
-the development profile.
+Guides users through selecting intents and generates mprocs.yaml directly.
 """
 
 from __future__ import annotations
 
 import click
 
-from .profile import DeveloperProfile, ProfileManager, ProfileOverrides
+from .generator import DevenvConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
 from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
 
 
-class SetupWizard:
-    """Interactive wizard for setting up developer profile."""
-
-    def __init__(
-        self,
-        intent_map: IntentMap,
-        manager: ProfileManager,
-    ):
-        self.intent_map = intent_map
-        self.manager = manager
-        self.registry = create_mprocs_registry()
-        self.resolver = IntentResolver(intent_map, self.registry)
-
-    def run(self) -> DeveloperProfile | None:
-        """Run the interactive setup wizard.
-
-        Returns:
-            The created profile, or None if cancelled
-        """
-        click.echo("")
-        click.echo(click.style("PostHog Developer Environment Setup", fg="green", bold=True))
-        click.echo("")
-        click.echo("This wizard helps you configure which services to start based on")
-        click.echo("the products you're working on.")
-        click.echo("")
-
-        # Check for existing profile
-        existing = self.manager.load_profile()
-        if existing:
-            click.echo("You have an existing profile:")
-            click.echo(self.manager.get_profile_summary(existing))
-            click.echo("")
-            if not click.confirm("Replace it with a new configuration?", default=True):
-                return None
-
-        # Ask whether to use preset or custom selection
-        click.echo("")
-        choice = self._prompt_setup_type()
-
-        if choice == "preset":
-            profile = self._setup_from_preset()
-        else:
-            profile = self._setup_from_intents()
-
-        if profile is None:
-            return None
-
-        # Ask about overrides
-        profile = self._configure_overrides(profile)
-
-        # Show summary and confirm
-        click.echo("")
-        click.echo(click.style("Configuration Summary", fg="cyan", bold=True))
-        click.echo("-" * 40)
-        click.echo(self.manager.get_profile_summary(profile))
-        click.echo("")
-
-        # Show what would be started
-        if profile.preset:
-            resolved = self.resolver.resolve_preset(profile.preset)
-        else:
-            resolved = self.resolver.resolve(
-                profile.intents,
-                include_units=profile.overrides.include_units,
-                exclude_units=profile.overrides.exclude_units,
-            )
-        click.echo(f"This will start {len(resolved.units)} processes:")
-        click.echo(f"  {', '.join(sorted(resolved.units))}")
-        click.echo("")
-
-        if not click.confirm("Save this configuration?", default=True):
-            click.echo("Configuration cancelled.")
-            return None
-
-        # Save profile
-        self.manager.save_profile(profile)
-        click.echo("")
-        click.echo(click.style("✓ Profile saved!", fg="green"))
-        click.echo(f"  Location: {self.manager.profile_path}")
-        click.echo("")
-        click.echo("Run 'hogli dev:start' to start your development environment.")
-
-        return profile
-
-    def _prompt_setup_type(self) -> str:
-        """Prompt user to choose setup type."""
-        click.echo("How would you like to configure your environment?")
-        click.echo("")
-        click.echo("  1. Use a preset (recommended for most developers)")
-        click.echo("  2. Select specific products (advanced)")
-        click.echo("")
-
-        choice = click.prompt(
-            "Enter choice",
-            type=click.Choice(["1", "2"]),
-            default="1",
-        )
-
-        return "preset" if choice == "1" else "custom"
-
-    def _setup_from_preset(self) -> DeveloperProfile | None:
-        """Set up profile using a preset."""
-        click.echo("")
-        click.echo(click.style("Available Presets", fg="cyan"))
-        click.echo("")
-
-        presets = list(self.intent_map.presets.items())
-        for i, (name, preset) in enumerate(presets, 1):
-            intents_str = "all" if preset.all_intents else ", ".join(preset.intents)
-            click.echo(f"  {i}. {name}")
-            click.echo(f"     {preset.description}")
-            click.echo(f"     Intents: {intents_str}")
-            click.echo("")
-
-        choices = [str(i) for i in range(1, len(presets) + 1)]
-        choice = click.prompt(
-            "Select preset",
-            type=click.Choice(choices),
-            default="1",
-        )
-
-        selected_name = presets[int(choice) - 1][0]
-        return DeveloperProfile(preset=selected_name)
-
-    def _setup_from_intents(self) -> DeveloperProfile:
-        """Set up profile by selecting specific intents."""
-        click.echo("")
-        click.echo(click.style("Available Products/Features", fg="cyan"))
-        click.echo("Select the products you'll be working on (comma-separated numbers).")
-        click.echo("")
-
-        intents = list(self.intent_map.intents.items())
-        for i, (name, intent) in enumerate(intents, 1):
-            click.echo(f"  {i:2}. {name}")
-            click.echo(f"      {intent.description}")
-
-        click.echo("")
-
-        # Get selections
-        selection = click.prompt(
-            "Enter numbers (e.g., 1,3,5)",
-            default="1",
-        )
-
-        # Parse selection
-        selected_intents = []
-        try:
-            indices = [int(x.strip()) for x in selection.split(",")]
-            for idx in indices:
-                if 1 <= idx <= len(intents):
-                    selected_intents.append(intents[idx - 1][0])
-        except ValueError:
-            click.echo("Invalid selection, using product_analytics as default.")
-            selected_intents = ["product_analytics"]
-
-        if not selected_intents:
-            selected_intents = ["product_analytics"]
-
-        return DeveloperProfile(intents=selected_intents)
-
-    def _configure_overrides(self, profile: DeveloperProfile) -> DeveloperProfile:
-        """Optionally configure overrides."""
-        click.echo("")
-        if not click.confirm("Configure additional options?", default=False):
-            return profile
-
-        overrides = ProfileOverrides()
-
-        # Include units
-        click.echo("")
-        click.echo("Additional units to always include (e.g., storybook):")
-        include = click.prompt("Enter unit names (comma-separated, or blank)", default="")
-        if include.strip():
-            overrides.include_units = [u.strip() for u in include.split(",") if u.strip()]
-
-        # Exclude units
-        click.echo("")
-        click.echo("Units to always exclude (e.g., dagster):")
-        exclude = click.prompt("Enter unit names (comma-separated, or blank)", default="")
-        if exclude.strip():
-            overrides.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
-
-        # Ask about skippable processes (marked with ask_skip: true in mprocs.yaml)
-        # These stay in the config but with autostart: false
-        ask_skip_processes = self.registry.get_ask_skip_processes()
-        for process_name in ask_skip_processes:
-            click.echo("")
-            if click.confirm(f"Skip auto-start for {process_name}?", default=False):
-                if process_name not in overrides.skip_autostart:
-                    overrides.skip_autostart.append(process_name)
-
-        profile.overrides = overrides
-        return profile
-
-
-def run_setup_wizard(
-    intent_map: IntentMap,
-    manager: ProfileManager | None = None,
-) -> DeveloperProfile | None:
+def run_setup_wizard(intent_map: IntentMap) -> DevenvConfig | None:
     """Run the setup wizard.
 
     Args:
         intent_map: The intent map
-        manager: Profile manager, or None to use default
 
     Returns:
-        The created profile, or None if cancelled
+        The created config, or None if cancelled
     """
-    if manager is None:
-        manager = ProfileManager()
+    registry = create_mprocs_registry()
+    resolver = IntentResolver(intent_map, registry)
+    output_path = get_generated_mprocs_path()
 
-    wizard = SetupWizard(intent_map, manager)
-    return wizard.run()
+    click.echo("")
+    click.echo(click.style("PostHog Developer Environment Setup", fg="green", bold=True))
+    click.echo("")
+    click.echo("Configure which services to start based on the products you're working on.")
+    click.echo("")
+
+    # Check for existing config
+    existing = load_devenv_config(output_path)
+    if existing:
+        click.echo("You have an existing config:")
+        _show_config_summary(existing)
+        click.echo("")
+        if not click.confirm("Replace it?", default=True):
+            return None
+
+    # Ask whether to use preset or custom selection
+    click.echo("")
+    click.echo("How would you like to configure?")
+    click.echo("  1. Use a preset (recommended)")
+    click.echo("  2. Select specific products")
+    click.echo("")
+
+    choice = click.prompt("Choice", type=click.Choice(["1", "2"]), default="1")
+
+    if choice == "1":
+        config = _setup_from_preset(intent_map)
+    else:
+        config = _setup_from_intents(intent_map)
+
+    if config is None:
+        return None
+
+    # Ask about overrides
+    config = _configure_overrides(config, registry)
+
+    # Show summary
+    click.echo("")
+    click.echo(click.style("Summary", fg="cyan", bold=True))
+    click.echo("-" * 40)
+    _show_config_summary(config)
+
+    # Show what would be started
+    if config.preset:
+        resolved = resolver.resolve_preset(config.preset)
+    else:
+        resolved = resolver.resolve(
+            config.intents,
+            include_units=config.include_units,
+            exclude_units=config.exclude_units,
+            skip_autostart=config.skip_autostart,
+        )
+    click.echo("")
+    click.echo(f"This will start {len(resolved.units)} processes.")
+    click.echo("")
+
+    if not click.confirm("Save this configuration?", default=True):
+        click.echo("Cancelled.")
+        return None
+
+    # Generate and save mprocs config
+    generator = MprocsGenerator(registry)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    generator.generate_and_save(resolved, output_path, config)
+
+    click.echo("")
+    click.echo(click.style("✓ Config saved!", fg="green"))
+    click.echo(f"  Location: {output_path}")
+    click.echo("")
+    click.echo("Run 'hogli dev:start' or 'hogli start' to start.")
+
+    return config
+
+
+def _show_config_summary(config: DevenvConfig) -> None:
+    """Show config summary."""
+    if config.preset:
+        click.echo(f"  Preset: {config.preset}")
+    elif config.intents:
+        click.echo(f"  Intents: {', '.join(config.intents)}")
+
+    if config.include_units:
+        click.echo(f"  Include: {', '.join(config.include_units)}")
+    if config.exclude_units:
+        click.echo(f"  Exclude: {', '.join(config.exclude_units)}")
+    if config.skip_autostart:
+        click.echo(f"  Manual start: {', '.join(config.skip_autostart)}")
+
+
+def _setup_from_preset(intent_map: IntentMap) -> DevenvConfig:
+    """Set up using a preset."""
+    click.echo("")
+    click.echo(click.style("Presets", fg="cyan"))
+    click.echo("")
+
+    presets = list(intent_map.presets.items())
+    for i, (name, preset) in enumerate(presets, 1):
+        intents_str = "all" if preset.all_intents else ", ".join(preset.intents)
+        click.echo(f"  {i}. {name} - {preset.description}")
+        click.echo(f"     Intents: {intents_str}")
+        click.echo("")
+
+    choices = [str(i) for i in range(1, len(presets) + 1)]
+    choice = click.prompt("Select preset", type=click.Choice(choices), default="1")
+
+    selected_name = presets[int(choice) - 1][0]
+    return DevenvConfig(preset=selected_name)
+
+
+def _setup_from_intents(intent_map: IntentMap) -> DevenvConfig:
+    """Set up by selecting specific intents."""
+    click.echo("")
+    click.echo(click.style("Products", fg="cyan"))
+    click.echo("Select products (comma-separated numbers).")
+    click.echo("")
+
+    intents = list(intent_map.intents.items())
+    for i, (name, intent) in enumerate(intents, 1):
+        click.echo(f"  {i:2}. {name} - {intent.description}")
+
+    click.echo("")
+
+    selection = click.prompt("Enter numbers (e.g., 1,3,5)", default="1")
+
+    selected_intents = []
+    try:
+        indices = [int(x.strip()) for x in selection.split(",")]
+        for idx in indices:
+            if 1 <= idx <= len(intents):
+                selected_intents.append(intents[idx - 1][0])
+    except ValueError:
+        click.echo("Invalid selection, using product_analytics.")
+        selected_intents = ["product_analytics"]
+
+    if not selected_intents:
+        selected_intents = ["product_analytics"]
+
+    return DevenvConfig(intents=selected_intents)
+
+
+def _configure_overrides(config: DevenvConfig, registry) -> DevenvConfig:
+    """Optionally configure overrides."""
+    click.echo("")
+    if not click.confirm("Configure additional options?", default=False):
+        return config
+
+    # Exclude units
+    click.echo("")
+    click.echo("Units to exclude (e.g., typegen, dagster):")
+    exclude = click.prompt("Comma-separated, or blank", default="")
+    if exclude.strip():
+        config.exclude_units = [u.strip() for u in exclude.split(",") if u.strip()]
+
+    # Ask about skippable processes
+    ask_skip_processes = registry.get_ask_skip_processes()
+    for process_name in ask_skip_processes:
+        click.echo("")
+        if click.confirm(f"Skip auto-start for {process_name}?", default=False):
+            config.skip_autostart.append(process_name)
+
+    return config

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hogli.devenv.profile import DeveloperProfile, ProfileManager, ProfileOverrides
+from hogli.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
 from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, Preset, load_intent_map
 from parameterized import parameterized
@@ -514,104 +514,78 @@ class TestMprocsRegistry:
         assert "start-backend" in config["shell"]
 
 
-class TestDeveloperProfile:
-    """Test developer profile data class."""
+class TestDevenvConfig:
+    """Test DevenvConfig data class."""
 
-    def test_profile_to_dict_minimal(self) -> None:
-        """Minimal profile converts to dict cleanly."""
-        profile = DeveloperProfile(intents=["error_tracking"])
+    def test_config_to_dict_minimal(self) -> None:
+        """Minimal config converts to dict cleanly."""
+        config = DevenvConfig(intents=["error_tracking"])
 
-        data = profile.to_dict()
+        data = config.to_dict()
 
-        assert data["version"] == "1.0"
         assert data["intents"] == ["error_tracking"]
-        assert "overrides" not in data  # Empty overrides not included
+        assert "exclude_units" not in data  # Empty lists not included
 
-    def test_profile_to_dict_with_overrides(self) -> None:
-        """Profile with overrides includes them."""
-        profile = DeveloperProfile(
+    def test_config_to_dict_with_overrides(self) -> None:
+        """Config with overrides includes them."""
+        config = DevenvConfig(
             intents=["error_tracking"],
-            overrides=ProfileOverrides(
-                include_units=["storybook"],
-                exclude_units=["typegen"],
-            ),
+            exclude_units=["typegen"],
         )
 
-        data = profile.to_dict()
+        data = config.to_dict()
 
-        assert data["overrides"]["include_units"] == ["storybook"]
-        assert data["overrides"]["exclude_units"] == ["typegen"]
+        assert data["intents"] == ["error_tracking"]
+        assert data["exclude_units"] == ["typegen"]
 
-    def test_profile_from_dict_roundtrip(self) -> None:
-        """Profile survives dict roundtrip."""
-        original = DeveloperProfile(
+    def test_config_from_dict_roundtrip(self) -> None:
+        """Config survives dict roundtrip."""
+        original = DevenvConfig(
             intents=["error_tracking", "session_replay"],
-            overrides=ProfileOverrides(
-                include_units=["storybook"],
-                exclude_units=["dagster", "typegen"],
-            ),
+            exclude_units=["dagster", "typegen"],
         )
 
         data = original.to_dict()
-        restored = DeveloperProfile.from_dict(data)
+        restored = DevenvConfig.from_dict(data)
 
         assert restored.intents == original.intents
-        assert restored.overrides.include_units == original.overrides.include_units
-        assert restored.overrides.exclude_units == original.overrides.exclude_units
+        assert restored.exclude_units == original.exclude_units
 
-    def test_profile_with_preset(self) -> None:
-        """Profile can use preset instead of intents."""
-        profile = DeveloperProfile(preset="minimal")
+    def test_config_with_preset(self) -> None:
+        """Config can use preset instead of intents."""
+        config = DevenvConfig(preset="minimal")
 
-        data = profile.to_dict()
+        data = config.to_dict()
 
         assert data["preset"] == "minimal"
         assert "intents" not in data
 
 
-class TestProfileManager:
-    """Test profile persistence."""
+class TestConfigPersistence:
+    """Test config persistence via generated mprocs.yaml."""
 
-    def test_save_and_load_profile(self) -> None:
-        """Profile can be saved and loaded."""
+    def test_save_and_load_config(self) -> None:
+        """Config can be saved and loaded via generated mprocs.yaml."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ProfileManager(repo_root=Path(tmpdir))
-            profile = DeveloperProfile(intents=["error_tracking"])
+            output_path = Path(tmpdir) / "mprocs.yaml"
+            config = DevenvConfig(intents=["error_tracking"])
+            registry = create_test_registry()
+            intent_map = create_test_intent_map()
+            resolver = IntentResolver(intent_map, registry)
 
-            manager.save_profile(profile)
+            resolved = resolver.resolve(config.intents)
+            generator = MprocsGenerator(registry)
+            generator.generate_and_save(resolved, output_path, config)
 
-            assert manager.profile_exists()
-            loaded = manager.load_profile()
+            loaded = load_devenv_config(output_path)
             assert loaded is not None
             assert loaded.intents == ["error_tracking"]
 
-    def test_delete_profile(self) -> None:
-        """Profile can be deleted."""
+    def test_load_nonexistent_config(self) -> None:
+        """Loading nonexistent config returns None."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ProfileManager(repo_root=Path(tmpdir))
-            profile = DeveloperProfile(intents=["error_tracking"])
+            output_path = Path(tmpdir) / "nonexistent.yaml"
 
-            manager.save_profile(profile)
-            assert manager.profile_exists()
-
-            manager.delete_profile()
-            assert not manager.profile_exists()
-
-    def test_load_nonexistent_profile(self) -> None:
-        """Loading nonexistent profile returns None."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ProfileManager(repo_root=Path(tmpdir))
-
-            loaded = manager.load_profile()
+            loaded = load_devenv_config(output_path)
 
             assert loaded is None
-
-    def test_generated_dir_creation(self) -> None:
-        """Generated directory is created on demand."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ProfileManager(repo_root=Path(tmpdir))
-
-            path = manager.ensure_generated_dir()
-
-            assert path.exists()
-            assert path.is_dir()

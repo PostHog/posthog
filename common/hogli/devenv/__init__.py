@@ -10,23 +10,22 @@ Key components:
 - MprocsGenerator: Generates mprocs.yaml configuration
 """
 
-from .generator import MprocsConfig, MprocsGenerator
-from .profile import DeveloperProfile, ProfileManager
+from .generator import DevenvConfig, MprocsConfig, MprocsGenerator, get_generated_mprocs_path, load_devenv_config
 from .registry import MprocsRegistry, ProcessRegistry, create_mprocs_registry
 from .resolver import IntentMap, IntentResolver, load_intent_map
-from .wizard import SetupWizard, run_setup_wizard
+from .wizard import run_setup_wizard
 
 __all__ = [
     "IntentResolver",
     "IntentMap",
     "load_intent_map",
-    "DeveloperProfile",
-    "ProfileManager",
+    "DevenvConfig",
+    "load_devenv_config",
+    "get_generated_mprocs_path",
     "ProcessRegistry",
     "MprocsRegistry",
     "create_mprocs_registry",
     "MprocsGenerator",
     "MprocsConfig",
-    "SetupWizard",
     "run_setup_wizard",
 ]
