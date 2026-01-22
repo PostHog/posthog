@@ -36,7 +36,7 @@ function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Eleme
             </div>
             {pattern.example_generation_ids.length > 0 && (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-muted">Examples:</span>
+                    <span className="text-xs text-muted">Generations:</span>
                     {pattern.example_generation_ids.map((genId) => {
                         const run = runsLookup[genId]
                         if (run) {
