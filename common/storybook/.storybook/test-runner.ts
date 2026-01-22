@@ -202,7 +202,9 @@ async function expectStoryToMatchSnapshot(
         // Periodic logging during wait
         const startTime = Date.now()
         let hasLoggedStuckLoaders = false
+        let shouldContinueChecking = true
         const checkInterval = setInterval(async () => {
+            if (!shouldContinueChecking) return
             try {
                 const stillVisible = await page.locator(loaderSelectors).filter({ visible: true }).count()
                 const elapsed = Date.now() - startTime
@@ -260,6 +262,7 @@ async function expectStoryToMatchSnapshot(
             
             throw error
         } finally {
+            shouldContinueChecking = false
             clearInterval(checkInterval)
         }
     }
