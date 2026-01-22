@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconCheck, IconChevronDown, IconMinus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -44,6 +45,13 @@ function PatternCard({ pattern, type, runsLookup }: PatternCardProps): JSX.Eleme
                                     key={genId}
                                     to={urls.llmAnalyticsTrace(run.trace_id, { event: genId, tab: 'evals' })}
                                     className="text-xs font-mono text-primary hover:underline"
+                                    data-attr="llma-evaluation-summary-example-link"
+                                    onClick={() => {
+                                        posthog.capture('llma evaluation summary example clicked', {
+                                            pattern_type: type,
+                                            pattern_title: pattern.title,
+                                        })
+                                    }}
                                 >
                                     {genId.slice(0, 8)}...
                                 </Link>
@@ -183,13 +191,30 @@ export function EvaluationRunsTable(): JSX.Element {
                     {showSummaryFeature && hasRuns && (
                         <>
                             <Tooltip title={`Use AI to analyze patterns in ${runsToSummarizeCount} evaluation results`}>
-                                <LemonButton type="secondary" onClick={generateEvaluationSummary} size="small">
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
+                                        posthog.capture('llma evaluation summarize clicked', {
+                                            filter: evaluationSummaryFilter,
+                                            runs_to_summarize: runsToSummarizeCount,
+                                        })
+                                        generateEvaluationSummary()
+                                    }}
+                                    size="small"
+                                    data-attr="llma-evaluation-summarize"
+                                >
                                     Summarize
                                 </LemonButton>
                             </Tooltip>
                             <LemonSegmentedButton
                                 value={evaluationSummaryFilter}
-                                onChange={(value) => setEvaluationSummaryFilter(value as EvaluationSummaryFilter)}
+                                onChange={(value) => {
+                                    posthog.capture('llma evaluation summary filter changed', {
+                                        filter: value,
+                                        previous_filter: evaluationSummaryFilter,
+                                    })
+                                    setEvaluationSummaryFilter(value as EvaluationSummaryFilter)
+                                }}
                                 options={[
                                     { value: 'all', label: 'All' },
                                     { value: 'pass', label: 'Passing' },
@@ -197,6 +222,7 @@ export function EvaluationRunsTable(): JSX.Element {
                                     ...(evaluation?.output_config?.allows_na ? [{ value: 'na', label: 'N/A' }] : []),
                                 ]}
                                 size="small"
+                                data-attr="llma-evaluation-summary-filter"
                             />
                         </>
                     )}
@@ -207,6 +233,7 @@ export function EvaluationRunsTable(): JSX.Element {
                     onClick={refreshEvaluationRuns}
                     loading={evaluationRunsLoading}
                     size="small"
+                    data-attr="llma-evaluation-refresh-runs"
                 >
                     Refresh
                 </LemonButton>
@@ -223,7 +250,14 @@ export function EvaluationRunsTable(): JSX.Element {
                 <div className="border rounded-lg bg-bg-light">
                     <button
                         className="w-full flex items-center justify-between p-3 hover:bg-border-light transition-colors cursor-pointer"
-                        onClick={toggleSummaryExpanded}
+                        onClick={() => {
+                            posthog.capture('llma evaluation summary toggled', {
+                                expanded: !summaryExpanded,
+                                filter: evaluationSummaryFilter,
+                            })
+                            toggleSummaryExpanded()
+                        }}
+                        data-attr="llma-evaluation-summary-toggle"
                     >
                         <div className="text-left">
                             <span className="font-semibold text-sm">AI Summary</span>
