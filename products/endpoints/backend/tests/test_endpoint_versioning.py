@@ -441,3 +441,130 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, endpoint.current_version)
         new_version = endpoint.get_version()
         self.assertIsNone(new_version.saved_query)
+
+    def test_version_activate_deactivate(self):
+        """Version can be activated and deactivated via update endpoint with version param."""
+        endpoint = create_endpoint_with_version(
+            name="version_activation_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+
+        # Version should be active by default
+        version = endpoint.get_version()
+        self.assertTrue(version.is_active)
+
+        # Deactivate version via update endpoint with version param
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertFalse(response.json()["is_active"])
+
+        version.refresh_from_db()
+        self.assertFalse(version.is_active)
+
+        # Reactivate version via update endpoint
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"is_active": True},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertTrue(response.json()["is_active"])
+
+        version.refresh_from_db()
+        self.assertTrue(version.is_active)
+
+    def test_endpoint_deactivate(self):
+        endpoint = create_endpoint_with_version(
+            name="endpoint_activation_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+        endpoint.create_new_version(endpoint.get_version().query, self.user)
+        version1 = endpoint.get_version(1)
+        version2 = endpoint.get_version(2)
+
+        self.assertTrue(version1.is_active)
+        self.assertTrue(version2.is_active)
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        response_v2 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response_v2.status_code)
+        response_v1 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=1")
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response_v1.status_code)
+
+    def test_version_deactivate_keeps_endpoint_activated(self):
+        endpoint = create_endpoint_with_version(
+            name="endpoint_activation_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+        endpoint.create_new_version(endpoint.get_version().query, self.user)
+        version1 = endpoint.get_version(1)
+        version2 = endpoint.get_version(2)
+
+        self.assertTrue(version1.is_active)
+        self.assertTrue(version2.is_active)
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        response_v2 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+        self.assertEqual(status.HTTP_200_OK, response_v2.status_code)
+        response_v1 = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=1")
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response_v1.status_code)
+
+    def test_inactive_version_cannot_be_executed(self):
+        """Inactive versions should not be executable."""
+        endpoint = create_endpoint_with_version(
+            name="inactive_run_test",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Deactivate version
+        version = endpoint.get_version()
+        version.is_active = False
+        version.save()
+
+        # Try to run the endpoint
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("inactive", response.json()["detail"].lower())
+
+    def test_list_versions_includes_is_active(self):
+        """Versions list should include is_active field."""
+        endpoint = create_endpoint_with_version(
+            name="list_with_active",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        versions = response.json()
+        self.assertEqual(1, len(versions))
+        self.assertIn("is_active", versions[0])
+        self.assertTrue(versions[0]["is_active"])

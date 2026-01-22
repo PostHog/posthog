@@ -74,7 +74,12 @@ LLMA_TRACE_PRODUCT = "llm-analytics"
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project
-    112495,  # Dogfooding project
+    # Dogfooding projects
+    112495,
+    148051,
+    140227,
+    237906,
+    294356,
 ]
 
 # Cluster labeling agent configuration
