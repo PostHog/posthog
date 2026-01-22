@@ -417,6 +417,111 @@ jobs:
                     fi
                   fi
 
+            - name: Run memory leak test
+              id: memory-leak-test
+              if: contains(github.event.pull_request.labels.*.name, 'memory-leak-check')
+              continue-on-error: true
+              shell: bash
+              run: |
+                  mkdir -p playwright/memory-leak-results
+                  set +e
+                  pnpm --filter=@posthog/playwright exec playwright test --project=memory-leak 2>&1 | tee /tmp/memory-leak-output.log
+                  EXIT_CODE=${PIPESTATUS[0]}
+                  set -e
+                  echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+            - name: Post memory leak PR comment
+              if: steps.memory-leak-test.outcome != 'skipped' && github.event_name == 'pull_request'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
+
+                      const resultsDir = 'playwright/memory-leak-results';
+                      let reportContent = '';
+
+                      try {
+                          console.log('Checking for results in:', resultsDir);
+                          if (fs.existsSync(resultsDir)) {
+                              const dirs = fs.readdirSync(resultsDir);
+                              console.log('Found directories:', dirs);
+                              const latestDir = dirs.sort().reverse()[0];
+                              if (latestDir) {
+                                  const reportPath = path.join(resultsDir, latestDir, 'memory-leak-report.md');
+                                  console.log('Looking for report at:', reportPath);
+                                  if (fs.existsSync(reportPath)) {
+                                      reportContent = fs.readFileSync(reportPath, 'utf8');
+                                      console.log('Successfully read report file');
+                                  } else {
+                                      console.log('Report file does not exist');
+                                      const files = fs.readdirSync(path.join(resultsDir, latestDir));
+                                      console.log('Files in directory:', files);
+                                  }
+                              } else {
+                                  console.log('No subdirectories found in results directory');
+                              }
+                          } else {
+                              console.log('Results directory does not exist');
+                          }
+                      } catch (e) {
+                          console.log('Error reading report file:', e.message);
+                          console.log('Stack:', e.stack);
+                      }
+
+                      if (!reportContent) {
+                          const logPath = '/tmp/memory-leak-output.log';
+                          let logContent = '';
+                          try {
+                              logContent = fs.readFileSync(logPath, 'utf8');
+                          } catch (e) {
+                              logContent = 'Could not read log file';
+                          }
+
+                          reportContent = `## Memory Leak Detection Results
+
+                      **Test completed** - see artifacts for detailed results.
+
+                      <details>
+                      <summary>Test output</summary>
+
+                      \`\`\`
+                      ${logContent.slice(-2000)}
+                      \`\`\`
+
+                      </details>
+
+                      ---
+                      *Memory leak detection is informational and does not block PR merging.*`;
+                      }
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+
+                      const botComment = comments.find(comment =>
+                          comment.user.type === 'Bot' &&
+                          comment.body.includes('Memory Leak Detection Results')
+                      );
+
+                      if (botComment) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: botComment.id,
+                              body: reportContent,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body: reportContent,
+                          });
+                      }
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -473,9 +578,11 @@ jobs:
                       playwright/playwright-report-attempt-*/
                       playwright/test-results/
                       playwright/test-results-attempt-*/
+                      playwright/memory-leak-results/
                       /tmp/celery.log
                       /tmp/server.log
                       /tmp/playwright-output-attempt-*.log
+                      /tmp/memory-leak-output.log
                   retention-days: 30
                   if-no-files-found: ignore
 
