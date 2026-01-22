@@ -627,6 +627,7 @@ class WebauthnBackend(BaseBackend):
         Args:
             request: The HTTP request object
             credential_id: The base64url-encoded credential ID (rawId)
+            challenge: The base64url-encoded challenge
             response: The WebAuthn authentication response containing userHandle, authenticatorData, clientDataJSON, and signature
         """
         if challenge is None or credential_id is None or response is None:

@@ -537,6 +537,19 @@ export interface PaginatedIntegrationListApi {
 }
 
 /**
+ * Standard Integration serializer.
+ */
+export interface PatchedIntegrationApi {
+    readonly id?: number
+    kind?: Kind9f6EnumApi
+    config?: unknown
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly errors?: string
+    readonly display_name?: string
+}
+
+/**
  * * `email` - Email
  * `slack` - Slack
  * `webhook` - Webhook
@@ -2581,6 +2594,10 @@ export interface CohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
     readonly is_calculating: boolean
     readonly created_by: UserBasicApi
     /** @nullable */
@@ -2681,6 +2698,10 @@ export interface PatchedCohortApi {
         } */
     filters?: unknown
     query?: unknown
+    /** @nullable */
+    readonly version?: number | null
+    /** @nullable */
+    readonly pending_version?: number | null
     readonly is_calculating?: boolean
     readonly created_by?: UserBasicApi
     /** @nullable */
@@ -3267,6 +3288,11 @@ export interface UserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export interface PaginatedUserListApi {
@@ -3333,6 +3359,11 @@ export interface PatchedUserApi {
     allow_sidebar_suggestions?: boolean | null
     shortcut_position?: ShortcutPositionEnumApi | BlankEnumApi | NullEnumApi
     role_at_organization?: RoleAtOrganizationEnumApi
+    /**
+     * Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.
+     * @nullable
+     */
+    passkeys_enabled_for_2fa?: boolean | null
 }
 
 export type EnvironmentsDashboardsListParams = {

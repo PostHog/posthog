@@ -1,13 +1,16 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
+import { getTreeItemsProducts } from '~/products'
+import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -18,11 +21,13 @@ export interface SearchItem {
     name: string
     displayName?: string
     category: string
+    productCategory?: string | null
     href?: string
     icon?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null
+    tags?: string[]
     record?: Record<string, unknown>
 }
 
@@ -38,7 +43,7 @@ export interface SearchLogicProps {
 
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
-const RECENTS_LIMIT = 5
+export const RECENTS_LIMIT = 5
 const SEARCH_LIMIT = 5
 
 function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
@@ -55,12 +60,29 @@ export const searchLogic = kea<searchLogicType>([
     props({} as SearchLogicProps),
     key((props) => props.logicKey),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], commandLogic, ['isCommandOpen']],
+        values: [
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            commandLogic,
+            ['isCommandOpen'],
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['isDev'],
+        ],
     }),
     actions({
         setSearch: (search: string) => ({ search }),
     }),
     loaders(({ values }) => ({
+        sceneLogViews: [
+            [] as FileSystemViewLogEntry[],
+            {
+                loadSceneLogViews: async () => {
+                    return await api.fileSystemLogView.list({ type: 'scene' })
+                },
+            },
+        ],
         recents: [
             { results: [], hasMore: false } as { results: FileSystemEntry[]; hasMore: boolean },
             {
@@ -194,8 +216,37 @@ export const searchLogic = kea<searchLogicType>([
                 loadUnifiedSearchResultsFailure: () => false,
             },
         ],
+        recentsHasLoaded: [
+            false,
+            {
+                loadRecentsSuccess: () => true,
+                loadRecentsFailure: () => true,
+            },
+        ],
+        sceneLogViewsHasLoaded: [
+            false,
+            {
+                loadSceneLogViewsSuccess: () => true,
+                loadSceneLogViewsFailure: () => true,
+            },
+        ],
     }),
     selectors({
+        sceneLogViewsByRef: [
+            (s) => [s.sceneLogViews],
+            (sceneLogViews): Record<string, string> => {
+                return sceneLogViews.reduce(
+                    (acc, { ref, viewed_at }) => {
+                        const current = acc[ref]
+                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                            acc[ref] = viewed_at
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                )
+            },
+        ],
         isSearching: [
             (s) => [
                 s.recentsLoading,
@@ -237,6 +288,52 @@ export const searchLogic = kea<searchLogicType>([
                         itemType: item.type ?? null,
                         record: item as unknown as Record<string, unknown>,
                     }
+                })
+            },
+        ],
+        appsItems: [
+            (s) => [s.featureFlags, s.isDev, s.sceneLogViewsByRef],
+            (featureFlags, isDev, sceneLogViewsByRef): SearchItem[] => {
+                const allProducts = getTreeItemsProducts()
+                const filteredProducts = allProducts.filter((product) => {
+                    if (!isDev && product.category === 'Unreleased') {
+                        return false
+                    }
+                    if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
+                        return false
+                    }
+                    return true
+                })
+
+                const items = filteredProducts.map((product) => ({
+                    id: `app-${product.path}`,
+                    name: product.path,
+                    displayName: product.path,
+                    category: 'apps',
+                    productCategory: product.category || null,
+                    href: product.href || '#',
+                    itemType: product.iconType || product.type || null,
+                    tags: product.tags,
+                    lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
+                    record: {
+                        type: product.type || product.iconType,
+                        iconType: product.iconType,
+                        iconColor: product.iconColor,
+                    },
+                }))
+
+                // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
+                return items.sort((a, b) => {
+                    if (!a.lastViewedAt && !b.lastViewedAt) {
+                        return a.name.localeCompare(b.name)
+                    }
+                    if (!a.lastViewedAt) {
+                        return 1
+                    }
+                    if (!b.lastViewedAt) {
+                        return -1
+                    }
+                    return new Date(b.lastViewedAt).getTime() - new Date(a.lastViewedAt).getTime()
                 })
             },
         ],
@@ -398,11 +495,15 @@ export const searchLogic = kea<searchLogicType>([
         allCategories: [
             (s) => [
                 s.recentItems,
+                s.appsItems,
                 s.personItems,
                 s.groupItems,
                 s.playlistItems,
                 s.unifiedSearchItems,
                 s.recentsLoading,
+                s.recentsHasLoaded,
+                s.sceneLogViewsLoading,
+                s.sceneLogViewsHasLoaded,
                 s.personSearchResultsLoading,
                 s.groupSearchResultsLoading,
                 s.playlistSearchResultsLoading,
@@ -411,11 +512,15 @@ export const searchLogic = kea<searchLogicType>([
             ],
             (
                 recentItems,
+                appsItems,
                 personItems,
                 groupItems,
                 playlistItems,
                 unifiedSearchItems,
                 recentsLoading,
+                recentsHasLoaded,
+                sceneLogViewsLoading,
+                sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
@@ -425,14 +530,21 @@ export const searchLogic = kea<searchLogicType>([
                 const categories: SearchCategory[] = []
                 const hasSearch = search.trim() !== ''
 
-                // Always show recents first
-                if (recentItems.length > 0 || recentsLoading) {
-                    categories.push({
-                        key: 'recents',
-                        items: recentItems,
-                        isLoading: recentsLoading,
-                    })
-                }
+                // Always show recents first - show loading skeleton until first load completes
+                const isRecentsLoading = recentsLoading || !recentsHasLoaded
+                categories.push({
+                    key: 'recents',
+                    items: recentItems,
+                    isLoading: isRecentsLoading,
+                })
+
+                // Always show apps - show loading skeleton until sceneLogViews loads (for lastViewedAt sorting)
+                const isAppsLoading = sceneLogViewsLoading || !sceneLogViewsHasLoaded
+                categories.push({
+                    key: 'apps',
+                    items: isAppsLoading ? [] : appsItems,
+                    isLoading: isAppsLoading,
+                })
 
                 // Only show unified search results when searching
                 if (hasSearch) {
@@ -515,6 +627,14 @@ export const searchLogic = kea<searchLogicType>([
             if (values.recents.results.length === 0) {
                 actions.loadRecents({ search: '' })
             }
+            // Load scene log views for app last viewed timestamps
+            if (values.sceneLogViews.length === 0) {
+                actions.loadSceneLogViews()
+            }
         },
     })),
+    afterMount(({ actions }) => {
+        // Load scene log views on mount for app last viewed timestamps
+        actions.loadSceneLogViews()
+    }),
 ])

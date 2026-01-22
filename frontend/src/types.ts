@@ -330,6 +330,7 @@ export interface UserType extends UserBaseType {
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
         discussions_mentioned: boolean
+        data_pipeline_error_threshold?: number
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -358,6 +359,7 @@ export interface UserType extends UserBaseType {
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export type HedgehogColorOptions =
@@ -398,6 +400,7 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     discussions_mentioned: boolean
+    data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
 }
 
@@ -601,6 +604,7 @@ export interface ConversationsSettings {
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
+    notification_recipients?: number[] | null
 }
 
 export interface LogsSettings {
@@ -1511,6 +1515,8 @@ export interface CohortType {
     created_at?: string
     deleted?: boolean
     id: number | 'new'
+    version?: number | null
+    pending_version?: number | null
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
@@ -2229,7 +2235,6 @@ export interface EndpointType extends WithAccessControl {
     description: string
     derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
-    parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -3256,14 +3261,16 @@ export interface ChoiceQuestionResponseData {
     isPredefined: boolean
     // For unique responses (value === 1), include person data for display
     distinctId?: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
@@ -3505,6 +3512,7 @@ export interface Survey extends WithAccessControl {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
@@ -5048,6 +5056,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    PRODUCT_TOUR = 'ProductTour',
 }
 
 export type CommentType = {
@@ -5693,6 +5702,9 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
+/*
+    WARNING: Everything below 'Notebooks' is to be removed in future releases
+*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
@@ -6394,7 +6406,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    AI_CONSENT = 'ai_consent',
     TELL_US_MORE = 'tell_us_more',
 }
 

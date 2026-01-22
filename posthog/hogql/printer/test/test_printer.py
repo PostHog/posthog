@@ -2515,7 +2515,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -2528,7 +2528,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
+                f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -3474,6 +3474,52 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 "properties.test_prop ilike '%@posthog.com%'",
                 f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
                 {"hogql_val_0": "%@posthog.com%"},
+            )
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"ilike(events.{mat_col.name}, %(hogql_val_0)s)",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable(self) -> None:
+        # toString() wrapper should use ngram index optimization when available
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_prop, '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+            # should also work if wrapped with toString()
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_prop), '%@gmail.com%')",
+                f"like(lower(events.{mat_col.name}), lower(%(hogql_val_0)s))",
+                {"hogql_val_0": "%@gmail.com%"},
+            )
+
+    def test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property(self) -> None:
+        # Numeric properties should not use the ILIKE optimization - fall back to default handling
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name="test_numeric_prop",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        with materialized("events", "test_numeric_prop", is_nullable=False) as mat_col:
+            # Direct property access: optimization skipped, PropertySwapper wraps in accurateCastOrNull
+            self._test_materialized_column_comparison(
+                "ilike(properties.test_numeric_prop, '%123%')",
+                f"ifNull(ilike(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
+            )
+
+            # With toString() wrapper: same behavior, optimization not applied
+            self._test_materialized_column_comparison(
+                "ilike(toString(properties.test_numeric_prop), '%123%')",
+                f"ifNull(ilike(toString(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s)), %(hogql_val_1)s), 0)",
+                {"hogql_val_1": "%123%"},
             )
 
     def test_materialized_column_not_ilike_uses_raw_column_for_non_nullable(self) -> None:

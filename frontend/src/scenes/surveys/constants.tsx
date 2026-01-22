@@ -195,6 +195,7 @@ export interface NewSurvey
         | 'response_sampling_limit'
         | 'schedule'
         | 'enable_partial_responses'
+        | 'enable_iframe_embedding'
         | 'user_access_level'
         | 'headline_summary'
         | 'headline_response_count'

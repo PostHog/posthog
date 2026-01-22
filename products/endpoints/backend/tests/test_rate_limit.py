@@ -53,12 +53,20 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         self.assertFalse(_check_and_cache_materialization_status(self.team.id, "nonexistent"))
 
     def test_non_materialized_endpoint_returns_false_and_caches(self):
-        Endpoint.objects.create(
+        from products.endpoints.backend.models import EndpointVersion
+
+        endpoint = Endpoint.objects.create(
             name="inline_endpoint",
             team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             is_active=True,
+            current_version=1,
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
         )
 
         self.assertFalse(_check_and_cache_materialization_status(self.team.id, "inline_endpoint"))
@@ -72,6 +80,8 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         ]
     )
     def test_materialized_endpoint_status(self, status, expected_ready):
+        from products.endpoints.backend.models import EndpointVersion
+
         saved_query = DataWarehouseSavedQuery.objects.create(
             name=f"query_{status}",
             team=self.team,
@@ -80,13 +90,20 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
             status=status,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
-        Endpoint.objects.create(
+        endpoint = Endpoint.objects.create(
             name=f"endpoint_{status}",
             team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             is_active=True,
+            current_version=1,
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
             saved_query=saved_query,
+            is_materialized=True,
         )
 
         result = _check_and_cache_materialization_status(self.team.id, f"endpoint_{status}")
@@ -128,6 +145,8 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         self.assertTrue(_is_materialized_endpoint_request(request, view))
 
     def test_lazy_loads_on_cache_miss(self):
+        from products.endpoints.backend.models import EndpointVersion
+
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="lazy_query",
             team=self.team,
@@ -136,13 +155,20 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
             status=DataWarehouseSavedQuery.Status.COMPLETED,
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
-        Endpoint.objects.create(
+        endpoint = Endpoint.objects.create(
             name="lazy_endpoint",
             team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
             created_by=self.user,
             is_active=True,
+            current_version=1,
+        )
+        EndpointVersion.objects.create(
+            endpoint=endpoint,
+            version=1,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
             saved_query=saved_query,
+            is_materialized=True,
         )
 
         self.assertIsNone(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
