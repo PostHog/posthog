@@ -81,7 +81,9 @@ export function KioskPlayer(): JSX.Element | null {
                     icon={<IconX className="text-2xl" />}
                     size="large"
                     onClick={handleClose}
-                    className="absolute top-6 right-6 !bg-white !text-black hover:!bg-gray-200 pointer-events-auto"
+                    className={`absolute top-6 right-6 !bg-white !text-black hover:!bg-gray-200 ${
+                        isActive ? 'pointer-events-auto' : 'pointer-events-none'
+                    }`}
                     tooltip="Exit kiosk mode"
                 />
             </div>
