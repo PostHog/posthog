@@ -41,14 +41,20 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
                 except Exception as e:
                     logger.warning("combined_metrics_server.temporal_fetch_failed", error=str(e))
 
-                # Get prometheus_client metrics with timeout to prevent registry lock deadlock
+                # Get prometheus_client metrics with timeout to prevent registry lock deadlock.
+                # Note: If timeout occurs, the background thread continues running but we don't
+                # wait for it (shutdown with wait=False). This is acceptable as it will eventually
+                # complete or remain blocked without affecting future scrapes.
+                executor = ThreadPoolExecutor(max_workers=1)
                 try:
-                    with ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(generate_latest, registry)
-                        client_output = future.result(timeout=5.0)
+                    future = executor.submit(generate_latest, registry)
+                    client_output = future.result(timeout=5.0)
                 except FuturesTimeoutError:
                     logger.warning("combined_metrics_server.registry_timeout")
                     client_output = b"# Prometheus registry timeout\n"
+                finally:
+                    # Don't wait for the thread if it's still running (could be deadlocked)
+                    executor.shutdown(wait=False)
 
                 # Combine both outputs, ensuring proper newline separation.
                 # Prometheus text format requires metrics to be separated by exactly one newline.
