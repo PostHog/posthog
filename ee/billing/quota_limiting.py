@@ -603,11 +603,6 @@ def update_all_orgs_billing_quotas(
     api_queries_usage = get_teams_with_api_queries_metrics(period_start, period_end)
     _, exception_metrics = get_teams_with_exceptions_captured_in_period(period_start, period_end)
 
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
-    )
-
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
         "teams_with_event_count_in_period": convert_team_usage_rows_to_dict(
@@ -641,10 +636,8 @@ def update_all_orgs_billing_quotas(
         "teams_with_ai_event_count_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_ai_event_count_in_period(period_start, period_end)
         ),
-        "teams_with_ai_credits_used_in_period": (
-            convert_team_usage_rows_to_dict(get_teams_with_ai_credits_used_in_period(period_start, period_end))
-            if is_ai_billing_enabled
-            else {}
+        "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
+            get_teams_with_ai_credits_used_in_period(period_start, period_end)
         ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             get_teams_with_workflow_emails_sent_in_period(period_start, period_end)
@@ -685,7 +678,7 @@ def update_all_orgs_billing_quotas(
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
-            ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0) if is_ai_billing_enabled else 0,
+            ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
