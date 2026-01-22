@@ -26,6 +26,7 @@ from posthog.auth import WidgetAuthentication
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -152,6 +153,16 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # Send email notification for new tickets
+        if not ticket_id:
+            conversations_settings = team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                send_new_ticket_notification.delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team.id,
+                    first_message_content=message_content,
+                )
 
         return Response(
             {
