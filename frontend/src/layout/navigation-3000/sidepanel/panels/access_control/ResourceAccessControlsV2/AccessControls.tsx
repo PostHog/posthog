@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonBanner, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -83,9 +83,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     />
 
                     {showRolesError ? (
-                        <LemonBanner type="error">
-                            You must upgrade your plan to use role-based access control.
-                        </LemonBanner>
+                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS} />
                     ) : (
                         <>
                             <AccessControlFilters
