@@ -36,6 +36,7 @@ class ErrorTrackingSDKPolicyConfigSerializer(serializers.ModelSerializer):
             "url_blocklist",
             "assignments",
         ]
+        read_only_fields = ["assignments"]
 
 
 class ErrorTrackingSDKPolicyConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
