@@ -70,6 +70,47 @@ export const validateVariants = ({
     }
 }
 
+export const getVariantValidationErrors = ({
+    flagKey,
+    variants,
+    featureFlagKeyValidation,
+    mode,
+}: {
+    flagKey: string | null
+    variants: MultivariateFlagVariant[]
+    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    mode?: 'create' | 'link'
+}): string[] => {
+    const errors: string[] = []
+    const variantsValidation = validateVariants({ flagKey, variants, featureFlagKeyValidation, mode })
+
+    if (!variantsValidation.rules.hasFlagKey) {
+        errors.push('Feature flag key is required')
+    }
+
+    if (variantsValidation.rules.hasFlagKeyError && featureFlagKeyValidation?.error) {
+        errors.push(featureFlagKeyValidation.error)
+    }
+
+    if (!variantsValidation.rules.hasEnoughVariants) {
+        errors.push('At least 2 variants are required')
+    }
+
+    if (!variantsValidation.rules.areVariantKeysValid) {
+        errors.push('All variants must have a key')
+    }
+
+    if (variantsValidation.rules.hasDuplicateKeys) {
+        errors.push('Variant keys must be unique')
+    }
+
+    if (!variantsValidation.rules.isValidRollout) {
+        errors.push(`Variant rollout must total 100% (currently ${variantsValidation.rules.totalRollout}%)`)
+    }
+
+    return errors
+}
+
 export const buildVariantSummary = (variants: MultivariateFlagVariant[], result: VariantValidationResult): string => {
     const { rules } = result
     const { areVariantKeysValid, hasDuplicateKeys, isValidRollout, totalRollout } = rules

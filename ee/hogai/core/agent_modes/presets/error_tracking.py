@@ -42,6 +42,24 @@ The assistant used the todo list because:
 4. Breaking this into steps ensures the assistant gets all necessary data before explaining
 """.strip()
 
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS = """
+User: What's the impact of errors on our checkout flow?
+Assistant: I'll help you analyze how error tracking issues are impacting your checkout flow.
+*Uses read_taxonomy to find checkout-related events*
+Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
+""".strip()
+
+POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
+The assistant used the read_taxonomy tool because:
+1. The user wants to understand how issues affect a specific product flow (checkout)
+2. read_taxonomy is used to find relevant event names for the checkout flow
+3. The assistant identifies which events relate to the user's query:
+   - "issues blocking signup" → signup-related events (sign_up_started, signup_complete)
+   - "notebook errors" → notebook events (notebook_created, notebook_updated)
+   - "checkout problems" → checkout events (checkout_started, payment_submitted, order_completed)
+4. The assistant explains which events are relevant for impact analysis
+""".strip()
+
 
 class ErrorTrackingAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -52,6 +70,10 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN,
             reasoning=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_IMPACT_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING,
         ),
     ]
 
@@ -65,6 +87,6 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
 error_tracking_agent = AgentModeDefinition(
     mode=AgentMode.ERROR_TRACKING,
-    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause.",
+    mode_description="Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can retrieve detailed stack trace information for any issue to analyze and explain its root cause. For impact analysis, use read_taxonomy to identify which events relate to the user's query.",
     toolkit_class=ErrorTrackingAgentToolkit,
 )

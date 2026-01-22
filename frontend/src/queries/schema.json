@@ -1954,7 +1954,8 @@
                 "task",
                 "upsert_dashboard",
                 "manage_memories",
-                "create_notebook"
+                "create_notebook",
+                "list_data"
             ],
             "type": "string"
         },
@@ -10436,6 +10437,10 @@
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -17214,6 +17219,13 @@
                 "debug": {
                     "type": "boolean"
                 },
+                "forceClickhouseDataSkippingIndexes": {
+                    "description": "If these are provided, the query will fail if these skip indexes are not used",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "formatCsvAllowDoubleQuotes": {
                     "type": "boolean"
                 },
@@ -19236,7 +19248,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsAggregatedQuery",
@@ -19539,7 +19551,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsTableQuery",
@@ -21488,7 +21500,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "NonIntegratedConversionsTableQuery",
@@ -29055,6 +29067,10 @@
                 "showCorrelationTable": {
                     "type": "boolean"
                 },
+                "showCount": {
+                    "description": "Show count of total and filtered results",
+                    "type": "boolean"
+                },
                 "showDateRange": {
                     "description": "Show date range selector",
                     "type": "boolean"
@@ -32872,7 +32888,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
@@ -33024,7 +33040,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebGoalsQuery",
@@ -33201,7 +33217,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebOverviewQuery",
@@ -33341,7 +33357,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebPageURLSearchQuery",
@@ -33525,7 +33541,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",
@@ -33718,7 +33734,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebTrendsQuery",
@@ -33945,7 +33961,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
@@ -34131,7 +34147,7 @@
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
-                    "description": "For Product Analytics UI compatibility only - not used in Web Analytics query execution"
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
                 },
                 "kind": {
                     "const": "WebVitalsQuery",

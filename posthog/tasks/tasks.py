@@ -23,7 +23,7 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 logger = get_logger(__name__)
 
@@ -926,6 +926,8 @@ def background_delete_model_task(
 
 
 @shared_task(
+    bind=True,
+    base=PushGatewayTask,
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
     autoretry_for=(Exception,),
@@ -933,7 +935,7 @@ def background_delete_model_task(
     retry_backoff_max=120,
     max_retries=3,
 )
-def sync_feature_flag_last_called() -> None:
+def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
 
@@ -976,6 +978,28 @@ def sync_feature_flag_last_called() -> None:
     start_time = timezone.now()
 
     tag_queries(product=Product.FEATURE_FLAGS, name="sync_feature_flag_last_called")
+
+    # Create metrics gauges for this task run
+    updated_count_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_updated_count",
+        "Number of feature flags updated in last sync",
+        registry=self.metrics_registry,
+    )
+    events_processed_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_events_processed",
+        "Number of events processed in last sync",
+        registry=self.metrics_registry,
+    )
+    clickhouse_results_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_clickhouse_results",
+        "Number of results returned from ClickHouse query",
+        registry=self.metrics_registry,
+    )
+    checkpoint_lag_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
+        "Seconds between checkpoint timestamp and current time",
+        registry=self.metrics_registry,
+    )
 
     try:
         redis_client = get_client()
@@ -1037,28 +1061,10 @@ def sync_feature_flag_last_called() -> None:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
 
             # Emit metrics for no-results case
-            checkpoint_lag_seconds = 0.0  # No lag when checkpoint is set to current time
-            with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_updated_count",
-                    "Number of feature flags updated in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_events_processed",
-                    "Number of events processed in last sync",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                    "Number of results returned from ClickHouse query",
-                    registry=registry,
-                ).set(0)
-                Gauge(
-                    "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                    "Seconds between checkpoint timestamp and current time",
-                    registry=registry,
-                ).set(checkpoint_lag_seconds)
+            updated_count_gauge.set(0)
+            events_processed_gauge.set(0)
+            clickhouse_results_gauge.set(0)
+            checkpoint_lag_gauge.set(0.0)  # No lag when checkpoint is set to current time
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1124,27 +1130,10 @@ def sync_feature_flag_last_called() -> None:
 
         # Emit metrics for successful completion
         checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
-        with pushed_metrics_registry("feature_flag_last_called_at_sync_completion") as registry:
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_updated_count",
-                "Number of feature flags updated in last sync",
-                registry=registry,
-            ).set(updated_count)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_events_processed",
-                "Number of events processed in last sync",
-                registry=registry,
-            ).set(processed_events)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_clickhouse_results",
-                "Number of results returned from ClickHouse query",
-                registry=registry,
-            ).set(clickhouse_results)
-            Gauge(
-                "posthog_feature_flag_last_called_at_sync_checkpoint_lag_seconds",
-                "Seconds between checkpoint timestamp and current time",
-                registry=registry,
-            ).set(checkpoint_lag_seconds)
+        updated_count_gauge.set(updated_count)
+        events_processed_gauge.set(processed_events)
+        clickhouse_results_gauge.set(clickhouse_results)
+        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         # Track if we hit the ClickHouse result limit
         if clickhouse_results >= settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT:

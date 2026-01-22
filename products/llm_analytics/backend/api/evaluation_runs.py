@@ -123,7 +123,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
