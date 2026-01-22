@@ -2,8 +2,6 @@
 
 from datetime import timedelta
 
-from temporalio.common import RetryPolicy
-
 # What period to consider in clustering run
 DEFAULT_LOOKBACK_WINDOW = timedelta(days=7)
 
@@ -32,47 +30,6 @@ TASK_MATCH_THRESHOLD = 0.3
 
 # PCA dimensionality reduction clustering (originally 3072 dimensions)
 TARGET_DIMENSIONALITY_FOR_CLUSTERING = 100
-
-# Activity timeouts
-# TODO: Inline these
-FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=120)
-CLUSTER_ACTIVITY_TIMEOUT = timedelta(seconds=180)
-MATCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
-LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)
-TASK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
-# Session priming (summarization) settings
-SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT = timedelta(minutes=30)
-
-# Retry policies
-# TODO: Inline these
-COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=10),
-    backoff_coefficient=2.0,
-)
-
-LLM_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(seconds=30),
-    backoff_coefficient=2.0,
-)
-
-DB_ACTIVITY_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=3,
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=10),
-    backoff_coefficient=2.0,
-)
-
-
-SESSION_PRIMING_RETRY_POLICY = RetryPolicy(
-    maximum_attempts=2,
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(seconds=30),
-    backoff_coefficient=2.0,
-)
 
 # Cluster labeling configuration
 DEFAULT_SEGMENT_SAMPLES_PER_CLUSTER_FOR_LABELING = 5

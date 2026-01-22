@@ -1,13 +1,14 @@
 """Per-team video segment clustering workflow."""
 
 import json
+from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
-    from posthog.temporal.ai.video_segment_clustering import constants
     from posthog.temporal.ai.video_segment_clustering.activities import (
         cluster_segments_activity,
         fetch_segments_activity,
@@ -63,9 +64,14 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
-                start_to_close_timeout=constants.SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT,
-                heartbeat_timeout=constants.SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT,
-                retry_policy=constants.SESSION_PRIMING_RETRY_POLICY,
+                start_to_close_timeout=timedelta(minutes=30),
+                heartbeat_timeout=timedelta(minutes=30),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(seconds=30),
+                    backoff_coefficient=2.0,
+                ),
             )
 
             workflow.logger.info(
@@ -81,8 +87,13 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         lookback_hours=inputs.lookback_hours,
                     )
                 ],
-                start_to_close_timeout=constants.FETCH_ACTIVITY_TIMEOUT,
-                retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                ),
             )
 
             segments = fetch_result.segments
@@ -113,8 +124,13 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         document_ids=document_ids,
                     )
                 ],
-                start_to_close_timeout=constants.CLUSTER_ACTIVITY_TIMEOUT,
-                retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+                start_to_close_timeout=timedelta(seconds=180),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                ),
             )
 
             all_clusters = clustering_result.clusters
@@ -141,8 +157,13 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         clusters=all_clusters,
                     )
                 ],
-                start_to_close_timeout=constants.MATCH_ACTIVITY_TIMEOUT,
-                retry_policy=constants.COMPUTE_ACTIVITY_RETRY_POLICY,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                ),
             )
 
             # Activity 5: Generate labels for NEW clusters only
@@ -162,8 +183,13 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                             segments=segments,
                         )
                     ],
-                    start_to_close_timeout=constants.LLM_ACTIVITY_TIMEOUT,
-                    retry_policy=constants.LLM_ACTIVITY_RETRY_POLICY,
+                    start_to_close_timeout=timedelta(seconds=300),
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=5),
+                        maximum_interval=timedelta(seconds=30),
+                        backoff_coefficient=2.0,
+                    ),
                 )
 
             # Filter out non-actionable clusters
@@ -187,8 +213,13 @@ class VideoSegmentClusteringWorkflow(PostHogWorkflow):
                         segment_to_cluster=clustering_result.segment_to_cluster,
                     )
                 ],
-                start_to_close_timeout=constants.TASK_ACTIVITY_TIMEOUT,
-                retry_policy=constants.DB_ACTIVITY_RETRY_POLICY,
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    backoff_coefficient=2.0,
+                ),
             )
 
             return WorkflowResult(
