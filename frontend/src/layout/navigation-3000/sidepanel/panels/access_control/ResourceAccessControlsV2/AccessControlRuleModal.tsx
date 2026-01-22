@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter, fullName, wordPluralize } from 'lib/utils'
+import { getMaximumAccessLevel, getMinimumAccessLevel } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, OrganizationMemberType, RoleType } from '~/types'
 
@@ -49,9 +50,33 @@ export function AccessControlRuleModal(props: {
     const level = ruleForm.level
     const canEdit = resourceKey === 'project' ? props.canEditAccessControls : props.canEditRoleBasedAccessControls
 
-    const availableLevelsForResource = useMemo((): AccessControlLevel[] => {
+    const { availableLevelsForResource, levelOptions } = useMemo(() => {
         const availableLevels = resourceKey === 'project' ? props.projectAvailableLevels : props.resourceAvailableLevels
-        return Array.from(new Set(availableLevels))
+        const uniqueLevels = Array.from(new Set(availableLevels))
+        const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
+        const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
+        const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
+        const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
+
+        const options = uniqueLevels.map((lvl) => {
+            const levelIndex = uniqueLevels.indexOf(lvl)
+            const isBelowMinimum = minimumIndex !== null && minimumIndex !== -1 ? levelIndex < minimumIndex : false
+            const isAboveMaximum = maximumIndex !== null && maximumIndex !== -1 ? levelIndex > maximumIndex : false
+            const isDisabled = isBelowMinimum || isAboveMaximum
+
+            return {
+                value: lvl,
+                label: humanizeAccessControlLevel(lvl),
+                disabledReason: isDisabled ? 'Not available for this feature' : undefined,
+            }
+        })
+
+        const enabledLevels = options.filter((option) => !option.disabledReason).map((option) => option.value)
+
+        return {
+            availableLevelsForResource: enabledLevels,
+            levelOptions: options,
+        }
     }, [props.projectAvailableLevels, props.resourceAvailableLevels, resourceKey])
 
     useEffect(() => {
@@ -70,10 +95,6 @@ export function AccessControlRuleModal(props: {
     ])
 
     useEffect(() => {
-        if (props.state.mode === 'edit') {
-            return
-        }
-
         if (availableLevelsForResource.includes(level)) {
             return
         }
@@ -131,7 +152,7 @@ export function AccessControlRuleModal(props: {
                 roles={props.roles}
                 members={props.members}
                 resources={props.resources}
-                availableLevels={availableLevelsForResource}
+                levelOptions={levelOptions}
             />
         </LemonModal>
     )
@@ -187,7 +208,7 @@ function AccessControlRuleModalContent(props: {
     roles: RoleType[]
     members: OrganizationMemberType[]
     resources: { key: APIScopeObject; label: string }[]
-    availableLevels: AccessControlLevel[]
+    levelOptions: { value: AccessControlLevel; label: string; disabledReason?: string }[]
 }): JSX.Element {
     const scopeTypeNoun = getScopeTypeNoun(props.scopeType)
 
@@ -204,10 +225,6 @@ function AccessControlRuleModalContent(props: {
     const resourceOptions = useMemo(() => {
         return props.resources.map((resource) => ({ value: resource.key, label: resource.label }))
     }, [props.resources])
-
-    const levelOptions = useMemo(() => {
-        return props.availableLevels.map((lvl) => ({ value: lvl, label: humanizeAccessControlLevel(lvl) }))
-    }, [props.availableLevels])
 
     return (
         <div className="space-y-4">
@@ -241,7 +258,7 @@ function AccessControlRuleModalContent(props: {
 
             <div className="space-y-1">
                 <h5 className="mb-0">Rule</h5>
-                <LemonSelect value={props.level} onChange={props.setLevel} options={levelOptions} />
+                <LemonSelect value={props.level} onChange={props.setLevel} options={props.levelOptions} />
             </div>
         </div>
     )
