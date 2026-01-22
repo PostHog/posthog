@@ -688,18 +688,78 @@ class ExperimentQueryBuilder:
                         # Wrap in JoinConstraint with ON clause
                         join_expr.constraint = ast.JoinConstraint(expr=condition_expr, constraint_type="ON")
 
-        # Inject into final SELECT - breakdown columns must come right after variant
+        # Inject into final SELECT + GROUP BY
+        self._inject_breakdown_into_final_select(query, aliases, final_cte_name)
+
+    def _inject_breakdown_into_final_select(
+        self, query: ast.SelectQuery, aliases: list[str], final_cte_name: str
+    ) -> None:
+        """
+        Inject breakdown columns into final SELECT and GROUP BY.
+        Shared by both regular and session property breakdown injection.
+        """
         for i, alias in enumerate(aliases):
             query.select.insert(
                 1 + i,  # Position after variant column (index 0)
                 ast.Alias(alias=alias, expr=ast.Field(chain=[final_cte_name, alias])),
             )
 
-        # Inject into final GROUP BY
         if query.group_by is None:
             query.group_by = []
         for alias in aliases:
             query.group_by.append(ast.Field(chain=[final_cte_name, alias]))
+
+    def _inject_session_property_breakdown_columns(
+        self, query: ast.SelectQuery, final_cte_name: str = "entity_metrics"
+    ) -> None:
+        """
+        Inject breakdown columns for session property metrics (3-layer CTE structure).
+
+        Unlike regular metrics where breakdown comes from exposures, session property
+        breakdowns come from metric_events_by_session because we want to attribute
+        the session to where it happened, not where the user was exposed.
+
+        This matches Trends behavior where session property breakdowns are extracted
+        from the session's events themselves.
+        """
+        if not self._has_breakdown():
+            return
+
+        aliases = self._get_breakdown_aliases()
+        breakdown_exprs = self._build_breakdown_exprs(table_alias="")
+
+        # 1. Inject into metric_events_by_session CTE SELECT
+        # Use argMin for DETERMINISTIC breakdown extraction (first event in session)
+        if query.ctes and "metric_events_by_session" in query.ctes:
+            cte = query.ctes["metric_events_by_session"]
+            if isinstance(cte, ast.CTE) and isinstance(cte.expr, ast.SelectQuery):
+                for alias, expr in breakdown_exprs:
+                    argmin_expr = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                    cte.expr.select.append(ast.Alias(alias=alias, expr=argmin_expr))
+
+        # 2. Inject into metric_events CTE SELECT (propagate from metric_events_by_session)
+        if query.ctes and "metric_events" in query.ctes:
+            cte = query.ctes["metric_events"]
+            if isinstance(cte, ast.CTE) and isinstance(cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    cte.expr.select.append(
+                        ast.Alias(alias=alias, expr=ast.Field(chain=["metric_events_by_session", alias]))
+                    )
+
+        # 3. Inject into entity_metrics CTE SELECT + GROUP BY
+        # Source from metric_events (NOT exposures - key semantic difference)
+        if query.ctes and "entity_metrics" in query.ctes:
+            cte = query.ctes["entity_metrics"]
+            if isinstance(cte, ast.CTE) and isinstance(cte.expr, ast.SelectQuery):
+                for alias in aliases:
+                    cte.expr.select.append(ast.Alias(alias=alias, expr=ast.Field(chain=[alias])))
+                if cte.expr.group_by is None:
+                    cte.expr.group_by = []
+                for alias in aliases:
+                    cte.expr.group_by.append(ast.Field(chain=[alias]))
+
+        # 4. Inject into final SELECT + GROUP BY
+        self._inject_breakdown_into_final_select(query, aliases, final_cte_name)
 
     def _build_mean_query(self) -> ast.SelectQuery:
         """
@@ -737,7 +797,11 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
 
         # Inject breakdown columns into the query AST
-        self._inject_mean_breakdown_columns(query, final_cte_name="entity_metrics")
+        # Use different injection method for session property metrics (3-layer CTE structure)
+        if isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(self.metric.source):
+            self._inject_session_property_breakdown_columns(query, final_cte_name="entity_metrics")
+        else:
+            self._inject_mean_breakdown_columns(query, final_cte_name="entity_metrics")
 
         return query
 
@@ -820,7 +884,11 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
 
         # Inject breakdown columns into the query AST
-        self._inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
+        # Use different injection method for session property metrics (3-layer CTE structure)
+        if isinstance(self.metric.source, (ActionsNode, EventsNode)) and is_session_property_metric(self.metric.source):
+            self._inject_session_property_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
+        else:
+            self._inject_mean_breakdown_columns(query, final_cte_name="winsorized_entity_metrics")
 
         return query
 
