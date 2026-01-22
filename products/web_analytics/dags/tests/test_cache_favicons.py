@@ -124,7 +124,7 @@ class TestCacheFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result = cache_favicons(context, s3, config)
+            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
 
         mock_download.assert_called_once()
         assert result.metadata["domains_skipped"] == 1
@@ -155,7 +155,7 @@ class TestCacheFaviconsAsset:
 
         with patch("products.web_analytics.dags.cache_favicons.settings") as mock_settings:
             mock_settings.DAGSTER_FAVICONS_S3_BUCKET = "test-bucket"
-            result = cache_favicons(context, s3, config)
+            result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
 
         mock_get_cached.assert_not_called()
         assert mock_download.call_count == 2
