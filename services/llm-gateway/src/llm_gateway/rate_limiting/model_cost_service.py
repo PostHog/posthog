@@ -102,6 +102,10 @@ class ModelCostService:
         self._ensure_fresh()
         return self._costs.get(model)
 
+    def get_all_models(self) -> dict[str, ModelCost]:
+        self._ensure_fresh()
+        return self._costs
+
 
 def get_model_limits(model: str) -> ModelLimits:
     return ModelCostService.get_instance().get_limits(model)

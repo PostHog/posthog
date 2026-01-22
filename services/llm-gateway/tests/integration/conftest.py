@@ -44,30 +44,44 @@ def create_mock_db_pool():
 
 
 @contextmanager
-def run_gateway_server():
+def run_gateway_server(configure_all_providers: bool = False):
+    from llm_gateway.config import get_settings
+
     mock_db_pool = create_mock_db_pool()
     port = get_free_port()
 
-    with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
-        with patch("llm_gateway.main.close_db_pool", return_value=None):
-            from llm_gateway.main import create_app
+    env_patches = {}
+    if configure_all_providers:
+        if not os.environ.get("LLM_GATEWAY_OPENAI_API_KEY"):
+            env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
+        if not os.environ.get("LLM_GATEWAY_ANTHROPIC_API_KEY"):
+            env_patches["LLM_GATEWAY_ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
+        if not os.environ.get("LLM_GATEWAY_GEMINI_API_KEY"):
+            env_patches["LLM_GATEWAY_GEMINI_API_KEY"] = "gemini-test-fake-key"
 
-            app = create_app()
-            app.state.db_pool = mock_db_pool
+    with patch.dict(os.environ, env_patches):
+        get_settings.cache_clear()
+        with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
+            with patch("llm_gateway.main.close_db_pool", return_value=None):
+                from llm_gateway.main import create_app
 
-            config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-            server = uvicorn.Server(config)
+                app = create_app()
+                app.state.db_pool = mock_db_pool
 
-            thread = threading.Thread(target=server.run, daemon=True)
-            thread.start()
+                config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+                server = uvicorn.Server(config)
 
-            time.sleep(0.5)
+                thread = threading.Thread(target=server.run, daemon=True)
+                thread.start()
 
-            try:
-                yield f"http://127.0.0.1:{port}"
-            finally:
-                server.should_exit = True
-                thread.join(timeout=2)
+                time.sleep(0.5)
+
+                try:
+                    yield f"http://127.0.0.1:{port}"
+                finally:
+                    server.should_exit = True
+                    thread.join(timeout=2)
+                    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -77,10 +91,26 @@ def gateway_url():
 
 
 @pytest.fixture
+def gateway_url_all_providers():
+    """Gateway URL with all providers configured (for models endpoint tests)."""
+    with run_gateway_server(configure_all_providers=True) as url:
+        yield url
+
+
+@pytest.fixture
 def openai_client(gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
         base_url=f"{gateway_url}/v1",
+    )
+
+
+@pytest.fixture
+def openai_client_all_providers(gateway_url_all_providers):
+    """OpenAI client with all providers configured (for models endpoint tests)."""
+    return OpenAI(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=f"{gateway_url_all_providers}/v1",
     )
 
 

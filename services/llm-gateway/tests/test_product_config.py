@@ -59,15 +59,19 @@ class TestCheckProductAccess:
             assert expected_error_contains in error
 
     @pytest.mark.parametrize(
-        "model",
+        "model,expected_allowed",
         [
-            "claude-3-5-haiku-20241022",
-            "gpt-4o-mini",
-            "claude-3-opus",
-            "gpt-4o",
+            ("claude-3-5-haiku-20241022", True),
+            ("gpt-4o-mini", True),
+            ("gpt-4o", True),
+            ("claude-3-opus", False),
+            ("o1", False),
         ],
     )
-    def test_array_allows_all_models_with_valid_app_id(self, model: str):
+    def test_array_model_restrictions_with_valid_app_id(self, model: str, expected_allowed: bool):
         allowed, error = check_product_access("array", "oauth_access_token", ARRAY_US_APP_ID, model)
-        assert allowed is True
-        assert error is None
+        assert allowed is expected_allowed
+        if expected_allowed:
+            assert error is None
+        else:
+            assert error is not None
