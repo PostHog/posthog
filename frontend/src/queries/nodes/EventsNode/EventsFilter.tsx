@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconPlusSmall, IconX } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
@@ -41,40 +41,23 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
     return (
         <div className="flex items-center gap-1 flex-wrap">
             {events.map((event, index) => (
-                <div key={index} className="flex items-center gap-1">
-                    <EventNameComponent
-                        value={event}
-                        disabled={!setQuery}
-                        onChange={(value) => handleUpdateEvent(index, value)}
-                        allEventsOption="clear"
-                        placeholder="Select event"
-                    />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => handleRemoveEvent(index)}
-                        tooltip="Remove event filter"
-                    />
-                </div>
+                <EventNameComponent
+                    key={index}
+                    value={event}
+                    disabled={!setQuery}
+                    onChange={(value) => handleUpdateEvent(index, value)}
+                    allEventsOption="clear"
+                    placeholder="Select event"
+                />
             ))}
             {isAdding ? (
-                <div className="flex items-center gap-1">
-                    <EventNameComponent
-                        value={null}
-                        disabled={!setQuery}
-                        onChange={handleAddEvent}
-                        allEventsOption="clear"
-                        placeholder="Select event"
-                    />
-                    <LemonButton
-                        icon={<IconX />}
-                        size="small"
-                        type="tertiary"
-                        onClick={() => setIsAdding(false)}
-                        tooltip="Cancel"
-                    />
-                </div>
+                <EventNameComponent
+                    value={null}
+                    disabled={!setQuery}
+                    onChange={handleAddEvent}
+                    allEventsOption="clear"
+                    placeholder="Select event"
+                />
             ) : (
                 <LemonButton
                     icon={<IconPlusSmall />}
