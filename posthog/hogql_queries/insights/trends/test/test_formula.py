@@ -803,13 +803,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_formula_with_hogql_math_no_matching_events(self):
-        """
-        Regression test: formula with HogQL math should not crash when one series has no matching events.
-
-        When math="hogql" is used, the aggregation has no ifNull(..., 0) wrapper,
-        causing NULL values to propagate into FormulaAST and crash with:
-        TypeError: unsupported operand type(s) for +: 'NoneType' and 'int'
-        """
+        # Regression test: formula with HogQL math should not crash when one series has no matching events
+        # (math="hogql" has no ifNull wrapper, so NULL values can propagate into FormulaAST)
         with freeze_time("2020-01-04T13:01:01Z"):
             response = self._run(
                 {
