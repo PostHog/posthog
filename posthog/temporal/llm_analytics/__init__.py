@@ -25,7 +25,7 @@ WORKFLOWS = [
     RunEvaluationWorkflow,
     BatchTraceSummarizationWorkflow,
     BatchTraceSummarizationCoordinatorWorkflow,
-    DailyTraceClusteringWorkflow,
+    # DailyTraceClusteringWorkflow is a child workflow and should not be invoked directly via management commands
     TraceClusteringCoordinatorWorkflow,
 ]
 
