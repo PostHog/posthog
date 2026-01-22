@@ -1,7 +1,7 @@
 import { Placement } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { forwardRef, useRef, useState } from 'react'
 
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -68,33 +68,36 @@ interface RawDateFilterProps extends DateFilterProps {
     showExplicitDateToggle?: boolean
 }
 
-export function DateFilter({
-    showCustom,
-    showRollingRangePicker = true,
-    className,
-    disabledReason,
-    makeLabel,
-    onChange,
-    dateFrom,
-    dateTo,
-    dateOptions = dateMapping,
-    isDateFormatted = true,
-    size,
-    type,
-    dropdownPlacement = 'bottom-start',
-    max,
-    isFixedDateMode = false,
-    allowedRollingDateOptions,
-    allowTimePrecision = false,
-    allowFixedRangeWithTime = false,
-    placeholder,
-    fullWidth = false,
-    forceGranularity,
-    use24HourFormat = false,
-    explicitDate,
-    showExplicitDateToggle = false,
-    resolvedDateRange,
-}: RawDateFilterProps): JSX.Element {
+export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(function DateFilter(
+    {
+        showCustom,
+        showRollingRangePicker = true,
+        className,
+        disabledReason,
+        makeLabel,
+        onChange,
+        dateFrom,
+        dateTo,
+        dateOptions = dateMapping,
+        isDateFormatted = true,
+        size,
+        type,
+        dropdownPlacement = 'bottom-start',
+        max,
+        isFixedDateMode = false,
+        allowedRollingDateOptions,
+        allowTimePrecision = false,
+        allowFixedRangeWithTime = false,
+        placeholder,
+        fullWidth = false,
+        forceGranularity,
+        use24HourFormat = false,
+        explicitDate,
+        showExplicitDateToggle = false,
+        resolvedDateRange,
+    },
+    ref
+) {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
         key,
@@ -317,6 +320,7 @@ export function DateFilter({
             closeParentPopoverOnClickInside={false}
         >
             <LemonButton
+                ref={ref}
                 id="daterange_selector"
                 size={size ?? 'small'}
                 type={type ?? 'secondary'}
@@ -331,4 +335,4 @@ export function DateFilter({
             </LemonButton>
         </Popover>
     )
-}
+})
