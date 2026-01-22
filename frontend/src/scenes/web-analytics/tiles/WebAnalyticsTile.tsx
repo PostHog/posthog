@@ -21,6 +21,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     UnexpectedNeverError,
     capitalizeFirstLetter,
+    dateStringToDayJs,
     humanFriendlyDuration,
     percentage,
     tryDecodeURIComponent,
@@ -540,8 +541,11 @@ export const WebStatsTrendTile = ({
                 return ''
             }
 
-            const currentFrom = dayjs(dateRange.date_from)
-            const currentTo = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
+            const currentFrom = dateStringToDayJs(dateRange.date_from)
+            const currentTo = dateRange.date_to ? dateStringToDayJs(dateRange.date_to) : dayjs()
+            if (!currentFrom || !currentTo) {
+                return ''
+            }
             const diffDays = currentTo.diff(currentFrom, 'day')
 
             if (isPrevious) {
