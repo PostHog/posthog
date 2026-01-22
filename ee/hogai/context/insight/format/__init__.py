@@ -6,7 +6,7 @@ from .revenue_analytics import (
     RevenueAnalyticsMRRResultsFormatter,
     RevenueAnalyticsTopCustomersResultsFormatter,
 )
-from .sql import SQLResultsFormatter
+from .sql import TRUNCATED_MARKER, SQLResultsFormatter
 from .trends import TrendsResultsFormatter
 
 __all__ = [
@@ -18,4 +18,5 @@ __all__ = [
     "RevenueAnalyticsMetricsResultsFormatter",
     "RevenueAnalyticsMRRResultsFormatter",
     "RevenueAnalyticsTopCustomersResultsFormatter",
+    "TRUNCATED_MARKER",
 ]

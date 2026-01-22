@@ -75,6 +75,7 @@ class FunnelTimeToConvertUDF(FunnelBase):
 
         return cast(
             ast.SelectQuery,
+            # nosemgrep: hogql-fstring-audit (only HogQL placeholder {{timings}}, no Python interpolation)
             parse_select(
                 f"""
             SELECT

@@ -450,6 +450,13 @@ CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 
 ####
+# Feature flag billing analytics
+# Used to track feature flag requests for billing purposes.
+# Named "decide" for historical reasons: the /decide endpoint was the original
+# way clients fetched feature flags before the Rust feature flags service.
+DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
+DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
+
 ####
 # /remote_config
 REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE = get_from_env("REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE", 0.0, type_cast=float)
@@ -523,19 +530,15 @@ OAUTH2_PROVIDER = {
         "*": "Full access to all scopes",
         **get_scope_descriptions(),
     },
-    # Allow http, https, and custom schemes to support localhost callbacks and native mobile apps
-    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
-    "ALLOWED_REDIRECT_URI_SCHEMES": [
-        "http",
-        "https",
-        "posthog",
-        "array",
-        "cursor",
-        "cursor-dev",
-        "vscode",
-        "cline",
-        "windsurf",
-        "zed",
+    # Block dangerous URI schemes that could be used for attacks
+    # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses
+    "BLOCKED_REDIRECT_URI_SCHEMES": [
+        "javascript",  # XSS attacks
+        "data",  # Data exfiltration / XSS
+        "file",  # Local file access
+        "blob",  # Similar to data URIs
+        "vbscript",  # Legacy script injection
     ],
     "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60 * 5,
     # client has 5 minutes to complete the OAuth flow before the authorization code expires

@@ -22,6 +22,7 @@ WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 WORKFLOW_NAME = "llma-trace-clustering"
 COORDINATOR_WORKFLOW_NAME = "llma-trace-clustering-coordinator"
 COORDINATOR_SCHEDULE_ID = "llma-trace-clustering-coordinator-schedule"
+CHILD_WORKFLOW_ID_PREFIX = "llma-trace-clustering-team"
 
 # Activity timeouts (per activity type)
 COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=120)  # Fetch + k-means + distances
@@ -73,7 +74,12 @@ LLMA_TRACE_PRODUCT = "llm-analytics"
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project
-    112495,  # Dogfooding project
+    # Dogfooding projects
+    112495,
+    148051,
+    140227,
+    237906,
+    294356,
 ]
 
 # Cluster labeling agent configuration

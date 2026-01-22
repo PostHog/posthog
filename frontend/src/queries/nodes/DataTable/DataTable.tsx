@@ -761,9 +761,11 @@ export function DataTable({
         ) : null,
     ].filter((x) => !!x)
 
+    const shouldShowCount = showCount && sourceFeatures.has(QueryFeature.showCount)
     const secondRowLeft = [
         showReload ? <Reload key="reload" /> : null,
         showCount && sourceFeatures.has(QueryFeature.showCount) ? <DataTableCount key="count" /> : null,
+        shouldShowCount && showElapsedTime ? <LemonDivider vertical={true} key="divider" /> : null,
         showElapsedTime ? <ElapsedTime key="elapsed-time" showTimings={showTimings} /> : null,
     ].filter((x) => !!x)
 
