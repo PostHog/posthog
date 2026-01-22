@@ -319,7 +319,7 @@ def _screenshot_asset(
             return null;
         """
         )
-        if isinstance(width, int):
+        if isinstance(width, (int, float)):
             calculated_width = width or screenshot_width
             if calculated_width > MAX_WIDTH_PIXELS:
                 logger.warning(
