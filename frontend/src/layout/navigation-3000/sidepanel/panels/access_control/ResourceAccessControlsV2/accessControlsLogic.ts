@@ -417,7 +417,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
                 const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
 
-                return uniqueLevels.filter((level, index) => {
+                return uniqueLevels.filter((_, index) => {
                     if (minimumIndex !== null && minimumIndex !== -1 && index < minimumIndex) {
                         return false
                     }
