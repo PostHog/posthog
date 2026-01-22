@@ -116,6 +116,15 @@ class MprocsGenerator(ConfigGenerator):
         if "docker-compose" in procs:
             procs["docker-compose"] = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
+        # Include all autostart: false processes - they won't start automatically
+        # but will be available for manual start in mprocs
+        for name in self.registry.get_processes():
+            if name not in procs:
+                config = self.registry.get_process_config(name)
+                if config.get("autostart") is False:
+                    config.pop("capability", None)
+                    procs[name] = config
+
         # Get global settings from registry
         global_settings = self.registry.get_global_settings()
 
