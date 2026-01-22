@@ -1,6 +1,7 @@
 import json
 import tempfile
 import subprocess
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -18,7 +19,10 @@ from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestSiteFunctions(TestCase):
+    snapshot: Any
+
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Organization")
         self.user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
@@ -60,15 +64,10 @@ class TestSiteFunctions(TestCase):
     def test_get_transpiled_function_basic(self, mock_transpile_fn):
         result = self.compile_and_run()
         assert isinstance(result, str)
-        assert 'console.log("Hello, World!")' in result
 
-        # NOTE: With mocked transpile, we check key parts rather than exact output
-        assert "function buildInputs(globals, initial)" in result
-        assert "const source = (function()" in result
-        assert "function onLoad()" in result
-        assert "return {onLoad: onLoad}" in result or "onLoad: onLoad" in result
-        assert "function init(config)" in result
-        assert "return { init: init }" in result
+        # Use snapshot to verify the complete generated output
+        # This ensures the transpilation logic remains stable and any changes are intentional
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_static_input(self, mock_transpile_fn):
@@ -76,22 +75,14 @@ class TestSiteFunctions(TestCase):
         self.hog_function.inputs = {"message": {"value": "Hello, Inputs!"}}
 
         result = self.compile_and_run()
-
-        assert "console.log(inputs.message);" in result
-        assert "inputs = {" in result
-        assert '"message": "Hello, Inputs!"' in result
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_template_input(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
         self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.name}!"}}
         result = self.compile_and_run()
-
-        assert "console.log(inputs.greeting);" in result
-        assert "function getInputsKey" in result
-        assert 'inputs["greeting"] = getInputsKey("greeting");' in result
-        assert 'case "greeting": return ' in result
-        assert '__getGlobal("person")' in result
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_filters(self, mock_transpile_fn):
@@ -99,12 +90,7 @@ class TestSiteFunctions(TestCase):
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
         result = self.compile_and_run()
-
-        assert "console.log(globals);" in result
-        assert "const filterMatches = " in result
-        assert '__getGlobal("event") == "$pageview"' in result
-        assert 'const filterMatches = (__getGlobal("event") == "$pageview")' in result
-        assert "if (!filterMatches) { return; }" in result
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_invalid_template_input(self, mock_transpile_fn):
@@ -134,10 +120,7 @@ class TestSiteFunctions(TestCase):
         }
 
         result = self.compile_and_run()
-
-        assert "console.log(inputs.complexInput);" in result
-        assert "function getInputsKey" in result
-        assert 'inputs["complexInput"] = getInputsKey("complexInput");' in result
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_empty_inputs(self, mock_transpile_fn):
@@ -255,12 +238,7 @@ class TestSiteFunctions(TestCase):
         ]
 
         result = self.compile_and_run()
-
-        assert "console.log(inputs);" in result
-        assert 'const filterMatches = (__getGlobal("event") == "$pageview");' in result
-        assert 'if ((__getGlobal("event") == "$autocapture")) {' in result
-        assert "const newInputs = structuredClone(inputs);" in result
-        assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
+        self.snapshot.assert_match(result)
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_run_function_onload(self, mock_transpile_fn):
