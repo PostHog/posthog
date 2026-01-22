@@ -359,6 +359,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'openSecondarySharedMetricModal',
                 'openStopExperimentModal',
                 'closeStopExperimentModal',
+                'closePauseExperimentModal',
                 'closeShipVariantModal',
                 'openReleaseConditionsModal',
             ],
@@ -382,6 +383,7 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
         endExperiment: true,
+        pauseExperiment: true,
         archiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
@@ -1109,6 +1111,22 @@ export const experimentLogic = kea<experimentLogicType>([
                         : false
                 )
             actions.closeStopExperimentModal()
+        },
+        pauseExperiment: async () => {
+            if (!values.experiment.feature_flag) {
+                lemonToast.error('Experiment does not have a feature flag linked')
+                return
+            }
+
+            const flagId = values.experiment.feature_flag.id
+            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flagId}`, {
+                active: false,
+            })
+
+            actions.loadExperiment()
+            actions.closePauseExperimentModal()
+            lemonToast.success('The feature flag has been disabled')
+            values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })

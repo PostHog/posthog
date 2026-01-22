@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconEye, IconFlask, IconPlusSmall, IconRefresh, IconStopFilled } from '@posthog/icons'
+import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh, IconStopFilled } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -335,7 +335,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
-    const { openShipVariantModal, openStopExperimentModal } = useActions(modalsLogic)
+    const { openShipVariantModal, openStopExperimentModal, openPauseExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
     const { newTab } = useActions(sceneLogic)
@@ -511,6 +511,17 @@ export function PageHeaderCustom(): JSX.Element {
 
                         <ResetButton />
 
+                        {experiment.feature_flag && (
+                            <ButtonPrimitive
+                                variant="danger"
+                                menuItem
+                                data-attr="pause-experiment"
+                                onClick={() => openPauseExperimentModal()}
+                            >
+                                <IconPause /> Pause experiment
+                            </ButtonPrimitive>
+                        )}
+
                         {!experiment.end_date && (
                             <ButtonPrimitive
                                 variant="danger"
@@ -521,6 +532,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 <IconStopFilled /> Stop
                             </ButtonPrimitive>
                         )}
+                        <PauseExperimentModal />
                     </ScenePanelActionsSection>
                 </ScenePanel>
             )}
@@ -683,6 +695,49 @@ export function StopExperimentModal(): JSX.Element {
                     flag settings.
                 </div>
                 <ConclusionForm />
+            </div>
+        </LemonModal>
+    )
+}
+
+export function PauseExperimentModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { pauseExperiment } = useActions(experimentLogic)
+    const { closePauseExperimentModal } = useActions(modalsLogic)
+    const { isPauseExperimentModalOpen } = useValues(modalsLogic)
+
+    return (
+        <LemonModal
+            isOpen={isPauseExperimentModalOpen}
+            onClose={closePauseExperimentModal}
+            title="Pause experiment"
+            width={600}
+            footer={
+                <div className="flex items-center gap-2">
+                    <LemonButton type="secondary" onClick={closePauseExperimentModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => pauseExperiment()}
+                        type="primary"
+                        status="danger"
+                        disabledReason={!experiment.feature_flag && 'No feature flag linked'}
+                    >
+                        Disable feature flag
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div>
+                    Pausing the experiment will <b>disable the feature flag</b>, preventing any users from seeing the
+                    experiment variants. This is useful when you need to quickly stop the experiment from affecting
+                    users.
+                </div>
+                <div>
+                    The experiment will remain in draft mode and can be re-launched later by re-enabling the feature
+                    flag. All collected data will be preserved.
+                </div>
             </div>
         </LemonModal>
     )
