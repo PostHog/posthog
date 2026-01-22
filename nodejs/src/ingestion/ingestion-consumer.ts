@@ -43,6 +43,7 @@ import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
 import { ok } from './pipelines/results'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
 
 /**
@@ -138,6 +139,7 @@ export class IngestionConsumer {
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
+    private overflowLaneTTLRefreshService?: OverflowRedirectService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -192,7 +194,7 @@ export class IngestionConsumer {
 
         this.name = `ingestion-consumer-${this.topic}`
 
-        // Create overflow redirect service only when overflow is enabled
+        // Create overflow redirect service only when overflow is enabled (main lane)
         if (this.overflowEnabled()) {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisPool: this.hub.redisPool,
@@ -201,6 +203,14 @@ export class IngestionConsumer {
                 bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
                 statefulEnabled: this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+            })
+        }
+
+        // Create TTL refresh service when consuming from overflow topic (overflow lane)
+        if (this.hub.INGESTION_LANE_TYPE === 'overflow' && this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+            this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
+                redisPool: this.hub.redisPool,
+                redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             })
         }
 
@@ -260,6 +270,7 @@ export class IngestionConsumer {
                 dlqTopic: this.dlqTopic,
                 promiseScheduler: this.promiseScheduler,
                 overflowRedirectService: this.overflowRedirectService,
+                overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             }).build()
         )
 
@@ -305,6 +316,7 @@ export class IngestionConsumer {
             dlqTopic: this.dlqTopic,
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
+            overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             perDistinctIdOptions,
             teamManager: this.hub.teamManager,
             groupTypeManager: this.hub.groupTypeManager,

@@ -32,6 +32,7 @@ export interface JoinedIngestionPipelineConfig {
     dlqTopic: string
     promiseScheduler: PromiseScheduler
     overflowRedirectService?: OverflowRedirectService
+    overflowLaneTTLRefreshService?: OverflowRedirectService
 
     // Per-distinct-id config
     perDistinctIdOptions: EventPipelineRunnerOptions & {
@@ -93,6 +94,7 @@ export function createJoinedIngestionPipeline<
         dlqTopic,
         promiseScheduler,
         overflowRedirectService,
+        overflowLaneTTLRefreshService,
         perDistinctIdOptions,
         teamManager,
         groupTypeManager,
@@ -110,6 +112,7 @@ export function createJoinedIngestionPipeline<
         dlqTopic,
         promiseScheduler,
         overflowRedirectService,
+        overflowLaneTTLRefreshService,
     }
 
     const pipelineConfig: PipelineConfig = {

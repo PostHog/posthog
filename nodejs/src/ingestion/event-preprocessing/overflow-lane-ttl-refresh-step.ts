@@ -11,13 +11,15 @@ export interface OverflowLaneTTLRefreshStepInput {
  * Creates a step that refreshes TTL for overflow lane events.
  * Used in the overflow lane to keep Redis flags alive while events are being processed.
  * Once events stop coming, the flags expire and future events return to the main lane.
+ *
+ * If no service is provided, this step is a no-op (passthrough).
  */
 export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefreshStepInput>(
-    overflowRedirectService: OverflowRedirectService
+    overflowRedirectService?: OverflowRedirectService
 ) {
     return async function overflowLaneTTLRefreshStep(inputs: T[]): Promise<PipelineResult<T>[]> {
-        if (inputs.length === 0) {
-            return []
+        if (inputs.length === 0 || !overflowRedirectService) {
+            return inputs.map((input) => ok(input))
         }
 
         // Group events by token:distinct_id for batch TTL refresh
