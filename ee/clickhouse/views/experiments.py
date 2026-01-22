@@ -293,13 +293,27 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             feature_flag = feature_flag_serializer.save()
 
         # Ensure stats_config has a method set, preserving any other fields passed from frontend
-        stats_config = validated_data.get("stats_config", {})
+        stats_config = validated_data.get("stats_config", {}) or {}
+        team = Team.objects.select_related("organization").get(id=self.context["team_id"])
+
         if not stats_config.get("method"):
             # Get organization's default stats method setting
-            team = Team.objects.get(id=self.context["team_id"])
             default_method = team.organization.default_experiment_stats_method
             stats_config["method"] = default_method
-            validated_data["stats_config"] = stats_config
+
+        # Set default confidence level from team setting if not already set
+        if team.default_experiment_confidence_level is not None:
+            confidence_level = float(team.default_experiment_confidence_level)
+            bayesian_config = stats_config.get("bayesian") or {}
+            frequentist_config = stats_config.get("frequentist") or {}
+            # Set for Bayesian if ci_level not already configured
+            if bayesian_config.get("ci_level") is None:
+                stats_config["bayesian"] = {**bayesian_config, "ci_level": confidence_level}
+            # Set for Frequentist if alpha not already configured
+            if frequentist_config.get("alpha") is None:
+                stats_config["frequentist"] = {**frequentist_config, "alpha": 1 - confidence_level}
+
+        validated_data["stats_config"] = stats_config
 
         # Add fingerprints to metrics
         # UI creates experiments without metrics (adds them later in draft mode)

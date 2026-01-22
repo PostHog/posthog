@@ -695,6 +695,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    default_experiment_confidence_level?: number | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -3261,14 +3262,16 @@ export interface ChoiceQuestionResponseData {
     isPredefined: boolean
     // For unique responses (value === 1), include person data for display
     distinctId?: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 

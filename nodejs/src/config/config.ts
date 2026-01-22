@@ -262,6 +262,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
         SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: Number.MAX_SAFE_INTEGER,
+        SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: 3000, // Max burst of new sessions per team
+        SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: 300, // Sessions per second sustained rate
+        SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: false, // When true, drop messages that exceed limit. When false, dry run mode (metrics only)
+        SESSION_RECORDING_SESSION_FILTER_ENABLED: true, // When false, skip all Redis calls for session filtering
+        SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
+        SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS: 5 * 60 * 1000, // 5 minutes
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
