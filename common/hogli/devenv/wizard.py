@@ -9,6 +9,7 @@ from __future__ import annotations
 import click
 
 from .profile import DeveloperProfile, ProfileManager, ProfileOverrides
+from .registry import create_mprocs_registry
 from .resolver import IntentMap, IntentResolver
 
 
@@ -22,7 +23,8 @@ class SetupWizard:
     ):
         self.intent_map = intent_map
         self.manager = manager
-        self.resolver = IntentResolver(intent_map)
+        self.registry = create_mprocs_registry()
+        self.resolver = IntentResolver(intent_map, self.registry)
 
     def run(self) -> DeveloperProfile | None:
         """Run the interactive setup wizard.
