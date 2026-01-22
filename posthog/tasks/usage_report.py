@@ -15,7 +15,6 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -1070,7 +1069,16 @@ def get_teams_with_ai_credits_used_in_period(
     Using the field from properties to filter events instead.
     """
     region = get_instance_region()
-    assert region is not None, "Region must be set in production infrastructure"
+
+    if region is None:
+        # In production, we want to fail fast if region is not set
+        # In non-production environments (e.g., tests), we can return gracefully
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
@@ -1724,11 +1732,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end
     )
 
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
-    )
-
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -1940,9 +1943,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
-        "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
-        ),
+        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(

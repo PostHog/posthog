@@ -140,12 +140,6 @@ impl CheckpointDownloader for S3Downloader {
 
     async fn download_files(&self, remote_keys: &[String], local_base_path: &Path) -> Result<()> {
         let start_time = Instant::now();
-        tokio::fs::create_dir_all(local_base_path)
-            .await
-            .with_context(|| {
-                format!("Failed to create local base directory: {local_base_path:?}")
-            })?;
-
         let mut download_futures = Vec::with_capacity(remote_keys.len());
         for remote_key in remote_keys {
             let remote_filename = remote_key

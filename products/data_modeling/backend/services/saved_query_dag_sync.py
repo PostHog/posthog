@@ -104,7 +104,10 @@ def resolve_dependency_to_node(
     return node
 
 
-def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | None:
+def sync_saved_query_to_dag(
+    saved_query: "DataWarehouseSavedQuery",
+    extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
+) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
 
@@ -114,8 +117,13 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
     4. Delete existing incoming edges (dependencies may have changed)
     5. Create new edges, catching cycle errors and creating conflict edges
 
+    Args:
+        saved_query: The SavedQuery to sync to the DAG
+        extra_properties: Optional dict of properties to merge into created nodes and edges
+
     Returns the Node for the SavedQuery, or None if query parsing fails.
     """
+    extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
     # parse query first - if this fails, we don't create/update the node
@@ -134,7 +142,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
         team=team,
         saved_query=saved_query,
         dag_id=dag_id,
-        defaults={"name": saved_query.name, "type": node_type},
+        defaults={"name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
     target.type = node_type
@@ -153,6 +161,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
                     dag_id=dag_id,
                     source=source,
                     target=target,
+                    properties=extra_properties,
                 )
             # dag mismatch error can't happen because we control the only dag id for now
             except CycleDetectionError as e:
@@ -169,6 +178,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
                     source=source,
                     target=target,
                     properties={
+                        **extra_properties,
                         "error_type": "cycle",
                         "error_message": str(e),
                         "original_dag_id": dag_id,
@@ -188,6 +198,7 @@ def sync_saved_query_to_dag(saved_query: "DataWarehouseSavedQuery") -> Node | No
                     "detected_at": timezone.now().isoformat(),
                 }
             )
+    # already includes extra properties from above
     target.properties = {**target.properties, "unresolved_dependencies": unresolved}
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
