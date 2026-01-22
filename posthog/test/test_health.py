@@ -28,6 +28,16 @@ from posthog.health import logger
 from posthog.kafka_client.client import KafkaProducerForTests
 
 
+# Service availability by role/environment:
+# - kafka_connected: Required for worker and async roles in production, not needed for web role or CI
+# - celery_broker: Required for worker role in production, not started in CI to optimize test speed
+# - postgres/clickhouse: Required for all roles
+# - cache: Optional for most roles
+#
+# In CI, we exclude kafka_connected and celery_broker checks since these services aren't started
+# to speed up test execution. Production deployments run these checks based on the service role.
+
+
 @pytest.mark.django_db
 def test_readyz_returns_200_if_everything_is_ok(client: Client):
     # NOTE: In CI, we don't run kafka or celery services to speed up tests.
