@@ -162,8 +162,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         self.addCleanup(self.mock_get_status.stop)
 
     @functools.lru_cache  # noqa: B019 - TODO: refactor to avoid method cache
-    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
-    def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None, mock_transpile_fn=None):
+    def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted
         payload = {
             "description": self.template.description,
