@@ -1119,9 +1119,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             const flagId = values.experiment.feature_flag.id
-            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flagId}`, {
-                active: false,
-            })
+            featureFlagsLogic.actions.updateFlagActive(flagId, false)
 
             actions.loadExperiment()
             actions.closePauseExperimentModal()
