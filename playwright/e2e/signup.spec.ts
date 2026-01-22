@@ -12,6 +12,13 @@ const startSignupFlow = async (page: Page, email: string, password: string): Pro
     await page.locator('[data-attr=signup-start]').click()
 }
 
+const expectExistingEmailError = async (page: Page): Promise<void> => {
+    const errorText = 'There is already an account with this email address.'
+    const errorLocator = page.locator('.LemonBanner, .Field--error').filter({ hasText: errorText })
+
+    await expect(errorLocator).toBeVisible()
+}
+
 test.describe('Signup', () => {
     test.beforeEach(async ({ page }) => {
         await page.route('**/flags/*', async (route) => {
@@ -35,7 +42,7 @@ test.describe('Signup', () => {
     test('Cannot create account with existing email', async ({ page }) => {
         await startSignupFlow(page, 'test@posthog.com', VALID_PASSWORD)
 
-        await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
+        await expectExistingEmailError(page)
     })
 
     test('Cannot signup without required attributes', async ({ page }) => {
@@ -114,7 +121,7 @@ test.describe('Signup', () => {
 
         // Try to recreate account with same email- should fail
         await startSignupFlow(page, email, VALID_PASSWORD)
-        await expect(page.getByText('There is already an account with this email address.')).toBeVisible()
+        await expectExistingEmailError(page)
 
         // Update email to generic email and retry
         const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
