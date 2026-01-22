@@ -46,6 +46,8 @@ func easyjsonB70d1354DecodeGithubComPosthogPosthogLivestreamEvents(in *jlexer.Le
 			out.Data = string(in.String())
 		case "token":
 			out.Token = string(in.String())
+		case "timestamp":
+			out.Timestamp = string(in.String())
 		default:
 			in.SkipRecursive()
 		}
@@ -84,6 +86,11 @@ func easyjsonB70d1354EncodeGithubComPosthogPosthogLivestreamEvents(out *jwriter.
 		const prefix string = ",\"token\":"
 		out.RawString(prefix)
 		out.String(string(in.Token))
+	}
+	{
+		const prefix string = ",\"timestamp\":"
+		out.RawString(prefix)
+		out.String(string(in.Timestamp))
 	}
 	out.RawByte('}')
 }

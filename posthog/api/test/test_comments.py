@@ -445,3 +445,64 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         call_args = mock_send_email.call_args
         # Should only extract the valid integer ID, ignoring string, None, and float
         assert call_args[0][1] == [valid_user.id]
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_passes_slug_parameter_when_provided(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "slug_test@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Replay",
+                "item_id": "test-replay-id",
+                "slug": "/replay/test-replay-id",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "ph-mention", "attrs": {"id": mentioned_user.id}}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Verify slug is passed as 3rd argument
+        assert call_args[0][2] == "/replay/test-replay-id"
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_slug_defaults_to_empty_string_when_not_provided(self, mock_send_email) -> None:
+        from posthog.models import User
+
+        mentioned_user = User.objects.create_and_join(self.organization, "no_slug@posthog.com", None)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "",
+                "scope": "Replay",
+                "item_id": "test-replay-id",
+                "rich_content": {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"type": "ph-mention", "attrs": {"id": mentioned_user.id}}],
+                        }
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert mock_send_email.called
+        call_args = mock_send_email.call_args
+        # Verify slug defaults to empty string
+        assert call_args[0][2] == ""

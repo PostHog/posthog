@@ -109,23 +109,23 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        # Mock OpenAI response
-        with patch("openai.OpenAI") as mock_openai:
+        # Mock unified Client response
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             mock_parsed = BooleanEvalResult(verdict=True, reasoning="The answer is correct")
 
             mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.parsed = mock_parsed
-            mock_client.beta.chat.completions.parse.return_value = mock_response
+            mock_response.parsed = mock_parsed
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
-            mock_client.beta.chat.completions.parse.assert_called_once()
+            mock_client.complete.assert_called_once()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -193,16 +193,16 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("openai.OpenAI") as mock_openai:
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             mock_parsed = BooleanWithNAEvalResult(verdict=True, applicable=True, reasoning="The answer is correct")
 
             mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.parsed = mock_parsed
-            mock_client.beta.chat.completions.parse.return_value = mock_response
+            mock_response.parsed = mock_parsed
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
@@ -236,18 +236,18 @@ class TestRunEvaluationWorkflow:
             },
         )
 
-        with patch("openai.OpenAI") as mock_openai:
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
             mock_client = MagicMock()
-            mock_openai.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             mock_parsed = BooleanWithNAEvalResult(
                 verdict=None, applicable=False, reasoning="This is a greeting, not a math problem"
             )
 
             mock_response = MagicMock()
-            mock_response.choices = [MagicMock()]
-            mock_response.choices[0].message.parsed = mock_parsed
-            mock_client.beta.chat.completions.parse.return_value = mock_response
+            mock_response.parsed = mock_parsed
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
 
             result = await execute_llm_judge_activity(evaluation, event_data)
 
