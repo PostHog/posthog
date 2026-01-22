@@ -399,6 +399,7 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
 
         # Should have Chrome and Firefox breakdowns (NOT Safari)
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 2)
 
         # breakdown_value is a list (e.g., ["Chrome"])
@@ -479,6 +480,7 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 1)
 
         # NULL breakdown should use BREAKDOWN_NULL_STRING_LABEL
@@ -578,6 +580,7 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 1)
 
         chrome_result = result.breakdown_results[0]
