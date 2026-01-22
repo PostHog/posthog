@@ -21,7 +21,7 @@ import {
     PluginsServerConfig,
     Team,
 } from '../types'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
