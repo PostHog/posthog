@@ -160,13 +160,60 @@ const createVirtualTableField = (
     }
 }
 
+const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
+    return {
+        id: `${lazyNodeId}-placeholder/`,
+        name: 'Loading...',
+        displayName: <>Loading...</>,
+        icon: <Spinner />,
+        disableSelect: true,
+        type: 'loading-indicator',
+    }
+}
+
+const createLazyTableEmptyNode = (lazyNodeId: string): TreeDataItem => {
+    return {
+        id: `${lazyNodeId}-empty/`,
+        name: 'Empty folder',
+        type: 'empty-folder',
+        record: {
+            type: 'empty-folder',
+        },
+    }
+}
+
+const createLazyTableChildren = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup: TableLookup | undefined,
+    expandedLazyNodeIds: Set<string>
+): TreeDataItem[] => {
+    const referencedTable = field.table ? tableLookup?.[field.table] : undefined
+
+    if (!referencedTable || !('fields' in referencedTable)) {
+        return []
+    }
+
+    return Object.values(referencedTable.fields).map((childField) =>
+        createFieldNode(tableName, childField, isSearch, `${columnPath}.${childField.name}`, tableLookup, {
+            expandedLazyNodeIds,
+        })
+    )
+}
+
 const createFieldNode = (
     tableName: string,
     field: DatabaseSchemaField,
     isSearch: boolean,
     columnPath: string,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
+    const expandedLazyNodeIds = options?.expandedLazyNodeIds
     if (field.type === 'virtual_table') {
         const children =
             field.fields
@@ -174,7 +221,9 @@ const createFieldNode = (
                 .sort((a, b) => a.localeCompare(b))
                 .map((fieldName) => {
                     const childField = createVirtualTableField(fieldName, field, tableLookup)
-                    return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup)
+                    return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
+                        expandedLazyNodeIds,
+                    })
                 }) ?? []
 
         return {
@@ -190,6 +239,34 @@ const createFieldNode = (
         }
     }
 
+    if (field.type === 'lazy_table') {
+        const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-${tableName}-${columnPath}`
+        const isExpanded = expandedLazyNodeIds ? expandedLazyNodeIds.has(lazyNodeId) : false
+        const lazyExpandedIds = expandedLazyNodeIds ?? new Set<string>()
+        const lazyChildren = isExpanded
+            ? createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, lazyExpandedIds)
+            : []
+
+        const children = isExpanded
+            ? lazyChildren.length > 0
+                ? lazyChildren
+                : [createLazyTableEmptyNode(lazyNodeId)]
+            : [createLazyTablePlaceholderNode(lazyNodeId)]
+
+        return {
+            id: lazyNodeId,
+            name: field.name,
+            type: 'node',
+            record: {
+                type: 'lazy-table',
+                field,
+                table: tableName,
+                referencedTable: field.table,
+            },
+            children,
+        }
+    }
+
     return createColumnNode(tableName, field, columnPath, isSearch)
 }
 
@@ -197,13 +274,20 @@ const createTableNode = (
     table: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
         sortFieldsWithPrimary(table.name, Object.values(table.fields)).forEach((field: DatabaseSchemaField) => {
-            tableChildren.push(createFieldNode(table.name, field, isSearch, field.name, tableLookup))
+            tableChildren.push(
+                createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
+                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                })
+            )
         })
     }
 
@@ -248,7 +332,10 @@ const createViewNode = (
     view: DataWarehouseSavedQuery,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
@@ -256,7 +343,11 @@ const createViewNode = (
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     sortFieldsWithPrimary(view.name, Object.values(view.columns)).forEach((column: DatabaseSchemaField) => {
-        viewChildren.push(createFieldNode(view.name, column, isSearch, column.name, tableLookup))
+        viewChildren.push(
+            createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
+                expandedLazyNodeIds: options?.expandedLazyNodeIds,
+            })
+        )
     })
 
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
@@ -286,12 +377,19 @@ const createManagedViewNode = (
     managedView: DatabaseSchemaManagedViewTable,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
 
     sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields)).forEach((field: DatabaseSchemaField) => {
-        viewChildren.push(createFieldNode(managedView.name, field, isSearch, field.name, tableLookup))
+        viewChildren.push(
+            createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
+                expandedLazyNodeIds: options?.expandedLazyNodeIds,
+            })
+        )
     })
 
     const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
@@ -314,12 +412,19 @@ const createEndpointNode = (
     endpoint: DatabaseSchemaEndpointTable,
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
     sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields)).forEach((field: DatabaseSchemaField) => {
-        endpointChildren.push(createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup))
+        endpointChildren.push(
+            createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup, {
+                expandedLazyNodeIds: options?.expandedLazyNodeIds,
+            })
+        )
     })
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
@@ -343,17 +448,20 @@ const createSourceFolderNode = (
     tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
     matches: [any, FuseSearchMatch[] | null][] = [],
     isSearch = false,
-    tableLookup?: TableLookup
+    tableLookup?: TableLookup,
+    options?: {
+        expandedLazyNodeIds?: Set<string>
+    }
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
     if (isSearch && matches.length > 0) {
         matches.forEach(([table, tableMatches]) => {
-            sourceChildren.push(createTableNode(table, tableMatches, true, tableLookup))
+            sourceChildren.push(createTableNode(table, tableMatches, true, tableLookup, options))
         })
     } else {
         tables.forEach((table) => {
-            sourceChildren.push(createTableNode(table, null, false, tableLookup))
+            sourceChildren.push(createTableNode(table, null, false, tableLookup, options))
         })
     }
 
@@ -741,6 +849,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.relevantDrafts,
                 s.searchTerm,
                 s.featureFlags,
+                s.expandedSearchFolders,
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
@@ -751,7 +860,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
                 searchTerm: string,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                expandedSearchFolders: string[]
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -762,21 +872,32 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ([table]) => [table.name, table]
                     )
                 )
+                const expandedLazyNodeIds = new Set(expandedSearchFolders.filter((id) => id.includes('-lazy-')))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
+                const tableNodeOptions = { expandedLazyNodeIds }
 
                 // Add PostHog tables
                 if (relevantPosthogTables.length > 0) {
                     expandedIds.push('search-posthog')
                     sourcesChildren.push(
-                        createSourceFolderNode('PostHog', [], relevantPosthogTables, true, tableLookup)
+                        createSourceFolderNode(
+                            'PostHog',
+                            [],
+                            relevantPosthogTables,
+                            true,
+                            tableLookup,
+                            tableNodeOptions
+                        )
                     )
                 }
 
                 // Add System tables
                 if (relevantSystemTables.length > 0) {
                     expandedIds.push('search-system')
-                    sourcesChildren.push(createSourceFolderNode('System', [], relevantSystemTables, true, tableLookup))
+                    sourcesChildren.push(
+                        createSourceFolderNode('System', [], relevantSystemTables, true, tableLookup, tableNodeOptions)
+                    )
                 }
 
                 // Group data warehouse tables by source type
@@ -797,7 +918,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 Object.entries(tablesBySourceType).forEach(([sourceType, tablesWithMatches]) => {
                     expandedIds.push(`search-${sourceType}`)
-                    sourcesChildren.push(createSourceFolderNode(sourceType, [], tablesWithMatches, true, tableLookup))
+                    sourcesChildren.push(
+                        createSourceFolderNode(sourceType, [], tablesWithMatches, true, tableLookup, tableNodeOptions)
+                    )
                 })
 
                 // Create views children
@@ -808,18 +931,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true, tableLookup))
+                    viewsChildren.push(createViewNode(view, matches, true, tableLookup, tableNodeOptions))
                 })
 
                 // Add managed views
                 relevantManagedViews.forEach(([view, matches]) => {
-                    managedViewsChildren.push(createManagedViewNode(view, matches, true, tableLookup))
+                    managedViewsChildren.push(createManagedViewNode(view, matches, true, tableLookup, tableNodeOptions))
                 })
 
                 // Add endpoints
                 if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
                     relevantEndpointTables.forEach(([endpoint, matches]) => {
-                        endpointChildren.push(createEndpointNode(endpoint, matches, true, tableLookup))
+                        endpointChildren.push(
+                            createEndpointNode(endpoint, matches, true, tableLookup, tableNodeOptions)
+                        )
                     })
                 }
 
@@ -881,6 +1006,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.hasMoreDrafts,
                 s.featureFlags,
                 s.queryTabState,
+                s.expandedFolders,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -895,12 +1021,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
                 featureFlags: FeatureFlagsSet,
-                queryTabState: QueryTabState | null
+                queryTabState: QueryTabState | null,
+                expandedFolders: string[]
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
                 const tableLookup = Object.fromEntries(
                     [...posthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
                 )
+                const expandedLazyNodeIds = new Set(expandedFolders.filter((id) => id.includes('-lazy-')))
+                const tableNodeOptions = { expandedLazyNodeIds }
 
                 // Add loading indicator for sources if still loading
                 if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
@@ -915,13 +1044,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
-                        sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup))
+                        sourcesChildren.push(
+                            createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup, tableNodeOptions)
+                        )
                     }
 
                     // Add System tables
                     if (systemTables.length > 0) {
                         systemTables.sort((a, b) => a.name.localeCompare(b.name))
-                        sourcesChildren.push(createSourceFolderNode('System', systemTables, [], false, tableLookup))
+                        sourcesChildren.push(
+                            createSourceFolderNode('System', systemTables, [], false, tableLookup, tableNodeOptions)
+                        )
                     }
 
                     // Group data warehouse tables by source type
@@ -939,7 +1072,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add data warehouse tables
                     Object.entries(tablesBySourceType).forEach(([sourceType, tables]) => {
-                        sourcesChildren.push(createSourceFolderNode(sourceType, tables, [], false, tableLookup))
+                        sourcesChildren.push(
+                            createSourceFolderNode(sourceType, tables, [], false, tableLookup, tableNodeOptions)
+                        )
                     })
                 }
 
@@ -985,18 +1120,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
-                        viewsChildren.push(createViewNode(view, null, false, tableLookup))
+                        viewsChildren.push(createViewNode(view, null, false, tableLookup, tableNodeOptions))
                     })
 
                     // Add managed views
                     managedViews.forEach((view) => {
-                        managedViewsChildren.push(createManagedViewNode(view, null, false, tableLookup))
+                        managedViewsChildren.push(
+                            createManagedViewNode(view, null, false, tableLookup, tableNodeOptions)
+                        )
                     })
 
                     // Add endpoints
                     if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
                         endpointTables.forEach((endpoint) => {
-                            endpointChildren.push(createEndpointNode(endpoint, null, false, tableLookup))
+                            endpointChildren.push(
+                                createEndpointNode(endpoint, null, false, tableLookup, tableNodeOptions)
+                            )
                         })
                     }
                 }
