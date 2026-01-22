@@ -31,7 +31,7 @@ import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uu
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS } from 'scenes/dashboard/dashboardUtils'
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -433,10 +433,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
 
+                        const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
+
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                duplicate_tiles: [newTile],
+                                duplicate_tiles: [{ ...newTile, layouts: duplicateLayouts }],
+                                tiles: tilesToUpdate.length > 0 ? tilesToUpdate : undefined,
                             }
                         )
                         return getQueryBasedDashboard(dashboard)

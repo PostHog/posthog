@@ -1,6 +1,6 @@
 import json
+from typing import Any
 
-from anthropic.types import ImageBlockParam, MessageParam, TextBlockParam, ToolResultBlockParam, ToolUseBlockParam
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionContentPartImageParam,
@@ -21,7 +21,7 @@ from products.llm_analytics.backend.providers.formatters.anthropic_typeguards im
 )
 
 
-def convert_to_openai_messages(anthropic_messages: list[MessageParam]) -> list[ChatCompletionMessageParam]:
+def convert_to_openai_messages(anthropic_messages: list[dict[str, Any]]) -> list[ChatCompletionMessageParam]:
     openai_messages: list[ChatCompletionMessageParam] = []
 
     for anthropic_message in anthropic_messages:
@@ -35,8 +35,8 @@ def convert_to_openai_messages(anthropic_messages: list[MessageParam]) -> list[C
         else:
             if anthropic_message["role"] == "user":
                 # Split content into tool results and non-tool messages
-                user_non_tool_messages: list[TextBlockParam | ImageBlockParam] = []
-                user_tool_messages: list[ToolResultBlockParam] = []
+                user_non_tool_messages: list[Any] = []
+                user_tool_messages: list[Any] = []
                 for part in anthropic_message["content"]:
                     if is_tool_result_param(part):
                         user_tool_messages.append(part)
@@ -95,8 +95,8 @@ def convert_to_openai_messages(anthropic_messages: list[MessageParam]) -> list[C
 
                     openai_messages.append(ChatCompletionUserMessageParam(role="user", content=non_tool_content))
             elif anthropic_message["role"] == "assistant":
-                assistant_non_tool_messages: list[TextBlockParam | ImageBlockParam] = []
-                assistant_tool_messages: list[ToolUseBlockParam] = []
+                assistant_non_tool_messages: list[Any] = []
+                assistant_tool_messages: list[Any] = []
 
                 for part in anthropic_message["content"]:
                     if is_tool_use_param(part):

@@ -24,6 +24,7 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_batch_export_run_failure,
     send_canary_email,
+    send_discussions_mentioned,
     send_email_verification,
     send_fatal_plugin_error,
     send_hog_functions_daily_digest,
@@ -1121,3 +1122,136 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         # No email should be sent since recipient doesn't have access
         assert len(mocked_email_messages) == 0
+
+    def test_send_discussions_mentioned_with_slug_generates_correct_href(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create a mentioned user
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned@posthog.com", password=None
+        )
+
+        # Create a replay comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Test comment",
+            scope="Replay",
+            item_id="test-replay-id",
+            created_by=self.user,
+        )
+
+        # Call task with explicit slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="/replay/test-replay-id",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href in template context uses the provided slug
+        actual_href = mocked_email_messages[0].properties["href"]
+        expected_href = "http://localhost:8010/replay/test-replay-id"
+        assert actual_href == expected_href, f"Expected {expected_href}, got {actual_href}"
+
+    def test_send_discussions_mentioned_replay_without_slug_generates_href_from_item_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned2@posthog.com", password=None
+        )
+
+        # Create a replay comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Test comment",
+            scope="Replay",
+            item_id="replay-uuid-123",
+            created_by=self.user,
+        )
+
+        # Call task without slug (empty string)
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href is auto-generated from scope and item_id
+        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010/replay/replay-uuid-123"
+
+    def test_send_discussions_mentioned_notebook_without_slug_generates_href_from_item_id(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned3@posthog.com", password=None
+        )
+
+        # Create a notebook comment
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Notebook test comment",
+            scope="Notebook",
+            item_id="notebook-short-id",
+            created_by=self.user,
+        )
+
+        # Call task without slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href is auto-generated for notebook
+        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010/notebook/notebook-short-id"
+
+    def test_send_discussions_mentioned_unknown_scope_without_slug_falls_back_to_base_url(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        from posthog.models import Comment
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        mentioned_user = User.objects.create_and_join(
+            organization=self.organization, email="mentioned4@posthog.com", password=None
+        )
+
+        # Create a comment with unknown scope
+        comment = Comment.objects.create(
+            team=self.team,
+            content="Unknown scope comment",
+            scope="UnknownScope",
+            item_id="some-item-id",
+            created_by=self.user,
+        )
+
+        # Call task without slug
+        send_discussions_mentioned(
+            comment_id=str(comment.id),
+            mentioned_user_ids=[mentioned_user.id],
+            slug="",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+        # Verify the href falls back to base URL
+        assert mocked_email_messages[0].properties["href"] == "http://localhost:8010"
