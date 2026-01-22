@@ -193,7 +193,7 @@ async function expectStoryToMatchSnapshot(
         
         // Diagnostic logging: Count initial loaders
         const initialLoaderCount = await page.locator(loaderSelectors).count()
-        const visibleLoaderCount = await page.locator(loaderSelectors).filter({ hasText: /./ }).count()
+        const visibleLoaderCount = await page.locator(loaderSelectors).filter({ visible: true }).count()
         // eslint-disable-next-line no-console
         console.log(`[${context.id}] Starting wait for loaders to hide. Total: ${initialLoaderCount}, Visible: ${visibleLoaderCount}, Timeout: ${timeout}ms`)
         // eslint-disable-next-line no-console
@@ -201,15 +201,17 @@ async function expectStoryToMatchSnapshot(
         
         // Periodic logging during wait
         const startTime = Date.now()
+        let hasLoggedStuckLoaders = false
         const checkInterval = setInterval(async () => {
             try {
-                const stillVisible = await page.locator(loaderSelectors).filter({ hasText: /./ }).count()
+                const stillVisible = await page.locator(loaderSelectors).filter({ visible: true }).count()
                 const elapsed = Date.now() - startTime
                 // eslint-disable-next-line no-console
                 console.log(`[${context.id}] ${elapsed}ms elapsed: ${stillVisible} loaders still visible`)
                 
-                // Log which specific loaders are stuck when we're 80% through timeout
-                if (elapsed > timeout * 0.8) {
+                // Log which specific loaders are stuck when we're 80% through timeout (only once)
+                if (elapsed > timeout * 0.8 && !hasLoggedStuckLoaders) {
+                    hasLoggedStuckLoaders = true
                     const stuckLoaders = await page.locator(loaderSelectors).all()
                     for (let i = 0; i < stuckLoaders.length; i++) {
                         const loader = stuckLoaders[i]
