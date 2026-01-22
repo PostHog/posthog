@@ -29,30 +29,19 @@ export class Clickhouse {
         this.client = client
     }
 
-    static getConnectionConfig(): {
-        host: string
-        database: string
-        user: string
-        password: string | null
-    } {
-        return {
-            host: process.env.CLICKHOUSE_HOST ?? 'localhost',
-            database: process.env.CLICKHOUSE_DATABASE ?? (isTestEnv() ? 'posthog_test' : 'default'),
-            user: process.env.CLICKHOUSE_USER ?? 'default',
-            password: process.env.CLICKHOUSE_PASSWORD ?? null,
-        }
-    }
-
     static createClient(): ClickHouseClient {
         // NOTE: We never query CH in production so we just load these from the env directly
-        const config = Clickhouse.getConnectionConfig()
+        const CLICKHOUSE_HOST = process.env.CLICKHOUSE_HOST ?? 'localhost'
+        const CLICKHOUSE_DATABASE = process.env.CLICKHOUSE_DATABASE ?? (isTestEnv() ? 'posthog_test' : 'default')
+        const CLICKHOUSE_USER = process.env.CLICKHOUSE_USER ?? 'default'
+        const CLICKHOUSE_PASSWORD = process.env.CLICKHOUSE_PASSWORD ?? null
 
         const clickhouse = createClickhouseClient({
             // We prefer to run queries on the offline cluster.
-            url: `http://${config.host}:8123`,
-            username: config.user,
-            password: config.password || undefined,
-            database: config.database,
+            url: `http://${CLICKHOUSE_HOST}:8123`,
+            username: CLICKHOUSE_USER,
+            password: CLICKHOUSE_PASSWORD || undefined,
+            database: CLICKHOUSE_DATABASE,
             max_open_connections: 50, // Increased from 30 for better concurrency
             // Connection reliability improvements
             request_timeout: 30000, // 30s minutes request timeout
@@ -70,28 +59,6 @@ export class Clickhouse {
         return new Clickhouse(client)
     }
 
-    // Ensure the test database exists, creating it if necessary
-    static async ensureDatabaseExists(): Promise<void> {
-        const config = Clickhouse.getConnectionConfig()
-
-        // Create a client without a specific database to run admin commands
-        const adminClient = createClickhouseClient({
-            url: `http://${config.host}:8123`,
-            username: config.user,
-            password: config.password || undefined,
-            request_timeout: 30000,
-        })
-
-        try {
-            await adminClient.exec({
-                query: `CREATE DATABASE IF NOT EXISTS ${config.database}`,
-            })
-            console.log(`Ensured ClickHouse database '${config.database}' exists`)
-        } finally {
-            await adminClient.close()
-        }
-    }
-
     close(): void {
         this.client.close()
     }
@@ -101,7 +68,6 @@ export class Clickhouse {
     }
 
     async resetTestDatabase(): Promise<void> {
-        await Clickhouse.ensureDatabaseExists()
         await this.waitForHealthy()
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.allSettled([
