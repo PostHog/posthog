@@ -129,6 +129,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "flags_persistence_default",
             "conversations_enabled",
             "conversations_settings",
+            "logs_settings",
         ]
         read_only_fields = fields
 
@@ -152,6 +153,7 @@ TEAM_CONFIG_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "autocapture_exceptions_errors_to_ignore",
     "capture_console_log_opt_in",
+    "logs_settings",
     "capture_performance_opt_in",
     "session_recording_opt_in",
     "session_recording_sample_rate",
@@ -181,8 +183,8 @@ TEAM_CONFIG_FIELDS = (
     "flags_persistence_default",
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
-    "default_evaluation_environments_enabled",
-    "require_evaluation_environment_tags",
+    "default_evaluation_contexts_enabled",
+    "require_evaluation_contexts",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -192,6 +194,7 @@ TEAM_CONFIG_FIELDS = (
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
+    "default_experiment_confidence_level",
     "receive_org_level_activity_logs",
     "business_model",
     "conversations_enabled",
@@ -1143,7 +1146,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             default_tags = TeamDefaultEvaluationTag.objects.filter(team=team).select_related("tag")
             tags_data = [{"id": dt.id, "name": dt.tag.name} for dt in default_tags]
             return response.Response(
-                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_environments_enabled}
+                {"default_evaluation_tags": tags_data, "enabled": team.default_evaluation_contexts_enabled}
             )
 
         elif request.method == "POST":

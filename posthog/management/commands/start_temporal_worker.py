@@ -22,6 +22,10 @@ from posthog.temporal.ai import (
     ACTIVITIES as AI_ACTIVITIES,
     WORKFLOWS as AI_WORKFLOWS,
 )
+from posthog.temporal.cleanup_property_definitions import (
+    ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
+    WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
+)
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_imports.settings import (
@@ -52,6 +56,10 @@ from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
+from posthog.temporal.experiments import (
+    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
+    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
+)
 from posthog.temporal.export_recording import (
     ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
@@ -66,6 +74,8 @@ from posthog.temporal.import_recording import (
 )
 from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -137,6 +147,11 @@ _task_queue_specs = [
         DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     ),
     (
+        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES,
+    ),
+    (
         settings.DATA_MODELING_TASK_QUEUE,
         DATA_MODELING_WORKFLOWS,
         DATA_MODELING_ACTIVITIES,
@@ -150,7 +165,9 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
         + DLQ_REPLAY_WORKFLOWS
-        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
+        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
+        + EXPERIMENTS_WORKFLOWS
+        + CLEANUP_PROPDEFS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
@@ -159,7 +176,9 @@ _task_queue_specs = [
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES
         + DLQ_REPLAY_ACTIVITIES
-        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
+        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
+        + EXPERIMENTS_ACTIVITIES
+        + CLEANUP_PROPDEFS_ACTIVITIES,
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
@@ -216,6 +235,11 @@ _task_queue_specs = [
         settings.WEEKLY_DIGEST_TASK_QUEUE,
         WEEKLY_DIGEST_WORKFLOWS,
         WEEKLY_DIGEST_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_EVALS_TASK_QUEUE,
+        LLM_ANALYTICS_EVAL_WORKFLOWS,
+        LLM_ANALYTICS_EVAL_ACTIVITIES,
     ),
 ]
 

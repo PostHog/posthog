@@ -16,8 +16,9 @@ import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { removeUndefinedAndNull } from 'lib/utils'
+import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { parseQueryTablesAndColumns } from 'scenes/data-warehouse/editor/sql-utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -1119,6 +1120,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
                 return [first]
             },
+        ],
+
+        selectedQueryTablesAndColumns: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): Record<string, Record<string, boolean>> => {
+                return parseQueryTablesAndColumns(queryInput)
+            },
+        ],
+        selectedQueryColumns: [
+            (s) => [s.queryInput],
+            (queryInput: string | null): Record<string, boolean> => {
+                const tablesAndColumns = parseQueryTablesAndColumns(queryInput)
+
+                return Object.fromEntries(
+                    Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
+                        return Object.keys(columns).map((column) => [`${table}.${column}`, true])
+                    })
+                )
+            },
+            { resultEqualityCheck: objectsEqual },
         ],
     }),
     tabAwareActionToUrl(({ values }) => ({

@@ -27,18 +27,14 @@ use crate::{
         TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
         TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM,
-        UNIQUE_EVENTS_TOTAL_COUNTER, UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
-        UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, UUID_DEDUP_FIELD_DIFFERENCES_COUNTER,
-        UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM, UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM,
-        UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM, UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM,
+        UNIQUE_EVENTS_TOTAL_COUNTER,
     },
     rocksdb::dedup_metadata::DedupFieldName,
     store::deduplication_store::{
         DeduplicationResult, DeduplicationResultReason, DeduplicationType, TimestampBatchEntry,
-        UuidBatchEntry,
     },
-    store::keys::{TimestampKey, UuidKey},
-    store::metadata::{TimestampMetadata, UuidMetadata},
+    store::keys::TimestampKey,
+    store::metadata::TimestampMetadata,
     store::DeduplicationStoreConfig,
     store_manager::StoreManager,
     utils::timestamp,
@@ -120,10 +116,7 @@ impl DuplicateEventProducerWrapper {
 /// Enriched event with deduplication keys
 struct EnrichedEvent<'a> {
     raw_event: &'a RawEvent,
-    uuid_key: Option<UuidKey>,
     timestamp_key_bytes: Vec<u8>,
-    uuid_key_bytes: Option<Vec<u8>>,
-    parsed_timestamp: u64,
 }
 
 pub struct BatchDeduplicationProcessor {
@@ -386,25 +379,9 @@ impl BatchDeduplicationProcessor {
                 let timestamp_key = TimestampKey::from(raw_event);
                 let timestamp_key_bytes: Vec<u8> = (&timestamp_key).into();
 
-                let (uuid_key, uuid_key_bytes, parsed_timestamp) = if raw_event.uuid.is_some() {
-                    let uuid_key = UuidKey::from(raw_event);
-                    let uuid_key_bytes: Vec<u8> = (&uuid_key).into();
-                    let parsed_timestamp = raw_event
-                        .timestamp
-                        .as_ref()
-                        .and_then(|t| timestamp::parse_timestamp(t))
-                        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
-                    (Some(uuid_key), Some(uuid_key_bytes), parsed_timestamp)
-                } else {
-                    (None, None, 0)
-                };
-
                 EnrichedEvent {
                     raw_event,
-                    uuid_key,
                     timestamp_key_bytes,
-                    uuid_key_bytes,
-                    parsed_timestamp,
                 }
             })
             .collect();
@@ -421,51 +398,13 @@ impl BatchDeduplicationProcessor {
         metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "timestamp")
             .record(ts_read_duration.as_millis() as f64);
 
-        // Step 3: Batch read for UUID-based deduplication (only for events with UUIDs that pass timestamp check)
-        let uuid_keys_to_check: Vec<(usize, &[u8])> = enriched_events
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, e)| {
-                // Only check UUID if:
-                // 1. Event has a UUID
-                // 2. Timestamp check passed (new or not found)
-                if e.uuid_key_bytes.is_some() && timestamp_results[idx].is_none() {
-                    Some((idx, e.uuid_key_bytes.as_ref().unwrap().as_slice()))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let uuid_keys_refs: Vec<&[u8]> = uuid_keys_to_check.iter().map(|(_, key)| *key).collect();
-
-        let uuid_results = if !uuid_keys_refs.is_empty() {
-            let uuid_read_start = Instant::now();
-            let results = store.multi_get_uuid_records(uuid_keys_refs)?;
-            let uuid_read_duration = uuid_read_start.elapsed();
-            metrics::histogram!(ROCKSDB_MULTI_GET_DURATION_MS, "cf" => "uuid")
-                .record(uuid_read_duration.as_millis() as f64);
-            results
-        } else {
-            vec![]
-        };
-
-        // Create a map of UUID results by original index
-        let uuid_results_map: HashMap<usize, Option<Vec<u8>>> = uuid_keys_to_check
-            .iter()
-            .zip(uuid_results.into_iter())
-            .map(|((idx, _), result)| (*idx, result))
-            .collect();
-
-        // Step 4: Process deduplication results and prepare batch writes
+        // Step 3: Process deduplication results and prepare batch writes
         // Track keys we've seen in this batch to detect within-batch duplicates
         let event_count = enriched_events.len();
         let mut batch_timestamp_cache: HashMap<Vec<u8>, Vec<u8>> =
             HashMap::with_capacity(event_count);
-        let mut batch_uuid_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::with_capacity(event_count);
 
         let mut timestamp_writes: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(event_count);
-        let mut uuid_writes: Vec<(Vec<u8>, Vec<u8>, u64)> = Vec::with_capacity(event_count);
         let mut dedup_results: Vec<DeduplicationResult> = Vec::with_capacity(event_count);
 
         for (idx, enriched) in enriched_events.iter().enumerate() {
@@ -512,65 +451,10 @@ impl BatchDeduplicationProcessor {
                     }
                 };
 
-            // If timestamp check found a duplicate, we're done
-            if timestamp_result.is_duplicate() {
-                dedup_results.push(timestamp_result);
-                continue;
-            }
-
-            // Check UUID-based deduplication if applicable
-            if enriched.uuid_key.is_some() {
-                let uuid_key_bytes = enriched.uuid_key_bytes.as_ref().unwrap();
-
-                // First check RocksDB results, then check within-batch cache
-                let uuid_source: Option<&[u8]> = uuid_results_map
-                    .get(&idx)
-                    .and_then(|r| r.as_deref())
-                    .or_else(|| batch_uuid_cache.get(uuid_key_bytes).map(|v| v.as_slice()));
-
-                let uuid_result =
-                    match Self::check_uuid_duplicate_from_bytes(uuid_source, raw_event) {
-                        Ok((result, metadata)) => {
-                            // Emit metrics for UUID deduplication (before moving metadata)
-                            Self::emit_uuid_metrics(
-                                &result,
-                                raw_event,
-                                &metrics,
-                                metadata.as_ref(),
-                            );
-
-                            if let Some(metadata) = metadata {
-                                // Update metadata and prepare for write
-                                let value = bincode::serde::encode_to_vec(
-                                    &metadata,
-                                    bincode::config::standard(),
-                                )?;
-                                uuid_writes.push((
-                                    uuid_key_bytes.clone(),
-                                    value.clone(),
-                                    enriched.parsed_timestamp,
-                                ));
-
-                                // Update batch cache for within-batch duplicate detection
-                                batch_uuid_cache.insert(uuid_key_bytes.clone(), value);
-                            }
-
-                            result
-                        }
-                        Err(e) => {
-                            error!("Failed to check UUID duplicate: {}", e);
-                            DeduplicationResult::Skipped
-                        }
-                    };
-
-                dedup_results.push(uuid_result);
-            } else {
-                // No UUID, just use timestamp result
-                dedup_results.push(timestamp_result);
-            }
+            dedup_results.push(timestamp_result);
         }
 
-        // Step 5: Batch write all updates
+        // Step 4: Batch write all updates
         if !timestamp_writes.is_empty() {
             let entries: Vec<TimestampBatchEntry> = timestamp_writes
                 .iter()
@@ -584,23 +468,6 @@ impl BatchDeduplicationProcessor {
             let ts_write_duration = ts_write_start.elapsed();
             metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "timestamp")
                 .record(ts_write_duration.as_millis() as f64);
-        }
-
-        // UUID writes need to also update the timestamp index
-        if !uuid_writes.is_empty() {
-            let entries: Vec<UuidBatchEntry> = uuid_writes
-                .iter()
-                .map(|(key, value, timestamp)| UuidBatchEntry {
-                    key: key.as_slice(),
-                    value: value.as_slice(),
-                    timestamp: *timestamp,
-                })
-                .collect();
-            let uuid_write_start = Instant::now();
-            store.put_uuid_records_batch(entries)?;
-            let uuid_write_duration = uuid_write_start.elapsed();
-            metrics::histogram!(ROCKSDB_PUT_BATCH_DURATION_MS, "cf" => "uuid")
-                .record(uuid_write_duration.as_millis() as f64);
         }
 
         Ok(dedup_results)
@@ -754,60 +621,6 @@ impl BatchDeduplicationProcessor {
         }
     }
 
-    /// Check UUID-based duplicate from raw bytes
-    fn check_uuid_duplicate_from_bytes(
-        existing_bytes: Option<&[u8]>,
-        raw_event: &RawEvent,
-    ) -> Result<(DeduplicationResult, Option<UuidMetadata>)> {
-        match existing_bytes {
-            Some(bytes) => {
-                // Deserialize existing metadata
-                let mut metadata: UuidMetadata =
-                    bincode::serde::decode_from_slice(bytes, bincode::config::standard())
-                        .map(|(m, _)| m)?;
-
-                // Calculate similarity and get original event
-                let similarity = metadata.calculate_similarity(raw_event)?;
-                let original_event = metadata.get_original_event()?;
-
-                // Update metadata to track this duplicate
-                metadata.update_duplicate(raw_event);
-
-                // Determine the deduplication result based on similarity
-                let dedup_result = if similarity.overall_score == 1.0 {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::UUID,
-                        DeduplicationResultReason::SameEvent,
-                        similarity,
-                        original_event,
-                    )
-                } else if similarity.different_fields.len() == 1
-                    && similarity.different_fields[0].0 == DedupFieldName::Timestamp
-                {
-                    DeduplicationResult::ConfirmedDuplicate(
-                        DeduplicationType::UUID,
-                        DeduplicationResultReason::OnlyTimestampDifferent,
-                        similarity,
-                        original_event,
-                    )
-                } else {
-                    DeduplicationResult::PotentialDuplicate(
-                        DeduplicationType::UUID,
-                        similarity,
-                        original_event,
-                    )
-                };
-
-                Ok((dedup_result, Some(metadata)))
-            }
-            None => {
-                // New event - create metadata
-                let metadata = UuidMetadata::new(raw_event);
-                Ok((DeduplicationResult::New, Some(metadata)))
-            }
-        }
-    }
-
     /// Emit metrics for timestamp deduplication
     fn emit_timestamp_metrics(
         result: &DeduplicationResult,
@@ -865,73 +678,6 @@ impl BatchDeduplicationProcessor {
                     .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
                     .with_label("lib", &lib_info.name)
                     .with_label("dedup_type", "timestamp")
-                    .increment(1);
-            }
-        }
-    }
-
-    /// Emit metrics for UUID deduplication
-    fn emit_uuid_metrics(
-        result: &DeduplicationResult,
-        raw_event: &RawEvent,
-        metrics: &MetricsHelper,
-        metadata: Option<&UuidMetadata>,
-    ) {
-        if let Some(similarity) = result.get_similarity() {
-            if let Some(lib_info) = raw_event.extract_library_info() {
-                metrics
-                    .counter(DUPLICATE_EVENTS_TOTAL_COUNTER)
-                    .with_label("lib", &lib_info.name)
-                    .with_label("dedup_type", "uuid")
-                    .increment(1);
-
-                // Emit UUID-specific histograms if metadata is available
-                if let Some(meta) = metadata {
-                    metrics
-                        .histogram(UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM)
-                        .with_label("lib", &lib_info.name)
-                        .record(meta.get_timestamp_variance() as f64);
-
-                    metrics
-                        .histogram(UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM)
-                        .with_label("lib", &lib_info.name)
-                        .record(meta.seen_timestamps.len() as f64);
-                }
-
-                metrics
-                    .histogram(UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
-                    .with_label("lib", &lib_info.name)
-                    .record(similarity.overall_score);
-
-                metrics
-                    .histogram(UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
-                    .with_label("lib", &lib_info.name)
-                    .record(similarity.different_field_count as f64);
-
-                metrics
-                    .histogram(UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
-                    .with_label("lib", &lib_info.name)
-                    .record(similarity.different_property_count as f64);
-
-                metrics
-                    .histogram(UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
-                    .with_label("lib", &lib_info.name)
-                    .record(similarity.properties_similarity);
-
-                for (field_name, _, _) in &similarity.different_fields {
-                    metrics
-                        .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
-                        .with_label("lib", &lib_info.name)
-                        .with_label("field", &field_name.to_string())
-                        .increment(1);
-                }
-            }
-        } else if matches!(result, DeduplicationResult::New) {
-            if let Some(lib_info) = raw_event.extract_library_info() {
-                metrics
-                    .counter(UNIQUE_EVENTS_TOTAL_COUNTER)
-                    .with_label("lib", &lib_info.name)
-                    .with_label("dedup_type", "uuid")
                     .increment(1);
             }
         }
@@ -1092,7 +838,7 @@ mod tests {
         };
 
         // Create a batch of new events
-        let events = vec![
+        let events = [
             create_test_raw_event(
                 Some(Uuid::new_v4()),
                 "event1",
@@ -1142,7 +888,7 @@ mod tests {
         let uuid2 = Uuid::new_v4();
 
         // First batch - all new
-        let batch1 = vec![
+        let batch1 = [
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid2), "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1156,7 +902,7 @@ mod tests {
         assert!(matches!(results1[1], DeduplicationResult::New));
 
         // Second batch - same events (timestamp duplicates)
-        let batch2 = vec![
+        let batch2 = [
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid2), "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1169,57 +915,6 @@ mod tests {
         assert_eq!(results2.len(), 2);
         assert!(results2[0].is_duplicate());
         assert!(results2[1].is_duplicate());
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_batch_deduplication_with_uuid_duplicates() {
-        let (config, _temp_dir) = create_test_config();
-        let store_manager = Arc::new(StoreManager::new(config.store_config.clone()));
-        let processor = BatchDeduplicationProcessor {
-            config,
-            producer: None,
-            duplicate_producer: None,
-            store_manager,
-            offset_tracker: None,
-        };
-
-        let uuid = Uuid::new_v4();
-
-        // First batch - new event
-        let batch1 = vec![create_test_raw_event(
-            Some(uuid),
-            "event1",
-            "user1",
-            "2024-01-01T00:00:00Z",
-        )];
-
-        let results1 = processor
-            .deduplicate_batch("test-topic", 0, batch1.iter().collect())
-            .await
-            .unwrap();
-        assert!(matches!(results1[0], DeduplicationResult::New));
-
-        // Second batch - same UUID, different timestamp (UUID duplicate)
-        let batch2 = vec![create_test_raw_event(
-            Some(uuid),
-            "event1",
-            "user1",
-            "2024-01-01T00:00:01Z",
-        )];
-
-        let results2 = processor
-            .deduplicate_batch("test-topic", 0, batch2.iter().collect())
-            .await
-            .unwrap();
-        assert!(matches!(
-            results2[0],
-            DeduplicationResult::ConfirmedDuplicate(
-                DeduplicationType::UUID,
-                DeduplicationResultReason::OnlyTimestampDifferent,
-                _,
-                _
-            )
-        ));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1238,7 +933,7 @@ mod tests {
         let uuid2 = Uuid::new_v4();
 
         // First batch - establish baseline
-        let batch1 = vec![create_test_raw_event(
+        let batch1 = [create_test_raw_event(
             Some(uuid1),
             "event1",
             "user1",
@@ -1252,13 +947,11 @@ mod tests {
         assert!(matches!(results1[0], DeduplicationResult::New));
 
         // Second batch - mix of new and duplicate
-        let batch2 = vec![
+        let batch2 = [
             // Exact duplicate (timestamp)
             create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:00Z"),
             // New event
             create_test_raw_event(Some(uuid2), "event2", "user2", "2024-01-01T00:00:01Z"),
-            // UUID duplicate with different timestamp
-            create_test_raw_event(Some(uuid1), "event1", "user1", "2024-01-01T00:00:02Z"),
         ];
 
         let results2 = processor
@@ -1266,13 +959,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(results2.len(), 3);
+        assert_eq!(results2.len(), 2);
         assert!(results2[0].is_duplicate()); // Timestamp duplicate
         assert!(matches!(results2[1], DeduplicationResult::New)); // New event
-        assert!(matches!(
-            results2[2],
-            DeduplicationResult::ConfirmedDuplicate(DeduplicationType::UUID, _, _, _)
-        )); // UUID duplicate
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1288,7 +977,7 @@ mod tests {
         };
 
         // First batch - events without UUIDs
-        let batch1 = vec![
+        let batch1 = [
             create_test_raw_event(None, "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(None, "event2", "user2", "2024-01-01T00:00:01Z"),
         ];
@@ -1302,7 +991,7 @@ mod tests {
         assert!(matches!(results1[1], DeduplicationResult::New));
 
         // Second batch - duplicate events (only timestamp-based dedup)
-        let batch2 = vec![create_test_raw_event(
+        let batch2 = [create_test_raw_event(
             None,
             "event1",
             "user1",
@@ -1391,7 +1080,7 @@ mod tests {
         let uuid1 = Uuid::new_v4();
 
         // First event
-        let batch1 = vec![create_test_raw_event(
+        let batch1 = [create_test_raw_event(
             Some(uuid1),
             "event1",
             "user1",
@@ -1405,7 +1094,7 @@ mod tests {
 
         // Same event with different UUID
         let uuid2 = Uuid::new_v4();
-        let batch2 = vec![create_test_raw_event(
+        let batch2 = [create_test_raw_event(
             Some(uuid2),
             "event1",
             "user1",
@@ -1444,7 +1133,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         // Batch with duplicate events within the same batch
-        let batch = vec![
+        let batch = [
             create_test_raw_event(Some(uuid), "event1", "user1", "2024-01-01T00:00:00Z"),
             create_test_raw_event(Some(uuid), "event1", "user1", "2024-01-01T00:00:00Z"),
         ];

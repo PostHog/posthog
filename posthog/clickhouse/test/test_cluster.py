@@ -39,7 +39,8 @@ def test_mutation_runner_rejects_invalid_parameters() -> None:
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
     def replace_memory_addresses_and_ips(value):
         message = re.sub(r"0x[0-9A-Fa-f]{16}", "0x0000000000000000", value)
-        return re.sub(r"address='\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'", "address='127.0.0.1'", message)
+        message = re.sub(r"address='\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'", "address='127.0.0.1'", message)
+        return re.sub(r"host='\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'", "host='127.0.0.1'", message)
 
     with pytest.raises(ExceptionGroup) as e:
         cluster.map_all_hosts(Query("invalid query")).result()

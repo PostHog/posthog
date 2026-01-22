@@ -146,8 +146,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         setBreakdownProperties: (breakdownProperties: RevenueAnalyticsBreakdown[]) => ({ breakdownProperties }),
         addBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
         removeBreakdown: (breakdown: RevenueAnalyticsBreakdown) => ({ breakdown }),
-        resumeRevenueViewSchedule: (viewId: string) => ({ viewId }),
-        resumeAllPausedSchedules: true,
+        resumeViewSchedule: (viewId: string) => ({ viewId }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -219,9 +218,15 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         resumingSchedules: [
             false,
             {
-                resumeRevenueViewSchedule: () => true,
-                resumeAllPausedSchedules: () => true,
+                resumeViewSchedule: () => true,
                 loadDataWarehouseSavedQueries: () => false,
+            },
+        ],
+        resumingViewSchedule: [
+            {} as Record<string, boolean>,
+            {
+                resumeViewSchedule: (state, { viewId }) => ({ ...state, [viewId]: true }),
+                loadDataWarehouseSavedQueries: () => ({}),
             },
         ],
     })),
@@ -239,6 +244,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         revenueEnabledEvents: [(s) => [s.events], (events) => events],
+
         revenueEnabledDataWarehouseSources: [
             (s) => [s.dataWarehouseSources],
             (dataWarehouseSources) =>
@@ -273,19 +279,42 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
 
-        pausedRevenueViews: [
+        isRevenueAnalyticsEnabled: [
+            (s) => [s.hasRevenueTables, s.hasRevenueEvents],
+            (hasRevenueTables, hasRevenueEvents): boolean => {
+                return hasRevenueTables || hasRevenueEvents
+            },
+        ],
+
+        allRevenueAnalyticsViews: [
             (s) => [s.dataWarehouseSavedQueries],
             (savedQueries): DataWarehouseSavedQuery[] => {
                 if (!savedQueries) {
                     return []
                 }
-                const result = savedQueries.filter(
+                return savedQueries.filter((query) => query.managed_viewset_kind === 'revenue_analytics')
+            },
+        ],
+
+        pausedRevenueViews: [
+            (s) => [s.allRevenueAnalyticsViews],
+            (allRevenueAnalyticsViews): DataWarehouseSavedQuery[] => {
+                if (!allRevenueAnalyticsViews) {
+                    return []
+                }
+                const result = allRevenueAnalyticsViews.filter(
                     (query) =>
-                        query.managed_viewset_kind === 'revenue_analytics' &&
                         (!query.sync_frequency || query.sync_frequency === 'never') &&
                         (query.status === 'Failed' || query.latest_error)
                 )
                 return result
+            },
+        ],
+
+        hasRevenueAnalyticsViewsWithIssues: [
+            (s) => [s.allRevenueAnalyticsViews],
+            (allRevenueAnalyticsViews): boolean => {
+                return allRevenueAnalyticsViews.some((view) => view.status === 'Failed' || view.latest_error)
             },
         ],
 
@@ -396,7 +425,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setMRRMode: ({ mrrMode }) => {
             actions.reportRevenueAnalyticsMRRModeChanged(mrrMode)
         },
@@ -412,17 +441,13 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         removeBreakdown: ({ breakdown }) => {
             actions.reportRevenueAnalyticsBreakdownRemoved(breakdown.property, breakdown.type)
         },
-        resumeAllPausedSchedules: async () => {
-            const pausedViews = values.pausedRevenueViews
-            if (pausedViews.length === 0) {
-                return
-            }
+        resumeViewSchedule: async ({ viewId }) => {
             try {
-                await api.dataWarehouseSavedQueries.resumeSchedules(pausedViews.map((view) => view.id))
-                lemonToast.success(`Resumed ${pausedViews.length} schedule${pausedViews.length > 1 ? 's' : ''}`)
+                await api.dataWarehouseSavedQueries.resumeSchedules([viewId])
+                lemonToast.success('Schedule resumed')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
-                lemonToast.error('Failed to resume some schedules')
+                lemonToast.error('Failed to resume schedule')
                 actions.loadDataWarehouseSavedQueries()
             }
         },

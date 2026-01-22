@@ -22,6 +22,7 @@ import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
@@ -62,7 +63,7 @@ const CustomDocument = ExtensionDocument.extend({
 })
 
 export function Editor(): JSX.Element {
-    const { shortId, mode } = useValues(notebookLogic)
+    const { shortId, mode, isEditable } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
@@ -120,6 +121,7 @@ export function Editor(): JSX.Element {
         NotebookNodeBacklink,
         NotebookNodeQuery,
         NotebookNodePython,
+        NotebookNodeDuckSQL,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,
@@ -156,6 +158,7 @@ export function Editor(): JSX.Element {
         <RichContentEditor
             logicKey={`Notebook.${shortId}`}
             extensions={extensions}
+            disabled={!isEditable}
             className="NotebookEditor flex flex-col flex-1"
             onUpdate={onEditorUpdate}
             onSelectionUpdate={onEditorSelectionUpdate}

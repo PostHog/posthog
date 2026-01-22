@@ -3,6 +3,9 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
+import { Search } from 'lib/components/Search/Search'
+import { SearchItem } from 'lib/components/Search/searchLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import {
     NEW_TAB_COMMANDS,
@@ -27,6 +30,45 @@ export const scene: SceneExport = {
 }
 
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const isNewSearchUx = useFeatureFlag('NEW_SEARCH_UX')
+
+    if (isNewSearchUx) {
+        return <NewSearchTabScene />
+    }
+
+    return <DefaultNewTabScene tabId={tabId} />
+}
+
+function NewSearchTabScene(): JSX.Element {
+    const handleItemSelect = useCallback((item: SearchItem) => {
+        if (item.href) {
+            router.actions.push(item.href)
+        }
+    }, [])
+
+    return (
+        <Search.Root
+            logicKey="new-tab"
+            isActive
+            onItemSelect={handleItemSelect}
+            showAskAiLink
+            className="size-full grow"
+        >
+            <div className="sticky top-0 w-full max-w-[640px] mx-auto">
+                <Search.Input autoFocus className="pt-8" />
+                <Search.Status />
+            </div>
+            <Search.Separator className="-mx-4" />
+            <Search.Results
+                className="w-full mx-auto grow overflow-y-auto"
+                listClassName="max-w-[640px] mx-auto"
+                groupLabelClassName="bg-(--scene-layout-background)"
+            />
+        </Search.Root>
+    )
+}
+
+function DefaultNewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const commandInputRef = useRef<SearchInputHandle>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const {

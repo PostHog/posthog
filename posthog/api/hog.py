@@ -1,5 +1,4 @@
 import structlog
-from hogql_parser import parse_program
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -7,6 +6,7 @@ from posthog.schema import HogCompileResponse
 
 from posthog.hogql.compiler.bytecode import Local, create_bytecode
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_program
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
