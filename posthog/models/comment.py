@@ -33,7 +33,7 @@ class Comment(UUIDTModel, RootTeamMixin):
             # Optimized for conversations polling: filters deleted=False, orders by -created_at
             models.Index(
                 fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
-                name="posthog_comment_conversations_idx",
+                name="posthog_comment_convo_idx",
             ),
         ]
 

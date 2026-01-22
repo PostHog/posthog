@@ -63,7 +63,7 @@ class Ticket(UUIDTModel):
             # Dashboard ordering optimization
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
-            models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_team_status_upd_idx"),
+            models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

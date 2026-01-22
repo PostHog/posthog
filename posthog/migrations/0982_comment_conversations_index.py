@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             model_name="comment",
             index=models.Index(
                 fields=["team_id", "scope", "item_id", "deleted", "-created_at"],
-                name="posthog_comment_conversations_idx",
+                name="posthog_comment_convo_idx",
             ),
         ),
     ]

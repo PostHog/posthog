@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
             model_name="ticket",
             index=models.Index(
                 fields=["team", "status", "-updated_at"],
-                name="posthog_con_team_status_upd_idx",
+                name="posthog_con_status_upd_idx",
             ),
         ),
     ]
