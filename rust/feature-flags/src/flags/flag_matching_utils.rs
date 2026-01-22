@@ -30,7 +30,8 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -97,6 +98,7 @@ static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
 #[cfg(test)]
 thread_local! {
     static FETCH_CALLS: RefCell<u64> = const { RefCell::new(0) };
+    static HASH_KEY_OVERRIDE_LOOKUPS: RefCell<u64> = const { RefCell::new(0) };
 }
 
 /// Calculates a deterministic hash value between 0 and 1 for a given identifier and salt.
@@ -586,6 +588,10 @@ pub async fn get_feature_flag_hash_key_overrides(
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
+    // Track hash key override lookups for testing
+    #[cfg(test)]
+    increment_hash_key_override_lookup_count();
+
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
         .take(3)
@@ -727,6 +733,18 @@ async fn try_get_feature_flag_hash_key_overrides(
     for (feature_flag_key, hash_key, _) in sorted_overrides {
         feature_flag_hash_key_overrides.insert(feature_flag_key, hash_key);
     }
+
+    // Track whether query returned overrides to understand cache optimization potential
+    let result_label = if feature_flag_hash_key_overrides.is_empty() {
+        "empty"
+    } else {
+        "has_overrides"
+    };
+    common_metrics::inc(
+        FLAG_HASH_KEY_QUERY_RESULT,
+        &[("result".to_string(), result_label.to_string())],
+        1,
+    );
 
     Ok(feature_flag_hash_key_overrides)
 }
@@ -1347,6 +1365,21 @@ pub fn reset_fetch_calls_count() {
 #[cfg(test)]
 pub fn increment_fetch_calls_count() {
     FETCH_CALLS.with(|counter| *counter.borrow_mut() += 1);
+}
+
+#[cfg(test)]
+pub fn get_hash_key_override_lookup_count() -> u64 {
+    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow())
+}
+
+#[cfg(test)]
+pub fn reset_hash_key_override_lookup_count() {
+    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow_mut() = 0);
+}
+
+#[cfg(test)]
+fn increment_hash_key_override_lookup_count() {
+    HASH_KEY_OVERRIDE_LOOKUPS.with(|counter| *counter.borrow_mut() += 1);
 }
 
 #[cfg(test)]

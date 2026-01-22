@@ -8,7 +8,7 @@ import { scopesArrayToObject } from 'lib/scopes'
 
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
-export type CLIUseCase = 'schema' | 'error_tracking'
+export type CLIUseCase = 'schema' | 'error_tracking' | 'endpoints'
 
 export interface CLIAuthorizeForm {
     userCode: string
@@ -20,6 +20,7 @@ export interface CLIAuthorizeForm {
 const USE_CASE_SCOPES: Record<CLIUseCase, string[]> = {
     schema: ['event_definition:read', 'property_definition:read'],
     error_tracking: ['error_tracking:write'],
+    endpoints: ['endpoint:write'],
 }
 
 // Default use cases when none are specified
@@ -167,6 +168,21 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                 )
             },
         ],
+        missingEndpointsScopes: [
+            (s) => [s.authorize, s.requestedUseCases],
+            (authorize, requestedUseCases): boolean => {
+                // Only show warning if endpoints use case was requested
+                if (!requestedUseCases.includes('endpoints')) {
+                    return false
+                }
+                if (!authorize || !authorize.scopes) {
+                    return false
+                }
+                // Warn if missing endpoint entirely (neither read nor write)
+                // Note: write permissions include read, so having write is sufficient
+                return !authorize.scopes.includes('endpoint:read') && !authorize.scopes.includes('endpoint:write')
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         loadProjectsSuccess: () => {
@@ -228,7 +244,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             const useCasesParam = searchParams.use_cases
             if (useCasesParam) {
                 const useCases = useCasesParam.split(',').filter((uc: string): uc is CLIUseCase => {
-                    return uc === 'schema' || uc === 'error_tracking'
+                    return uc === 'schema' || uc === 'error_tracking' || uc === 'endpoints'
                 })
                 if (useCases.length > 0) {
                     actions.setRequestedUseCases(useCases)

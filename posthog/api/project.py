@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -489,6 +490,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
+@extend_schema(tags=["core"])
 class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.

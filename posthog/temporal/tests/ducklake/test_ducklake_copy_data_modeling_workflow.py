@@ -211,8 +211,8 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
     with override_settings(
-        AIRBYTE_BUCKET_KEY="test",
-        AIRBYTE_BUCKET_SECRET="secret",
+        DATAWAREHOUSE_LOCAL_ACCESS_KEY="test",
+        DATAWAREHOUSE_LOCAL_ACCESS_SECRET="secret",
         OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
         USE_LOCAL_SETUP=True,
     ):

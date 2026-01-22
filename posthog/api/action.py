@@ -3,10 +3,13 @@ from typing import Any, cast
 
 from django.db.models import Count
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import request, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
+
+from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -107,16 +110,17 @@ class ActionSerializer(
         if attrs.get("pinned_at") == "":
             attrs["pinned_at"] = None
 
-        colliding_action_ids = list(
-            Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
-            .exclude(**exclude_args)[:1]
-            .values_list("id", flat=True)
-        )
-        if colliding_action_ids:
-            raise serializers.ValidationError(
-                {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
-                code="unique",
+        if "name" in attrs:
+            colliding_action_ids = list(
+                Action.objects.filter(name=attrs["name"], deleted=False, **include_args)
+                .exclude(**exclude_args)[:1]
+                .values_list("id", flat=True)
             )
+            if colliding_action_ids:
+                raise serializers.ValidationError(
+                    {"name": f"This project already has an action with this name, ID {colliding_action_ids[0]}"},
+                    code="unique",
+                )
 
         return attrs
 
@@ -155,6 +159,7 @@ class ActionSerializer(
         return instance
 
 
+@extend_schema(tags=[ProductKey.ACTIONS])
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

@@ -124,6 +124,6 @@ def validate_response(openapi_spec: dict[str, Any], response: Any, path_override
             # Verify that all required params were sent
             required_parameters = {key for key, spec in query_parameter_specs.items() if spec.get("required")}
             for required_parameter in required_parameters:
-                assert (
-                    required_parameter in sent_query_parameters.keys()
-                ), f"Required parameter {required_parameter} was not sent in query string"
+                assert required_parameter in sent_query_parameters.keys(), (
+                    f"Required parameter {required_parameter} was not sent in query string"
+                )

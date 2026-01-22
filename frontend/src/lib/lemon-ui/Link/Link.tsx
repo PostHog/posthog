@@ -263,7 +263,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         if (href && !externalLink && !skipContext) {
             element = (
                 <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
+                    <ContextMenuTrigger asChild>
+                        {/* Span so we can have both tooltip and context menu, without it the tooltip doesn't work with context menu */}
+                        <span className="contents">{element}</span>
+                    </ContextMenuTrigger>
                     <ContextMenuContent className="max-w-[300px]">
                         <ContextMenuGroup>
                             <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />

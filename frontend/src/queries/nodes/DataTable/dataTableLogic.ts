@@ -245,6 +245,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showResultsTable: query.showResultsTable ?? true,
                         showRecordingColumn: query.showRecordingColumn ?? false,
                         showSourceQueryOptions: query.showSourceQueryOptions ?? true,
+                        showCount: query.showCount ?? false,
                     }),
                 }
             },

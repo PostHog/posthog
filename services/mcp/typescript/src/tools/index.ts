@@ -11,6 +11,7 @@ import createDashboard from './dashboards/create'
 import deleteDashboard from './dashboards/delete'
 import getDashboard from './dashboards/get'
 import getAllDashboards from './dashboards/getAll'
+import reorderDashboardTiles from './dashboards/reorderTiles'
 import updateDashboard from './dashboards/update'
 // Documentation
 import searchDocs from './documentation/searchDocs'
@@ -63,6 +64,14 @@ import getAllSurveys from './surveys/getAll'
 import surveysGlobalStats from './surveys/global-stats'
 import surveyStats from './surveys/stats'
 import updateSurvey from './surveys/update'
+// Actions
+import createAction from './actions/create'
+import deleteAction from './actions/delete'
+import getAction from './actions/get'
+import getAllActions from './actions/getAll'
+import updateAction from './actions/update'
+// Search
+import entitySearch from './search/entitySearch'
 // Misc
 import { getToolsForFeatures as getFilteredToolNames, getToolDefinition } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
@@ -125,6 +134,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': createDashboard,
     'dashboard-update': updateDashboard,
     'dashboard-delete': deleteDashboard,
+    'dashboard-reorder-tiles': reorderDashboardTiles,
     'add-insight-to-dashboard': addInsightToDashboard,
 
     // LLM Observability
@@ -138,6 +148,16 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-delete': deleteSurvey,
     'surveys-global-stats': surveysGlobalStats,
     'survey-stats': surveyStats,
+
+    // Actions
+    'actions-get-all': getAllActions,
+    'action-get': getAction,
+    'action-create': createAction,
+    'action-update': updateAction,
+    'action-delete': deleteAction,
+
+    // Search
+    'entity-search': entitySearch,
 }
 
 export const getToolsFromContext = async (context: Context, features?: string[]): Promise<Tool<ZodObjectAny>[]> => {

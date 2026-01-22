@@ -22,13 +22,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.auth import SessionAuthentication
-from posthog.event_usage import report_user_action
+from posthog.event_usage import groups, report_user_action
 from posthog.models import User
 from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxyDailyRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 from products.llm_analytics.backend.providers.codestral import CodestralConfig, CodestralProvider
 from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
@@ -130,6 +132,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if not request.user or not request.user.is_authenticated:
                 return Response({"error": "You are not authorized to use this feature"}, status=401)
 
+            organization = request.user.organization
+            if not organization or not organization.customer_id:
+                return Response(
+                    {"error": "The playground requires a valid payment method on file to prevent abuse."},
+                    status=402,
+                )
+
             serializer = serializer_class(data=request.data)
             if not serializer.is_valid():
                 return Response({"error": serializer.errors}, status=400)
@@ -142,11 +151,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             trace_id = str(uuid.uuid4())
             distinct_id = getattr(request.user, "email", "") if request.user and request.user.is_authenticated else ""
             properties = {"ai_product": "playground"}
-            groups = {}  # placeholder for groups, maybe we should add team_id here or something????
-            if request.user and request.user.is_authenticated:
-                team_id = getattr(request.user, "team_id", None)
-                if team_id:
-                    groups["team"] = str(team_id)
+            group_properties = groups(team=getattr(request.user, "current_team", None))
 
             if mode == "completion" and hasattr(provider, "stream_response"):
                 messages = serializer.validated_data.get("messages")
@@ -178,7 +183,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     "distinct_id": distinct_id,
                     "trace_id": trace_id,
                     "properties": properties,
-                    "groups": groups,
+                    "groups": group_properties,
                 }
 
                 # Only pass reasoning_level to OpenAI provider which supports it
@@ -295,6 +300,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return Response({"error": "Unsupported model"}, status=400)
 
     @action(detail=False, methods=["GET"])
+    @monitor(feature=None, endpoint="llma_proxy_models", method="GET")
     def models(self, request):
         """Return a list of available models across providers"""
         model_list: list[dict[str, str]] = []
@@ -310,11 +316,15 @@ class LLMProxyViewSet(viewsets.ViewSet):
         return Response(model_list)
 
     @action(detail=False, methods=["POST"])
+    @llma_track_latency("llma_proxy_completion")
+    @monitor(feature=None, endpoint="llma_proxy_completion", method="POST")
     def completion(self, request, *args, **kwargs):
         return self._handle_request(
             request, LLMProxyCompletionSerializer, self._get_completion_provider, mode="completion"
         )
 
     @action(detail=False, methods=["POST"], url_path="fim/completion")
+    @llma_track_latency("llma_proxy_fim_completion")
+    @monitor(feature=None, endpoint="llma_proxy_fim_completion", method="POST")
     def fimCompletion(self, request, *args, **kwargs):
         return self._handle_request(request, LLMProxyFIMSerializer, self._get_fim_provider, mode="fim")

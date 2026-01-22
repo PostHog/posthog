@@ -48,12 +48,12 @@ async def afetch_batch_export(batch_export_id: uuid.UUID) -> BatchExport:
     return await sync_to_async(BatchExport.objects.get)(id=batch_export_id)
 
 
-def fetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportRun]:
+def fetch_batch_export_runs(batch_export_id: uuid.UUID | str, limit: int = 100) -> list[BatchExportRun]:
     """Fetch the BatchExportRuns for a given BatchExport."""
     return list(BatchExportRun.objects.filter(batch_export_id=batch_export_id).order_by("-created_at")[:limit])
 
 
-async def afetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportRun]:
+async def afetch_batch_export_runs(batch_export_id: uuid.UUID | str, limit: int = 100) -> list[BatchExportRun]:
     """Async fetch the BatchExportRuns for a given BatchExport."""
     return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)
 

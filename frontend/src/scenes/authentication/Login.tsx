@@ -58,6 +58,7 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
+    oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
 }
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
@@ -285,7 +286,12 @@ export function Login(): JSX.Element {
                     </div>
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <SocialLoginButtons caption="Or log in with" topDivider lastUsedProvider={lastLoginMethod} />
+                    <SocialLoginButtons
+                        caption="Or log in with"
+                        topDivider
+                        lastUsedProvider={lastLoginMethod}
+                        showPasskey
+                    />
                 )}
             </div>
         </BridgePage>

@@ -26,6 +26,7 @@ from posthog.auth import WidgetAuthentication
 from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.tasks.email import send_new_ticket_notification
 
 from products.conversations.backend.api.serializers import (
     WidgetMarkReadSerializer,
@@ -78,6 +79,8 @@ class WidgetMessageView(APIView):
         distinct_id = serializer.validated_data["distinct_id"]
         message_content = serializer.validated_data["message"]
         traits = serializer.validated_data.get("traits", {})
+        session_id = serializer.validated_data.get("session_id")
+        session_context = serializer.validated_data.get("session_context", {})
 
         # Handle optional ticket_id (UUID field)
         raw_ticket_id = request.data.get("ticket_id")
@@ -106,41 +109,41 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
+                # Update session data if provided
+                if session_id:
+                    ticket.session_id = session_id
+                if session_context:
+                    ticket.session_context.update(session_context)
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.save(
+                    update_fields=[
+                        "distinct_id",
+                        "anonymous_traits",
+                        "session_id",
+                        "session_context",
+                        "unread_team_count",
+                        "updated_at",
+                    ]
+                )
                 ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
-            # Find existing ticket by widget_session_id or create new one
-            existing_ticket = Ticket.objects.filter(
-                team=team, widget_session_id=widget_session_id, channel_source="widget"
-            ).first()
-
-            if existing_ticket:
-                ticket = existing_ticket
-                # Update distinct_id if changed (anonymous → identified)
-                if ticket.distinct_id != distinct_id:
-                    ticket.distinct_id = distinct_id
-                if traits:
-                    ticket.anonymous_traits.update(traits)
-                # Increment unread count for team
-                ticket.unread_team_count = F("unread_team_count") + 1
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
-                ticket.refresh_from_db()
-            else:
-                # Create new ticket (first message is unread for team)
-                ticket = Ticket.objects.create(
-                    team=team,
-                    widget_session_id=widget_session_id,
-                    distinct_id=distinct_id,
-                    channel_source="widget",
-                    status="new",
-                    anonymous_traits=traits,
-                    unread_team_count=1,
-                )
+            # No ticket_id provided - always create a new ticket
+            ticket = Ticket.objects.create_with_number(
+                team=team,
+                widget_session_id=widget_session_id,
+                distinct_id=distinct_id,
+                channel_source="widget",
+                status="new",
+                anonymous_traits=traits,
+                unread_team_count=1,
+                session_id=session_id,
+                session_context=session_context,
+            )
 
         # Create message
         comment = Comment.objects.create(
@@ -150,6 +153,16 @@ class WidgetMessageView(APIView):
             content=message_content,
             item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
+
+        # Send email notification for new tickets
+        if not ticket_id:
+            conversations_settings = team.conversations_settings or {}
+            if conversations_settings.get("notification_recipients"):
+                send_new_ticket_notification.delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team.id,
+                    first_message_content=message_content,
+                )
 
         return Response(
             {

@@ -1,3 +1,4 @@
+import json
 import asyncio
 import logging
 from uuid import uuid4
@@ -165,4 +166,4 @@ class Command(BaseCommand):
                 retry_policy=retry_policy,
             )
         )
-        logging.info("Workflow output: %s", result)
+        logging.info("Workflow output:\n%s", json.dumps(result, indent=2, default=str))

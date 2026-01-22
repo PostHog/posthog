@@ -69,6 +69,7 @@ import {
     EntityTypes,
     FunnelExclusionLegacy,
     HogQLMathType,
+    InsightShortId,
     PropertyFilterValue,
     PropertyMathType,
 } from '~/types'
@@ -224,8 +225,10 @@ export function ActionFilterRow({
     const isTrendsContext = trendsDisplayCategory != null
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
+    // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
+    const dashboardItemId = typeKey.split('/')[0] as InsightShortId
     const { insightProps: funnelInsightProps } = useValues(
-        insightLogic({ dashboardItemId: isFunnelContext ? (typeKey as any) : 'new' })
+        insightLogic({ dashboardItemId: isFunnelContext ? dashboardItemId : 'new' })
     )
     const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
 
@@ -389,6 +392,7 @@ export function ActionFilterRow({
         </IconWithCount>
     )
 
+    // Enable popup menu for funnels and trends contexts where we want to show rename/duplicate/delete/etc in a menu
     const enablePopup = mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext
 
     const renameRowButton = (
@@ -466,15 +470,26 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    const rowEndElements = !readOnly
-        ? [
-              !hideFilter && !enablePopup && propertyFiltersButton,
-              !hideRename && renameRowButton,
-              !hideDuplicate && !singleFilter && duplicateRowButton,
-              showCombine && combineRowButton,
-              !hideDeleteBtn && !singleFilter && deleteButton,
-          ].filter(Boolean)
-        : []
+    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
+    const hasMenuItems =
+        isFunnelContext ||
+        !hideRename ||
+        (!hideDuplicate && !singleFilter) ||
+        showCombine ||
+        (!hideDeleteBtn && !singleFilter)
+    const showPopupMenu = !readOnly && enablePopup && hasMenuItems
+
+    // When not using popup, show elements inline
+    const rowEndElements =
+        !readOnly && !showPopupMenu
+            ? [
+                  !hideFilter && propertyFiltersButton,
+                  !hideRename && renameRowButton,
+                  !hideDuplicate && !singleFilter && duplicateRowButton,
+                  showCombine && combineRowButton,
+                  !hideDeleteBtn && !singleFilter && deleteButton,
+              ].filter(Boolean)
+            : []
 
     return (
         <li
@@ -626,9 +641,9 @@ export function ActionFilterRow({
                                 )}
                         </div>
                         {/* right section fixed */}
-                        {rowEndElements.length ? (
+                        {(rowEndElements.length > 0 || showPopupMenu) && (
                             <div className="ActionFilterRow__end">
-                                {mathAvailability === MathAvailability.FunnelsOnly || isTrendsContext ? (
+                                {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
                                         <div className="relative">
@@ -638,7 +653,8 @@ export function ActionFilterRow({
                                                 closeOnClickInside={false}
                                                 onVisibilityChange={setIsMenuVisible}
                                                 items={[
-                                                    ...(mathAvailability === MathAvailability.FunnelsOnly
+                                                    // MathSelector for funnels only (trends shows it inline)
+                                                    ...(isFunnelContext
                                                         ? [
                                                               {
                                                                   label: () => (
@@ -665,7 +681,8 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    ...(mathAvailability === MathAvailability.FunnelsOnly && index > 0
+                                                    // Optional step checkbox for funnels only
+                                                    ...(isFunnelContext && index > 0
                                                         ? [
                                                               {
                                                                   label: () => (
@@ -693,12 +710,20 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    {
-                                                        label: () => renameRowButton,
-                                                    },
-                                                    {
-                                                        label: () => duplicateRowButton,
-                                                    },
+                                                    ...(!hideRename
+                                                        ? [
+                                                              {
+                                                                  label: () => renameRowButton,
+                                                              },
+                                                          ]
+                                                        : []),
+                                                    ...(!hideDuplicate && !singleFilter
+                                                        ? [
+                                                              {
+                                                                  label: () => duplicateRowButton,
+                                                              },
+                                                          ]
+                                                        : []),
                                                     ...(showCombine
                                                         ? [
                                                               {
@@ -706,9 +731,13 @@ export function ActionFilterRow({
                                                               },
                                                           ]
                                                         : []),
-                                                    {
-                                                        label: () => deleteButton,
-                                                    },
+                                                    ...(!hideDeleteBtn && !singleFilter
+                                                        ? [
+                                                              {
+                                                                  label: () => deleteButton,
+                                                              },
+                                                          ]
+                                                        : []),
                                                 ]}
                                             >
                                                 <LemonButton
@@ -722,9 +751,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={
-                                                    !isTrendsContext && (math != null || isStepOptional(index + 1))
-                                                }
+                                                visible={isFunnelContext && (math != null || isStepOptional(index + 1))}
                                             />
                                         </div>
                                     </>
@@ -732,7 +759,7 @@ export function ActionFilterRow({
                                     rowEndElements
                                 )}
                             </div>
-                        ) : null}
+                        )}
                     </>
                 )}
             </div>

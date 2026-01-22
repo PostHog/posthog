@@ -1,6 +1,6 @@
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import UniqueConstraint
+from django.db.models import Q, UniqueConstraint
 
 from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDTModel
 
@@ -47,6 +47,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "template_name",
                     "team",
                 ],
+                condition=Q(deleted__isnull=True) | Q(deleted=False),
                 name="unique_template_name_per_team",
             ),
         ]

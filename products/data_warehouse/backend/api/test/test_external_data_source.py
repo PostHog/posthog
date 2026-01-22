@@ -513,7 +513,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(26):
+        with self.assertNumQueries(27):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -556,6 +556,7 @@ class TestExternalDataSource(APIBaseTest):
                 "schemas",
                 "job_inputs",
                 "revenue_analytics_config",
+                "user_access_level",
             ],
         )
         self.assertEqual(
@@ -1148,9 +1149,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with "Required field 'auth' is missing"
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are still intact
         source.refresh_from_db()
@@ -1372,9 +1373,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Should succeed, not fail with validation error
-        assert (
-            patch_response.status_code == 200
-        ), f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        assert patch_response.status_code == 200, (
+            f"Expected 200, got {patch_response.status_code}: {patch_response.json()}"
+        )
 
         # Verify credentials are preserved
         source.refresh_from_db()

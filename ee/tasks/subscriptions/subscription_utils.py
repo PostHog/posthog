@@ -1,6 +1,7 @@
 import time
 import asyncio
 import datetime
+import threading
 from typing import Union
 
 from django.conf import settings
@@ -10,7 +11,6 @@ from celery import chain
 from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
@@ -18,7 +18,6 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.tasks.exporter import EXCEPTIONS_TO_RETRY, USER_QUERY_ERRORS
 from posthog.utils import wait_for_parallel_celery_group
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +28,13 @@ DEFAULT_MAX_ASSET_COUNT = 6
 # when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Prometheus metrics for Temporal workers (web/worker pods)
+SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
+    "subscription_asset_generation_duration_seconds",
+    "Time spent generating assets for a subscription",
+    labelnames=["execution_path"],
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+)
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
@@ -52,15 +58,6 @@ def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscrip
         "failed_insight_urls": failed_insight_urls,
         "dashboard_url": dashboard_url,
     }
-
-
-# Prometheus metrics for Celery workers (web/worker pods)
-SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
-    "subscription_asset_generation_duration_seconds",
-    "Time spent generating assets for a subscription",
-    labelnames=["execution_path"],
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
-)
 
 
 # Temporal metrics for temporal workers
@@ -114,12 +111,14 @@ def generate_assets(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -173,12 +172,14 @@ async def generate_assets_async(
             raise Exception("There are no insights to be sent for this Subscription")
 
         # Create all the assets we need
+        expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
         assets = [
             ExportedAsset(
                 team=resource.team,
-                export_format="image/png",
+                export_format=ExportedAsset.ExportFormat.PNG,
                 insight=insight,
                 dashboard=resource.dashboard,
+                expires_after=expiry,
             )
             for insight in insights[:max_asset_count]
         ]
@@ -187,34 +188,29 @@ async def generate_assets_async(
         if not assets:
             return insights, assets
 
+        # Track cancellation events for each asset so we can signal them on timeout
+        cancellation_events: dict[int, threading.Event] = {}
+
         # Create async tasks for each asset export
+        # Retries and failure recording are handled inside export_asset_direct
         async def export_single_asset(asset: ExportedAsset) -> None:
             subscription_id = getattr(resource, "id", None)
-
-            def log_attempt(retry_state: RetryCallState) -> None:
-                logger.info(
-                    "generate_assets_async.exporting_asset",
-                    asset_id=asset.id,
-                    insight_id=asset.insight_id,
-                    subscription_id=subscription_id,
-                    team_id=resource.team_id,
-                    attempt=retry_state.attempt_number,
-                )
-
-            @retry(
-                retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
-                stop=stop_after_attempt(4),
-                wait=wait_exponential_jitter(initial=2, max=10),
-                reraise=True,
-                before=log_attempt,
+            logger.info(
+                "generate_assets_async.exporting_asset",
+                asset_id=asset.id,
+                insight_id=asset.insight_id,
+                subscription_id=subscription_id,
+                team_id=resource.team_id,
             )
-            async def export_with_retry() -> None:
-                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
-                )
+
+            cancellation_event = threading.Event()
+            cancellation_events[asset.id] = cancellation_event
 
             try:
-                await export_with_retry()
+                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
+                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS, cancellation_event=cancellation_event
+                )
+
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,
@@ -222,34 +218,21 @@ async def generate_assets_async(
                     subscription_id=subscription_id,
                     team_id=resource.team_id,
                 )
+                # Export completed successfully, remove from cancellation tracking
+                cancellation_events.pop(asset.id, None)
             except Exception as e:
-                is_user_error = isinstance(e, USER_QUERY_ERRORS)
-                retryable_error = isinstance(e, EXCEPTIONS_TO_RETRY)
-
-                if is_user_error:
-                    logger.warning(
-                        "generate_assets_async.user_config_error",
-                        asset_id=asset.id,
-                        insight_id=asset.insight_id,
-                        subscription_id=subscription_id,
-                        error=str(e),
-                        team_id=resource.team_id,
-                    )
-                else:
-                    logger.exception(
-                        "generate_assets_async.export_failed",
-                        asset_id=asset.id,
-                        insight_id=asset.insight_id,
-                        subscription_id=subscription_id,
-                        error=str(e),
-                        exc_info=True,
-                        retryable_error=retryable_error,
-                        team_id=resource.team_id,
-                    )
-
-                asset.exception = str(e)
-                asset.exception_type = type(e).__name__
-                await database_sync_to_async(asset.save, thread_sensitive=False)()
+                # The failure is already recorded on the asset by export_asset_direct so we just log it here.
+                logger.warning(
+                    "generate_assets_async.asset_export_failed",
+                    asset_id=asset.id,
+                    insight_id=asset.insight_id,
+                    subscription_id=subscription_id,
+                    team_id=resource.team_id,
+                    failure_type=asset.failure_type,
+                    error=str(e),
+                )
+                # Export failed, remove from cancellation tracking
+                cancellation_events.pop(asset.id, None)
 
         # Reserve buffer time for email/Slack delivery after exports
         buffer_seconds = 120  # 2 minutes
@@ -276,6 +259,10 @@ async def generate_assets_async(
             )
         except TimeoutError:
             get_asset_generation_timeout_metric("temporal").add(1)
+
+            # Signal all running exports to cancel so orphaned threads don't update assets
+            for event in cancellation_events.values():
+                event.set()
 
             # Get failure info for logging
             failure_info = _get_failed_asset_info(assets, resource)

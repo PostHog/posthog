@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Person, Team } from '~/types'
+import { Hub, Person, PropertyOperator, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
 import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
@@ -77,6 +77,7 @@ describe('PersonsManager', () => {
 
     afterEach(async () => {
         await closeHub(hub)
+        jest.restoreAllMocks()
     })
 
     it('returns the persons requested', async () => {
@@ -155,5 +156,234 @@ describe('PersonsManager', () => {
                 team_id: team.id,
             },
         ])
+    })
+
+    describe('streamMany', () => {
+        it('calls onPerson for each person fetched', async () => {
+            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+            const mockPersons = [
+                {
+                    id: '1',
+                    uuid: 'person-1',
+                    distinct_id: 'distinct-1',
+                    team_id: team.id,
+                    properties: { name: 'Alice' },
+                    is_user_id: null,
+                    is_identified: true,
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    created_at: TIMESTAMP,
+                    version: 0,
+                },
+                {
+                    id: '2',
+                    uuid: 'person-2',
+                    distinct_id: 'distinct-2',
+                    team_id: team.id,
+                    properties: { name: 'Bob' },
+                    is_user_id: null,
+                    is_identified: true,
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    created_at: TIMESTAMP,
+                    version: 0,
+                },
+                {
+                    id: '3',
+                    uuid: 'person-3',
+                    distinct_id: 'distinct-3',
+                    team_id: team.id,
+                    properties: { name: 'Charlie' },
+                    is_user_id: null,
+                    is_identified: true,
+                    properties_last_updated_at: {},
+                    properties_last_operation: {},
+                    created_at: TIMESTAMP,
+                    version: 0,
+                },
+            ]
+
+            jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(mockPersons)
+
+            const onPersonBatch = jest.fn()
+            await manager.streamMany({
+                filters: {
+                    teamId: team.id,
+                    properties: [
+                        {
+                            type: 'person',
+                            key: 'name',
+                            operator: PropertyOperator.IsSet,
+                            value: 'true',
+                        },
+                    ],
+                },
+                onPersonBatch,
+            })
+
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
+            expect(onPersonBatch).toHaveBeenCalledWith([
+                { personId: 'person-1', distinctId: 'distinct-1' },
+                { personId: 'person-2', distinctId: 'distinct-2' },
+                { personId: 'person-3', distinctId: 'distinct-3' },
+            ])
+        })
+
+        it('handles pagination correctly with multiple batches', async () => {
+            jest.restoreAllMocks()
+            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+            const batch1 = Array.from({ length: 500 }, (_, i) => ({
+                id: `${i}`,
+                uuid: `person-${i}`,
+                distinct_id: `distinct-${i}`,
+                team_id: team.id,
+                properties: {},
+                is_user_id: null,
+                is_identified: true,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: TIMESTAMP,
+                version: 0,
+            }))
+            const batch2 = Array.from({ length: 300 }, (_, i) => ({
+                id: `${i + 500}`,
+                uuid: `person-${i + 500}`,
+                distinct_id: `distinct-${i + 500}`,
+                team_id: team.id,
+                properties: {},
+                is_user_id: null,
+                is_identified: true,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: TIMESTAMP,
+                version: 0,
+            }))
+
+            let callCount = 0
+            const fetchSpy = jest
+                .spyOn(hub.personRepository, 'fetchPersonsByProperties')
+                // eslint-disable-next-line @typescript-eslint/require-await
+                .mockImplementation(async () => {
+                    callCount++
+                    return callCount === 1 ? batch1 : batch2
+                })
+
+            const onPersonBatch = jest.fn()
+            await manager.streamMany({
+                filters: { teamId: team.id, properties: [] },
+                onPersonBatch,
+            })
+
+            expect(fetchSpy).toHaveBeenCalledTimes(2)
+            expect(fetchSpy.mock.calls[0][0]).toEqual({
+                teamId: team.id,
+                properties: [],
+                options: { limit: 500, cursor: undefined },
+            })
+            expect(fetchSpy.mock.calls[1][0]).toEqual({
+                teamId: team.id,
+                properties: [],
+                options: { limit: 500, cursor: '499' },
+            })
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
+        })
+
+        it('stops paginating when batch is not full', async () => {
+            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+            const batch = Array.from({ length: 200 }, (_, i) => ({
+                id: `${i}`,
+                uuid: `person-${i}`,
+                distinct_id: `distinct-${i}`,
+                team_id: team.id,
+                properties: {},
+                is_user_id: null,
+                is_identified: true,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: TIMESTAMP,
+                version: 0,
+            }))
+
+            const fetchSpy = jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce(batch)
+
+            const onPersonBatch = jest.fn()
+            await manager.streamMany({
+                filters: { teamId: team.id, properties: [] },
+                onPersonBatch,
+            })
+
+            expect(fetchSpy).toHaveBeenCalledTimes(1)
+            expect(onPersonBatch).toHaveBeenCalledTimes(1)
+        })
+
+        it('handles empty results', async () => {
+            jest.spyOn(hub.personRepository, 'fetchPersonsByProperties').mockResolvedValueOnce([])
+
+            const onPersonBatch = jest.fn()
+            await manager.streamMany({
+                filters: { teamId: team.id, properties: [] },
+                onPersonBatch,
+            })
+
+            expect(onPersonBatch).not.toHaveBeenCalled()
+        })
+
+        it('respects custom limit option', async () => {
+            const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+            const batch1 = Array.from({ length: 100 }, (_, i) => ({
+                id: `${i}`,
+                uuid: `person-${i}`,
+                distinct_id: `distinct-${i}`,
+                team_id: team.id,
+                properties: {},
+                is_user_id: null,
+                is_identified: true,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: TIMESTAMP,
+                version: 0,
+            }))
+            const batch2 = Array.from({ length: 50 }, (_, i) => ({
+                id: `${i + 100}`,
+                uuid: `person-${i + 100}`,
+                distinct_id: `distinct-${i + 100}`,
+                team_id: team.id,
+                properties: {},
+                is_user_id: null,
+                is_identified: true,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                created_at: TIMESTAMP,
+                version: 0,
+            }))
+
+            let callCount = 0
+            const fetchSpy = jest
+                .spyOn(hub.personRepository, 'fetchPersonsByProperties')
+                // eslint-disable-next-line @typescript-eslint/require-await
+                .mockImplementation(async () => {
+                    callCount++
+                    return callCount === 1 ? batch1 : batch2
+                })
+
+            const onPersonBatch = jest.fn()
+            await manager.streamMany({
+                filters: { teamId: team.id, properties: [] },
+                options: { limit: 100 },
+                onPersonBatch,
+            })
+
+            expect(fetchSpy.mock.calls[0][0]).toEqual({
+                teamId: team.id,
+                properties: [],
+                options: { limit: 100, cursor: undefined },
+            })
+            expect(fetchSpy.mock.calls[1][0]).toEqual({
+                teamId: team.id,
+                properties: [],
+                options: { limit: 100, cursor: '99' },
+            })
+            expect(onPersonBatch).toHaveBeenCalledTimes(2)
+        })
     })
 })

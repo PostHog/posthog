@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
-import { match } from 'ts-pattern'
 
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
@@ -50,7 +49,14 @@ import { StatusTag } from './ExperimentView/components'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { EXPERIMENTS_PER_PAGE, ExperimentsFilters, experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import {
+    EXPERIMENTS_PER_PAGE,
+    ExperimentsFilters,
+    experimentsLogic,
+    getExperimentStatus,
+    getShippedVariantKey,
+    isSingleVariantShipped,
+} from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
@@ -90,11 +96,9 @@ const getExperimentDuration = (experiment: Experiment): number | undefined => {
 }
 
 const ExperimentsTableFilters = ({
-    tab,
     filters,
     onFiltersChange,
 }: {
-    tab: ExperimentsTabs
     filters: ExperimentsFilters
     onFiltersChange: (filters: ExperimentsFilters, replace?: boolean) => void
 }): JSX.Element => {
@@ -116,41 +120,38 @@ const ExperimentsTableFilters = ({
                     />
                 </AppShortcut>
                 <div className="flex items-center gap-2">
-                    {ExperimentsTabs.Archived !== tab && (
-                        <>
-                            <span>
-                                <b>Status</b>
-                            </span>
-                            <LemonSelect
-                                size="small"
-                                onChange={(status) => {
-                                    if (status === 'all') {
-                                        const { status: _, ...restFilters } = filters
-                                        onFiltersChange({ ...restFilters, page: 1 }, true)
-                                    } else {
-                                        onFiltersChange({ status: status as ProgressStatus, page: 1 })
-                                    }
-                                }}
-                                options={
-                                    [
-                                        { label: 'All', value: 'all' },
-                                        { label: 'Draft', value: ProgressStatus.Draft },
-                                        { label: 'Running', value: ProgressStatus.Running },
-                                        { label: 'Complete', value: ProgressStatus.Complete },
-                                    ] as { label: string; value: string }[]
-                                }
-                                value={filters.status ?? 'all'}
-                                dropdownMatchSelectWidth={false}
-                                dropdownMaxContentWidth
-                            />
-                        </>
-                    )}
+                    <span>
+                        <b>Status</b>
+                    </span>
+                    <LemonSelect
+                        size="xsmall"
+                        onChange={(status) => {
+                            if (status === 'all') {
+                                const { status: _, ...restFilters } = filters
+                                onFiltersChange({ ...restFilters, page: 1 }, true)
+                            } else {
+                                onFiltersChange({ status: status as ProgressStatus, page: 1 })
+                            }
+                        }}
+                        options={
+                            [
+                                { label: 'All', value: 'all' },
+                                { label: 'Draft', value: ProgressStatus.Draft },
+                                { label: 'Running', value: ProgressStatus.Running },
+                                { label: 'Complete', value: ProgressStatus.Complete },
+                            ] as { label: string; value: string }[]
+                        }
+                        value={filters.status ?? 'all'}
+                        dropdownMatchSelectWidth={false}
+                        dropdownMaxContentWidth
+                    />
                     <span className="ml-1">
                         <b>Created by</b>
                     </span>
                     <MemberSelect
                         defaultLabel="Any user"
                         value={filters.created_by_id ?? null}
+                        size="xsmall"
                         onChange={(user) => {
                             if (!user) {
                                 const { created_by_id, ...restFilters } = filters
@@ -159,6 +160,22 @@ const ExperimentsTableFilters = ({
                                 onFiltersChange({ created_by_id: user.id, page: 1 })
                             }
                         }}
+                    />
+                    <span className="ml-1">
+                        <b>Archived</b>
+                    </span>
+                    <LemonSelect
+                        size="xsmall"
+                        onChange={(value) => {
+                            onFiltersChange({ archived: value === 'archived', page: 1 })
+                        }}
+                        options={[
+                            { label: 'Active', value: 'active' },
+                            { label: 'Archived', value: 'archived' },
+                        ]}
+                        value={filters.archived ? 'archived' : 'active'}
+                        dropdownMatchSelectWidth={false}
+                        dropdownMaxContentWidth
                     />
                 </div>
             </div>
@@ -208,6 +225,15 @@ const ExperimentsTable = ({
                                     >
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isSingleVariantShipped(experiment) && (
+                                    <Tooltip
+                                        title={`Variant "${getShippedVariantKey(experiment)}" has been rolled out to 100% of users`}
+                                    >
+                                        <LemonTag type="completion" className="ml-1">
+                                            <b className="uppercase">100% rollout</b>
                                         </LemonTag>
                                     </Tooltip>
                                 )}
@@ -337,8 +363,8 @@ const ExperimentsTable = ({
                                                         title: 'Archive this experiment?',
                                                         content: (
                                                             <div className="text-sm text-secondary">
-                                                                This action will move the experiment to the archived
-                                                                tab. It can be restored at any time.
+                                                                This action will hide the experiment from the list by
+                                                                default. It can be restored at any time.
                                                             </div>
                                                         ),
                                                         primaryButton: {
@@ -415,43 +441,25 @@ const ExperimentsTable = ({
 
     return (
         <SceneContent>
-            {match(tab)
-                .with(ExperimentsTabs.All, () => (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <ProductIntroduction
-                            productName="Experiments"
-                            productKey={ProductKey.EXPERIMENTS}
-                            thingName="experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                            action={() => router.actions.push(urls.experiment('new'))}
-                            isEmpty={shouldShowEmptyState}
-                            customHog={ExperimentsHog}
-                            className="my-0"
-                        />
-                    </AccessControlAction>
-                ))
-                .with(ExperimentsTabs.Archived, () => (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Experiment}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <ProductIntroduction
-                            productName="Experiments"
-                            productKey={ProductKey.EXPERIMENTS}
-                            thingName="archived experiment"
-                            description={EXPERIMENTS_PRODUCT_DESCRIPTION}
-                            docsURL="https://posthog.com/docs/experiments"
-                            isEmpty={shouldShowEmptyState}
-                            className="my-0"
-                        />
-                    </AccessControlAction>
-                ))
-                .otherwise(() => null)}
-            <ExperimentsTableFilters tab={tab} filters={filters} onFiltersChange={setExperimentsFilters} />
+            {tab === ExperimentsTabs.All && (
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Experiment}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <ProductIntroduction
+                        productName="Experiments"
+                        productKey={ProductKey.EXPERIMENTS}
+                        thingName="experiment"
+                        description={EXPERIMENTS_PRODUCT_DESCRIPTION}
+                        docsURL="https://posthog.com/docs/experiments"
+                        action={() => router.actions.push(urls.experiment('new'))}
+                        isEmpty={shouldShowEmptyState}
+                        customHog={ExperimentsHog}
+                        className="my-0"
+                    />
+                </AccessControlAction>
+            )}
+            <ExperimentsTableFilters filters={filters} onFiltersChange={setExperimentsFilters} />
             <LemonDivider className="my-0" />
             {count ? (
                 <div>
@@ -571,17 +579,7 @@ export function Experiments(): JSX.Element {
                 tabs={[
                     {
                         key: ExperimentsTabs.All,
-                        label: 'All experiments',
-                        content: (
-                            <ExperimentsTable
-                                openDuplicateModal={setDuplicateModalExperiment}
-                                openSurveyModal={setSurveyModalExperiment}
-                            />
-                        ),
-                    },
-                    {
-                        key: ExperimentsTabs.Archived,
-                        label: 'Archived experiments',
+                        label: 'Experiments',
                         content: (
                             <ExperimentsTable
                                 openDuplicateModal={setDuplicateModalExperiment}

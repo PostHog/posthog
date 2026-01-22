@@ -40,6 +40,8 @@ function copyPostHogJsFiles(): void {
         'array.full.es5.js.map',
         'surveys.js',
         'surveys.js.map',
+        'logs.js',
+        'logs.js.map',
         'exception-autocapture.js',
         'exception-autocapture.js.map',
         'web-vitals.js',
