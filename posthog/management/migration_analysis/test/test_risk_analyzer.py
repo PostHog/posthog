@@ -1603,6 +1603,8 @@ class TestAtomicFalsePolicy:
 
         # Should not have atomic-related warnings
         assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+        # Should recognize the operation (not "Unknown")
+        assert not any("Unknown" in r.reason for r in migration_risk.operations)
 
     def test_atomic_true_with_concurrent_blocked(self):
         """CONCURRENTLY without atomic=False should be BLOCKED (will fail at runtime)"""
