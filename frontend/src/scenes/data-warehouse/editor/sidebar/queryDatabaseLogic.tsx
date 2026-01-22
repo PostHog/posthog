@@ -95,7 +95,7 @@ const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
     id: `${isSearch ? 'search-' : ''}col-${tableName}-${field.name}`,
-    name: `${field.name} (${field.type})`,
+    name: field.name,
     type: 'node',
     record: {
         type: 'column',
