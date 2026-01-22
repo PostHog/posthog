@@ -149,6 +149,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
 
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
+    serializer_class = ClusteringRunRequestSerializer
 
     @llma_track_latency("llma_clustering_create")
     @monitor(feature=None, endpoint="llma_clustering_create", method="POST")
