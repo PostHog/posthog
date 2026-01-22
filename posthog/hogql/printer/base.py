@@ -1053,6 +1053,10 @@ class HogQLPrinter(Visitor[str]):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
+        # EAV materialization: output alias.column from the EAV join
+        if type.eav_join_alias is not None and type.eav_column is not None:
+            return f"{self._print_identifier(type.eav_join_alias)}.{self._print_identifier(type.eav_column)}"
+
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
             # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization

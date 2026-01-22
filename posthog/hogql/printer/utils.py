@@ -13,6 +13,7 @@ from posthog.hogql.printer.base import HogQLPrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.eav import resolve_eav_properties
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
@@ -131,6 +132,9 @@ def prepare_ast_for_printing(
                 context=context,
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
+
+        with context.timings.measure("resolve_eav_properties"):
+            resolve_eav_properties(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

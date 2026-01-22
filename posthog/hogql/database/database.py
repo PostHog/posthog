@@ -65,6 +65,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     RawErrorTrackingIssueFingerprintOverridesTable,
     join_with_error_tracking_issue_fingerprint_overrides_table,
 )
+from posthog.hogql.database.schema.event_properties import EventPropertiesTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -245,10 +246,12 @@ class Database(BaseModel):
         children={
             **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
             "posthog": TableNode(
+                name="posthog",
                 children={
-                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE
+                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+                    "event_properties": TableNode(name="event_properties", table=EventPropertiesTable()),
                     # Add new tables here
-                }
+                },
             ),
             "system": SystemTables(),
             "numbers": TableNode(name="numbers", table=NumbersTable()),

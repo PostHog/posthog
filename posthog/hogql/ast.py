@@ -558,6 +558,10 @@ class PropertyType(Type):
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
 
+    # EAV materialization: property is accessed via a JOIN to event_properties
+    eav_join_alias: Optional[str] = field(default=None, init=False)
+    eav_column: Optional[str] = field(default=None, init=False)
+
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
 

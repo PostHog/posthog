@@ -160,6 +160,27 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      raw_value String,
+      property_type LowCardinality(String)
+  
+  )
+  ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_event_properties_test', kafka_group_name = 'clickhouse_event_properties', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '''
   
@@ -1025,6 +1046,53 @@
   
   '''
 # ---
+# name: test_create_table_query[event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      value_string Nullable(String),
+      value_numeric Nullable(Float64),
+      value_bool Nullable(UInt8)
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'sharded_event_properties')
+  
+  '''
+# ---
+# name: test_create_table_query[event_properties_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS event_properties_mv TO writable_event_properties
+  AS SELECT
+      team_id,
+      timestamp,
+      event,
+      distinct_id,
+      uuid,
+      key,
+      if(property_type IN ('Numeric', 'Boolean'), NULL, raw_value) as value_string,
+      if(property_type = 'Numeric', accurateCastOrNull(raw_value, 'Float64'), NULL) as value_numeric,
+      if(property_type = 'Boolean', toBool(transform(toString(raw_value), ['true', 'false'], [1, 0], NULL)), NULL) as value_bool,
+      _timestamp,
+      _offset,
+      _partition
+  FROM kafka_event_properties
+  
+  '''
+# ---
 # name: test_create_table_query[events]
   '''
   
@@ -1567,6 +1635,27 @@
       version Int64
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_test', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      raw_value String,
+      property_type LowCardinality(String)
+  
+  )
+  ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_event_properties_test', kafka_group_name = 'clickhouse_event_properties', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_max_block_size = 1000000, kafka_poll_max_batch_size = 100000, kafka_poll_timeout_ms = 1000, kafka_flush_interval_ms = 7500, kafka_skip_broken_messages = 100, kafka_num_consumers = 1
   
   '''
 # ---
@@ -3796,6 +3885,40 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      value_string Nullable(String),
+      value_numeric Nullable(Float64),
+      value_bool Nullable(UInt8)
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , 
+      INDEX bloom_filter_key key TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_string value_string TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_numeric value_numeric TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_event_properties', '{replica}-{shard}', _timestamp)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid), key)
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_events]
   '''
   
@@ -5056,6 +5179,32 @@
   , _partition UInt64
   
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'error_tracking_issue_fingerprint_overrides')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      value_string Nullable(String),
+      value_numeric Nullable(Float64),
+      value_bool Nullable(UInt8)
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  )
+  ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'sharded_event_properties')
   
   '''
 # ---
@@ -6555,6 +6704,40 @@
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_event_properties]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_event_properties
+  (
+      
+      team_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      event String,
+      distinct_id String,
+      uuid UUID,
+      key String,
+      value_string Nullable(String),
+      value_numeric Nullable(Float64),
+      value_bool Nullable(UInt8)
+  
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+      , 
+      INDEX bloom_filter_key key TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_string value_string TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_numeric value_numeric TYPE bloom_filter GRANULARITY 1,
+      INDEX bloom_filter_value_bool value_bool TYPE bloom_filter GRANULARITY 1
+  
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_event_properties', '{replica}-{shard}', _timestamp)
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid), key)
   
   '''
 # ---

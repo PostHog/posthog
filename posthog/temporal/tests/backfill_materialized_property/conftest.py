@@ -71,7 +71,7 @@ def materialized_slot(team, property_definition):
     """Create a test materialized column slot in BACKFILL state."""
     return MaterializedColumnSlot.objects.create(
         team=team,
-        property_definition=property_definition,
+        property_name=property_definition.name,
         property_type=property_definition.property_type,
         slot_index=0,
         state=MaterializedColumnSlotState.BACKFILL,
@@ -83,7 +83,7 @@ def materialized_slot_ready(team, property_definition):
     """Create a test materialized column slot in READY state."""
     return MaterializedColumnSlot.objects.create(
         team=team,
-        property_definition=property_definition,
+        property_name=property_definition.name,
         property_type=property_definition.property_type,
         slot_index=0,
         state=MaterializedColumnSlotState.READY,
@@ -95,7 +95,7 @@ def materialized_slot_error(team, property_definition):
     """Create a test materialized column slot in ERROR state."""
     return MaterializedColumnSlot.objects.create(
         team=team,
-        property_definition=property_definition,
+        property_name=property_definition.name,
         property_type=property_definition.property_type,
         slot_index=0,
         state=MaterializedColumnSlotState.ERROR,
@@ -119,7 +119,7 @@ async def amaterialized_slot(ateam, aproperty_definition):
     """Create a test materialized column slot (async)."""
     return await sync_to_async(MaterializedColumnSlot.objects.create)(
         team=ateam,
-        property_definition=aproperty_definition,
+        property_name=aproperty_definition.name,
         property_type=aproperty_definition.property_type,
         slot_index=0,
         state=MaterializedColumnSlotState.BACKFILL,
