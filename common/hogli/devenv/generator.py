@@ -1,18 +1,49 @@
-"""Generate mprocs configuration from resolved environment.
+"""Generate process manager configuration from resolved environment.
 
-Reads process definitions from the base mprocs.yaml and generates a filtered
-configuration with only the required units.
+This module provides an abstract generator interface and an mprocs implementation.
+The system is designed to be process-manager agnostic - mprocs is just one output format.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from .resolver import ResolvedEnvironment
+if TYPE_CHECKING:
+    from .registry import ProcessRegistry
+    from .resolver import ResolvedEnvironment
+
+
+class ConfigGenerator(ABC):
+    """Abstract generator for process manager configurations."""
+
+    @abstractmethod
+    def generate(
+        self,
+        resolved: ResolvedEnvironment,
+        skip_typegen: bool = False,
+    ) -> Any:
+        """Generate configuration for resolved environment."""
+        ...
+
+    @abstractmethod
+    def save(self, config: Any, output_path: Path) -> Path:
+        """Save configuration to file."""
+        ...
+
+    def generate_and_save(
+        self,
+        resolved: ResolvedEnvironment,
+        output_path: Path,
+        skip_typegen: bool = False,
+    ) -> Path:
+        """Generate and save configuration in one step."""
+        config = self.generate(resolved, skip_typegen)
+        return self.save(config, output_path)
 
 
 @dataclass
@@ -31,42 +62,17 @@ class MprocsConfig:
             "scrollback": self.scrollback,
         }
 
-    def to_yaml(self, path: Path) -> None:
-        """Write configuration to YAML file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as f:
-            yaml.dump(self.to_dict(), f, default_flow_style=False, sort_keys=False)
 
-    @classmethod
-    def from_yaml(cls, path: Path) -> MprocsConfig:
-        """Load configuration from YAML file."""
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(
-            procs=data.get("procs", {}),
-            mouse_scroll_speed=data.get("mouse_scroll_speed", 1),
-            scrollback=data.get("scrollback", 10000),
-        )
+class MprocsGenerator(ConfigGenerator):
+    """Generates mprocs.yaml configuration from resolved environment."""
 
-
-class MprocsGenerator:
-    """Generates mprocs configuration from resolved environment."""
-
-    def __init__(self, base_config_path: Path):
+    def __init__(self, registry: ProcessRegistry):
         """Initialize generator.
 
         Args:
-            base_config_path: Path to the full mprocs.yaml to use as template
+            registry: ProcessRegistry to get process configs from
         """
-        self.base_config_path = base_config_path
-        self._base_config: MprocsConfig | None = None
-
-    @property
-    def base_config(self) -> MprocsConfig:
-        """Lazy-load the base configuration."""
-        if self._base_config is None:
-            self._base_config = MprocsConfig.from_yaml(self.base_config_path)
-        return self._base_config
+        self.registry = registry
 
     def generate(
         self,
@@ -85,9 +91,10 @@ class MprocsGenerator:
         procs: dict[str, dict[str, Any]] = {}
 
         for unit_name in resolved.units:
-            # Unit name = process name (they're always the same)
-            if unit_name in self.base_config.procs:
-                proc_config = self.base_config.procs[unit_name].copy()
+            proc_config = self.registry.get_process_config(unit_name)
+            if proc_config:
+                # Remove the capability field - it's metadata, not mprocs config
+                proc_config.pop("capability", None)
 
                 # Add startup message showing why this process is starting
                 reason = resolved.get_unit_reason(unit_name)
@@ -96,23 +103,26 @@ class MprocsGenerator:
                 procs[unit_name] = proc_config
 
         # Handle typegen specially
-        if not skip_typegen and "typegen" in self.base_config.procs:
-            proc_config = self.base_config.procs["typegen"].copy()
-            proc_config = self._add_startup_message(proc_config, "typegen", "always required")
-            procs["typegen"] = proc_config
-        elif skip_typegen and "typegen" in procs:
+        if not skip_typegen:
+            typegen_config = self.registry.get_process_config("typegen")
+            if typegen_config:
+                typegen_config.pop("capability", None)
+                typegen_config = self._add_startup_message(typegen_config, "typegen", "always required")
+                procs["typegen"] = typegen_config
+        elif "typegen" in procs:
             del procs["typegen"]
 
         # Handle docker-compose with profiles overlay
-        # Always use the profiles overlay when generating from intents - this ensures
-        # optional services (temporal, otel, etc.) don't start unless their profile is requested
         if "docker-compose" in procs:
             procs["docker-compose"] = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
 
+        # Get global settings from registry
+        global_settings = self.registry.get_global_settings()
+
         return MprocsConfig(
             procs=procs,
-            mouse_scroll_speed=self.base_config.mouse_scroll_speed,
-            scrollback=self.base_config.scrollback,
+            mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
+            scrollback=global_settings.get("scrollback", 10000),
         )
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
@@ -146,9 +156,6 @@ class MprocsGenerator:
             Process configuration dict with modified shell command
         """
         # Build the compose command with profiles overlay
-        # The profiles overlay adds profile constraints to optional services.
-        # Services without a profile always start; services with profiles only
-        # start when their profile is activated.
         compose_base = "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
 
         # Build the profile flags (may be empty for minimal stack)
@@ -166,48 +173,9 @@ class MprocsGenerator:
             "shell": f"{message}{up_cmd} && {logs_cmd}",
         }
 
-    def generate_and_save(
-        self,
-        resolved: ResolvedEnvironment,
-        output_path: Path,
-        skip_typegen: bool = False,
-    ) -> Path:
-        """Generate and save mprocs configuration.
-
-        Args:
-            resolved: The resolved environment
-            output_path: Where to save the generated config
-            skip_typegen: Whether to skip typegen
-
-        Returns:
-            Path to the saved configuration
-        """
-        config = self.generate(resolved, skip_typegen)
-        config.to_yaml(output_path)
+    def save(self, config: MprocsConfig, output_path: Path) -> Path:
+        """Save mprocs configuration to YAML file."""
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            yaml.dump(config.to_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
-
-
-def get_default_base_config_path() -> Path:
-    """Get the default path to the base mprocs.yaml."""
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        base_config = parent / "bin" / "mprocs.yaml"
-        if base_config.exists():
-            return base_config
-
-    return Path.cwd() / "bin" / "mprocs.yaml"
-
-
-def create_generator(base_config_path: Path | None = None) -> MprocsGenerator:
-    """Create an mprocs generator with defaults.
-
-    Args:
-        base_config_path: Path to base mprocs.yaml, or None for default
-
-    Returns:
-        Configured MprocsGenerator
-    """
-    if base_config_path is None:
-        base_config_path = get_default_base_config_path()
-
-    return MprocsGenerator(base_config_path)

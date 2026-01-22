@@ -1,217 +1,167 @@
 # Intent-based developer environment configuration
-# Maps developer intents (products they're working on) to required processes
 #
-# Key principle: Intent → Capabilities → Units
+# This file defines the domain model for developer environments:
 # - Intent: What the developer is working on (products like error_tracking, session_replay)
-# - Capabilities: Stable abstractions (event_ingestion, replay_storage, analytics_store)
-# - Units: Actual mprocs processes to run (capture, cymbal, backend)
+# - Capabilities: Stable abstractions (event_ingestion, replay_storage, etc.)
+#
+# Process definitions (which processes provide which capability) are in bin/mprocs.yaml.
+# Each process declares its capability via the `capability` field.
 
 version: '1.0'
 
-# Capabilities are stable abstractions that map to actual processes
-# Dependencies are resolved transitively
-# docker_profiles: list of docker compose profiles to activate (see docker-compose.profiles.yml)
+# Capabilities are stable abstractions over processes
+# - requires: dependencies resolved transitively
+# - docker_profiles: docker compose profiles to activate (see docker-compose.profiles.yml)
+# - Processes are NOT listed here - they declare their capability in mprocs.yaml
 capabilities:
-    # Core infrastructure - always required
     core_infra:
         description: 'Essential infrastructure (docker, postgres, clickhouse)'
-        units: [docker-compose, migrate-postgres, migrate-clickhouse]
-        docker_profiles: [] # core docker services always start
+        docker_profiles: []
 
-    # Event pipeline
     event_ingestion:
         description: 'Kafka-based event pipeline for event capture'
-        units: [nodejs, capture]
         requires: [core_infra]
         docker_profiles: []
 
-    # Property definitions tracking
     property_definitions:
         description: 'Track and define event/person properties'
-        units: [property-defs-rs]
         requires: [event_ingestion]
         docker_profiles: []
 
-    # Session replay storage
     replay_storage:
         description: 'Session replay blob storage and capture'
-        units: [capture-replay]
         requires: [event_ingestion]
-        docker_profiles: [replay] # seaweedfs for blob storage
+        docker_profiles: [replay]
 
-    # Error symbolication
     error_symbolication:
         description: 'Error stack trace symbolication service'
-        units: [cymbal]
         requires: [event_ingestion]
         docker_profiles: []
 
-    # Feature flag evaluation
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
-        units: [feature-flags]
         requires: [core_infra]
         docker_profiles: []
 
-    # Background jobs
     celery_workers:
         description: 'Celery background job processing'
-        units: [celery-worker]
         requires: [core_infra]
         docker_profiles: []
 
-    # Scheduled tasks
     celery_scheduler:
         description: 'Celery beat scheduler for periodic tasks'
-        units: [celery-beat]
         requires: [celery_workers]
         docker_profiles: []
 
-    # Temporal workflows
     temporal_workflows:
         description: 'Temporal workflow orchestration'
-        units: [temporal-worker]
         requires: [core_infra]
-        docker_profiles: [temporal] # temporal, temporal-ui, elasticsearch
+        docker_profiles: [temporal]
 
-    # Dagster pipelines
     dagster_pipelines:
         description: 'Dagster data pipeline orchestration'
-        units: [dagster]
         requires: [core_infra]
         docker_profiles: []
 
-    # LLM gateway
     llm_gateway:
         description: 'LLM gateway for AI features'
-        units: [llm-gateway]
         requires: [core_infra]
         docker_profiles: []
 
-    # AI capture
     ai_capture:
         description: 'AI event capture service'
-        units: [capture-ai]
         requires: [event_ingestion, llm_gateway]
         docker_profiles: []
 
-    # Embedding service
     embedding_service:
         description: 'Vector embedding worker for AI features'
-        units: [embedding-worker]
         requires: [core_infra]
         docker_profiles: []
 
-    # Livestream
     livestream:
         description: 'Real-time event streaming'
-        units: [livestream]
         requires: [event_ingestion]
         docker_profiles: []
 
-    # Cyclotron
     cyclotron:
         description: 'Cyclotron janitor service'
-        units: [cyclotron-janitor]
         requires: [core_infra]
         docker_profiles: []
 
-    # Batch imports
     batch_imports:
         description: 'Batch data import worker'
-        units: [batch-import-worker]
         requires: [event_ingestion]
         docker_profiles: []
 
-    # Observability - tracing and logging
     observability:
         description: 'OpenTelemetry tracing with Jaeger'
-        units: [] # no mprocs units, docker services only
         requires: [core_infra]
         docker_profiles: [observability]
 
-    # Dev tools - debugging UIs
     dev_tools:
         description: 'Development debugging tools (Kafka UI, Flower, etc.)'
-        units: [] # no mprocs units, docker services only
         requires: [core_infra]
         docker_profiles: [dev_tools]
 
 # Intents map to products/features developers work on
-# Each intent specifies which capabilities it needs
 intents:
-    # Core product analytics
     product_analytics:
         description: 'Core product analytics - insights, funnels, trends'
         capabilities: [event_ingestion, property_definitions, celery_workers]
 
-    # Error tracking
     error_tracking:
         description: 'Track and analyze application errors'
         capabilities: [event_ingestion, error_symbolication, property_definitions]
 
-    # Session replay
     session_replay:
         description: 'Record and replay user sessions'
         capabilities: [event_ingestion, replay_storage, property_definitions]
 
-    # Feature flags
     feature_flags:
         description: 'Feature flag management and evaluation'
         capabilities: [flag_evaluation, celery_workers]
 
-    # Experiments (A/B testing)
     experiments:
         description: 'A/B testing and experimentation'
         capabilities: [event_ingestion, flag_evaluation, property_definitions, celery_workers]
 
-    # LLM analytics (AI observability)
     llm_analytics:
         description: 'LLM/AI observability and analytics'
         capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions]
 
-    # Web analytics
     web_analytics:
         description: 'Web analytics and traffic analysis'
         capabilities: [event_ingestion, property_definitions]
 
-    # Surveys
     surveys:
         description: 'User surveys and feedback collection'
         capabilities: [event_ingestion, property_definitions, celery_workers]
 
-    # Data warehouse
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
 
-    # Heatmaps
     heatmaps:
         description: 'Click and scroll heatmaps'
         capabilities: [event_ingestion, replay_storage, property_definitions]
 
-    # Cohorts
     cohorts:
         description: 'User cohort management'
         capabilities: [event_ingestion, property_definitions, celery_workers]
 
-    # Notebooks
     notebooks:
         description: 'Interactive analysis notebooks'
         capabilities: [event_ingestion, property_definitions]
 
-    # Pipelines (CDP)
     pipelines:
         description: 'Data pipeline transformations and destinations'
         capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
 
-    # Max AI assistant
     max:
         description: 'Max AI assistant'
         capabilities: [event_ingestion, llm_gateway, embedding_service, property_definitions]
 
 # Presets for common development scenarios
-# include_capabilities: additional capabilities to include (for docker services, etc.)
 presets:
     minimal:
         intents: [product_analytics]
@@ -235,7 +185,7 @@ presets:
         description: 'Full stack with all services'
         include_capabilities: [observability, dev_tools]
 
-# Always-required units regardless of intent
+# Always-required processes regardless of intent
 always_required:
     - backend
     - frontend

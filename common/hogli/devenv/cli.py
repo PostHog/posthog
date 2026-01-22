@@ -11,8 +11,9 @@ from pathlib import Path
 import click
 from hogli.core.cli import cli
 
-from .generator import create_generator
+from .generator import MprocsGenerator
 from .profile import DeveloperProfile, ProfileManager
+from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
 
 
@@ -41,6 +42,13 @@ def _ensure_profile_or_prompt(manager: ProfileManager) -> DeveloperProfile:
         profile = manager.create_preset_profile("minimal")
 
     return profile
+
+
+def _create_resolver() -> IntentResolver:
+    """Create an IntentResolver with the default intent map and mprocs registry."""
+    intent_map = load_intent_map()
+    registry = create_mprocs_registry()
+    return IntentResolver(intent_map, registry)
 
 
 @cli.command(name="dev:start", help="Start dev environment based on your profile")
@@ -83,13 +91,12 @@ def dev_start(
     Generated mprocs configuration is saved to .posthog/.generated/mprocs.yaml.
     """
     try:
-        intent_map = load_intent_map()
-    except FileNotFoundError:
-        click.echo("Error: intent-map.yaml not found in dev/", err=True)
+        resolver = _create_resolver()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
         click.echo("Are you in the PostHog repository root?", err=True)
         raise SystemExit(1)
 
-    resolver = IntentResolver(intent_map)
     manager = ProfileManager()
 
     # Track effective skip_typegen
@@ -117,9 +124,9 @@ def dev_start(
         if profile.preset:
             # Profile uses a preset
             try:
-                preset_obj = intent_map.presets[profile.preset]
+                preset_obj = resolver.intent_map.presets[profile.preset]
                 if preset_obj.all_intents:
-                    intents = list(intent_map.intents.keys())
+                    intents = list(resolver.intent_map.intents.keys())
                 else:
                     intents = preset_obj.intents.copy()
             except KeyError:
@@ -156,7 +163,8 @@ def dev_start(
         return
 
     # Generate mprocs config
-    generator = create_generator()
+    registry = create_mprocs_registry()
+    generator = MprocsGenerator(registry)
     output_path = manager.get_generated_mprocs_path()
     manager.ensure_generated_dir()
 
@@ -189,12 +197,10 @@ def dev_explain(intents: tuple[str, ...], preset: str | None) -> None:
     If no intents are provided, shows resolution for your current profile.
     """
     try:
-        intent_map = load_intent_map()
+        resolver = _create_resolver()
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found in dev/", err=True)
         raise SystemExit(1)
-
-    resolver = IntentResolver(intent_map)
 
     if preset:
         try:
@@ -238,7 +244,7 @@ def dev_explain(intents: tuple[str, ...], preset: str | None) -> None:
 def dev_intents() -> None:
     """List all available intents with descriptions."""
     try:
-        intent_map = load_intent_map()
+        resolver = _create_resolver()
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found", err=True)
         raise SystemExit(1)
@@ -246,9 +252,10 @@ def dev_intents() -> None:
     click.echo("Available intents:")
     click.echo("")
 
-    for name, intent in sorted(intent_map.intents.items()):
+    for name, description in resolver.get_available_intents():
+        intent = resolver.intent_map.intents[name]
         click.echo(f"  {name}")
-        click.echo(f"    {intent.description}")
+        click.echo(f"    {description}")
         click.echo(f"    Capabilities: {', '.join(intent.capabilities)}")
         click.echo("")
 
@@ -257,7 +264,7 @@ def dev_intents() -> None:
 def dev_presets() -> None:
     """List all available presets with descriptions."""
     try:
-        intent_map = load_intent_map()
+        resolver = _create_resolver()
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found", err=True)
         raise SystemExit(1)
@@ -265,9 +272,10 @@ def dev_presets() -> None:
     click.echo("Available presets:")
     click.echo("")
 
-    for name, preset in sorted(intent_map.presets.items()):
+    for name, description in resolver.get_available_presets():
+        preset = resolver.intent_map.presets[name]
         click.echo(f"  {name}")
-        click.echo(f"    {preset.description}")
+        click.echo(f"    {description}")
         if preset.all_intents:
             click.echo("    Intents: all")
         else:

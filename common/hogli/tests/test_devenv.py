@@ -8,8 +8,39 @@ from pathlib import Path
 import pytest
 
 from hogli.devenv.profile import DeveloperProfile, ProfileManager, ProfileOverrides
+from hogli.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, Preset, load_intent_map
 from parameterized import parameterized
+
+
+class MockRegistry(ProcessRegistry):
+    """Mock registry for testing that returns predefined capability→units mappings."""
+
+    def __init__(self, capability_units: dict[str, list[str]]):
+        self._capability_units = capability_units
+        self._processes = {
+            unit: {"shell": f"./bin/start-{unit}", "capability": cap}
+            for cap, units in capability_units.items()
+            for unit in units
+        }
+
+    def get_processes(self) -> dict:
+        return {
+            name: {"shell": config["shell"], "capability": config["capability"]}
+            for name, config in self._processes.items()
+        }
+
+    def get_capability_units(self, capability: str) -> list[str]:
+        return self._capability_units.get(capability, [])
+
+    def get_all_capabilities(self) -> set[str]:
+        return set(self._capability_units.keys())
+
+    def get_process_config(self, name: str) -> dict:
+        return self._processes.get(name, {}).copy()
+
+    def get_global_settings(self) -> dict:
+        return {"mouse_scroll_speed": 1, "scrollback": 10000}
 
 
 def create_test_intent_map() -> IntentMap:
@@ -20,31 +51,26 @@ def create_test_intent_map() -> IntentMap:
             "core_infra": Capability(
                 name="core_infra",
                 description="Core infrastructure",
-                units=["docker-compose", "migrate-postgres"],
                 requires=[],
             ),
             "event_ingestion": Capability(
                 name="event_ingestion",
                 description="Event pipeline",
-                units=["nodejs", "capture"],
                 requires=["core_infra"],
             ),
             "error_symbolication": Capability(
                 name="error_symbolication",
                 description="Error symbolication",
-                units=["cymbal"],
                 requires=["event_ingestion"],
             ),
             "replay_storage": Capability(
                 name="replay_storage",
                 description="Replay storage",
-                units=["capture-replay"],
                 requires=["event_ingestion"],
             ),
             "flag_evaluation": Capability(
                 name="flag_evaluation",
                 description="Feature flags",
-                units=["feature-flags"],
                 requires=["core_infra"],
             ),
         },
@@ -86,6 +112,19 @@ def create_test_intent_map() -> IntentMap:
     )
 
 
+def create_test_registry() -> MockRegistry:
+    """Create a mock registry matching the test intent map."""
+    return MockRegistry(
+        {
+            "core_infra": ["docker-compose", "migrate-postgres"],
+            "event_ingestion": ["nodejs", "capture"],
+            "error_symbolication": ["cymbal"],
+            "replay_storage": ["capture-replay"],
+            "flag_evaluation": ["feature-flags"],
+        }
+    )
+
+
 class TestIntentResolver:
     """Test intent resolution logic."""
 
@@ -101,7 +140,8 @@ class TestIntentResolver:
     def test_resolve_single_intent(self, intents: list[str], expected_subset: set[str], description: str) -> None:
         """Single intent resolves to expected units."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(intents)
 
@@ -110,7 +150,8 @@ class TestIntentResolver:
     def test_resolve_always_includes_required(self) -> None:
         """Resolution always includes always_required units."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["feature_flags"])
 
@@ -121,7 +162,8 @@ class TestIntentResolver:
     def test_resolve_expands_capability_dependencies(self) -> None:
         """Capabilities transitively expand their dependencies."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         # error_tracking requires error_symbolication which requires event_ingestion
         # which requires core_infra
@@ -139,7 +181,8 @@ class TestIntentResolver:
     def test_resolve_multiple_intents_unions_units(self) -> None:
         """Multiple intents union their required units."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["error_tracking", "session_replay"])
 
@@ -162,7 +205,8 @@ class TestIntentResolver:
     ) -> None:
         """Overrides modify the resolved units."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(
             ["product_analytics"],
@@ -178,7 +222,8 @@ class TestIntentResolver:
     def test_resolve_unknown_intent_raises(self) -> None:
         """Unknown intent raises ValueError."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         with pytest.raises(ValueError, match="Unknown intent"):
             resolver.resolve(["nonexistent"])
@@ -186,7 +231,8 @@ class TestIntentResolver:
     def test_resolve_preset_full(self) -> None:
         """Full preset includes all intents."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve_preset("full")
 
@@ -198,7 +244,8 @@ class TestIntentResolver:
     def test_resolve_preset_minimal(self) -> None:
         """Minimal preset includes only product_analytics."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve_preset("minimal")
 
@@ -210,7 +257,8 @@ class TestIntentResolver:
     def test_resolve_unknown_preset_raises(self) -> None:
         """Unknown preset raises ValueError."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         with pytest.raises(ValueError, match="Unknown preset"):
             resolver.resolve_preset("nonexistent")
@@ -218,7 +266,8 @@ class TestIntentResolver:
     def test_explain_resolution_includes_all_sections(self) -> None:
         """Explanation includes intents, capabilities, and units."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["error_tracking"])
         explanation = resolver.explain_resolution(result)
@@ -239,13 +288,11 @@ class TestDockerProfiles:
                 "core_infra": Capability(
                     name="core_infra",
                     description="Core",
-                    units=["docker-compose"],
                     docker_profiles=[],
                 ),
                 "temporal_workflows": Capability(
                     name="temporal_workflows",
                     description="Temporal",
-                    units=["temporal-worker"],
                     requires=["core_infra"],
                     docker_profiles=["temporal"],
                 ),
@@ -260,7 +307,13 @@ class TestDockerProfiles:
             presets={},
             always_required=[],
         )
-        resolver = IntentResolver(intent_map)
+        registry = MockRegistry(
+            {
+                "core_infra": [],
+                "temporal_workflows": ["temporal-worker"],
+            }
+        )
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["data_warehouse"])
 
@@ -274,20 +327,17 @@ class TestDockerProfiles:
                 "core_infra": Capability(
                     name="core_infra",
                     description="Core",
-                    units=[],
                     docker_profiles=[],
                 ),
                 "replay_storage": Capability(
                     name="replay_storage",
                     description="Replay",
-                    units=[],
                     requires=["core_infra"],
                     docker_profiles=["replay"],
                 ),
                 "observability": Capability(
                     name="observability",
                     description="Observability",
-                    units=[],
                     requires=["core_infra"],
                     docker_profiles=["observability"],
                 ),
@@ -302,7 +352,14 @@ class TestDockerProfiles:
             presets={},
             always_required=[],
         )
-        resolver = IntentResolver(intent_map)
+        registry = MockRegistry(
+            {
+                "core_infra": [],
+                "replay_storage": [],
+                "observability": [],
+            }
+        )
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["session_replay"], include_capabilities=["observability"])
 
@@ -317,13 +374,11 @@ class TestDockerProfiles:
                 "core_infra": Capability(
                     name="core_infra",
                     description="Core",
-                    units=[],
                     docker_profiles=[],
                 ),
                 "dev_tools": Capability(
                     name="dev_tools",
                     description="Dev tools",
-                    units=[],
                     requires=["core_infra"],
                     docker_profiles=["dev_tools"],
                 ),
@@ -345,7 +400,13 @@ class TestDockerProfiles:
             },
             always_required=[],
         )
-        resolver = IntentResolver(intent_map)
+        registry = MockRegistry(
+            {
+                "core_infra": [],
+                "dev_tools": [],
+            }
+        )
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve_preset("backend")
 
@@ -354,7 +415,8 @@ class TestDockerProfiles:
     def test_no_profiles_returns_empty_set(self) -> None:
         """Resolution without docker profiles returns empty set."""
         intent_map = create_test_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_test_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         result = resolver.resolve(["product_analytics"])
 
@@ -363,7 +425,8 @@ class TestDockerProfiles:
     def test_real_intent_map_resolves_docker_profiles(self) -> None:
         """Real intent map resolves docker profiles for relevant intents."""
         intent_map = load_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         # data_warehouse needs temporal
         result = resolver.resolve(["data_warehouse"])
@@ -379,7 +442,6 @@ class TestIntentMapLoading:
 
     def test_load_real_intent_map(self) -> None:
         """Can load the real intent-map.yaml from the repo."""
-        # This test validates the actual file
         intent_map = load_intent_map()
 
         assert intent_map.version == "1.0"
@@ -398,7 +460,8 @@ class TestIntentMapLoading:
     def test_real_intent_map_resolves_without_errors(self) -> None:
         """All intents in real map resolve successfully."""
         intent_map = load_intent_map()
-        resolver = IntentResolver(intent_map)
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
 
         for intent_name in intent_map.intents:
             # Should not raise
@@ -414,6 +477,37 @@ class TestIntentMapLoading:
         assert intent_map.capabilities["replay_storage"].docker_profiles == ["replay"]
         assert intent_map.capabilities["observability"].docker_profiles == ["observability"]
         assert intent_map.capabilities["dev_tools"].docker_profiles == ["dev_tools"]
+
+
+class TestMprocsRegistry:
+    """Test MprocsRegistry reads capability from mprocs.yaml."""
+
+    def test_registry_loads_capabilities(self) -> None:
+        """Registry correctly maps processes to capabilities."""
+        registry = create_mprocs_registry()
+
+        # Check some known mappings
+        assert "cymbal" in registry.get_capability_units("error_symbolication")
+        assert "capture" in registry.get_capability_units("event_ingestion")
+        assert "nodejs" in registry.get_capability_units("event_ingestion")
+        assert "temporal-worker" in registry.get_capability_units("temporal_workflows")
+
+    def test_registry_get_all_capabilities(self) -> None:
+        """Registry returns all declared capabilities."""
+        registry = create_mprocs_registry()
+        capabilities = registry.get_all_capabilities()
+
+        assert "core_infra" in capabilities
+        assert "event_ingestion" in capabilities
+        assert "error_symbolication" in capabilities
+
+    def test_registry_get_process_config(self) -> None:
+        """Registry returns process config for generation."""
+        registry = create_mprocs_registry()
+        config = registry.get_process_config("backend")
+
+        assert "shell" in config
+        assert "start-backend" in config["shell"]
 
 
 class TestDeveloperProfile:

@@ -5,7 +5,7 @@ Resolves developer intents to the minimal set of units (processes) needed.
 Resolution algorithm:
 1. Intents → Capabilities: Map selected intents to their required capabilities
 2. Expand dependencies: Transitively expand capability dependencies
-3. Capabilities → Units: Map expanded capabilities to their units
+3. Capabilities → Units: Query ProcessRegistry for units that provide each capability
 4. Apply overrides: Add/remove units based on developer overrides
 5. Add always-required: Add units that are always needed (backend, frontend, etc.)
 """
@@ -14,18 +14,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from .registry import ProcessRegistry
 
 
 @dataclass
 class Capability:
-    """A capability represents a stable abstraction over units."""
+    """A capability represents a stable abstraction over units.
+
+    Capabilities don't list their units directly - that mapping is in the
+    ProcessRegistry (e.g., mprocs.yaml where processes declare their capability).
+    """
 
     name: str
     description: str
-    units: list[str]
     requires: list[str] = field(default_factory=list)
     docker_profiles: list[str] = field(default_factory=list)
 
@@ -52,7 +58,11 @@ class Preset:
 
 @dataclass
 class IntentMap:
-    """Complete mapping loaded from intent-map.yaml."""
+    """Domain model loaded from intent-map.yaml.
+
+    Contains capabilities (abstractions), intents (products), and presets.
+    Does NOT contain unit/process information - that's in the ProcessRegistry.
+    """
 
     version: str
     capabilities: dict[str, Capability]
@@ -76,7 +86,6 @@ class IntentMap:
             capabilities[name] = Capability(
                 name=name,
                 description=cap_data.get("description", ""),
-                units=cap_data.get("units", []),
                 requires=cap_data.get("requires", []),
                 docker_profiles=cap_data.get("docker_profiles", []),
             )
@@ -133,10 +142,14 @@ class ResolvedEnvironment:
 
 
 class IntentResolver:
-    """Resolves developer intents to the minimal set of units needed."""
+    """Resolves developer intents to the minimal set of units needed.
 
-    def __init__(self, intent_map: IntentMap):
+    Requires both an IntentMap (domain model) and a ProcessRegistry (unit definitions).
+    """
+
+    def __init__(self, intent_map: IntentMap, registry: ProcessRegistry):
         self.intent_map = intent_map
+        self.registry = registry
 
     def resolve(
         self,
@@ -176,16 +189,16 @@ class IntentResolver:
         # 2. Expand capability dependencies (transitive)
         expanded_capabilities = self._expand_capability_dependencies(capabilities)
 
-        # 3. Capabilities → Units (with provenance tracking)
+        # 3. Capabilities → Units (query registry, with provenance tracking)
         units: set[str] = set()
         for cap_name in expanded_capabilities:
-            capability = self.intent_map.capabilities[cap_name]
             # Find which intent this capability serves
             intent_reason = capability_to_intent.get(cap_name, cap_name)
-            for unit in capability.units:
+            # Get units from registry
+            cap_units = self.registry.get_capability_units(cap_name)
+            for unit in cap_units:
                 if unit not in units:
                     units.add(unit)
-                    # Format: "needed for intent_name"
                     unit_provenance[unit] = f"needed for {intent_reason}"
 
         # 4. Capabilities → Docker profiles
@@ -335,16 +348,6 @@ class IntentResolver:
 
         return expanded
 
-    def _capabilities_to_units(self, capabilities: set[str]) -> set[str]:
-        """Map capabilities to their units."""
-        units: set[str] = set()
-
-        for cap_name in capabilities:
-            capability = self.intent_map.capabilities[cap_name]
-            units.update(capability.units)
-
-        return units
-
     def _capabilities_to_docker_profiles(self, capabilities: set[str]) -> set[str]:
         """Map capabilities to their docker profiles."""
         profiles: set[str] = set()
@@ -364,12 +367,8 @@ class IntentResolver:
         return [(name, preset.description) for name, preset in sorted(self.intent_map.presets.items())]
 
     def get_all_units(self) -> set[str]:
-        """Get all units defined across all capabilities."""
-        units: set[str] = set()
-        for cap in self.intent_map.capabilities.values():
-            units.update(cap.units)
-        units.update(self.intent_map.always_required)
-        return units
+        """Get all units defined in the registry."""
+        return set(self.registry.get_processes().keys())
 
     def explain_resolution(self, resolved: ResolvedEnvironment) -> str:
         """Generate human-readable explanation of resolution."""
