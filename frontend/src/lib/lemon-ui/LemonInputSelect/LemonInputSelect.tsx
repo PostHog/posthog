@@ -603,7 +603,7 @@ export function LemonInputSelect<T = string>({
         setInputValue,
         sortable,
         handleDragEnd,
-        size onChange,
+        size,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string

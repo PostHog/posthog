@@ -228,7 +228,7 @@ const Component = ({
         pythonExecution?.stdout,
         pythonExecution?.traceback?.length,
         pythonExecution?.variables?.length,
-        updateAttributes attributes.autoHeight,
+        updateAttributes,
     ])
 
     if (!expanded) {
