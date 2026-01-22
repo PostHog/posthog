@@ -1,9 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { LemonButton, LemonCard, LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -46,9 +49,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         previousTickets,
         previousTicketsLoading,
         exceptionsQuery,
+        chatPanelWidth,
     } = useValues(logic)
     const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
+
+    const chatPanelRef = useRef<HTMLDivElement>(null)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        containerRef: chatPanelRef,
+        logicKey: 'support-ticket-resizer',
+        persistent: true,
+        placement: 'right',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     if (ticketLoading) {
         return (
@@ -80,7 +95,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     return (
         <SceneContent>
             <SceneTitleSection
-                name={ticket?.ticket_number?.toString() || ticket?.id || ''}
+                name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
@@ -90,20 +105,29 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="grid gap-4 lg:grid-cols-2 items-start">
-                {/* Main conversation area */}
-                <ChatView
-                    messages={chatMessages}
-                    messagesLoading={messagesLoading}
-                    messageSending={messageSending}
-                    hasMoreMessages={hasMoreMessages}
-                    olderMessagesLoading={olderMessagesLoading}
-                    onSendMessage={sendMessage}
-                    onLoadOlderMessages={loadOlderMessages}
-                />
+            <div className="flex flex-col lg:flex-row items-start">
+                <div
+                    style={{ width: chatPanelWidth(desiredSize) }}
+                    className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
+                    ref={chatPanelRef}
+                >
+                    {/* Main conversation area */}
+                    <ChatView
+                        messages={chatMessages}
+                        messagesLoading={messagesLoading}
+                        messageSending={messageSending}
+                        hasMoreMessages={hasMoreMessages}
+                        olderMessagesLoading={olderMessagesLoading}
+                        onSendMessage={sendMessage}
+                        onLoadOlderMessages={loadOlderMessages}
+                    />
+                    <div className="hidden lg:block">
+                        <Resizer {...resizerLogicProps} />
+                    </div>
+                </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 min-w-[300px] pl-2">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (

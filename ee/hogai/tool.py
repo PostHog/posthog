@@ -11,9 +11,9 @@ from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from posthog.schema import AssistantTool
+from posthog.schema import ApprovalResumePayload, AssistantTool
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -24,7 +24,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
 from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.tool_errors import MaxToolAccessDeniedError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
@@ -50,6 +50,7 @@ class ApprovalRequest(BaseModel):
     tool_name: str
     preview: str
     payload: dict[str, Any]
+    original_tool_call_id: str | None = None
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
@@ -335,27 +336,26 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
             tool_name=self.name,
             preview=preview,
             payload=serialized_payload,
+            original_tool_call_id=self._original_tool_call_id,
         )
 
         # Call interrupt() - execution pauses here and ApprovalRequest is sent to frontend
         # When resumed with Command(resume=response), interrupt() returns the response
-        response = interrupt(
-            {
-                **approval_request.model_dump(),
-                # Include original tool_call_id for proper card positioning on reload
-                "original_tool_call_id": self._original_tool_call_id,
-            }
-        )
+        response = interrupt(approval_request)
+        try:
+            approval_resume_payload = ApprovalResumePayload.model_validate(response)
+        except ValidationError as e:
+            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
 
         # Handle the response from the user
-        if isinstance(response, dict) and response.get("action") == "approve":
-            # User approved - update kwargs with any modifications and proceed
-            updated_payload = response.get("payload", serialized_payload)
-            kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
+        if approval_resume_payload.action == "approve":
+            if updated_payload := approval_resume_payload.payload:
+                # User approved - update kwargs with any modifications and proceed
+                kwargs.update(self._reconstruct_kwargs_from_payload(updated_payload))
             return None  # Continue with _arun_impl
         else:
             # User rejected
-            feedback = response.get("feedback", "") if isinstance(response, dict) else ""
+            feedback = approval_resume_payload.feedback or ""
             if feedback:
                 return (
                     f"The user rejected this operation with the following feedback: {feedback}. "

@@ -728,7 +728,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-    modifiers = create_default_modifiers_for_team(team)
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
@@ -776,7 +776,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-    modifiers = create_default_modifiers_for_team(team)
+    modifiers = await database_sync_to_async(create_default_modifiers_for_team)(team)
     context = HogQLContext(
         team=team,
         team_id=team.id,
