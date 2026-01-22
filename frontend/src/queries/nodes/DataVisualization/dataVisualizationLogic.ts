@@ -982,7 +982,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
         },
-        toggleChartSettingsPanel: ({ open }, breakpoint) => {
+        toggleChartSettingsPanel: ({ open }) => {
             const shouldOpen = open ?? !values.isChartSettingsPanelOpen
             if (!shouldOpen) {
                 return
@@ -993,7 +993,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
 
             const heatmapSettings = values.chartSettings.heatmap ?? {}
-            const autoSettings = getHeatmapAutoSettings(breakpoint.values.columns, heatmapSettings)
+            const autoSettings = getHeatmapAutoSettings(values.columns, heatmapSettings)
 
             if (Object.keys(autoSettings).length === 0) {
                 return
