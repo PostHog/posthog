@@ -637,6 +637,7 @@ export const WebStatsTrendTile = ({
     const isDragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DRAG_TO_ZOOM]
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
+    const showComparisonLabels = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -698,16 +699,20 @@ export const WebStatsTrendTile = ({
             },
             compareFilter,
             onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
-            formatCompareLabel: (label: string) => {
-                const lowerLabel = label.toLowerCase()
-                if (lowerLabel === 'previous') {
-                    return `Previous period${formatComparisonDates(true)}`
-                }
-                if (lowerLabel === 'current') {
-                    return `Current period${formatComparisonDates(false)}`
-                }
-                return capitalizeFirstLetter(label)
-            },
+            ...(showComparisonLabels
+                ? {
+                      formatCompareLabel: (label: string) => {
+                          const lowerLabel = label.toLowerCase()
+                          if (lowerLabel === 'previous') {
+                              return `Previous period${formatComparisonDates(true)}`
+                          }
+                          if (lowerLabel === 'current') {
+                              return `Current period${formatComparisonDates(false)}`
+                          }
+                          return capitalizeFirstLetter(label)
+                      },
+                  }
+                : {}),
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -747,7 +752,7 @@ export const WebStatsTrendTile = ({
         }
 
         return baseContext
-    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query])
+    }, [onWorldMapClick, onRegionMapClick, zoomIntoPeriod, insightProps, query, showComparisonLabels])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
