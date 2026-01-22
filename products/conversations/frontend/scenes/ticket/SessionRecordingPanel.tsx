@@ -32,7 +32,7 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
                             {!recordingId ? (
                                 <div className="text-muted-alt text-xs">No session recording available</div>
                             ) : (
-                                <div style={{ minHeight: '400px' }}>
+                                <div className="max-h-[500px] h-[500px] flex justify-center items-center">
                                     <SessionRecordingPlayer
                                         sessionRecordingId={recordingId}
                                         playerKey={`ticket-recording-${recordingId}`}
