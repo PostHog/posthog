@@ -37,6 +37,10 @@ import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
+const isLazyNodeId = (id: string): boolean => {
+    return id.startsWith('lazy-') || id.includes('-lazy-')
+}
+
 const isDataWarehouseTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
 ): table is DatabaseSchemaDataWarehouseTable => {
@@ -877,7 +881,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ([table]) => [table.name, table]
                     )
                 )
-                const expandedLazyNodeIds = new Set(expandedSearchFolders.filter((id) => id.includes('-lazy-')))
+                const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
                 const tableNodeOptions = { expandedLazyNodeIds }
@@ -1033,7 +1037,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const tableLookup = Object.fromEntries(
                     [...posthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
                 )
-                const expandedLazyNodeIds = new Set(expandedFolders.filter((id) => id.includes('-lazy-')))
+                const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
 
                 // Add loading indicator for sources if still loading
