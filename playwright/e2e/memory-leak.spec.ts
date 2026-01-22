@@ -47,6 +47,7 @@ test.describe('Memory Leak Detection', () => {
         test.setTimeout(300000)
 
         const snapshotDir = createSnapshotDirectory()
+        console.log('Snapshot directory created at:', snapshotDir)
         const pagesTraversed: string[] = []
         let baselineSnapshot: HeapSnapshot | null = null
         let targetSnapshot: HeapSnapshot | null = null
@@ -84,7 +85,8 @@ test.describe('Memory Leak Detection', () => {
             timestamp: new Date().toISOString(),
         }
 
-        saveReport(report, snapshotDir)
+        const reportPath = saveReport(report, snapshotDir)
+        console.log('Report saved to:', reportPath)
         generateReport(report)
 
         expect(baselineSnapshot).toBeTruthy()
