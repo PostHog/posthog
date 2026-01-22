@@ -361,7 +361,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                                     &[("reason", "rate_limited")]
                                 )
                                 .increment(1);
-                                if self.partition.as_ref().unwrap().should_preserve_locality() {
+                                if self
+                                    .partition
+                                    .as_ref()
+                                    .is_some_and(|p| p.should_preserve_locality())
+                                {
                                     (&self.topics.overflow_topic, Some(event_key.as_str()))
                                 } else {
                                     (&self.topics.overflow_topic, None)
