@@ -34,7 +34,7 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
+        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", True, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
