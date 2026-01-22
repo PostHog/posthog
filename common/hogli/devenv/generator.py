@@ -90,40 +90,44 @@ class MprocsGenerator(ConfigGenerator):
         """
         procs: dict[str, dict[str, Any]] = {}
 
-        for unit_name in resolved.units:
-            proc_config = self.registry.get_process_config(unit_name)
-            if proc_config:
-                # Remove the capability field - it's metadata, not mprocs config
-                proc_config.pop("capability", None)
+        # Iterate in original mprocs.yaml order to preserve ordering
+        for name in self.registry.get_processes():
+            # Skip typegen here - handled separately below
+            if name == "typegen":
+                continue
 
-                # Add startup message showing why this process is starting
-                reason = resolved.get_unit_reason(unit_name)
-                proc_config = self._add_startup_message(proc_config, unit_name, reason)
+            proc_config = self.registry.get_process_config(name)
+            if not proc_config:
+                continue
 
-                procs[unit_name] = proc_config
+            # Include if: in resolved units, or autostart: false (manual start)
+            is_resolved = name in resolved.units
+            is_manual_start = proc_config.get("autostart") is False
 
-        # Handle typegen specially
+            if not is_resolved and not is_manual_start:
+                continue
+
+            # Remove the capability field - it's metadata, not mprocs config
+            proc_config.pop("capability", None)
+
+            # Add startup message for resolved units (not manual-start ones)
+            if is_resolved:
+                reason = resolved.get_unit_reason(name)
+                proc_config = self._add_startup_message(proc_config, name, reason)
+
+            # Special handling for docker-compose
+            if name == "docker-compose":
+                proc_config = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
+
+            procs[name] = proc_config
+
+        # Handle typegen specially - add after other processes
         if not skip_typegen:
             typegen_config = self.registry.get_process_config("typegen")
             if typegen_config:
                 typegen_config.pop("capability", None)
                 typegen_config = self._add_startup_message(typegen_config, "typegen", "always required")
                 procs["typegen"] = typegen_config
-        elif "typegen" in procs:
-            del procs["typegen"]
-
-        # Handle docker-compose with profiles overlay
-        if "docker-compose" in procs:
-            procs["docker-compose"] = self._generate_docker_compose_config(resolved.get_docker_profiles_list())
-
-        # Include all autostart: false processes - they won't start automatically
-        # but will be available for manual start in mprocs
-        for name in self.registry.get_processes():
-            if name not in procs:
-                config = self.registry.get_process_config(name)
-                if config.get("autostart") is False:
-                    config.pop("capability", None)
-                    procs[name] = config
 
         # Get global settings from registry
         global_settings = self.registry.get_global_settings()
