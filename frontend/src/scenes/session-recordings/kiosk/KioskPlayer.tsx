@@ -72,8 +72,8 @@ export function KioskPlayer(): JSX.Element | null {
                 playNextRecording={() => advanceToNextRecording()}
             />
             <div
-                className={`absolute inset-0 z-10 transition-opacity duration-300 ${
-                    isActive ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                className={`absolute inset-0 z-10 transition-opacity duration-300 pointer-events-none ${
+                    isActive ? 'opacity-100' : 'opacity-0'
                 }`}
             >
                 <LemonButton
@@ -81,7 +81,7 @@ export function KioskPlayer(): JSX.Element | null {
                     icon={<IconX className="text-2xl" />}
                     size="large"
                     onClick={handleClose}
-                    className="absolute top-6 right-6 !bg-white !text-black hover:!bg-gray-200"
+                    className="absolute top-6 right-6 !bg-white !text-black hover:!bg-gray-200 pointer-events-auto"
                     tooltip="Exit kiosk mode"
                 />
             </div>
