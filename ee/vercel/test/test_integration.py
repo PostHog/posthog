@@ -161,18 +161,10 @@ class TestVercelIntegration(TestCase):
     def test_update_installation_not_found(self):
         VercelIntegration.update_installation(self.NONEXISTENT_INSTALLATION_ID, "pro200")
 
-    @patch("django.conf.settings.DEBUG", True)
-    def test_delete_installation_dev_mode(self):
+    def test_delete_installation(self):
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
-        assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
-
-    @patch("django.conf.settings.DEBUG", False)
-    def test_delete_installation_prod_mode(self):
-        result = VercelIntegration.delete_installation(self.installation_id)
-
-        assert not result["finalized"]
         assert not OrganizationIntegration.objects.filter(integration_id=self.installation_id).exists()
 
     def test_delete_installation_not_found(self):

@@ -1,6 +1,7 @@
 import FuseClass from 'fuse.js'
 import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 
@@ -65,6 +66,23 @@ export const workflowTemplatesLogic = kea<workflowTemplatesLogicType>([
             },
         ],
     }),
+    urlToAction(({ actions }) => ({
+        '/workflows': (_, searchParams) => {
+            if (searchParams.templateFilter) {
+                actions.setTemplateFilter(searchParams.templateFilter)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setTemplateFilter: () => {
+            const searchParams = { ...router.values.searchParams }
+            searchParams.templateFilter = values.templateFilter
+            if (!values.templateFilter) {
+                delete searchParams.templateFilter
+            }
+            return ['/workflows', searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadWorkflowTemplates()
     }),

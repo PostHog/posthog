@@ -604,6 +604,7 @@ export interface ConversationsSettings {
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
+    notification_recipients?: number[] | null
 }
 
 export interface LogsSettings {
@@ -694,6 +695,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    default_experiment_confidence_level?: number | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -2234,7 +2236,6 @@ export interface EndpointType extends WithAccessControl {
     description: string
     derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
-    parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -3261,14 +3262,16 @@ export interface ChoiceQuestionResponseData {
     isPredefined: boolean
     // For unique responses (value === 1), include person data for display
     distinctId?: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
@@ -5700,6 +5703,9 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
+/*
+    WARNING: Everything below 'Notebooks' is to be removed in future releases
+*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
@@ -6401,7 +6407,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    AI_CONSENT = 'ai_consent',
     TELL_US_MORE = 'tell_us_more',
 }
 

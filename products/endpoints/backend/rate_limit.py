@@ -53,20 +53,19 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str) ->
     Check materialization status from DB and populate cache.
     Called on cache miss for lazy loading.
 
-    Returns True if endpoint is ready for materialized execution.
+    Returns True if endpoint's current version is ready for materialized execution.
     """
     from products.data_warehouse.backend.models import DataWarehouseSavedQuery
     from products.endpoints.backend.models import Endpoint
 
     try:
-        endpoint = Endpoint.objects.select_related("saved_query").get(
-            team_id=team_id, name=endpoint_name, is_active=True
-        )
+        endpoint = Endpoint.objects.get(team_id=team_id, name=endpoint_name, is_active=True)
+        version = endpoint.get_version()
 
         is_ready = (
-            endpoint.is_materialized
-            and endpoint.saved_query is not None
-            and endpoint.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
+            version.is_materialized
+            and version.saved_query is not None
+            and version.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
         )
 
         set_endpoint_materialization_ready(team_id, endpoint_name, is_ready)

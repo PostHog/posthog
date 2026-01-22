@@ -30,6 +30,7 @@ from posthog.tasks.email import (
     send_hog_functions_digest_email,
     send_invite,
     send_member_join,
+    send_new_ticket_notification,
     send_password_reset,
     should_send_pipeline_error_notification,
 )
@@ -502,6 +503,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         # Should only be sent to user2 (user1 has notifications disabled)
+        # Each user gets their own email now
+        assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].to == [
             {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
         ]
@@ -510,8 +513,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
         send_hog_functions_digest_email(digest_data)
 
-        # Should now be sent to both users
-        assert len(mocked_email_messages[1].to) == 2
+        # Should now be sent to both users (2 separate emails, one per user)
+        assert len(mocked_email_messages) == 3  # 1 from first call + 2 from second call
+        # Verify both users received emails from the second call
+        second_call_recipients = {msg.to[0]["raw_email"] for msg in mocked_email_messages[1:]}
+        assert second_call_recipients == {"user1@posthog.com", "test2@posthog.com"}
 
     def test_send_hog_functions_digest_email_team_not_found(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -647,12 +653,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Test 1: Enable digest for this team - should send email since there are failures
+        # There are 3 users at this point (self.user, creator_user, editor_user)
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
             send_hog_functions_daily_digest()
 
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        # Each user gets their own email (3 users = 3 emails)
+        assert len(mocked_email_messages) == 3
+        for msg in mocked_email_messages:
+            assert msg.send.call_count == 1
+            assert msg.html_body
 
         # Check that the HTML body contains both creator and editor info
         html_body = mocked_email_messages[0].html_body
@@ -673,9 +682,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[]):
             send_hog_functions_daily_digest()
 
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        # Each user gets their own email (3 users = 3 emails)
+        assert len(mocked_email_messages) == 3
+        for msg in mocked_email_messages:
+            assert msg.send.call_count == 1
+            assert msg.html_body
 
         # Reset mocked messages
         mocked_email_messages.clear()
@@ -684,9 +695,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=["*"]):
             send_hog_functions_daily_digest()
 
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
+        # Each user gets their own email (3 users = 3 emails)
+        assert len(mocked_email_messages) == 3
+        for msg in mocked_email_messages:
+            assert msg.send.call_count == 1
+            assert msg.html_body
 
         # Reset mocked messages
         mocked_email_messages.clear()
@@ -697,18 +710,21 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should be sent to users with notifications enabled (creator, editor, test2)
-        recipients = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        # Should be sent to users with notifications enabled (creator, editor, test2) - 3 separate emails
+        recipients = {msg.to[0]["raw_email"] for msg in mocked_email_messages}
         expected_recipients = {"creator@posthog.com", "editor@posthog.com", "test2@posthog.com"}
         assert recipients == expected_recipients
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
 
         # Test 6: Test notification settings - user with plugin_disabled: True should receive email
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
 
         send_hog_functions_daily_digest()
-        # Should now be sent to all users (creator, editor, original user, test2)
-        assert len(mocked_email_messages[1].to) == 4
+        # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
+        assert len(mocked_email_messages) == 4
 
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -762,11 +778,115 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         # Should be sent to test2 and override user (both have notifications enabled), but not to main user
-        assert len(mocked_email_messages) == 1
-        assert len(mocked_email_messages[0].to) == 2
-        sent_emails = {recipient["raw_email"] for recipient in mocked_email_messages[0].to}
+        # Each user now gets their own email
+        assert len(mocked_email_messages) == 2
+        sent_emails = {msg.to[0]["raw_email"] for msg in mocked_email_messages}
         assert "test2@posthog.com" in sent_emails
         assert "override@posthog.com" in sent_emails
+
+    def test_send_hog_functions_digest_email_with_error_rate_threshold(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create users with different error rate thresholds
+        # User with no threshold (default 0.0) - should receive all functions
+        self._create_user("no_threshold@posthog.com")
+
+        # User with 10% threshold - should only receive functions with failure_rate > 10%
+        user_10_threshold = self._create_user("threshold_10@posthog.com")
+        user_10_threshold.partial_notification_settings = {"data_pipeline_error_threshold": 0.1}
+        user_10_threshold.save()
+
+        # User with 50% threshold - should only receive functions with failure_rate > 50%
+        user_50_threshold = self._create_user("threshold_50@posthog.com")
+        user_50_threshold.partial_notification_settings = {"data_pipeline_error_threshold": 0.5}
+        user_50_threshold.save()
+
+        # User with 100% threshold - should not receive any email (no function can exceed 100%)
+        user_100_threshold = self._create_user("threshold_100@posthog.com")
+        user_100_threshold.partial_notification_settings = {"data_pipeline_error_threshold": 1.0}
+        user_100_threshold.save()
+
+        # Disable notifications for the main test user to simplify assertions
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "low-failure-function",
+                    "name": "Low Failure Function",
+                    "type": "destination",
+                    "created_by_email": "creator@example.com",
+                    "last_edited_by_email": "editor@example.com",
+                    "last_edit_date": "2025-08-01",
+                    "succeeded": 95,
+                    "failed": 5,
+                    "failure_rate": 5.0,  # 5% failure rate
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/low-failure-function",
+                },
+                {
+                    "id": "medium-failure-function",
+                    "name": "Medium Failure Function",
+                    "type": "destination",
+                    "created_by_email": "creator@example.com",
+                    "last_edited_by_email": "editor@example.com",
+                    "last_edit_date": "2025-08-02",
+                    "succeeded": 75,
+                    "failed": 25,
+                    "failure_rate": 25.0,  # 25% failure rate
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/medium-failure-function",
+                },
+                {
+                    "id": "high-failure-function",
+                    "name": "High Failure Function",
+                    "type": "destination",
+                    "created_by_email": "creator@example.com",
+                    "last_edited_by_email": "editor@example.com",
+                    "last_edit_date": "2025-08-03",
+                    "succeeded": 40,
+                    "failed": 60,
+                    "failure_rate": 60.0,  # 60% failure rate
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/high-failure-function",
+                },
+            ],
+        }
+
+        send_hog_functions_digest_email(digest_data)
+
+        # Each user gets their own email (3 emails total - user_100_threshold gets none)
+        assert len(mocked_email_messages) == 3
+
+        # Collect emails by recipient for easier assertions
+        emails_by_recipient: dict[str, MagicMock] = {}
+        for msg in mocked_email_messages:
+            assert len(msg.to) == 1  # Each message should have exactly one recipient
+            recipient_email = msg.to[0]["raw_email"]
+            emails_by_recipient[recipient_email] = msg
+
+        # Verify user_no_threshold received all 3 functions (check html_body for function names)
+        assert "no_threshold@posthog.com" in emails_by_recipient
+        no_threshold_html = emails_by_recipient["no_threshold@posthog.com"].html_body
+        assert "Low Failure Function" in no_threshold_html
+        assert "Medium Failure Function" in no_threshold_html
+        assert "High Failure Function" in no_threshold_html
+
+        # Verify user_10_threshold received 2 functions (25% and 60%, not 5%)
+        assert "threshold_10@posthog.com" in emails_by_recipient
+        threshold_10_html = emails_by_recipient["threshold_10@posthog.com"].html_body
+        assert "Low Failure Function" not in threshold_10_html
+        assert "Medium Failure Function" in threshold_10_html
+        assert "High Failure Function" in threshold_10_html
+
+        # Verify user_50_threshold received only 1 function (60%, not 5% or 25%)
+        assert "threshold_50@posthog.com" in emails_by_recipient
+        threshold_50_html = emails_by_recipient["threshold_50@posthog.com"].html_body
+        assert "Low Failure Function" not in threshold_50_html
+        assert "Medium Failure Function" not in threshold_50_html
+        assert "High Failure Function" in threshold_50_html
+
+        # Verify user_100_threshold did not receive any email
+        assert "threshold_100@posthog.com" not in emails_by_recipient
 
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         from posthog.test.fixtures import create_app_metric2
@@ -908,3 +1028,96 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert html_body
         assert "Canada" in html_body
         assert "Email/password" in html_body
+
+    def test_send_new_ticket_notification(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Set up notification recipients in team settings
+        self.team.conversations_settings = {"notification_recipients": [self.user.id]}
+        self.team.save()
+
+        # Create a ticket
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+            anonymous_traits={"name": "Test Customer", "email": "customer@example.com"},
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello, I need help with something",
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert f"Ticket #{ticket.ticket_number}" in mocked_email_messages[0].subject
+        assert mocked_email_messages[0].html_body
+        assert "Test Customer" in mocked_email_messages[0].html_body
+        assert "Hello, I need help with something" in mocked_email_messages[0].html_body
+
+    def test_send_new_ticket_notification_no_recipients(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # No notification recipients configured
+        self.team.conversations_settings = {}
+        self.team.save()
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello",
+        )
+
+        # No email should be sent
+        assert len(mocked_email_messages) == 0
+
+    def test_send_new_ticket_notification_recipient_without_access(self, MockEmailMessage: MagicMock) -> None:
+        from products.conversations.backend.models import Ticket
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create another org and user who shouldn't have access
+        other_org = Organization.objects.create(name="Other Org")
+        other_user = User.objects.create_and_join(
+            organization=other_org,
+            email="other@example.com",
+            password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+
+        # Set the other user as recipient (they don't have access to this team)
+        self.team.conversations_settings = {"notification_recipients": [other_user.id]}
+        self.team.save()
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="test-session-id",
+            distinct_id="test-distinct-id",
+            channel_source="widget",
+            status="new",
+        )
+
+        send_new_ticket_notification(
+            ticket_id=str(ticket.id),
+            team_id=self.team.id,
+            first_message_content="Hello",
+        )
+
+        # No email should be sent since recipient doesn't have access
+        assert len(mocked_email_messages) == 0

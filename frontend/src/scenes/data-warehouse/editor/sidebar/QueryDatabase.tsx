@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
@@ -50,8 +50,9 @@ export const QueryDatabase = (): JSX.Element => {
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { queryInput, selectedQueryTablesAndColumns } = useValues(multitabEditorLogic)
     const { setQueryInput } = useActions(multitabEditorLogic)
+    const { selectedQueryColumns } = useValues(multitabEditorLogic)
+    const builtTabLogic = useMountedLogic(multitabEditorLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -87,7 +88,10 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
-                    setQueryInput(buildQueryForColumnClick(queryInput, item.record.table, item.record.columnName))
+                    const currentQueryInput = builtTabLogic.values.queryInput
+                    setQueryInput(
+                        buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                    )
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -98,18 +102,10 @@ export const QueryDatabase = (): JSX.Element => {
                 // Check if item has search matches for highlighting
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
-                const isSelected =
-                    item.record?.type === 'column' &&
-                    selectedQueryTablesAndColumns[item.record.table]?.[item.record.columnName]
-
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple
-                                string={item.name}
-                                substring={searchTerm}
-                                className={cn('text-xs', isSelected && 'underline')}
-                            />
+                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
                         ) : (
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
@@ -123,8 +119,10 @@ export const QueryDatabase = (): JSX.Element => {
                                             'endpoints',
                                         ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
-                                        'truncate',
-                                        isSelected && 'underline'
+                                        item.record?.type === 'column' &&
+                                            selectedQueryColumns[`${item.record.table}.${item.record.columnName}`] &&
+                                            'underline underline-offset-2',
+                                        'truncate'
                                     )}
                                 >
                                     {item.name}

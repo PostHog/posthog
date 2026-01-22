@@ -80,7 +80,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     return (
         <SceneContent>
             <SceneTitleSection
-                name={ticket?.ticket_number?.toString() || ticket?.id || ''}
+                name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
