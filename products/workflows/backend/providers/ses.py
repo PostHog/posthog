@@ -120,9 +120,11 @@ class SESProvider:
                 MailFromDomain=f"{mail_from_subdomain}.{domain}",
                 BehaviorOnMXFailure="UseDefaultValue",
             )
-        except (ClientError, BotoCoreError) as e:
+        except ClientError as e:
             # Log but continue - MAIL FROM is optional and shouldn't block verification
             # SES will fall back to default MAIL FROM domain (amazonses.com)
+            # Note: BotoCoreError (network issues) should propagate - if we can't reach AWS,
+            # the status checks below will also fail
             logger.warning(f"Failed to set MAIL FROM domain for {domain}: {e}")
 
         ses_region = getattr(settings, "SES_REGION", "us-east-1")

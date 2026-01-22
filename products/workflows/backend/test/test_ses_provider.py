@@ -207,8 +207,8 @@ class TestSESProvider(TestCase):
             assert result["status"] == "success"
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
 
-    def test_verify_email_domain_continues_when_mail_from_setup_fails(self):
-        """Test that verification continues even if set_identity_mail_from_domain fails."""
+    def test_verify_email_domain_continues_when_mail_from_setup_fails_with_client_error(self):
+        """Test that verification continues when set_identity_mail_from_domain fails with ClientError."""
         from botocore.exceptions import ClientError
 
         provider = SESProvider()
@@ -219,7 +219,7 @@ class TestSESProvider(TestCase):
             mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
             mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
-            # Mock set_identity_mail_from_domain to raise an error
+            # Mock set_identity_mail_from_domain to raise a ClientError (API error)
             mock_ses_client.set_identity_mail_from_domain.side_effect = ClientError(
                 {"Error": {"Code": "InvalidIdentity", "Message": "Identity does not exist"}},
                 "SetIdentityMailFromDomain",
@@ -245,3 +245,22 @@ class TestSESProvider(TestCase):
             assert len(result["dnsRecords"]) > 0
             mail_from_records = [r for r in result["dnsRecords"] if r["type"] == "mail_from"]
             assert len(mail_from_records) == 2  # MX and TXT records
+
+    def test_verify_email_domain_propagates_botocore_error(self):
+        """Test that BotoCoreError (network issues) propagates and is not swallowed."""
+        from botocore.exceptions import BotoCoreError
+
+        provider = SESProvider()
+
+        # Mock the SES client on the provider instance
+        with patch.object(provider, "ses_client") as mock_ses_client:
+            # Mock successful verification and DKIM setup
+            mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+            mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+
+            # Mock set_identity_mail_from_domain to raise a BotoCoreError (network issue)
+            mock_ses_client.set_identity_mail_from_domain.side_effect = BotoCoreError()
+
+            # BotoCoreError should propagate - network issues shouldn't be swallowed
+            with pytest.raises(BotoCoreError):
+                provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
