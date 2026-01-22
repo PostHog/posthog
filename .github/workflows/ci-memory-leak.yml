@@ -247,16 +247,32 @@ jobs:
                       let reportContent = '';
 
                       try {
-                          const dirs = fs.readdirSync(resultsDir);
-                          const latestDir = dirs.sort().reverse()[0];
-                          if (latestDir) {
-                              const reportPath = path.join(resultsDir, latestDir, 'memory-leak-report.md');
-                              if (fs.existsSync(reportPath)) {
-                                  reportContent = fs.readFileSync(reportPath, 'utf8');
+                          console.log('Checking for results in:', resultsDir);
+                          if (fs.existsSync(resultsDir)) {
+                              const dirs = fs.readdirSync(resultsDir);
+                              console.log('Found directories:', dirs);
+                              const latestDir = dirs.sort().reverse()[0];
+                              if (latestDir) {
+                                  const reportPath = path.join(resultsDir, latestDir, 'memory-leak-report.md');
+                                  console.log('Looking for report at:', reportPath);
+                                  if (fs.existsSync(reportPath)) {
+                                      reportContent = fs.readFileSync(reportPath, 'utf8');
+                                      console.log('Successfully read report file');
+                                  } else {
+                                      console.log('Report file does not exist');
+                                      // List files in the directory to debug
+                                      const files = fs.readdirSync(path.join(resultsDir, latestDir));
+                                      console.log('Files in directory:', files);
+                                  }
+                              } else {
+                                  console.log('No subdirectories found in results directory');
                               }
+                          } else {
+                              console.log('Results directory does not exist');
                           }
                       } catch (e) {
-                          console.log('Could not read report file:', e.message);
+                          console.log('Error reading report file:', e.message);
+                          console.log('Stack:', e.stack);
                       }
 
                       if (!reportContent) {
