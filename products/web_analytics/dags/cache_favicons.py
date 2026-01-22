@@ -1,5 +1,3 @@
-from typing import Optional
-
 from django.conf import settings
 
 import httpx
@@ -26,18 +24,9 @@ class CacheFaviconsConfig(dagster.Config):
     force_refresh: bool = False
 
 
-def get_extension_from_content_type(content_type: Optional[str]) -> str:
-    if content_type:
-        if "ico" in content_type or content_type == "image/x-icon":
-            return "ico"
-        if "png" in content_type:
-            return "png"
-    return "png"
-
-
 def download_favicon(
     context: dagster.AssetExecutionContext, domain: str, client: httpx.Client
-) -> tuple[str, Optional[bytes], Optional[str], Optional[str]]:
+) -> tuple[str, bytes | None, str | None, str | None]:
     context.log.info(f"Attempting to download favicon for domain '{domain}'")
     urls = [
         f"https://www.google.com/s2/favicons?sz=32&domain=https://{domain}",
@@ -121,8 +110,7 @@ def cache_favicons(
             if data is None:
                 continue
 
-            ext = get_extension_from_content_type(content_type)
-            key = f"favicons/{domain}.{ext}"
+            key = f"favicons/{domain}.png"
             upload_if_missing(
                 context,
                 s3_client,
@@ -137,7 +125,7 @@ def cache_favicons(
                     "domain": domain,
                     "source_url": source_url,
                     "cached_url": f"s3://{bucket}{key}",
-                    "favicon_url": f"/static/favicons/{domain}.{ext}",
+                    "favicon_url": f"/static/favicons/{domain}.png",
                 }
             )
 

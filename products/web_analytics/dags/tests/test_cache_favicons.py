@@ -1,27 +1,6 @@
-import pytest
 from unittest.mock import Mock, patch
 
-from products.web_analytics.dags.cache_favicons import (
-    get_extension_from_content_type,
-    get_last_cached_domains,
-    upload_if_missing,
-)
-
-
-class TestGetExtensionFromContentType:
-    @pytest.mark.parametrize(
-        "content_type,expected",
-        [
-            ("image/png", "png"),
-            ("image/x-icon", "ico"),
-            ("image/vnd.microsoft.icon", "ico"),
-            ("text/html; charset=utf-8", "png"),
-            (None, "png"),
-            ("", "png"),
-        ],
-    )
-    def test_returns_correct_extension(self, content_type: str | None, expected: str):
-        assert get_extension_from_content_type(content_type) == expected
+from products.web_analytics.dags.cache_favicons import get_last_cached_domains, upload_if_missing
 
 
 class TestGetLastCachedDomains:
