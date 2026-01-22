@@ -167,6 +167,10 @@ def update_cohort_metrics() -> None:
     )
     COHORT_MAXED_ERRORS_GAUGE.set(maxed_error_count)
 
+    # Always update backlog metric from database state to handle pod restarts
+    backlog = get_cohort_calculation_candidates_queryset().count()
+    COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
+
 
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
