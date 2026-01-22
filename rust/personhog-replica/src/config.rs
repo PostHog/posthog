@@ -1,25 +1,6 @@
 use envconfig::Envconfig;
 use std::net::SocketAddr;
-use std::str::FromStr;
 use std::time::Duration;
-
-/// Person cache backend options.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PersonCacheBackend {
-    /// No caching - all requests pass through directly to storage.
-    None,
-}
-
-impl FromStr for PersonCacheBackend {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "none" | "disabled" | "passthrough" => Ok(Self::None),
-            _ => Err(format!("Unknown person cache backend: {s}")),
-        }
-    }
-}
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -29,11 +10,6 @@ pub struct Config {
     /// Storage backend to use. Currently supported: "postgres"
     #[envconfig(default = "postgres")]
     pub storage_backend: String,
-
-    /// Person cache backend. Controls whether person lookups are cached.
-    /// Currently supported: "none" (passthrough, no caching)
-    #[envconfig(default = "none")]
-    pub person_cache_backend: String,
 
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
@@ -76,13 +52,5 @@ impl Config {
         } else {
             Some(self.statement_timeout_ms)
         }
-    }
-
-    /// Parse the person cache backend configuration.
-    /// Panics if the configured value is not recognized.
-    pub fn person_cache(&self) -> PersonCacheBackend {
-        self.person_cache_backend
-            .parse()
-            .unwrap_or_else(|e: String| panic!("{}", e))
     }
 }

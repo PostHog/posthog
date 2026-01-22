@@ -13,13 +13,9 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_replica::config::{Config, PersonCacheBackend};
+use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
-use personhog_replica::storage::{
-    cache::{CachedStorage, NoopPersonCache},
-    postgres::PostgresStorage,
-    FullStorage,
-};
+use personhog_replica::storage::postgres::PostgresStorage;
 
 common_alloc::used!();
 
@@ -38,9 +34,8 @@ async fn shutdown_signal() {
     tracing::info!("Shutting down gracefully...");
 }
 
-async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
-    // Create the underlying storage backend
-    let storage = match config.storage_backend.as_str() {
+async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
+    match config.storage_backend.as_str() {
         "postgres" => {
             let pool_config = PoolConfig {
                 min_connections: config.min_pg_connections,
@@ -60,15 +55,6 @@ async fn create_storage(config: &Config) -> Arc<dyn FullStorage> {
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
-        }
-    };
-
-    // Create the person cache layer based on configuration
-    match config.person_cache() {
-        PersonCacheBackend::None => {
-            tracing::info!("Person cache: disabled (passthrough)");
-            let person_cache = Arc::new(NoopPersonCache::new(storage.clone()));
-            Arc::new(CachedStorage::new(storage, person_cache))
         }
     }
 }
@@ -96,7 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("Storage backend: {}", config.storage_backend);
-    tracing::info!("Person cache backend: {}", config.person_cache_backend);
 
     // Start HTTP server for metrics and health checks
     let metrics_port = config.metrics_port;

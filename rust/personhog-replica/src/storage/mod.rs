@@ -1,4 +1,3 @@
-pub mod cache;
 pub mod error;
 pub mod postgres;
 pub mod traits;
