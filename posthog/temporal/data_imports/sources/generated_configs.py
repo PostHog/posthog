@@ -270,7 +270,8 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class SnapchatAdsSourceConfig(config.Config):
-    pass
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

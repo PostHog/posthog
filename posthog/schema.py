@@ -2249,6 +2249,21 @@ class MarketingIntegrationConfig6(BaseModel):
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
+class MarketingIntegrationConfig7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["snapchat"] = "snapchat"
+    sourceType: Literal["SnapchatAds"] = "SnapchatAds"
+    statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2257,6 +2272,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     ]
 ):
     root: (
@@ -2266,6 +2282,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig4
         | MarketingIntegrationConfig5
         | MarketingIntegrationConfig6
+        | MarketingIntegrationConfig7
     )
 
 
@@ -2531,6 +2548,7 @@ class NativeMarketingSource(StrEnum):
     TIK_TOK_ADS = "TikTokAds"
     REDDIT_ADS = "RedditAds"
     BING_ADS = "BingAds"
+    SNAPCHAT_ADS = "SnapchatAds"
 
 
 class NodeKind(StrEnum):
@@ -3335,6 +3353,19 @@ class SlashCommandName(StrEnum):
     FIELD_USAGE = "/usage"
     FIELD_FEEDBACK = "/feedback"
     FIELD_TICKET = "/ticket"
+
+
+class SnapchatAdsDefaultSources(StrEnum):
+    SNAPCHAT = "snapchat"
+    SNAP = "snap"
+
+
+class SnapchatAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class SnapchatAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
