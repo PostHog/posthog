@@ -25,10 +25,10 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
-    EstimatedQueryExecutionTimeTooLong,
-    QuerySizeExceeded,
 )
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
@@ -113,11 +113,11 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
             return CohortErrorCode.CAPACITY
         case SocketTimeoutError():
             return CohortErrorCode.INTERRUPTED
-        case ClickHouseQueryTimeOut() | EstimatedQueryExecutionTimeTooLong():
+        case ClickHouseQueryTimeOut() | ClickHouseEstimatedQueryExecutionTimeTooLong():
             return CohortErrorCode.TIMEOUT
         case ClickHouseQueryMemoryLimitExceeded():
             return CohortErrorCode.MEMORY_LIMIT
-        case QuerySizeExceeded():
+        case ClickHouseQuerySizeExceeded():
             return CohortErrorCode.QUERY_SIZE
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
