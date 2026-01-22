@@ -46,21 +46,24 @@ def create_mock_db_pool():
 @contextmanager
 def run_gateway_server(configure_all_providers: bool = False):
     from llm_gateway.config import get_settings
+    from llm_gateway.services.model_registry import ModelRegistryService
 
     mock_db_pool = create_mock_db_pool()
     port = get_free_port()
 
     env_patches = {}
     if configure_all_providers:
-        if not os.environ.get("LLM_GATEWAY_OPENAI_API_KEY"):
-            env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
-        if not os.environ.get("LLM_GATEWAY_ANTHROPIC_API_KEY"):
-            env_patches["LLM_GATEWAY_ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
-        if not os.environ.get("LLM_GATEWAY_GEMINI_API_KEY"):
-            env_patches["LLM_GATEWAY_GEMINI_API_KEY"] = "gemini-test-fake-key"
+        # Set both prefixed (for settings) and unprefixed (for direct env check) keys
+        env_patches["LLM_GATEWAY_OPENAI_API_KEY"] = "sk-test-fake-key"
+        env_patches["LLM_GATEWAY_ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
+        env_patches["LLM_GATEWAY_GEMINI_API_KEY"] = "gemini-test-fake-key"
+        env_patches["OPENAI_API_KEY"] = "sk-test-fake-key"
+        env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
+        env_patches["GEMINI_API_KEY"] = "gemini-test-fake-key"
 
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()
+        ModelRegistryService.reset_instance()
         with patch("llm_gateway.main.init_db_pool", return_value=mock_db_pool):
             with patch("llm_gateway.main.close_db_pool", return_value=None):
                 from llm_gateway.main import create_app
@@ -82,6 +85,7 @@ def run_gateway_server(configure_all_providers: bool = False):
                     server.should_exit = True
                     thread.join(timeout=2)
                     get_settings.cache_clear()
+                    ModelRegistryService.reset_instance()
 
 
 @pytest.fixture

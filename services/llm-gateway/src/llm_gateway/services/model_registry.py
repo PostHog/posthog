@@ -6,7 +6,7 @@ from typing import ClassVar, Final
 
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import get_product_config
-from llm_gateway.rate_limiting.model_cost_service import ModelCostService
+from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ def _get_configured_providers() -> frozenset[str]:
     return frozenset(configured)
 
 
-def _is_chat_model(cost_data: dict) -> bool:
+def _is_chat_model(cost_data: ModelCost) -> bool:
     """Check if a model is a chat model (not embedding, image generation, etc)."""
     mode = cost_data.get("mode", "")
     return mode in ("chat", "completion", "")
@@ -70,7 +70,7 @@ class ModelRegistryService:
             id=model_id,
             provider=cost_data.get("litellm_provider", "unknown"),
             context_window=cost_data.get("max_input_tokens") or 0,
-            supports_vision=cost_data.get("supports_vision", False),
+            supports_vision=bool(cost_data.get("supports_vision", False)),
             supports_streaming=True,
         )
 
