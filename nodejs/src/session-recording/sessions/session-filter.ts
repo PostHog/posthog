@@ -74,7 +74,7 @@ export class SessionFilter {
             client = await this.redisPool.acquire()
             await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
 
-            logger.debug('session_filter_blocked_session', {
+            logger.info('session_filter_blocked_session', {
                 teamId,
                 sessionId,
             })

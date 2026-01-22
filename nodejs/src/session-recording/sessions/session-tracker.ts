@@ -71,7 +71,7 @@ export class SessionTracker {
             return isNewSession
         } catch (error) {
             // Fail open: if Redis is unavailable, assume not a new session
-            logger.warn('session_tracker_redis_error', {
+            logger.error('session_tracker_redis_error', {
                 teamId,
                 sessionId,
                 error: String(error),

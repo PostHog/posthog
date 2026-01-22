@@ -255,13 +255,18 @@ describe('SessionFilter', () => {
 
     describe('local cache', () => {
         it('should respect custom cache TTL', async () => {
-            // Create with very short TTL
+            // LRU cache uses performance.now() for TTL, which Jest doesn't mock by default
+            const startTime = performance.now()
+            let currentTime = startTime
+            jest.spyOn(performance, 'now').mockImplementation(() => currentTime)
+
+            const cacheTtlMs = 5 * 60 * 1000 // 5 minutes
             const shortTtlFilter = new SessionFilter({
                 redisPool: mockRedisPool,
                 bucketCapacity: 1000,
                 bucketReplenishRate: 1,
                 rateLimitEnabled: true,
-                localCacheTtlMs: 10, // 10ms TTL
+                localCacheTtlMs: cacheTtlMs,
             })
 
             mockRedis.exists.mockResolvedValue(1)
@@ -270,12 +275,14 @@ describe('SessionFilter', () => {
             await shortTtlFilter.isBlocked(1, 'session-123')
             expect(mockRedis.exists).toHaveBeenCalledTimes(1)
 
-            // Wait for cache to expire
-            await new Promise((resolve) => setTimeout(resolve, 20))
+            // Advance mocked time past cache TTL
+            currentTime = startTime + cacheTtlMs + 1000
 
             // Second check - cache expired, should hit Redis again
             await shortTtlFilter.isBlocked(1, 'session-123')
             expect(mockRedis.exists).toHaveBeenCalledTimes(2)
+
+            jest.restoreAllMocks()
         })
     })
 
