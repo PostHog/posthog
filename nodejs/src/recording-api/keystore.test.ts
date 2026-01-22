@@ -21,7 +21,6 @@ describe('KeyStore', () => {
 
     const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
-    const mockNonce = new Uint8Array([201, 202, 203, 204, 205, 206, 207, 208])
 
     describe('create and start', () => {
         it('should create a KeyStore instance and initialize sodium on start', async () => {
@@ -105,11 +104,9 @@ describe('KeyStore', () => {
             const dynamoCall = mockDynamoDBClient.send.mock.calls[0][0] as any
             expect(dynamoCall.input.Item.session_state).toEqual({ S: 'cleartext' })
             expect(dynamoCall.input.Item.encrypted_key).toBeUndefined()
-            expect(dynamoCall.input.Item.nonce).toBeUndefined()
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('cleartext')
         })
 
@@ -155,7 +152,6 @@ describe('KeyStore', () => {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
-                    nonce: { B: mockNonce },
                     session_state: { S: 'ciphertext' },
                 },
             })
@@ -170,7 +166,6 @@ describe('KeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
-            expect(result.nonce).toEqual(Buffer.from(mockNonce))
         })
 
         it('should return cleartext key if key not found in DynamoDB', async () => {
@@ -180,7 +175,6 @@ describe('KeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('cleartext')
         })
 
@@ -189,22 +183,6 @@ describe('KeyStore', () => {
                 Item: {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
-                    nonce: { B: mockNonce },
-                    session_state: { S: 'ciphertext' },
-                },
-            })
-
-            await expect(keyStore.getKey('session-123', 1)).rejects.toThrow(
-                'Missing key data for session session-123 team 1'
-            )
-        })
-
-        it('should throw error if nonce missing in DynamoDB result for encrypted session', async () => {
-            ;(mockDynamoDBClient.send as jest.Mock).mockResolvedValue({
-                Item: {
-                    session_id: { S: 'session-123' },
-                    team_id: { N: '1' },
-                    encrypted_key: { B: mockEncryptedKey },
                     session_state: { S: 'ciphertext' },
                 },
             })
@@ -227,7 +205,6 @@ describe('KeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('cleartext')
             expect(mockKMSClient.send).not.toHaveBeenCalled()
         })
@@ -247,7 +224,6 @@ describe('KeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('deleted')
             expect(result.deletedAt).toBe(deletedAt)
             expect(mockKMSClient.send).not.toHaveBeenCalled()
@@ -266,7 +242,6 @@ describe('KeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('deleted')
             expect(result.deletedAt).toBeUndefined()
             expect(mockKMSClient.send).not.toHaveBeenCalled()
@@ -284,7 +259,6 @@ describe('KeyStore', () => {
                     session_id: { S: 'session-123' },
                     team_id: { N: '1' },
                     encrypted_key: { B: mockEncryptedKey },
-                    nonce: { B: mockNonce },
                     session_state: { S: 'ciphertext' },
                 },
             })
@@ -320,7 +294,7 @@ describe('KeyStore', () => {
             const updateCall = mockDynamoDBClient.send.mock.calls[1][0] as any
             expect(updateCall.input.TableName).toBe('session-recording-keys')
             expect(updateCall.input.UpdateExpression).toBe(
-                'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key, nonce'
+                'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key'
             )
             expect(updateCall.input.ExpressionAttributeValues[':deleted_at']).toEqual({
                 N: String(Math.floor(new Date('2024-01-15T12:00:00Z').getTime() / 1000)),
@@ -427,7 +401,6 @@ describe('PassthroughKeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('cleartext')
         })
     })
@@ -438,7 +411,6 @@ describe('PassthroughKeyStore', () => {
 
             expect(result.plaintextKey).toEqual(Buffer.alloc(0))
             expect(result.encryptedKey).toEqual(Buffer.alloc(0))
-            expect(result.nonce).toEqual(Buffer.alloc(0))
             expect(result.sessionState).toBe('cleartext')
         })
     })

@@ -19,15 +19,11 @@ describe('recording-decryptor', () => {
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
         31, 32,
     ])
-    const mockNonce = Buffer.from([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-    ])
     const mockEncryptedKey = Buffer.from([101, 102, 103, 104, 105])
 
     const mockSessionKey: SessionKey = {
         plaintextKey: mockPlaintextKey,
         encryptedKey: mockEncryptedKey,
-        nonce: mockNonce,
         sessionState: 'ciphertext',
     }
 
@@ -117,7 +113,6 @@ describe('recording-decryptor', () => {
                     6, 5, 4, 3, 2, 1,
                 ]),
                 encryptedKey: mockEncryptedKey,
-                nonce: mockNonce,
                 sessionState: 'ciphertext',
             }
             mockKeyStore.getKey.mockResolvedValue(wrongKey)
@@ -187,7 +182,6 @@ describe('recording-decryptor', () => {
             const deletedSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt,
             }
@@ -213,7 +207,6 @@ describe('recording-decryptor', () => {
             const deletedSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
             }
             mockKeyStore.getKey.mockResolvedValue(deletedSessionKey)
@@ -232,7 +225,6 @@ describe('recording-decryptor', () => {
             const cleartextSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'cleartext',
             }
             mockKeyStore.getKey.mockResolvedValue(cleartextSessionKey)

@@ -3,7 +3,6 @@ export type SessionState = 'ciphertext' | 'cleartext' | 'deleted'
 export interface SessionKey {
     plaintextKey: Buffer
     encryptedKey: Buffer
-    nonce: Buffer
     sessionState: SessionState
     deletedAt?: number
 }
@@ -11,7 +10,6 @@ export interface SessionKey {
 export interface SerializedSessionKey {
     plaintextKey: string
     encryptedKey: string
-    nonce: string
     sessionState: SessionState
     deletedAt?: number
 }
