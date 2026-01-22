@@ -47,12 +47,12 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
     })),
     actionToUrl({
         hideNewWorkflowModal: () => {
-            const hashParams = router.values.hashParams
+            const hashParams = { ...router.values.hashParams }
             delete hashParams['newWorkflow']
             return [router.values.location.pathname, router.values.searchParams, hashParams]
         },
         showNewWorkflowModal: () => {
-            const hashParams = router.values.hashParams
+            const hashParams = { ...router.values.hashParams }
             hashParams['newWorkflow'] = 'modal'
             return [router.values.location.pathname, router.values.searchParams, hashParams]
         },
