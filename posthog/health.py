@@ -274,7 +274,7 @@ def is_cache_backend_connected() -> bool:
         # convenient less fragile way to do this. It would be nice if we could
         # have a `check_health` exposed in some generic way, as the python redis
         # client does appear to have something for this task.
-        cache.has_key("_connection_test_key")  # noqa: W601
+        cache.has_key("_connection_test_key")  # noqa: SIM118
     except Exception:
         # NOTE: We catch all exceptions here because we never want to throw from these checks
         logger.debug("cache_backend_connection_failure", exc_info=True)
