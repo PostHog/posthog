@@ -152,6 +152,7 @@ class DailyTraceClusteringWorkflow:
                     clustering_method_params=inputs.clustering_method_params,
                     visualization_method=inputs.visualization_method,
                     trace_filters=inputs.trace_filters,
+                    analysis_level=inputs.analysis_level,
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
@@ -174,6 +175,7 @@ class DailyTraceClusteringWorkflow:
                     window_start=window_start,
                     window_end=window_end,
                     batch_run_ids=compute_result.batch_run_ids,
+                    analysis_level=inputs.analysis_level,
                 )
             ],
             start_to_close_timeout=timedelta(seconds=600),  # 10 minutes for agent run
@@ -205,7 +207,9 @@ class DailyTraceClusteringWorkflow:
                         dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
                         visualization_method=inputs.visualization_method,
                         max_samples=inputs.max_samples,
+                        analysis_level=str(inputs.analysis_level),
                     ),
+                    analysis_level=inputs.analysis_level,
                 )
             ],
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,

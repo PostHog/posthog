@@ -1,6 +1,6 @@
 """Data models for batch trace summarization."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel
@@ -15,7 +15,10 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
 )
 
 from products.llm_analytics.backend.summarization.llm.schema import SummarizationResponse
-from products.llm_analytics.backend.summarization.models import SummarizationMode, SummarizationProvider
+from products.llm_analytics.backend.summarization.models import AnalysisLevel, SummarizationMode, SummarizationProvider
+
+# Default analysis level
+DEFAULT_ANALYSIS_LEVEL = AnalysisLevel.TRACE
 
 
 class TraceSummary(BaseModel):
@@ -29,15 +32,18 @@ class TraceSummary(BaseModel):
 
 @dataclass
 class BatchSummarizationInputs:
-    """Inputs for batch trace summarization workflow.
+    """Inputs for batch trace/generation summarization workflow.
 
-    The workflow processes traces from a time window (last N minutes) up to a maximum count.
-    This makes it suitable for scheduled execution where each run processes recent traces.
+    The workflow processes traces or generations from a time window (last N minutes) up to a maximum count.
+    This makes it suitable for scheduled execution where each run processes recent data.
+
+    When analysis_level is TRACE, the workflow summarizes entire traces.
+    When analysis_level is GENERATION, the workflow summarizes individual $ai_generation events.
     """
 
     team_id: int
-    max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on traces to process
-    batch_size: int = DEFAULT_BATCH_SIZE  # Number of traces per batch
+    max_traces: int = DEFAULT_MAX_TRACES_PER_WINDOW  # Hard limit on traces/generations to process
+    batch_size: int = DEFAULT_BATCH_SIZE  # Number of items to process in parallel
     mode: SummarizationMode = DEFAULT_MODE
     window_minutes: int = DEFAULT_WINDOW_MINUTES  # Time window to query (defaults to 60 min)
     provider: SummarizationProvider = DEFAULT_PROVIDER
@@ -45,13 +51,19 @@ class BatchSummarizationInputs:
     # Optional explicit window (if not provided, uses window_minutes from now)
     window_start: str | None = None  # RFC3339 format
     window_end: str | None = None  # RFC3339 format
+    # Analysis level: trace (default) or generation
+    analysis_level: AnalysisLevel = field(default=DEFAULT_ANALYSIS_LEVEL)
 
 
 @dataclass
 class SummarizationActivityResult:
-    """Result from generate_and_save_summary_activity."""
+    """Result from generate_and_save_summary_activity.
 
-    trace_id: str
+    For trace-level summarization, item_id is the trace_id.
+    For generation-level summarization, item_id is the generation event UUID.
+    """
+
+    item_id: str  # trace_id or generation event UUID
     success: bool
     text_repr_length: int = 0
     event_count: int = 0
@@ -59,6 +71,7 @@ class SummarizationActivityResult:
     skip_reason: str | None = None
     embedding_requested: bool = False
     embedding_request_error: str | None = None
+    trace_id: str | None = None  # For generations, the parent trace_id if available
 
 
 @dataclass

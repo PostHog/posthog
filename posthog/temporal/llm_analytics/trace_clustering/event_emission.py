@@ -2,8 +2,10 @@
 
 This module contains functions for emitting clustering results to ClickHouse:
 - Build cluster data structures with centroids and distances
-- Emit $ai_trace_clusters event with all clustering metadata
+- Emit $ai_trace_clusters or $ai_generation_clusters event with all clustering metadata
 - Handle noise/outlier cluster from HDBSCAN (cluster_id = -1)
+
+Supports both trace-level and generation-level clustering.
 """
 
 import uuid
@@ -18,7 +20,7 @@ from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.constants import NOISE_CLUSTER_ID
-from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
+from posthog.temporal.llm_analytics.trace_clustering.data import fetch_summaries_for_clustering
 from posthog.temporal.llm_analytics.trace_clustering.models import (
     ClusterData,
     ClusteringParams,
@@ -26,6 +28,8 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     TraceClusterMetadata,
     TraceId,
 )
+
+from products.llm_analytics.backend.summarization.models import AnalysisLevel
 
 
 class _TraceDistanceData(TypedDict):
@@ -52,11 +56,12 @@ def emit_cluster_events(
     centroid_coords_2d: np.ndarray,
     batch_run_ids: dict[str, str] | None = None,
     clustering_params: ClusteringParams | None = None,
+    analysis_level: AnalysisLevel = AnalysisLevel.TRACE,
 ) -> list[ClusterData]:
-    """Emit $ai_trace_clusters event to ClickHouse.
+    """Emit $ai_trace_clusters or $ai_generation_clusters event to ClickHouse.
 
-    Creates a single event containing all clusters with trace IDs, centroids, and LLM-generated labels.
-    The UI can fetch metadata for individual traces as needed.
+    Creates a single event containing all clusters with item IDs, centroids, and LLM-generated labels.
+    The UI can fetch metadata for individual items as needed.
 
     Args:
         team_id: Team ID
@@ -65,13 +70,14 @@ def emit_cluster_events(
         window_end: End of time window (ISO format)
         labels: Cluster assignments
         centroids: Cluster centroids (center points in embedding space)
-        trace_ids: All trace IDs being clustered
-        distances_matrix: Pre-computed distances from each trace to all centroids
+        trace_ids: All item IDs being clustered (trace IDs or generation IDs)
+        distances_matrix: Pre-computed distances from each item to all centroids
         cluster_labels: Dict mapping cluster_id -> ClusterLabel
-        coords_2d: UMAP 2D coordinates for each trace, shape (n_traces, 2)
+        coords_2d: UMAP 2D coordinates for each item, shape (n_items, 2)
         centroid_coords_2d: UMAP 2D coordinates for each centroid, shape (n_clusters, 2)
-        batch_run_ids: Dict mapping trace_id -> batch_run_id for linking to summaries
+        batch_run_ids: Dict mapping item_id -> batch_run_id for linking to summaries
         clustering_params: Parameters used for this clustering run
+        analysis_level: Whether this is trace-level or generation-level clustering
 
     Returns:
         List of ClusterData objects emitted
@@ -79,26 +85,27 @@ def emit_cluster_events(
     team = Team.objects.get(id=team_id)
     num_clusters = len(centroids)
 
-    # Fetch trace summaries to get timestamps for efficient linking
+    # Fetch summaries to get timestamps for efficient linking
     window_start_dt = parse_datetime(window_start)
     window_end_dt = parse_datetime(window_end)
     if window_start_dt is None or window_end_dt is None:
         raise ValueError(f"Invalid datetime format: window_start={window_start}, window_end={window_end}")
 
-    trace_summaries = fetch_trace_summaries(
+    item_summaries = fetch_summaries_for_clustering(
         team=team,
-        trace_ids=trace_ids,
+        item_ids=trace_ids,
         batch_run_ids=batch_run_ids or {},
         window_start=window_start_dt,
         window_end=window_end_dt,
+        analysis_level=analysis_level,
     )
 
     # Extract timestamps from summaries
-    trace_timestamps: dict[str, str] = {
-        trace_id: summary.get("trace_timestamp", "") for trace_id, summary in trace_summaries.items()
+    item_timestamps: dict[str, str] = {
+        item_id: summary.get("trace_timestamp", "") for item_id, summary in item_summaries.items()
     }
 
-    # Build clusters array with centroids and trace distances
+    # Build clusters array with centroids and item distances
     clusters = _build_cluster_data(
         num_clusters=num_clusters,
         labels=labels,
@@ -108,11 +115,17 @@ def emit_cluster_events(
         cluster_labels=cluster_labels,
         coords_2d=coords_2d,
         centroid_coords_2d=centroid_coords_2d,
-        trace_timestamps=trace_timestamps,
+        trace_timestamps=item_timestamps,
     )
 
     # Build and emit event
     event_uuid = uuid.uuid4()
+
+    # Choose event name based on analysis level
+    event_name = (
+        constants.EVENT_NAME_GENERATION_CLUSTERS if analysis_level == AnalysisLevel.GENERATION else constants.EVENT_NAME
+    )
+    distinct_id_prefix = "generation_clustering" if analysis_level == AnalysisLevel.GENERATION else "trace_clustering"
 
     properties = {
         "$ai_clustering_run_id": clustering_run_id,
@@ -120,6 +133,7 @@ def emit_cluster_events(
         "$ai_window_end": window_end,
         "$ai_total_traces_analyzed": len(trace_ids),
         "$ai_clusters": [dataclasses.asdict(c) for c in clusters],
+        "$ai_analysis_level": str(analysis_level),
     }
 
     # Add clustering params if provided
@@ -128,9 +142,9 @@ def emit_cluster_events(
 
     create_event(
         event_uuid=event_uuid,
-        event=constants.EVENT_NAME,
+        event=event_name,
         team=team,
-        distinct_id=f"trace_clustering_{team_id}",
+        distinct_id=f"{distinct_id_prefix}_{team_id}",
         properties=properties,
     )
 

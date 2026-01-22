@@ -68,7 +68,7 @@ export function ErrorTrackingScene(): JSX.Element {
                     alert_destination_count: res.results.length,
                 })
             })
-    }, [])
+    }, [activeTab])
 
     return (
         <StyleVariables>

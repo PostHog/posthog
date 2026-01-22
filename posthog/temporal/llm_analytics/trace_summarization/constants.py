@@ -48,6 +48,7 @@ COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
+EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"
 
 # Team allowlist - only these teams will be processed by the coordinator
 # Empty list means no teams will be processed (coordinator skips)

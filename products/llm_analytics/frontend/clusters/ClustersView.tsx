@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight, IconGear, IconInfo, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -13,7 +13,7 @@ import { ClusteringAdminModal } from './ClusteringAdminModal'
 import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
 import { NOISE_CLUSTER_ID } from './constants'
-import { Cluster, ClusteringParams } from './types'
+import { AnalysisLevel, Cluster, ClusteringParams } from './types'
 
 function ClusteringParamsTooltip({ params }: { params: ClusteringParams }): JSX.Element {
     const formatMethodParams = (methodParams: Record<string, unknown>): string => {
@@ -76,8 +76,9 @@ export function ClustersView(): JSX.Element {
         traceSummaries,
         traceSummariesLoading,
         isScatterPlotExpanded,
+        analysisLevel,
     } = useValues(clustersLogic)
-    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded, loadClusteringRuns } =
+    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded, loadClusteringRuns, setAnalysisLevel } =
         useActions(clustersLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(clustersAdminLogic)
@@ -93,19 +94,67 @@ export function ClustersView(): JSX.Element {
     }
 
     if (clusteringRuns.length === 0) {
+        const levelLabel = analysisLevel === 'generation' ? 'generation' : 'trace'
         return (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-                <h3 className="text-lg font-semibold mb-2">No clustering runs found</h3>
-                <p className="text-muted max-w-md">
-                    Clustering runs are generated automatically when you have enough traced LLM interactions. Check back
-                    later once more data has been collected.
-                </p>
+            <div className="space-y-4">
+                {/* Analysis Level Toggle */}
+                <div className="flex items-center gap-4">
+                    <label className="font-medium">Cluster by:</label>
+                    <LemonSegmentedButton
+                        value={analysisLevel}
+                        onChange={(value) => setAnalysisLevel(value as AnalysisLevel)}
+                        options={[
+                            { value: 'trace', label: 'Trace' },
+                            { value: 'generation', label: 'Generation' },
+                        ]}
+                        size="small"
+                    />
+                </div>
+                <div className="flex flex-col items-center justify-center p-8 text-center">
+                    <h3 className="text-lg font-semibold mb-2">No {levelLabel}-level clustering runs found</h3>
+                    <p className="text-muted max-w-md">
+                        {levelLabel === 'generation'
+                            ? 'Generation-level clustering analyzes individual LLM calls. Runs are generated automatically when you have enough data.'
+                            : 'Trace-level clustering analyzes entire traces. Runs are generated automatically when you have enough traced LLM interactions.'}
+                    </p>
+                </div>
             </div>
         )
     }
 
     return (
         <div className="space-y-4">
+            {/* Analysis Level Toggle */}
+            <div className="flex items-center gap-4">
+                <label className="font-medium">Cluster by:</label>
+                <LemonSegmentedButton
+                    value={analysisLevel}
+                    onChange={(value) => setAnalysisLevel(value as AnalysisLevel)}
+                    options={[
+                        { value: 'trace', label: 'Trace' },
+                        { value: 'generation', label: 'Generation' },
+                    ]}
+                    size="small"
+                />
+                <Tooltip
+                    title={
+                        <div className="text-xs max-w-64">
+                            <p className="mb-2">
+                                <strong>Trace level:</strong> Clusters entire traces based on their overall behavior and
+                                flow.
+                            </p>
+                            <p>
+                                <strong>Generation level:</strong> Clusters individual LLM calls, which may reveal more
+                                focused patterns around specific prompts or use cases.
+                            </p>
+                        </div>
+                    }
+                    placement="right"
+                >
+                    <IconInfo className="text-muted-alt cursor-help" />
+                </Tooltip>
+            </div>
+
             {/* Run Selector Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -131,7 +180,10 @@ export function ClustersView(): JSX.Element {
                 <div className="flex items-center gap-4">
                     {currentRun && (
                         <div className="flex items-center gap-2 text-muted text-sm">
-                            <span>{currentRun.totalTracesAnalyzed} traces analyzed</span>
+                            <span>
+                                {currentRun.totalTracesAnalyzed}{' '}
+                                {analysisLevel === 'generation' ? 'generations' : 'traces'} analyzed
+                            </span>
                             <span>|</span>
                             <span>
                                 {(() => {

@@ -3,6 +3,17 @@
 from enum import StrEnum
 
 
+class AnalysisLevel(StrEnum):
+    """Level at which to analyze LLM data.
+
+    - TRACE: Analyze entire traces (aggregates all events in a trace)
+    - GENERATION: Analyze individual $ai_generation events
+    """
+
+    TRACE = "trace"
+    GENERATION = "generation"
+
+
 class SummarizationProvider(StrEnum):
     """Supported LLM providers for summarization."""
 

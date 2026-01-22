@@ -15,6 +15,7 @@ import type { clustersLogicType } from './clustersLogicType'
 import { MAX_CLUSTERING_RUNS, NOISE_CLUSTER_ID } from './constants'
 import { loadTraceSummaries } from './traceSummaryLoader'
 import {
+    AnalysisLevel,
     Cluster,
     ClusteringParams,
     ClusteringRun,
@@ -57,6 +58,7 @@ export const clustersLogic = kea<clustersLogicType>([
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
         loadTraceSummariesForRun: (run: ClusteringRun) => ({ run }),
+        setAnalysisLevel: (level: AnalysisLevel) => ({ level }),
     }),
 
     reducers({
@@ -98,13 +100,22 @@ export const clustersLogic = kea<clustersLogicType>([
                 toggleScatterPlotExpanded: (state) => !state,
             },
         ],
+        analysisLevel: [
+            'trace' as AnalysisLevel,
+            {
+                setAnalysisLevel: (_, { level }) => level,
+            },
+        ],
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         clusteringRuns: [
             [] as ClusteringRunOption[],
             {
                 loadClusteringRuns: async () => {
+                    // Query the appropriate event type based on analysis level
+                    const eventName =
+                        values.analysisLevel === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -112,7 +123,7 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractString(properties, '$ai_window_end') as window_end,
                                 timestamp
                             FROM events
-                            WHERE event = '$ai_trace_clusters'
+                            WHERE event = ${eventName}
                                 AND timestamp >= now() - INTERVAL 7 DAY
                             ORDER BY timestamp DESC
                             LIMIT ${MAX_CLUSTERING_RUNS}
@@ -140,6 +151,9 @@ export const clustersLogic = kea<clustersLogicType>([
                 loadClusteringRun: async (runId: string) => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(runId)
 
+                    // Query the appropriate event type based on analysis level
+                    const eventName =
+                        values.analysisLevel === 'generation' ? '$ai_generation_clusters' : '$ai_trace_clusters'
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -149,9 +163,10 @@ export const clustersLogic = kea<clustersLogicType>([
                                 JSONExtractInt(properties, '$ai_total_traces_analyzed') as total_traces,
                                 JSONExtractRaw(properties, '$ai_clusters') as clusters,
                                 timestamp,
-                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params
+                                JSONExtractRaw(properties, '$ai_clustering_params') as clustering_params,
+                                JSONExtractString(properties, '$ai_analysis_level') as analysis_level
                             FROM events
-                            WHERE event = '$ai_trace_clusters'
+                            WHERE event = ${eventName}
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${runId}
@@ -186,6 +201,10 @@ export const clustersLogic = kea<clustersLogicType>([
                         }
                     }
 
+                    // Parse analysis level from the event or clustering params
+                    const analysisLevelRaw = row[7] as string | null
+                    const analysisLevel: AnalysisLevel = analysisLevelRaw === 'generation' ? 'generation' : 'trace'
+
                     return {
                         runId: row[0] as string,
                         windowStart: row[1] as string,
@@ -194,6 +213,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         clusters: clustersData,
                         timestamp: row[5] as string,
                         clusteringParams,
+                        analysisLevel,
                     } as ClusteringRun
                 },
             },
@@ -379,6 +399,11 @@ export const clustersLogic = kea<clustersLogicType>([
             if (runId) {
                 actions.loadClusteringRun(runId)
             }
+        },
+        setAnalysisLevel: () => {
+            // Reset selected run and reload runs when analysis level changes
+            actions.setSelectedRunId(null)
+            actions.loadClusteringRuns()
         },
     })),
 

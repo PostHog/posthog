@@ -1,5 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
+// Analysis level for clustering: trace-level or generation-level
+export type AnalysisLevel = 'trace' | 'generation'
+
 /**
  * Extract day bounds from a clustering run ID for efficient timestamp filtering.
  * Run IDs are formatted as `<team_id>_<YYYYMMDD>_<HHMMSS>`.
@@ -62,7 +65,8 @@ export interface ClusteringParams {
     dimensionality_reduction_method: string // "none", "umap", or "pca"
     dimensionality_reduction_ndims: number // Target dimensions
     visualization_method: string // "umap", "pca", or "tsne"
-    max_samples: number // Max traces to sample
+    max_samples: number // Max items to sample
+    analysis_level?: AnalysisLevel // "trace" or "generation"
 }
 
 // Full clustering run event data
@@ -74,6 +78,7 @@ export interface ClusteringRun {
     clusters: Cluster[]
     timestamp: string // Event timestamp
     clusteringParams?: ClusteringParams // Parameters used for this run
+    analysisLevel?: AnalysisLevel // "trace" or "generation"
 }
 
 // Run option for the dropdown selector

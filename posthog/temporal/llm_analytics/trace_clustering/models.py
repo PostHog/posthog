@@ -10,13 +10,21 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MIN_K,
 )
 
+from products.llm_analytics.backend.summarization.models import AnalysisLevel
+
+# Default analysis level
+DEFAULT_ANALYSIS_LEVEL = AnalysisLevel.TRACE
+
 
 @dataclass
 class ClusteringWorkflowInputs:
-    """Input parameters for the daily trace clustering workflow.
+    """Input parameters for the daily trace/generation clustering workflow.
 
     The workflow calculates window_start/window_end from lookback_days
     and passes them to the activity.
+
+    When analysis_level is TRACE, the workflow clusters trace summaries.
+    When analysis_level is GENERATION, the workflow clusters individual generation summaries.
     """
 
     team_id: int
@@ -33,9 +41,11 @@ class ClusteringWorkflowInputs:
     # For k-means: min_k, max_k (uses silhouette score to pick best k)
     clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
-    # Optional property filters to scope which traces are included in clustering
+    # Optional property filters to scope which traces/generations are included in clustering
     # Uses PostHog's standard property filter format (same as evaluations, feature flags, etc.)
     trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    # Analysis level: trace (default) or generation
+    analysis_level: AnalysisLevel = field(default=DEFAULT_ANALYSIS_LEVEL)
 
 
 @dataclass
@@ -58,8 +68,10 @@ class ClusteringActivityInputs:
     clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
     clustering_method_params: dict[str, Any] = field(default_factory=dict)
     visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
-    # Optional property filters to scope which traces are included in clustering
+    # Optional property filters to scope which traces/generations are included in clustering
     trace_filters: list[dict[str, Any]] = field(default_factory=list)
+    # Analysis level: trace (default) or generation
+    analysis_level: AnalysisLevel = field(default=DEFAULT_ANALYSIS_LEVEL)
 
 
 @dataclass
@@ -189,18 +201,22 @@ class TraceLabelingMetadata:
 class GenerateLabelsActivityInputs:
     """Input for the LLM labeling activity.
 
-    Contains precomputed per-trace metadata for the labeling agent.
+    Contains precomputed per-item metadata for the labeling agent.
     Payload size is O(n) instead of O(n × k) by precomputing ranks/distances.
+
+    For trace-level clustering, item_ids are trace_ids.
+    For generation-level clustering, item_ids are generation event UUIDs.
     """
 
     team_id: int
-    trace_ids: list[str]
-    labels: list[int]  # cluster assignment per trace (-1 = noise)
-    trace_metadata: list[TraceLabelingMetadata]  # per-trace: x, y, distance, rank
+    trace_ids: list[str]  # Kept for backwards compatibility; item_ids
+    labels: list[int]  # cluster assignment per item (-1 = noise)
+    trace_metadata: list[TraceLabelingMetadata]  # per-item: x, y, distance, rank
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
     window_start: str
     window_end: str
-    batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
+    analysis_level: AnalysisLevel = field(default=DEFAULT_ANALYSIS_LEVEL)
 
 
 @dataclass
@@ -220,23 +236,29 @@ class ClusteringParams:
     dimensionality_reduction_method: str  # "none", "umap", or "pca"
     dimensionality_reduction_ndims: int  # Target dimensions
     visualization_method: str  # "umap", "pca", or "tsne"
-    max_samples: int  # Max traces to sample
+    max_samples: int  # Max items to sample
+    analysis_level: str = "trace"  # "trace" or "generation"
 
 
 @dataclass
 class EmitEventsActivityInputs:
-    """Input for the event emission activity."""
+    """Input for the event emission activity.
+
+    For trace-level clustering, trace_ids contains trace IDs.
+    For generation-level clustering, trace_ids contains generation event UUIDs (kept for backwards compat).
+    """
 
     team_id: int
     clustering_run_id: str
     window_start: str
     window_end: str
-    trace_ids: list[str]
+    trace_ids: list[str]  # item_ids (traces or generations)
     labels: list[int]
     centroids: list[list[float]]
     distances: list[list[float]]
     cluster_labels: dict[int, ClusterLabel]
-    coords_2d: list[list[float]]  # UMAP 2D coordinates per trace
+    coords_2d: list[list[float]]  # UMAP 2D coordinates per item
     centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
-    batch_run_ids: dict[str, str] = field(default_factory=dict)  # trace_id -> batch_run_id for linking to summaries
+    batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
+    analysis_level: AnalysisLevel = field(default=DEFAULT_ANALYSIS_LEVEL)

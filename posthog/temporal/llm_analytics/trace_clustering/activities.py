@@ -26,7 +26,7 @@ from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     reduce_dimensions_for_clustering,
     reduce_dimensions_pca,
 )
-from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_embeddings_for_clustering
+from posthog.temporal.llm_analytics.trace_clustering.data import fetch_embeddings_for_clustering
 from posthog.temporal.llm_analytics.trace_clustering.event_emission import emit_cluster_events
 from posthog.temporal.llm_analytics.trace_clustering.labeling import generate_cluster_labels
 from posthog.temporal.llm_analytics.trace_clustering.models import (
@@ -63,12 +63,13 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
 
     team = Team.objects.get(id=inputs.team_id)
 
-    trace_ids, embeddings_map, batch_run_ids_map = fetch_trace_embeddings_for_clustering(
+    trace_ids, embeddings_map, batch_run_ids_map = fetch_embeddings_for_clustering(
         team=team,
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
-        trace_filters=inputs.trace_filters if inputs.trace_filters else None,
+        analysis_level=inputs.analysis_level,
+        filters=inputs.trace_filters if inputs.trace_filters else None,
     )
 
     logger.debug(
@@ -271,6 +272,7 @@ def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
         centroid_coords_2d=np.array(inputs.centroid_coords_2d),
         batch_run_ids=inputs.batch_run_ids,
         clustering_params=inputs.clustering_params,
+        analysis_level=inputs.analysis_level,
     )
 
     return ClusteringResult(

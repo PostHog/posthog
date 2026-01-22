@@ -27,7 +27,10 @@ from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInpu
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.experiments.schedule import create_experiment_regular_metrics_schedules
-from posthog.temporal.llm_analytics.trace_clustering.schedule import create_trace_clustering_coordinator_schedule
+from posthog.temporal.llm_analytics.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
 from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -305,6 +308,7 @@ schedules = [
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
+    create_generation_clustering_coordinator_schedule,
     create_ducklake_compaction_schedule,
     create_delete_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
