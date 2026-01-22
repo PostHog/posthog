@@ -33,7 +33,7 @@ const getExposureEvent = (experiment: Experiment): string => {
     return '$feature_flag_called'
 }
 
-// AddBreakdownButton component for event property breakdowns
+// AddBreakdownButton component for event and session property breakdowns
 const AddBreakdownButton = ({
     experiment,
     onChange,
@@ -63,11 +63,16 @@ const AddBreakdownButton = ({
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
-                    onChange={(_, value) => {
-                        onChange({ type: 'event', property: value?.toString() || '' })
+                    onChange={(group, value) => {
+                        const breakdownType =
+                            group.type === TaxonomicFilterGroupType.SessionProperties ? 'session' : 'event'
+                        onChange({ type: breakdownType, property: value?.toString() || '' })
                         setDropdownOpen(false)
                     }}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.SessionProperties,
+                    ]}
                     metadataSource={metadataSource}
                 />
             }
