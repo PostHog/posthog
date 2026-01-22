@@ -81,8 +81,13 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationSummaryFilter,
         summaryExpanded,
     } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns, generateEvaluationSummary, setEvaluationSummaryFilter, toggleSummaryExpanded } =
-        useActions(llmEvaluationLogic)
+    const {
+        refreshEvaluationRuns,
+        generateEvaluationSummary,
+        regenerateEvaluationSummary,
+        setEvaluationSummaryFilter,
+        toggleSummaryExpanded,
+    } = useActions(llmEvaluationLogic)
     const showSummaryFeature = useFeatureFlag('LLM_ANALYTICS_EVALUATIONS_SUMMARY')
 
     // Create a lookup map from generation_id to run for linking in pattern cards
@@ -194,31 +199,51 @@ export function EvaluationRunsTable(): JSX.Element {
                                 title={
                                     runsToSummarizeCount === 0
                                         ? 'No runs match the current filter'
-                                        : `Use AI to analyze patterns in ${runsToSummarizeCount} ${
-                                              evaluationSummaryFilter === 'all'
-                                                  ? ''
-                                                  : evaluationSummaryFilter === 'pass'
-                                                    ? 'passing '
-                                                    : evaluationSummaryFilter === 'fail'
-                                                      ? 'failing '
-                                                      : 'N/A '
-                                          }evaluation results`
+                                        : evaluationSummary
+                                          ? `Regenerate AI summary for ${runsToSummarizeCount} ${
+                                                evaluationSummaryFilter === 'all'
+                                                    ? ''
+                                                    : evaluationSummaryFilter === 'pass'
+                                                      ? 'passing '
+                                                      : evaluationSummaryFilter === 'fail'
+                                                        ? 'failing '
+                                                        : 'N/A '
+                                            }evaluation results`
+                                          : `Use AI to analyze patterns in ${runsToSummarizeCount} ${
+                                                evaluationSummaryFilter === 'all'
+                                                    ? ''
+                                                    : evaluationSummaryFilter === 'pass'
+                                                      ? 'passing '
+                                                      : evaluationSummaryFilter === 'fail'
+                                                        ? 'failing '
+                                                        : 'N/A '
+                                            }evaluation results`
                                 }
                             >
                                 <LemonButton
                                     type="secondary"
                                     onClick={() => {
-                                        posthog.capture('llma evaluation summarize clicked', {
-                                            filter: evaluationSummaryFilter,
-                                            runs_to_summarize: runsToSummarizeCount,
-                                        })
-                                        generateEvaluationSummary()
+                                        posthog.capture(
+                                            evaluationSummary
+                                                ? 'llma evaluation regenerate clicked'
+                                                : 'llma evaluation summarize clicked',
+                                            {
+                                                filter: evaluationSummaryFilter,
+                                                runs_to_summarize: runsToSummarizeCount,
+                                            }
+                                        )
+                                        if (evaluationSummary) {
+                                            regenerateEvaluationSummary()
+                                        } else {
+                                            generateEvaluationSummary({})
+                                        }
                                     }}
                                     size="small"
                                     disabled={runsToSummarizeCount === 0}
+                                    loading={evaluationSummaryLoading}
                                     data-attr="llma-evaluation-summarize"
                                 >
-                                    Summarize
+                                    {evaluationSummary ? 'Regenerate' : 'Summarize'}
                                 </LemonButton>
                             </Tooltip>
                             <LemonSegmentedButton

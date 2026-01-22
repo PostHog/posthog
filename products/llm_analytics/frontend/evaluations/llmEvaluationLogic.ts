@@ -51,6 +51,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter) => ({ filter }),
         toggleSummaryExpanded: true,
+        regenerateEvaluationSummary: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -72,9 +73,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         evaluationSummary: [
             null as EvaluationSummary | null,
             {
-                generateEvaluationSummary: async () => {
+                generateEvaluationSummary: async ({ forceRefresh = false }: { forceRefresh?: boolean } = {}) => {
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
+                    if (!teamId || !props.evaluationId || props.evaluationId === 'new') {
                         return null
                     }
 
@@ -98,12 +99,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
+                        evaluation_id: props.evaluationId,
                         evaluation_runs: sampledRuns.map((r) => ({
                             generation_id: r.generation_id,
                             result: r.result,
                             reasoning: r.reasoning,
                         })),
                         filter: values.evaluationSummaryFilter,
+                        force_refresh: forceRefresh,
                     })
 
                     return response as EvaluationSummary
@@ -240,6 +243,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         refreshEvaluationRuns: () => {
             actions.loadEvaluationRuns()
+        },
+
+        regenerateEvaluationSummary: () => {
+            actions.generateEvaluationSummary({ forceRefresh: true })
         },
 
         resetEvaluation: () => {

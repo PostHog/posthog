@@ -9,7 +9,10 @@ Endpoints:
 """
 
 import time
+import hashlib
 from typing import cast
+
+from django.core.cache import cache
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -46,6 +49,7 @@ class EvaluationRunDataSerializer(serializers.Serializer):
 
 
 class EvaluationSummaryRequestSerializer(serializers.Serializer):
+    evaluation_id = serializers.CharField(help_text="Unique identifier for the evaluation being summarized")
     evaluation_runs = serializers.ListField(
         child=EvaluationRunDataSerializer(),
         min_length=1,
@@ -57,6 +61,11 @@ class EvaluationSummaryRequestSerializer(serializers.Serializer):
         default="all",
         required=False,
         help_text="Filter type that was applied ('all', 'pass', 'fail', or 'na')",
+    )
+    force_refresh = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="If true, bypass cache and generate a fresh summary",
     )
 
 
@@ -102,6 +111,9 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             LLMAnalyticsSummarizationDailyThrottle(),
         ]
 
+    # Cache timeout in seconds (1 hour)
+    CACHE_TIMEOUT = 3600
+
     def _validate_feature_access(self, request: Request) -> None:
         """Validate that the user is authenticated and AI data processing is approved."""
         if not request.user.is_authenticated:
@@ -111,6 +123,17 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise exceptions.PermissionDenied(
                 "AI data processing must be approved by your organization before using summarization"
             )
+
+    def _get_cache_key(self, evaluation_id: str, filter_type: str, runs: list[dict]) -> str:
+        """Generate cache key for evaluation summary results.
+
+        The key includes a hash of the generation_ids to detect when
+        the underlying runs have changed.
+        """
+        # Sort generation_ids for consistent hashing
+        generation_ids = sorted(r["generation_id"] for r in runs)
+        runs_hash = hashlib.md5(",".join(generation_ids).encode()).hexdigest()[:12]
+        return f"llm_eval_summary:{self.team_id}:{evaluation_id}:{filter_type}:{runs_hash}"
 
     @extend_schema(
         request=EvaluationSummaryRequestSerializer,
@@ -125,6 +148,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 "Evaluation Summary Request",
                 description="Summarize evaluation results",
                 value={
+                    "evaluation_id": "eval_12345",
                     "evaluation_runs": [
                         {
                             "generation_id": "gen_abc123",
@@ -143,6 +167,7 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                         },
                     ],
                     "filter": "all",
+                    "force_refresh": False,
                 },
                 request_only=True,
             ),
@@ -207,14 +232,30 @@ and failing evaluations, providing actionable recommendations.
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
+            evaluation_id = serializer.validated_data["evaluation_id"]
             runs = serializer.validated_data["evaluation_runs"]
             filter_type = serializer.validated_data.get("filter", "all")
+            force_refresh = serializer.validated_data.get("force_refresh", False)
 
             if len(runs) == 0:
                 return Response(
                     {"error": "No evaluation runs to summarize"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            cache_key = self._get_cache_key(evaluation_id, filter_type, runs)
+
+            # Check cache unless force_refresh is requested
+            if not force_refresh:
+                cached_result = cache.get(cache_key)
+                if cached_result is not None:
+                    logger.info(
+                        "Returning cached evaluation summary",
+                        evaluation_id=evaluation_id,
+                        filter_type=filter_type,
+                        team_id=self.team_id,
+                    )
+                    return Response(cached_result, status=status.HTTP_200_OK)
 
             start_time = time.time()
             summary = async_to_sync(summarize_evaluation_runs)(
@@ -235,21 +276,28 @@ and failing evaluations, providing actionable recommendations.
                 "na_count": sum(1 for r in runs if r["result"] is None),
             }
 
+            # Cache the result
+            cache.set(cache_key, result, timeout=self.CACHE_TIMEOUT)
+
             logger.info(
-                "Generated evaluation summary",
+                "Generated and cached evaluation summary",
+                evaluation_id=evaluation_id,
                 team_id=self.team_id,
                 runs_count=len(runs),
                 filter_type=filter_type,
                 duration_seconds=duration_seconds,
+                force_refresh=force_refresh,
             )
 
             report_user_action(
                 cast(User, self.request.user),
                 "llma evaluation summary generated",
                 {
+                    "evaluation_id": evaluation_id,
                     "runs_count": len(runs),
                     "filter": filter_type,
                     "duration_seconds": duration_seconds,
+                    "force_refresh": force_refresh,
                     "pass_count": result["statistics"]["pass_count"],
                     "fail_count": result["statistics"]["fail_count"],
                 },
