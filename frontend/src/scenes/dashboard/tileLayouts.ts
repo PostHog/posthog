@@ -71,9 +71,6 @@ export function calculateDuplicateLayout(
                     xsLayout && xsInsertY !== undefined && xsLayout.y >= xsInsertY
                         ? { x: xsLayout.x, y: xsLayout.y + originalXsLayout!.h, w: xsLayout.w, h: xsLayout.h }
                         : xsLayout
-                        ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
-                        : undefined,
-                        : xsLayout
                           ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
                           : undefined,
             },
