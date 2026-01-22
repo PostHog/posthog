@@ -328,7 +328,7 @@ def _screenshot_asset(
                     capped_width=MAX_WIDTH_PIXELS,
                     url=url_to_render,
                 )
-            width = min(MAX_WIDTH_PIXELS, calculated_width)
+            width = min(MAX_WIDTH_PIXELS, int(calculated_width))
         else:
             width = screenshot_width
 
