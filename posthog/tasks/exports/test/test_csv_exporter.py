@@ -35,6 +35,7 @@ from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
     _convert_response_to_csv_data,
     add_query_params,
+    sanitize_value_for_excel,
 )
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
@@ -1441,3 +1442,77 @@ class TestCSVExporter(APIBaseTest):
         assert any(p.endswith(".xlsx") for p in temp_file_paths)
         for path in temp_file_paths:
             assert not os.path.exists(path), f"Temp file {path} should be cleaned up after export"
+
+    def test_sanitize_value_for_excel(self) -> None:
+        test_cases = [
+            ("normal text", "normal text"),
+            ("text with\ttab", "text with\ttab"),  # Tab is allowed
+            ("text with\nnewline", "text with\nnewline"),  # Newline is allowed
+            ("text with\rcarriage return", "text with\rcarriage return"),  # CR is allowed
+            ("has\x00null char", "hasnull char"),  # NULL removed
+            ("has\x07bell char", "hasbell char"),  # Bell removed
+            ("has\x0bvertical tab", "hasvertical tab"),  # Vertical tab removed
+            ("has\x1bescape char", "hasescape char"),  # ESC removed (start of ANSI codes)
+            ("\x1b[1;31mred text\x1b[0m", "[1;31mred text[0m"),  # ANSI: ESC removed, rest preserved
+            (123, 123),  # Non-strings pass through
+            (None, None),  # None passes through
+            (12.34, 12.34),  # Float passes through
+            (True, True),  # Bool passes through
+        ]
+        for input_value, expected in test_cases:
+            assert sanitize_value_for_excel(input_value) == expected, f"Failed for input: {repr(input_value)}"
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    @patch("posthog.models.exported_asset.object_storage.write_from_file")
+    def test_excel_export_with_illegal_characters(
+        self, mocked_object_storage_write_from_file: Any, mocked_uuidt: Any
+    ) -> None:
+        """Test that Excel export handles data with illegal XML characters without crashing."""
+        with patch("posthog.tasks.exports.csv_exporter.requests.request") as patched_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            # Data containing control characters that would normally crash openpyxl
+            mock_response.json.return_value = {
+                "next": None,
+                "results": [
+                    {
+                        "id": "1",
+                        "data_with_null": "before\x00after",
+                        "data_with_bell": "before\x07after",
+                        "data_with_escape": "before\x1b[31mred\x1b[0mafter",
+                        "normal_data": "just normal text",
+                    }
+                ],
+            }
+            patched_request.return_value = mock_response
+
+            exported_asset = ExportedAsset(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.XLSX,
+                export_context={"path": "/api/test/endpoint"},
+            )
+            exported_asset.save()
+            mocked_uuidt.return_value = "a-guid"
+            mocked_object_storage_write_from_file.side_effect = ObjectStorageError("mock write failed")
+
+            with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+                # This should not raise IllegalCharacterError
+                csv_exporter.export_tabular(exported_asset)
+
+                # Verify content was generated
+                assert exported_asset.content is not None
+
+                # Verify the Excel file can be loaded and contains sanitized data
+                wb = load_workbook(filename=BytesIO(exported_asset.content))
+                ws = wb.active
+                data = list(ws.iter_rows(values_only=True))
+
+                # Header row + 1 data row
+                assert len(data) == 2
+
+                # Find the data row values
+                data_row = data[1]
+
+                # Control characters should be stripped, but visible parts preserved
+                assert "beforeafter" in str(data_row)  # NULL stripped
+                assert "[31mred[0mafter" in str(data_row)  # ANSI: ESC stripped, rest preserved

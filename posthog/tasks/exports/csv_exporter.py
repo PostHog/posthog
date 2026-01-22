@@ -15,6 +15,7 @@ from django.http import QueryDict
 import requests
 import structlog
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
 from rest_framework_csv.renderers import CSVRenderer
@@ -42,6 +43,12 @@ logger = structlog.get_logger(__name__)
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
+
+
+def sanitize_value_for_excel(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    return ILLEGAL_CHARACTERS_RE.sub("", value)
 
 
 class TabularWriter(Protocol):
@@ -87,7 +94,7 @@ class ExcelWriter(TabularWriter):
             value = row.get(col)
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
-            values.append(value)
+            values.append(sanitize_value_for_excel(value))
         self._worksheet.append(values)
 
     def finish(self) -> str:
@@ -262,21 +269,24 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
         elif first_result.get("values") and first_result.get("label"):
             # RETENTION LIKE
             for item in results:
+                item_values = item.get("values", [])
+                cohort_size = item_values[0]["count"] if item_values else 0
+
                 if item.get("date"):
                     # Dated means we create a grid
                     line = {
                         "cohort": item["date"],
-                        "cohort size": item["values"][0]["count"],
+                        "cohort size": cohort_size,
                     }
-                    for data in item["values"]:
+                    for data in item_values:
                         line[data["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
                     line = {
                         "cohort": item["label"],
-                        "cohort size": item["values"][0]["count"],
+                        "cohort size": cohort_size,
                     }
-                    for index, data in enumerate(item["values"]):
+                    for index, data in enumerate(item_values):
                         line[f"Period {index}"] = data["count"]
 
                 yield line
@@ -330,16 +340,19 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                 if item.get("aggregated_value") is not None:
                     line["Total Sum"] = item.get("aggregated_value")
                 elif item.get("data"):
+                    labels = label_item.get("labels", []) if label_item else []
                     for index, data in enumerate(item["data"]):
-                        line[label_item["labels"][index]] = data
+                        if index < len(labels):
+                            line[labels[index]] = data
 
                 yield line
 
             return
     elif results and isinstance(results, dict):
         if "bins" in results:
-            for key, value in results["bins"]:
-                yield {"bin": key, "value": value}
+            for bin_entry in results["bins"]:
+                if isinstance(bin_entry, (list, tuple)) and len(bin_entry) >= 2:
+                    yield {"bin": bin_entry[0], "value": bin_entry[1]}
             return
 
     # Pagination object

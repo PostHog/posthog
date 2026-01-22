@@ -5,7 +5,7 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from prometheus_client import REGISTRY
+from prometheus_client import PLATFORM_COLLECTOR, PROCESS_COLLECTOR, CollectorRegistry
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
@@ -131,10 +131,17 @@ async def create_worker(
         )
     )
 
+    # Create a separate CollectorRegistry for the metrics server to avoid lock contention
+    # with any other parts of the application that might use the global REGISTRY.
+    # This ensures the metrics server thread cannot deadlock with other threads.
+    metrics_server_registry = CollectorRegistry()
+    metrics_server_registry.register(PROCESS_COLLECTOR)
+    metrics_server_registry.register(PLATFORM_COLLECTOR)
+
     metrics_server = CombinedMetricsServer(
         port=metrics_port,
         temporal_metrics_url=f"http://{temporal_metrics_bind_address}/metrics",
-        registry=REGISTRY,
+        registry=metrics_server_registry,
     )
     client = await connect(
         host,

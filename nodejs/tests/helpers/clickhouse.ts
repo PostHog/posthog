@@ -89,7 +89,7 @@ export class Clickhouse {
         await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
     }
 
-    async waitForHealthy(delayMs = 100, maxDelayCount = 100): Promise<void> {
+    async waitForHealthy(delayMs = 100, maxDelayCount = 300): Promise<void> {
         const timer = performance.now()
 
         for (let i = 0; i < maxDelayCount; i++) {
