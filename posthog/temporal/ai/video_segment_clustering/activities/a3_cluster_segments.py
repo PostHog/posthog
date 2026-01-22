@@ -1,15 +1,17 @@
 """
 Activity 3 of the video segment clustering workflow:
-Clustering video segments using HDBSCAN, with noise handling.
+Clustering video segments using iterative K-means, with noise handling.
 """
 
 import json
+import math
 import asyncio
-from typing import Literal
 
 import numpy as np
-import fast_hdbscan as hdbscan
+from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics.pairwise import cosine_distances
+from sklearn.preprocessing import normalize
 from temporalio import activity
 
 from posthog.models.team import Team
@@ -29,37 +31,36 @@ logger = get_logger(__name__)
 
 @activity.defn
 async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> ClusteringResult:
-    """Cluster video segments using HDBSCAN.
+    """Cluster video segments by semantic similarity.
 
-    Fetches embeddings from ClickHouse, then applies PCA dimensionality reduction
-    and HDBSCAN clustering. Returns clusters with centroids computed from original embeddings.
+    Fetches embeddings from ClickHouse, then clusters them using one of two algorithms:
 
-    If create_single_segment_clusters_for_noise is True (default), noise segments are converted to
-    single-segment clusters so they can become individual Tasks (mostly for teams with lower usage).
+    For small-volume teams (segment count < 200): Agglomerative clustering
+    - Builds clusters bottom-up by merging similar pairs
+    - Naturally handles grouping 2-3 similar segments together
+    - All segments are assigned to clusters (no noise)
 
-    Why HDBSCAN? I'm not an expert, so I'm using Claude as my PhD-level advisor on this (can recommend):
-    - Crucially, doesn't require specifying cluster count upfront, unlike K-means
-    - Naturally identifies noise: segments that don't belong to any cluster
-    - Discovers clusters of varying densities and shapes
-    The downsides of HDBSCAN:
-    - Slower than K-means, especially on large sets (but fast_hdbscan should be a, well, fast library)
-    - Sensitive to min_cluster_size/min_samples parameters
-    - Struggles with high-dimensional data (hence dimensionality reduction with PCA first)
+    For medium-volume teams (segment count >= 200): Iterative K-means
+    - Noise segments are converted to single-segment clusters
 
-    Glossary:
-    - PCA: Principal Component Analysis
-    - HDBSCAN: Hierarchical Density-Based Spatial Clustering of Applications with Noise
+    For high-volume teams (segment count >= 1000): Iterative K-means
+    - Noise segments remain as noise (not converted to Tasks)
+
+    Iterative K-means steps:
+    1. Estimate K using log scaling (K = KMEANS_K_MULTIPLIER * log10(n))
+    2. Run K-means clustering with PCA dimensionality reduction
+    3. For each cluster, check if it's "tight" (max cosine distance to centroid < threshold)
+    4. Tight clusters are finalized, loose cluster segments go back to the pool
+    5. Repeat until convergence or max iterations
+    6. Remaining segments are marked as noise
     """
     team = await Team.objects.aget(id=inputs.team_id)
     # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
+    # TODO: Make sure NONE of the steps returns embeddings
     segments = await _fetch_embeddings_by_document_ids(team, inputs.document_ids)
 
     # Run in to_thread as clustering is CPU-bound
-    return await asyncio.to_thread(
-        _perform_clustering,
-        segments,
-        inputs.create_single_segment_clusters_for_noise,
-    )
+    return await asyncio.to_thread(_perform_clustering, segments)
 
 
 async def _fetch_embeddings_by_document_ids(
@@ -119,14 +120,18 @@ async def _fetch_embeddings_by_document_ids(
     return segments
 
 
-def _perform_clustering(
-    segments: list[VideoSegment],
-    create_single_segment_clusters_for_noise: bool,
-) -> ClusteringResult:
-    """Run HDBSCAN clustering and handle noise. CPU-bound."""
-    result = _perform_hdbscan_clustering(segments)
+def _perform_clustering(segments: list[VideoSegment]) -> ClusteringResult:
+    """Run clustering and handle noise. CPU-bound."""
+    n_segments = len(segments)
 
-    if create_single_segment_clusters_for_noise and result.noise_segment_ids:
+    if n_segments < constants.AGGLOMERATIVE_CLUSTERING_SEGMENT_THRESHOLD:
+        result = _perform_agglomerative_clustering(segments)
+    else:
+        result = _perform_iterative_kmeans_clustering(segments)
+
+    # For medium-volume teams, convert noise to single-segment clusters
+    # For high-volume teams, keep noise as noise
+    if n_segments < constants.NOISE_DISCARDING_SEGMENT_THRESHOLD and result.noise_segment_ids:
         # Handle noise segments by creating single-segment clusters
         max_cluster_id = max((c.cluster_id for c in result.clusters), default=-1)
         noise_clusters = _create_single_segment_clusters(
@@ -144,33 +149,26 @@ def _perform_clustering(
     return result
 
 
-def _perform_hdbscan_clustering(
-    segments: list[VideoSegment],
-    min_cluster_size: int = constants.MIN_CLUSTER_SIZE,
-    min_samples: int = constants.MIN_SAMPLES,
-    cluster_selection_method: Literal["leaf", "eom"] = constants.CLUSTER_SELECTION_METHOD,
-    cluster_selection_epsilon: float = constants.CLUSTER_SELECTION_EPSILON,
-) -> ClusteringResult:
-    """Cluster video segments using HDBSCAN algorithm.
+def _estimate_k(n_segments: int, k_multiplier: float = constants.KMEANS_K_MULTIPLIER) -> int:
+    """Estimate number of clusters based on segment count using log scaling.
 
-    HDBSCAN is density-based and doesn't require specifying the number of clusters.
-    It naturally handles noise (segments that don't fit any cluster).
-
-    Uses relaxed parameters to work well with small datasets:
-    - min_cluster_size=2: allows pairs of similar segments to form clusters
-    - min_samples=1: less conservative, allows more clusters
-    - cluster_selection_method='leaf': produces more granular clusters
-
-    Args:
-        segments: List of video segments with embeddings
-        min_cluster_size: Minimum number of segments to form a cluster
-        min_samples: Minimum samples for core points
-        cluster_selection_method: 'leaf' for granular or 'eom' for broader clusters
-        cluster_selection_epsilon: Distance threshold for cluster membership
-
-    Returns:
-        ClusteringResult with clusters, noise segments, and mappings
+    K scales with log(n) because most segments match existing issues probably, to be tested exactly),
+    so unique clusters grow logarithmically, not linearly. This is an initial guess that gets iterated upon.
     """
+    if n_segments <= 1:
+        return max(2, n_segments)
+    return max(2, int(k_multiplier * math.log10(n_segments)))
+
+
+def _perform_iterative_kmeans_clustering(
+    segments: list[VideoSegment],
+    distance_threshold: float = constants.KMEANS_DISTANCE_THRESHOLD,
+    max_iterations: int = constants.KMEANS_MAX_ITERATIONS,
+    min_cluster_size: int = constants.MIN_CLUSTER_SIZE,
+    k_multiplier: float = constants.KMEANS_K_MULTIPLIER,
+    pca_dimensions: int = constants.TARGET_DIMENSIONALITY_FOR_CLUSTERING,
+    pca_reduction_min_samples: int = constants.NOISE_DISCARDING_SEGMENT_THRESHOLD,
+) -> ClusteringResult:
     if len(segments) == 0:
         return ClusteringResult(
             clusters=[],
@@ -179,60 +177,111 @@ def _perform_hdbscan_clustering(
             segment_to_cluster={},
         )
 
-    # Extract embeddings (full 3072 dimensions)
-    embeddings = np.array([s.embedding for s in segments])
-    document_ids = [s.document_id for s in segments]
+    all_embeddings = np.array([s.embedding for s in segments])
+    all_document_ids = [s.document_id for s in segments]
 
-    # Reduce dimensions for clustering efficiency
-    reduced_embeddings = _reduce_dimensions(embeddings)
+    # Normalize embeddings to unit vectors so that K-means (which uses Euclidean distance)
+    # behaves like spherical K-means, consistent with our cosine distance evaluation ignoring magnitudes
+    all_embeddings = normalize(all_embeddings)
 
-    # Perform HDBSCAN clustering with relaxed parameters (note: fast_hdbscan is Euclidean-only, no cosine due to perf)
-    clusterer = hdbscan.HDBSCAN(
-        min_cluster_size=min_cluster_size,
-        min_samples=min_samples,
-        cluster_selection_method=cluster_selection_method,
-        cluster_selection_epsilon=cluster_selection_epsilon,
-    )
+    # At larger scale, reduce dimensions for K-means efficiency with PCA (this makes sense at above 3*pca_dimensions segments)
+    if len(segments) > pca_reduction_min_samples:
+        reduced_embeddings = _reduce_dimensions(all_embeddings, pca_dimensions)
+    else:
+        reduced_embeddings = all_embeddings
 
-    labels = clusterer.fit_predict(reduced_embeddings)
+    # Mapping from document_id to index
+    doc_id_to_idx = {doc_id: idx for idx, doc_id in enumerate(all_document_ids)}
 
-    # Build clusters using ORIGINAL embeddings for centroids (not PCA-reduced)
-    clusters: list[Cluster] = []
-    noise_segment_ids: list[str] = []
+    # Track which segments are still in the pool
+    remaining_doc_ids = set(all_document_ids)
+    final_clusters: list[Cluster] = []
+
+    iteration = 0
+    # TODO: Explore progressive threshold relaxation, i.e. larger distance threshold in later
+    # iterations to group more outliers (similar to LLM traces clustering approach)
+    while len(remaining_doc_ids) >= min_cluster_size and iteration < max_iterations:
+        iteration += 1
+        n_remaining = len(remaining_doc_ids)
+
+        # Get embeddings for remaining segments
+        remaining_indices = [doc_id_to_idx[doc_id] for doc_id in remaining_doc_ids]
+        remaining_reduced = reduced_embeddings[remaining_indices]
+        remaining_original = all_embeddings[remaining_indices]
+        remaining_ids = list(remaining_doc_ids)
+
+        # Estimate K, capping at count of remaining segments
+        k = min(_estimate_k(n_remaining, k_multiplier), n_remaining)
+
+        # TODO: Consider using MiniBatchKMeans when n_remaining > 5000 for perf at scale
+        kmeans = KMeans(n_clusters=k, random_state=42)  # Static random seed for reproducibility
+        labels = kmeans.fit_predict(remaining_reduced)
+
+        # Evaluate each cluster
+        new_remaining: set[str] = set()
+        for cluster_label in range(k):
+            # Cluster label = cluster index, each segment being mapped to a cluster. Example of `labels` content:
+            # For 8 samples clustered into k=3, `labels` is `np.array([0, 2, 1, 0, 2, 2, 1, 0])`
+            cluster_mask = labels == cluster_label
+            cluster_indices = np.where(cluster_mask)[0]
+
+            if len(cluster_indices) == 0:
+                continue
+
+            cluster_doc_ids = [remaining_ids[i] for i in cluster_indices]
+            cluster_original_embeddings = remaining_original[cluster_indices]
+
+            # Compute centroid from ORIGINAL embeddings (not PCA-reduced)
+            centroid = np.mean(cluster_original_embeddings, axis=0)
+
+            # Compute cosine distances to centroid
+            distances = cosine_distances(cluster_original_embeddings, centroid.reshape(1, -1)).flatten()
+            near_max_dist = float(np.percentile(distances, 95))  # 95th percentile to be robust against outliers
+
+            if near_max_dist < distance_threshold:
+                # Tight cluster - finalize it
+                final_clusters.append(
+                    Cluster(
+                        cluster_id=len(final_clusters),
+                        segment_ids=cluster_doc_ids,
+                        centroid=centroid.tolist(),
+                        size=len(cluster_doc_ids),
+                    )
+                )
+                # Remove from remaining
+                remaining_doc_ids -= set(cluster_doc_ids)
+            else:
+                # Loose cluster - segments stay in pool for next iteration
+                # TODO: Suggestion from Claude - instead of discarding the whole cluster, extract the "tight core"
+                # (segments within a certain threshold) as a finalized cluster, and only return outliers to the pool.
+                # Can avoid wasting computation on clusters that have a good core with few outliers.
+                new_remaining.update(cluster_doc_ids)
+
+        # Early exit if no progress (all clusters were loose)
+        if len(new_remaining) == n_remaining:
+            break
+
+        # Update remaining for next iteration
+        remaining_doc_ids = new_remaining
+
+    # Build segment_to_cluster mapping
     segment_to_cluster: dict[str, int] = {}
+    for cluster in final_clusters:
+        for doc_id in cluster.segment_ids:
+            segment_to_cluster[doc_id] = cluster.cluster_id
 
-    unique_labels = set(labels)
-    for label in unique_labels:
-        if label == -1:
-            # Noise points
-            noise_indices = np.where(labels == label)[0]
-            noise_segment_ids.extend([document_ids[i] for i in noise_indices])
-            continue
-
-        # Get segments in this cluster
-        cluster_indices = np.where(labels == label)[0]
-        cluster_segment_ids = [document_ids[i] for i in cluster_indices]
-
-        # Compute centroid from ORIGINAL embeddings (not reduced)
-        cluster_embeddings = embeddings[cluster_indices]
-        centroid = np.mean(cluster_embeddings, axis=0).tolist() if len(cluster_embeddings) else []
-
-        cluster = Cluster(
-            cluster_id=int(label),
-            segment_ids=cluster_segment_ids,
-            centroid=centroid,
-            size=len(cluster_segment_ids),
-        )
-        clusters.append(cluster)
-
-        # Update mapping
-        for seg_id in cluster_segment_ids:
-            segment_to_cluster[seg_id] = int(label)
+    # Build labels list (in original order)
+    labels_list = []
+    for doc_id in all_document_ids:
+        if doc_id in segment_to_cluster:
+            labels_list.append(segment_to_cluster[doc_id])
+        else:
+            labels_list.append(-1)  # Noise
 
     return ClusteringResult(
-        clusters=clusters,
-        noise_segment_ids=noise_segment_ids,
-        labels=labels.tolist(),
+        clusters=final_clusters,
+        noise_segment_ids=list(remaining_doc_ids),
+        labels=labels_list,
         segment_to_cluster=segment_to_cluster,
     )
 
@@ -249,14 +298,14 @@ def _reduce_dimensions(
     Returns:
         Reduced embeddings array, shape (n_samples, n_components)
     """
-    if embeddings.shape[0] == 0:
+    n_samples, n_features = embeddings.shape
+    if n_samples == 0:
         return embeddings
-    # Don't reduce if already smaller than target
-    if embeddings.shape[1] <= n_components:
-        return embeddings
-    # Cap components at number of samples (PCA requirement)
-    effective_components = min(n_components, embeddings.shape[0])
-    pca = PCA(n_components=effective_components)
+    if n_features <= n_components:
+        raise ValueError(f"Embeddings already have target dimensionality: {n_features} <= {n_components}")
+    if n_samples <= n_components:
+        raise ValueError(f"Not enough samples to reduce dimensions effectively: {n_samples} < {n_components}")
+    pca = PCA(n_components=n_components)
     return pca.fit_transform(embeddings)
 
 
@@ -282,3 +331,73 @@ def _create_single_segment_clusters(
             )
         )
     return new_clusters
+
+
+def _perform_agglomerative_clustering(
+    segments: list[VideoSegment],
+    cosine_distance_threshold: float = constants.KMEANS_DISTANCE_THRESHOLD,
+) -> ClusteringResult:
+    if len(segments) == 0:
+        return ClusteringResult(
+            clusters=[],
+            noise_segment_ids=[],
+            labels=[],
+            segment_to_cluster={},
+        )
+
+    all_embeddings = np.array([s.embedding for s in segments])
+    all_document_ids = [s.document_id for s in segments]
+
+    # Normalize embeddings for consistent distance computation
+    all_embeddings = normalize(all_embeddings)
+
+    # Compute pairwise cosine distance matrix
+    distance_matrix = cosine_distances(all_embeddings)
+
+    # sklearn agglomerative clustering with distance threshold
+    # - metric='precomputed': we provide the distance matrix
+    # - linkage='complete': complete linkage, the distance within cluster is the maximum distance between any two points
+    # - distance_threshold: max distance to merge clusters
+    # - n_clusters=None: let the algorithm determine cluster count based on threshold
+    clustering = AgglomerativeClustering(
+        metric="precomputed",
+        linkage="complete",
+        distance_threshold=cosine_distance_threshold,
+        n_clusters=None,
+    )
+    labels = clustering.fit_predict(distance_matrix)
+
+    # Build clusters
+    clusters: list[Cluster] = []
+    segment_to_cluster: dict[str, int] = {}
+
+    unique_labels = set(labels)
+    for label in unique_labels:
+        cluster_indices = np.where(labels == label)[0]
+        cluster_doc_ids = [all_document_ids[i] for i in cluster_indices]
+        cluster_embeddings = all_embeddings[cluster_indices]
+
+        # Compute centroid
+        centroid = np.mean(cluster_embeddings, axis=0)
+
+        clusters.append(
+            Cluster(
+                cluster_id=int(label),
+                segment_ids=cluster_doc_ids,
+                centroid=centroid.tolist(),
+                size=len(cluster_doc_ids),
+            )
+        )
+
+        for doc_id in cluster_doc_ids:
+            segment_to_cluster[doc_id] = int(label)
+
+    # Build labels list in original order
+    labels_list = [int(labels[i]) for i in range(len(all_document_ids))]
+
+    return ClusteringResult(
+        clusters=clusters,
+        noise_segment_ids=[],  # Agglomerative assigns all segments to clusters
+        labels=labels_list,
+        segment_to_cluster=segment_to_cluster,
+    )

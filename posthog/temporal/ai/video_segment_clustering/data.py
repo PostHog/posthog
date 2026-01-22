@@ -6,7 +6,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models.team import Team
-from posthog.temporal.ai.video_segment_clustering import constants
 
 
 def count_distinct_persons(team: Team, distinct_ids: list[str]) -> int:
@@ -54,9 +53,9 @@ def fetch_video_segment_metadata_rows(team: Team, lookback_hours: int):
             ),
             placeholders={
                 "lookback_hours": ast.Constant(value=lookback_hours),
-                "product": ast.Constant(value=constants.PRODUCT),
-                "document_type": ast.Constant(value=constants.DOCUMENT_TYPE),
-                "rendering": ast.Constant(value=constants.RENDERING),
+                "product": ast.Constant(value=Product.SESSION_SUMMARY),
+                "document_type": ast.Constant(value="video-segment"),
+                "rendering": ast.Constant(value="video-analysis"),
             },
             team=team,
         )
@@ -85,9 +84,9 @@ def fetch_video_segment_embedding_rows(team: Team, document_ids: list[str]):
             ),
             placeholders={
                 "doc_ids": ast.Constant(value=document_ids),
-                "product": ast.Constant(value=constants.PRODUCT),
-                "document_type": ast.Constant(value=constants.DOCUMENT_TYPE),
-                "rendering": ast.Constant(value=constants.RENDERING),
+                "product": ast.Constant(value=Product.SESSION_SUMMARY),
+                "document_type": ast.Constant(value="video-segment"),
+                "rendering": ast.Constant(value="video-analysis"),
             },
             team=team,
         )

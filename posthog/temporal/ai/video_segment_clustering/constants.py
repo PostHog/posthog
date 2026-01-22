@@ -1,57 +1,50 @@
 """Configuration constants for video segment clustering workflow."""
 
 from datetime import timedelta
-from typing import Literal
 
 from temporalio.common import RetryPolicy
 
-# Scheduling
-CLUSTERING_INTERVAL = timedelta(minutes=30)
-DEFAULT_LOOKBACK_DAYS = 7
-DEFAULT_LOOKBACK_WINDOW = timedelta(days=DEFAULT_LOOKBACK_DAYS)
+# What period to consider in clustering run
+DEFAULT_LOOKBACK_WINDOW = timedelta(days=7)
 
 # Minimum segments required for clustering
 # Below this threshold, segments are accumulated for the next run
 MIN_SEGMENTS_FOR_CLUSTERING = 3
 
-# Clustering parameters (relaxed for small datasets)
-MIN_CLUSTER_SIZE = 2  # Allow pairs of similar segments to form clusters
-MIN_SAMPLES = 1  # Less conservative - allows more clusters to form
-CLUSTER_SELECTION_METHOD: Literal["leaf", "eom"] = "leaf"  # Produces more granular clusters
-CLUSTER_SELECTION_EPSILON = 0.0  # No epsilon for leaf method
+# Clustering algorithm selection
+# Below this threshold, use agglomerative clustering (better for small n, builds clusters bottom-up)
+# Above this threshold, use iterative K-means (better for large n, more scalable)
+AGGLOMERATIVE_CLUSTERING_SEGMENT_THRESHOLD = 200
 
-# Task matching threshold (for deduplication)
-TASK_MATCH_THRESHOLD = 0.3  # Cosine distance - lower = more strict matching
+# Treatment of noise
+# Below this threshold, noise segments are converted to single-segment clusters for actionability analysis
+# Above this threshold, noise segments are kept as noise (for high-volume teams, outliers end up noise)
+NOISE_DISCARDING_SEGMENT_THRESHOLD = 1000
 
-# PCA dimensionality reduction
-TARGET_DIMENSIONALITY_FOR_CLUSTERING = 100  # Reduce from 3072 to 100 dimensions for clustering
+# Iterative K-means clustering parameters
+KMEANS_DISTANCE_THRESHOLD = 0.4  # Max cosine distance to centroid for a cluster to be "tight"
+KMEANS_MAX_ITERATIONS = 10  # Maximum number of clustering iterations
+MIN_CLUSTER_SIZE = 2  # Minimum segments to attempt clustering
+KMEANS_K_MULTIPLIER = 50.0  # Multiplier for log10(n) to estimate K, e.g. 1000 segments in iteration -> log10(1000)*KMEANS_K_MULTIPLIER clusters
 
-# Embeddings configuration
-EMBEDDING_MODEL = "text-embedding-3-large-3072"
-EMBEDDING_DIMENSION = 3072
-PRODUCT = "session-replay"
-DOCUMENT_TYPE = "video-segment"
-RENDERING = "video-analysis"
+# Task matching threshold (for deduplication). Cosine distance - lower = more strict matching
+TASK_MATCH_THRESHOLD = 0.3
 
-# Concurrency settings
-MAX_CONCURRENT_TEAMS = 3
-
-# Workflow timeouts
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
+# PCA dimensionality reduction clustering (originally 3072 dimensions)
+TARGET_DIMENSIONALITY_FOR_CLUSTERING = 100
 
 # Activity timeouts
+# TODO: Inline these
 FETCH_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 CLUSTER_ACTIVITY_TIMEOUT = timedelta(seconds=180)
 MATCH_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 LLM_ACTIVITY_TIMEOUT = timedelta(seconds=300)
 TASK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
-LINK_ACTIVITY_TIMEOUT = timedelta(seconds=60)
-
 # Session priming (summarization) settings
-FETCH_SESSIONS_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 SUMMARIZE_SESSIONS_ACTIVITY_TIMEOUT = timedelta(minutes=30)
 
 # Retry policies
+# TODO: Inline these
 COMPUTE_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=1),
@@ -73,7 +66,6 @@ DB_ACTIVITY_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
-COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 SESSION_PRIMING_RETRY_POLICY = RetryPolicy(
     maximum_attempts=2,

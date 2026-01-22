@@ -147,7 +147,6 @@ class FetchSegmentsActivityInputs:
 class ClusterSegmentsActivityInputs:
     team_id: int
     document_ids: list[str]
-    create_single_segment_clusters_for_noise: bool = True
 
 
 @dataclass
