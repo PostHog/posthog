@@ -44,8 +44,15 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         const outputFile = path.join(tmpdir(), `hog-${uuid}.hoge`)
         try {
             await new Promise((resolve, reject) => {
-                exec(`cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`, (error, stdout) =>
-                    error ? reject(error) : resolve(stdout)
+                exec(
+                    `cd ${ROOT_DIR} && ./bin/hoge ${tempFile} ${outputFile}`,
+                    {
+                        env: {
+                            ...process.env,
+                            TEST: 'true',
+                        },
+                    },
+                    (error, stdout) => (error ? reject(error) : resolve(stdout))
                 )
             })
         } catch (error) {

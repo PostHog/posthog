@@ -124,8 +124,15 @@ core:
               else: migrations:run
             - dev:demo-data
             - dev:sync-flags
+            - dev:api-key
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
+    dev:api-key:
+        cmd: python manage.py setup_local_api_key
+        description: Creates a personal API key that's always the same,
+            so you don't need to manually create a new one every time you reset the stack.
+        services:
+            - postgresql
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up
