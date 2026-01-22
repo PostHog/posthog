@@ -1,0 +1,337 @@
+#
+# Memory leak detection workflow using memlab and Playwright.
+# Runs on PRs with 'memory-leak-check' label or daily at 1am UTC on master.
+# This workflow never fails the pipeline - results are advisory only.
+#
+name: Memory Leak Detection
+
+on:
+    pull_request:
+        types: [labeled, synchronize]
+    schedule:
+        - cron: '0 1 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    pull-requests: write
+
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+    REDIS_URL: redis://localhost
+    DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
+    PERSONS_DB_WRITER_URL: postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test
+    KAFKA_HOSTS: kafka:9092
+    DISABLE_SECURE_SSL_REDIRECT: 1
+    SECURE_COOKIES: 0
+    OPT_OUT_CAPTURE: 0
+    E2E_TESTING: 1
+    SKIP_SERVICE_VERSION_REQUIREMENTS: 1
+    EMAIL_HOST: email.test.posthog.net
+    SITE_URL: http://localhost:8000
+    NO_RESTART_LOOP: 1
+    OBJECT_STORAGE_ENABLED: 1
+    OBJECT_STORAGE_ENDPOINT: http://localhost:19000
+    OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
+    CELERY_METRICS_PORT: 8999
+    CLOUD_DEPLOYMENT: E2E
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    CLICKHOUSE_DATABASE: posthog_test
+    PGHOST: localhost
+    PGUSER: posthog
+    PGPASSWORD: posthog
+    PGPORT: 5432
+    OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
+
+concurrency:
+    group: memory-leak-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: |
+            github.event_name == 'schedule' ||
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'pull_request' &&
+             github.event.pull_request.head.repo.full_name == github.repository &&
+             contains(github.event.pull_request.labels.*.name, 'memory-leak-check'))
+        name: Determine need to run memory leak check
+        outputs:
+            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
+        steps:
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36
+              id: changes
+              if: github.event_name == 'pull_request'
+              with:
+                  filters: |
+                      shouldRun:
+                        - 'frontend/**'
+                        - 'posthog/**'
+                        - 'ee/**'
+                        - 'playwright/**'
+                        - '.github/workflows/ci-memory-leak.yml'
+
+    get_clickhouse_versions:
+        name: Get ClickHouse versions
+        needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
+        runs-on: ubuntu-latest
+        outputs:
+            oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
+            - name: Read ClickHouse versions from JSON
+              id: read-versions
+              run: |
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
+                  echo "oldest_supported=$oldest_supported" >> $GITHUB_OUTPUT
+
+    memory-leak-test:
+        name: Memory leak detection
+        needs: [changes, get_clickhouse_versions]
+        if: needs.changes.outputs.shouldRun == 'true'
+        runs-on: depot-ubuntu-latest-16
+        timeout-minutes: 45
+        continue-on-error: true
+        outputs:
+            result: ${{ steps.run-test.outcome }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+              with:
+                  python-version: 3.12.12
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b
+              with:
+                  enable-cache: true
+                  version: 0.9.9
+
+            - name: Install SAML dependencies
+              run: sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061
+
+            - name: Set up Node.js
+              uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+              with:
+                  node-version: 24.13.0
+                  cache: pnpm
+
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76
+
+            - name: Install plugin_transpiler
+              run: |
+                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-transpiler build
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Set up needed files
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+                  ./bin/download-mmdb
+
+            - name: Install package.json dependencies
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
+
+            - name: Wait for services
+              run: |
+                  bin/check_kafka_clickhouse_up
+                  bin/check_postgres_up
+
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
+
+            - name: Collect static files
+              run: |
+                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+
+            - name: Create test database
+              run: |
+                  createdb posthog_e2e_test || echo "Database already exists"
+                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Apply migrations and setup dev
+              run: |
+                  python manage.py migrate_clickhouse &
+                  python manage.py migrate --noinput
+
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
+                  sqlx database create -D "$PERSONS_DATABASE_URL"
+                  sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+
+                  python manage.py setup_dev
+                  wait
+
+            - name: Source celery queues
+              run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+
+            - name: Install Playwright browsers
+              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
+
+            - name: Wait for PostHog
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c
+              with:
+                  resource: http://localhost:8000
+                  timeout: 180000
+                  interval: 2000
+                  verbose: true
+
+            - name: Run memory leak test
+              id: run-test
+              continue-on-error: true
+              run: |
+                  mkdir -p playwright/memory-leak-results
+                  pnpm --filter=@posthog/playwright exec playwright test --project=memory-leak 2>&1 | tee /tmp/memory-leak-output.log
+                  echo "exit_code=$?" >> $GITHUB_OUTPUT
+
+            - name: Post PR comment
+              if: github.event_name == 'pull_request'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const path = require('path');
+
+                      const resultsDir = 'playwright/memory-leak-results';
+                      let reportContent = '';
+
+                      try {
+                          const dirs = fs.readdirSync(resultsDir);
+                          const latestDir = dirs.sort().reverse()[0];
+                          if (latestDir) {
+                              const reportPath = path.join(resultsDir, latestDir, 'memory-leak-report.md');
+                              if (fs.existsSync(reportPath)) {
+                                  reportContent = fs.readFileSync(reportPath, 'utf8');
+                              }
+                          }
+                      } catch (e) {
+                          console.log('Could not read report file:', e.message);
+                      }
+
+                      if (!reportContent) {
+                          const logPath = '/tmp/memory-leak-output.log';
+                          let logContent = '';
+                          try {
+                              logContent = fs.readFileSync(logPath, 'utf8');
+                          } catch (e) {
+                              logContent = 'Could not read log file';
+                          }
+
+                          reportContent = `## Memory Leak Detection Results
+
+                      **Test completed** - see artifacts for detailed results.
+
+                      <details>
+                      <summary>Test output</summary>
+
+                      \`\`\`
+                      ${logContent.slice(-2000)}
+                      \`\`\`
+
+                      </details>
+
+                      ---
+                      *Memory leak detection is informational and does not block PR merging.*`;
+                      }
+
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+
+                      const botComment = comments.find(comment =>
+                          comment.user.type === 'Bot' &&
+                          comment.body.includes('Memory Leak Detection Results')
+                      );
+
+                      if (botComment) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: botComment.id,
+                              body: reportContent,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body: reportContent,
+                          });
+                      }
+
+            - name: Upload artifacts
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              with:
+                  name: memory-leak-results
+                  path: |
+                      playwright/memory-leak-results/
+                      /tmp/memory-leak-output.log
+                      /tmp/celery.log
+                      /tmp/server.log
+                  retention-days: 7
+                  if-no-files-found: ignore
+
+    memory-leak-complete:
+        name: Memory leak detection complete
+        needs: [memory-leak-test]
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Report status
+              run: |
+                  echo "Memory leak detection completed"
+                  echo "This job is informational only and does not block the PR"

@@ -5,6 +5,7 @@
         "test": "pnpm build:products && playwright test"
     },
     "dependencies": {
+        "@memlab/api": "^2.0.0",
         "@playwright/test": "1.45.0",
         "@posthog/frontend": "workspace:*"
     },
