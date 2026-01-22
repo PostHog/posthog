@@ -8,11 +8,13 @@ def CLEANUP_NULL_PERSON_IDS():
     These are rows that existed before the person_id column was added and cannot be used
     for person-based cohort queries.
 
-    Uses ClickHouse lightweight DELETE syntax.
+    Expected to delete approximately 5M records.
+
+    Uses ALTER TABLE DELETE syntax.
     """
     return """
-    DELETE FROM sharded_precalculated_person_properties
-    WHERE person_id = '00000000-0000-0000-0000-000000000000'
+    ALTER TABLE sharded_precalculated_person_properties
+    DELETE WHERE person_id = '00000000-0000-0000-0000-000000000000'
     """
 
 
