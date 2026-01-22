@@ -59,7 +59,7 @@ export function computeEventPropertyUpdates(
     // Also force update when updateAllProperties is enabled
     const shouldForceUpdate = PERSON_EVENTS.has(event.event) || updateAllProperties
 
-    const properties: Properties = event.properties?.['$set'] || {}
+    const properties: Properties = event.properties!['$set'] || {}
     const propertiesOnce: Properties = event.properties!['$set_once'] || {}
     const unsetProps = event.properties!['$unset']
     const unsetProperties: Array<string> = Array.isArray(unsetProps) ? unsetProps : Object.keys(unsetProps || {}) || []

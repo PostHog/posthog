@@ -10,11 +10,6 @@ export const SURVEY_PERSON_PROPERTIES = {
     LAST_SEEN_DATE: '$survey_last_seen_date',
 } as const
 
-/**
- * Enriches survey events with person properties.
- * When a "survey shown" event is received, adds $survey_last_seen_date to $set
- * so it gets processed as a normal person property update.
- */
 export function createEnrichSurveyPersonPropertiesStep<T extends { event: IncomingEvent }>(): ProcessingStep<T, T> {
     return async function enrichSurveyPersonPropertiesStep(input) {
         const { event } = input

@@ -50,7 +50,7 @@ export class PersonPropertyService {
         let properties = {}
         let propertiesOnce = {}
         if (this.context.processPerson) {
-            properties = this.context.eventProperties['$set'] || {}
+            properties = this.context.eventProperties['$set']
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
