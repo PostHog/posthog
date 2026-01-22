@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     FunnelConversionWindowTimeUnit,
+    MultipleBreakdownType,
     MultipleVariantHandling,
     StartHandling,
     StepOrderValue,
@@ -108,20 +109,31 @@ class ExperimentQueryBuilder:
 
     def _build_breakdown_exprs(self, table_alias: str = "events") -> list[tuple[str, ast.Expr]]:
         """
-        Returns list of (alias, expression) tuples for extracting breakdown properties from events.
+        Returns list of (alias, expression) tuples for extracting breakdown properties.
         Handles NULL values by replacing with BREAKDOWN_NULL_STRING_LABEL.
         Returns empty list if no breakdowns configured.
+
+        Supports both event property breakdowns (properties.X) and session property
+        breakdowns (session.X) based on the breakdown type.
         """
         if not self._has_breakdown():
             return []
 
         result = []
         for i, breakdown in enumerate(self.breakdowns):
-            # Build the property chain - if table_alias is empty, just use properties.breakdown
-            if table_alias:
-                property_expr = ast.Field(chain=[table_alias, "properties", breakdown.property])
+            # Determine the property chain based on breakdown type
+            if breakdown.type == MultipleBreakdownType.SESSION:
+                # Session property breakdowns use session.property_name
+                if table_alias:
+                    property_expr = ast.Field(chain=[table_alias, "session", str(breakdown.property)])
+                else:
+                    property_expr = ast.Field(chain=["session", str(breakdown.property)])
             else:
-                property_expr = ast.Field(chain=["properties", breakdown.property])
+                # Event property breakdowns use properties.property_name
+                if table_alias:
+                    property_expr = ast.Field(chain=[table_alias, "properties", breakdown.property])
+                else:
+                    property_expr = ast.Field(chain=["properties", breakdown.property])
 
             expr = parse_expr(
                 "coalesce(toString({property_expr}), {null_label})",

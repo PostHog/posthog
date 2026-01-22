@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     ExperimentQueryResponse,
+    MultipleBreakdownType,
 )
 
 from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
@@ -587,3 +588,130 @@ class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
         self.assertEqual(chrome_result.breakdown_value[0], "Chrome")
         self.assertEqual(chrome_result.variants[0].number_of_samples, 2)  # 2 users
         self.assertEqual(chrome_result.variants[0].sum, 180)  # 60 + 120
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_session_property_breakdown_by_entry_current_url(self):
+        """
+        Test that we can break down by session properties (e.g., $entry_current_url).
+        This is different from event property breakdowns - session properties come from
+        the session table, not the event properties.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        _create_person(distinct_ids=["user_homepage"], team_id=self.team.pk)
+        _create_person(distinct_ids=["user_pricing"], team_id=self.team.pk)
+
+        # User 1: Exposed, then session starting from homepage
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_homepage",
+            timestamp="2024-01-02T10:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                ff_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        homepage_session = str(uuid7("2024-01-02"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_homepage",
+            timestamp="2024-01-02T11:00:00Z",
+            properties={
+                ff_property: "test",
+                "$session_id": homepage_session,
+                "$current_url": "https://example.com/",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_homepage",
+            timestamp="2024-01-02T11:01:00Z",
+            properties={
+                ff_property: "test",
+                "$session_id": homepage_session,
+                "$current_url": "https://example.com/about",
+            },
+        )
+
+        # User 2: Exposed, then session starting from pricing page
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_pricing",
+            timestamp="2024-01-02T10:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                ff_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+        pricing_session = str(uuid7("2024-01-02"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_pricing",
+            timestamp="2024-01-02T12:00:00Z",
+            properties={
+                ff_property: "test",
+                "$session_id": pricing_session,
+                "$current_url": "https://example.com/pricing",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_pricing",
+            timestamp="2024-01-02T12:02:00Z",
+            properties={
+                ff_property: "test",
+                "$session_id": pricing_session,
+                "$current_url": "https://example.com/signup",
+            },
+        )
+
+        flush_persons_and_events()
+
+        # Breakdown by $entry_current_url (session property)
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.SUM,
+                math_property="$session_duration",
+                math_property_type="session_properties",
+            ),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="$entry_current_url", type=MultipleBreakdownType.SESSION)]
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Should have 2 breakdown values: homepage and pricing page entry URLs
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        breakdown_urls = {r.breakdown_value[0] for r in result.breakdown_results}
+        self.assertIn("https://example.com/", breakdown_urls)
+        self.assertIn("https://example.com/pricing", breakdown_urls)
