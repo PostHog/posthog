@@ -37,18 +37,14 @@ export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
 export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
 export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 
-# Check for minimal mode - disable OpenTelemetry for minimal mode
-if [[ "$*" == *"--minimal"* ]]; then
+# Check for --no-tracing flag
+if [[ "$*" == *"--no-tracing"* ]]; then
     export OTEL_SDK_DISABLED="true"
 else
     export OTEL_SDK_DISABLED="false"
     export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
     export OTEL_TRACES_SAMPLER_ARG="1"
-    echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI"
-fi
-
-if [[ "$*" == *"--skip-typegen"* ]]; then
-    export SKIP_TYPEGEN="1"
+    echo "👉 Tracing enabled, see http://localhost:16686 for Jaeger UI (use --no-tracing to disable)"
 fi
 
 if [ -f .env ]; then
@@ -90,12 +86,6 @@ if ! command -v mprocs &>/dev/null; then
     fi
 fi
 
-# Check for conflicting flags
-if [[ "$*" == *"--custom"* ]] && ([[ "$*" == *"--minimal"* ]] || [[ "$*" == *"--vite"* ]]); then
-    echo "Error: Cannot use --custom with --minimal or --vite"
-    exit 1
-fi
-
 # Advertise intent-based dev environment
 echo ""
 echo "💡 New: 'hogli dev:setup' lets you configure which services to start"
@@ -121,20 +111,19 @@ if [[ "$*" == *"--custom"* ]]; then
         exit 1
     fi
     exec mprocs --config "$config_path"
-# Use minimal config
-elif [[ "$*" == *"--minimal"* ]]; then
-    exec mprocs --config bin/mprocs-minimal.yaml
 else
-    # Check for profile-generated config (created by hogli dev:setup)
     GENERATED_CONFIG="$REPOSITORY_ROOT/.posthog/.generated/mprocs.yaml"
+
+    # Generate/regenerate config using hogli (defaults to minimal preset if no config exists)
+    if command -v hogli &>/dev/null; then
+        hogli dev:generate 2>/dev/null || true
+    fi
+
     if [[ -f "$GENERATED_CONFIG" ]]; then
-        # Regenerate config from saved settings to pick up intent-map.yaml changes
-        if command -v hogli &>/dev/null; then
-            hogli dev:generate 2>/dev/null || true
-        fi
         echo "📋 Using profile-based config (run 'hogli dev:setup' to change)"
         exec mprocs --config "$GENERATED_CONFIG"
     else
+        # Fallback if hogli not available
         exec mprocs --config bin/mprocs.yaml
     fi
 fi
