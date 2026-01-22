@@ -18,9 +18,9 @@ from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.stl import now
 
 
-def mock_transpile(code: str, type: str = "site") -> str:
+def mock_transpile(code: str, transpile_type: str = "site") -> str:
     """Mock transpile function that returns simple JavaScript without calling Node.js"""
-    if type == "site":
+    if transpile_type == "site":
         # Site functions transpilation expects an IIFE that returns { onLoad, onEvent }
         code = code.replace("export function onLoad", "function onLoad")
         code = code.replace("export function onEvent", "function onEvent")
@@ -50,7 +50,7 @@ def mock_transpile(code: str, type: str = "site") -> str:
         }}"""
             + ")"
         )
-    elif type == "frontend":
+    elif transpile_type == "frontend":
         return (
             f'"use strict";\nexport function getFrontendApp (require) {{ let exports = {{}}; {code}; return exports; }}'
         )
@@ -159,7 +159,7 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
         # Patch where it's used (in hog_function.py) not where it's defined
         self.mock_get_status = patch("posthog.models.hog_functions.hog_function.get_hog_function_status").start()
         self.mock_get_status.return_value = MagicMock(status_code=200, json=lambda: {"state": "idle", "tokens": 0})
-        self.addCleanup(patch.stopall)
+        self.addCleanup(self.mock_get_status.stop)
 
     @functools.lru_cache  # noqa: B019 - TODO: refactor to avoid method cache
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
