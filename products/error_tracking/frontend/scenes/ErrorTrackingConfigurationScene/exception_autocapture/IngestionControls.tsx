@@ -7,7 +7,7 @@ import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { sdkPolicyConfigLogic } from 'lib/components/IngestionControls/sdkPolicyConfigLogic'
 import { UrlConfigLogicProps, urlConfigLogic } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
-import { SDKPolicyConfig } from 'lib/components/IngestionControls/types'
+import { SDKPolicyConfig, TriggerType } from 'lib/components/IngestionControls/types'
 
 import { AccessControlResourceType } from '~/types'
 
@@ -50,7 +50,10 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                     </LemonBanner>
                 )}
                 <div className="flex flex-col gap-y-2">
-                    <IngestionControlsSummary triggers={triggers} controlDescription="exceptions captured" />
+                    <IngestionControlsSummary
+                        triggers={triggers.filter((t) => t.type !== TriggerType.MIN_DURATION)}
+                        controlDescription="exceptions captured"
+                    />
                     <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
                         <UrlConfig
                             logicProps={{
