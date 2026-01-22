@@ -107,8 +107,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
             <div className="flex flex-col lg:flex-row items-start">
                 <div
-                    style={{ width: chatPanelWidth(desiredSize), maxWidth: 'calc(100% - 300px)' }}
-                    className="relative shrink-0 pr-2"
+                    style={{ width: chatPanelWidth(desiredSize) }}
+                    className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
                     ref={chatPanelRef}
                 >
                     {/* Main conversation area */}
@@ -121,7 +121,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onSendMessage={sendMessage}
                         onLoadOlderMessages={loadOlderMessages}
                     />
-                    <Resizer {...resizerLogicProps} />
+                    <div className="hidden lg:block">
+                        <Resizer {...resizerLogicProps} />
+                    </div>
                 </div>
 
                 {/* Sidebar with all metadata */}
