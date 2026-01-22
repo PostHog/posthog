@@ -353,7 +353,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "error_tracking"],
+            "enum": ["product_analytics", "sql", "session_replay", "error_tracking", "plan", "execution"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1980,7 +1980,8 @@
                 "upsert_dashboard",
                 "manage_memories",
                 "create_notebook",
-                "list_data"
+                "list_data",
+                "finalize_plan"
             ],
             "type": "string"
         },
