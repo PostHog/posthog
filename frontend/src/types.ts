@@ -291,6 +291,7 @@ export enum AccessControlResourceType {
     ExternalDataSource = 'external_data_source',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
+    ErrorTracking = 'error_tracking',
 }
 
 interface UserBaseType {

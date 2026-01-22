@@ -45,7 +45,7 @@ export function SamplingTrigger({
                 />
                 <LemonButton
                     type="primary"
-                    disabledReason={initialSampleRate === value && 'there was no change in sample rate'}
+                    disabledReason={initialSampleRate === value && 'Update the sample range to save changes'}
                     onClick={updateSampling}
                     data-attr="sampling-setting-update"
                 >

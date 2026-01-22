@@ -1,3 +1,5 @@
+import { FeatureFlagBasicType } from '~/types'
+
 export type Trigger =
     | URLMatchTrigger
     | EventTrigger
@@ -54,3 +56,20 @@ export type UrlTriggerConfig = {
     url: string
     matching: 'regex'
 }
+
+export interface LinkedFeatureFlag extends Pick<FeatureFlagBasicType, 'id' | 'key'> {
+    variant?: string | null
+}
+
+export interface SDKPolicyConfig {
+    id: string
+    match_type: 'any' | 'all'
+    sample_rate: number
+    minimum_duration_milliseconds: number | null
+    linked_feature_flag: LinkedFeatureFlag | null
+    event_triggers: string[]
+    url_triggers: UrlTriggerConfig[]
+    url_blocklist: UrlTriggerConfig[]
+}
+
+export type SDKPolicyConfigContext = 'error-tracking'
