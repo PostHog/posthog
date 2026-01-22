@@ -12,7 +12,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { StarHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -21,7 +20,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     UnexpectedNeverError,
     capitalizeFirstLetter,
-    dateStringToDayJs,
     humanFriendlyDuration,
     percentage,
     tryDecodeURIComponent,
@@ -520,7 +518,7 @@ export const WebStatsTrendTile = ({
     } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
-    const showComparisonLabels = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
+    const showComparisonLabels = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -536,28 +534,6 @@ export const WebStatsTrendTile = ({
 
     const context = useMemo((): QueryContext => {
         const compareFilter = 'compareFilter' in query.source ? query.source.compareFilter : undefined
-        const dateRange = 'dateRange' in query.source ? query.source.dateRange : undefined
-
-        const formatComparisonDates = (isPrevious: boolean): string => {
-            if (!compareFilter?.compare || !dateRange?.date_from) {
-                return ''
-            }
-
-            const currentFrom = dateStringToDayJs(dateRange.date_from)
-            const currentTo = dateRange.date_to ? dateStringToDayJs(dateRange.date_to) : dayjs()
-            if (!currentFrom || !currentTo) {
-                return ''
-            }
-            const diffDays = currentTo.diff(currentFrom, 'day')
-
-            if (isPrevious) {
-                const prevTo = currentFrom.subtract(1, 'day')
-                const prevFrom = prevTo.subtract(diffDays, 'day')
-                return ` (${prevFrom.format('MMM D')} - ${prevTo.format('MMM D')})`
-            }
-
-            return ` (${currentFrom.format('MMM D')} - ${currentTo.format('MMM D')})`
-        }
 
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
@@ -568,13 +544,14 @@ export const WebStatsTrendTile = ({
             compareFilter,
             ...(showComparisonLabels
                 ? {
-                      formatCompareLabel: (label: string) => {
+                      formatCompareLabel: (label: string, dateLabel?: string) => {
                           const lowerLabel = label.toLowerCase()
+                          const dateSuffix = dateLabel ? ` (${dateLabel})` : ''
                           if (lowerLabel === 'previous') {
-                              return `Previous period${formatComparisonDates(true)}`
+                              return `Previous${dateSuffix}`
                           }
                           if (lowerLabel === 'current') {
-                              return `Current period${formatComparisonDates(false)}`
+                              return `Current${dateSuffix}`
                           }
                           return capitalizeFirstLetter(label)
                       },
