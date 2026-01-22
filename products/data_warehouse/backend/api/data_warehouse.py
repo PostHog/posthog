@@ -57,7 +57,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if key not in columns:
             raise serializers.ValidationError("The provided key does not exist on this table")
 
-        chain = key.split(".")
+        chain: list[str | int] = key.split(".")
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq,

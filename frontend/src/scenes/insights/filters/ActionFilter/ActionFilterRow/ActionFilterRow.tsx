@@ -798,7 +798,9 @@ export function ActionFilterRow({
                                 : []
                         }
                         dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse ? filter.name : undefined
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? (filter.name ?? undefined)
+                                : undefined
                         }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
