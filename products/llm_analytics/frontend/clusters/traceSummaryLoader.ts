@@ -55,7 +55,9 @@ export async function loadTraceSummaries(
             GROUP BY trace_id
             LIMIT 10000
         `,
-        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' }
+        { productKey: 'llm_analytics', scene: 'LLMAnalyticsClusters' },
+        // Window bounds are in UTC (from backend), so compare timestamps in UTC
+        { queryParams: { modifiers: { convertToProjectTimezone: false } } }
     )
 
     const summaries: Record<string, TraceSummary> = {}
