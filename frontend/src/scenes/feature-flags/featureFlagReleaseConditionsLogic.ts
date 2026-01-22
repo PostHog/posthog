@@ -292,14 +292,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            // TODO: Remove this mock before merging - temporary for testing UI
-            const MOCK_BLAST_RADIUS = true
-            const response = MOCK_BLAST_RADIUS
-                ? { users_affected: 12500 + Math.floor(Math.random() * 5000), total_users: 58846 }
-                : await api.create(`api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`, {
-                      condition: { properties: newProperties },
-                      group_type_index: values.filters?.aggregation_group_type_index ?? null,
-                  })
+            const response = await api.create(
+                `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                {
+                    condition: { properties: newProperties },
+                    group_type_index: values.filters?.aggregation_group_type_index ?? null,
+                }
+            )
 
             actions.setAffectedUsers(sortKey, response.users_affected)
             actions.setTotalUsers(response.total_users)
@@ -322,15 +321,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 const properties = condition.properties
                 let responsePromise: Promise<UserBlastRadiusType>
-                // TODO: Remove this mock before merging - temporary for testing UI
-                const MOCK_BLAST_RADIUS = true
                 if (!properties || properties.some(isEmptyProperty)) {
                     // don't compute for incomplete conditions
                     responsePromise = Promise.resolve({ users_affected: -1, total_users: -1 })
-                } else if (MOCK_BLAST_RADIUS) {
-                    // Mock data for testing UI
-                    const mockAffected = properties.length === 0 ? 58846 : 8000 + Math.floor(Math.random() * 10000)
-                    responsePromise = Promise.resolve({ users_affected: mockAffected, total_users: 58846 })
                 } else if (properties.length === 0) {
                     // Request total users for empty condition sets
                     responsePromise = api.create(

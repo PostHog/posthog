@@ -22,7 +22,7 @@ interface FeatureFlagTemplatesProps {
 }
 
 export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplatesProps): JSX.Element {
-    const { featureFlag } = useValues(featureFlagLogic)
+    const { featureFlag, featureFlagLoading } = useValues(featureFlagLogic)
     const { setFeatureFlag } = useActions(featureFlagLogic)
     const { user } = useValues(userLogic)
 
@@ -30,6 +30,10 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     if (!featureFlag) {
         return <div>Loading...</div>
     }
+
+    // Don't allow template application while the flag is still loading
+    // to prevent race conditions where the loader overwrites template values
+    const isLoading = featureFlagLoading
 
     const templates: FlagTemplate[] = [
         {
@@ -158,7 +162,12 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                         type="button"
                         key={template.id}
                         onClick={template.applyTemplate}
-                        className="flex-shrink-0 border rounded-lg p-4 w-36 hover:border-primary-light hover:bg-primary-highlight transition-all cursor-pointer text-left"
+                        disabled={isLoading}
+                        className={`flex-shrink-0 border rounded-lg p-4 w-36 transition-all text-left ${
+                            isLoading
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'hover:border-primary-light hover:bg-primary-highlight cursor-pointer'
+                        }`}
                     >
                         <div className="text-muted mb-2">{template.icon}</div>
                         <div className="font-semibold text-sm mb-1">{template.name}</div>

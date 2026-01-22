@@ -51,7 +51,7 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
-export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element {
+export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { props, featureFlag, multivariateEnabled, variants, variantErrors, isEditingFlag } =
         useValues(featureFlagLogic)
     const {

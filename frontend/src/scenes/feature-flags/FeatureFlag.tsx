@@ -7,7 +7,6 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import {
-    IconCheckCircle,
     IconCollapse,
     IconCopy,
     IconExpand,
@@ -17,7 +16,6 @@ import {
     IconRewind,
     IconServer,
     IconTrash,
-    IconWarning,
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
@@ -37,7 +35,6 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -106,20 +103,16 @@ import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagForm } from './FeatureFlagForm'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
-import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { UserFeedbackSection } from './FeatureFlagUserFeedback'
 import { FeatureFlagVariantsForm, focusVariantKeyField } from './FeatureFlagVariantsForm'
-import { FeatureFlagWorkflow } from './FeatureFlagWorkflow'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { DependentFlag, FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
-import { AdvancedSettingsPanel } from './panels/AdvancedSettingsPanel'
-import { BasicsPanel } from './panels/BasicsPanel'
-import { TargetingPanel } from './panels/TargetingPanel'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -142,10 +135,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         activeTab,
         accessDeniedToFeatureFlag,
         experiment,
-        multivariateEnabled,
-        nonEmptyVariants,
-        variantErrors,
-        propertySelectErrors,
     } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const {
@@ -175,7 +164,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [quickSurveyVariantKey, setQuickSurveyVariantKey] = useState<string | null>(null)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
-    const [activeCollapseKeys, setActiveCollapseKeys] = useState<string[]>(['basics'])
 
     const handleGetFeedback = (variantKey?: string): void => {
         const hasVariantSurvey = variantKey
@@ -201,10 +189,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const useNewUI = true // TODO: Gate with feature flag once we're ready
-    const useWorkflowUI = true // TODO: featureFlags[FEATURE_FLAGS.FEATURE_FLAG_WORKFLOW_UI]
+    const useFormUI = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
 
-    // Call hooks before any conditional returns
     useFileSystemLogView({
         type: 'feature_flag',
         ref: featureFlag?.id,
@@ -234,9 +220,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         )
     }
 
-    // Use new workflow UI if feature flag is enabled
-    if (useWorkflowUI) {
-        return <FeatureFlagWorkflow id={id} />
+    // Use new form UI for creating new flags or editing existing flags
+    // For viewing existing flags (readonly), use the existing FeatureFlag UI with tabs
+    if (useFormUI && (isNewFeatureFlag || isEditingFlag)) {
+        return <FeatureFlagForm id={id} />
     }
 
     if (accessDeniedToFeatureFlag) {
@@ -397,618 +384,344 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>
                             )}
-
-                            {useNewUI ? (
-                                <>
-                                    {/* Templates - only show for new flags */}
-                                    {isNewFeatureFlag && (
-                                        <FeatureFlagTemplates
-                                            onTemplateApplied={(sectionsToOpen) => {
-                                                setActiveCollapseKeys(sectionsToOpen)
-                                            }}
-                                        />
-                                    )}
-
-                                    {/* Enable flag toggle - prominent at top */}
-                                    <div className="mb-4">
-                                        <LemonField name="active">
-                                            {({ value, onChange }) => {
-                                                const requiresApprovalToEnable =
-                                                    isNewFeatureFlag &&
-                                                    isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
-
-                                                if (requiresApprovalToEnable && value) {
-                                                    queueMicrotask(() => onChange(false))
-                                                }
-
-                                                return (
-                                                    <div className="border rounded p-4 bg-bg-light">
-                                                        <LemonCheckbox
-                                                            id="flag-enabled-checkbox"
-                                                            label="Enable feature flag"
-                                                            onChange={() => onChange(!value)}
-                                                            checked={value}
-                                                            disabledReason={
-                                                                requiresApprovalToEnable
-                                                                    ? 'Enabling feature flags requires approval. Create the flag first, then enable it.'
-                                                                    : undefined
-                                                            }
-                                                            data-attr="feature-flag-enabled-checkbox"
-                                                        />
-                                                        <div className="text-secondary text-sm pl-7">
-                                                            When enabled, this flag evaluates according to your release
-                                                            conditions. When disabled, this flag will not be evaluated
-                                                            and PostHog SDKs default to returning <code>false</code>.
-                                                        </div>
-                                                    </div>
-                                                )
-                                            }}
-                                        </LemonField>
-                                    </div>
-
-                                    {/* New collapsible UI */}
-                                    <LemonCollapse
-                                        multiple
-                                        activeKeys={activeCollapseKeys}
-                                        className="bg-surface-primary"
-                                        onChange={setActiveCollapseKeys}
-                                        panels={[
-                                            {
-                                                key: 'basics',
-                                                header: {
-                                                    children: (
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="font-semibold">Basics</span>
-                                                            {!activeCollapseKeys.includes('basics') && (
-                                                                <div className="flex items-center gap-2 text-sm text-muted">
-                                                                    {(() => {
-                                                                        const parts: string[] = []
-                                                                        if (featureFlag.key) {
-                                                                            parts.push(featureFlag.key)
-                                                                        }
-                                                                        if (
-                                                                            multivariateEnabled &&
-                                                                            nonEmptyVariants.length > 0
-                                                                        ) {
-                                                                            parts.push(
-                                                                                `${nonEmptyVariants.length} variants`
-                                                                            )
-                                                                        } else {
-                                                                            parts.push('Boolean')
-                                                                        }
-                                                                        return parts.length > 0 ? (
-                                                                            <span>{parts.join(' · ')}</span>
-                                                                        ) : null
-                                                                    })()}
-                                                                    {(() => {
-                                                                        const hasKeyError = !featureFlag.key
-                                                                        const hasVariantErrors =
-                                                                            multivariateEnabled &&
-                                                                            variantErrors?.some((e) => e.key)
-                                                                        if (hasKeyError || hasVariantErrors) {
-                                                                            return (
-                                                                                <IconWarning className="text-warning" />
-                                                                            )
-                                                                        }
-                                                                        return (
-                                                                            <IconCheckCircle className="text-success" />
-                                                                        )
-                                                                    })()}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ),
-                                                },
-                                                content: <BasicsPanel />,
-                                            },
-                                            ...(!featureFlag.is_remote_configuration
-                                                ? [
-                                                      {
-                                                          key: 'targeting',
-                                                          header: {
-                                                              children: (
-                                                                  <div className="flex items-center gap-3">
-                                                                      <span className="font-semibold">Targeting</span>
-                                                                      {!activeCollapseKeys.includes('targeting') && (
-                                                                          <div className="flex items-center gap-2 text-sm text-muted">
-                                                                              {(() => {
-                                                                                  const groups =
-                                                                                      featureFlag?.filters?.groups || []
-                                                                                  if (groups.length === 0) {
-                                                                                      return (
-                                                                                          <span>
-                                                                                              No release conditions
-                                                                                          </span>
-                                                                                      )
-                                                                                  }
-                                                                                  const parts: string[] = []
-                                                                                  const ruleCount = groups.length
-                                                                                  parts.push(
-                                                                                      `${ruleCount} ${ruleCount === 1 ? 'rule' : 'rules'}`
-                                                                                  )
-                                                                                  return (
-                                                                                      <span>{parts.join(' · ')}</span>
-                                                                                  )
-                                                                              })()}
-                                                                              {(() => {
-                                                                                  const hasErrors =
-                                                                                      propertySelectErrors?.some(
-                                                                                          (group: any) =>
-                                                                                              group?.properties?.some(
-                                                                                                  (p: any) => p?.value
-                                                                                              ) ||
-                                                                                              group?.rollout_percentage
-                                                                                      )
-                                                                                  if (hasErrors) {
-                                                                                      return (
-                                                                                          <IconWarning className="text-warning" />
-                                                                                      )
-                                                                                  }
-                                                                                  return (
-                                                                                      <IconCheckCircle className="text-success" />
-                                                                                  )
-                                                                              })()}
-                                                                          </div>
-                                                                      )}
-                                                                  </div>
-                                                              ),
-                                                          },
-                                                          content: <TargetingPanel />,
-                                                      },
-                                                  ]
-                                                : []),
-                                            {
-                                                key: 'advanced',
-                                                header: {
-                                                    children: (
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="font-semibold">Advanced</span>
-                                                            {!activeCollapseKeys.includes('advanced') && (
-                                                                <div className="flex items-center gap-2 text-sm text-muted">
-                                                                    {(() => {
-                                                                        const parts: string[] = []
-                                                                        if (featureFlag.filters?.payloads?.['true']) {
-                                                                            parts.push('Has payload')
-                                                                        }
-                                                                        if (
-                                                                            featureFlag.evaluation_runtime &&
-                                                                            featureFlag.evaluation_runtime !==
-                                                                                FeatureFlagEvaluationRuntime.ALL
-                                                                        ) {
-                                                                            const runtimeLabels = {
-                                                                                [FeatureFlagEvaluationRuntime.CLIENT]:
-                                                                                    'Client-side only',
-                                                                                [FeatureFlagEvaluationRuntime.SERVER]:
-                                                                                    'Server-side only',
-                                                                            }
-                                                                            parts.push(
-                                                                                runtimeLabels[
-                                                                                    featureFlag.evaluation_runtime
-                                                                                ] || ''
-                                                                            )
-                                                                        }
-                                                                        if (featureFlag.ensure_experience_continuity) {
-                                                                            parts.push('Persists across auth')
-                                                                        }
-                                                                        return parts.length > 0 ? (
-                                                                            <span>{parts.join(' · ')}</span>
-                                                                        ) : (
-                                                                            <span>Optional settings</span>
-                                                                        )
-                                                                    })()}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ),
-                                                },
-                                                content: <AdvancedSettingsPanel />,
-                                            },
-                                            {
-                                                key: 'implementation',
-                                                header: {
-                                                    children: (
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="font-semibold">Implementation</span>
-                                                            {!activeCollapseKeys.includes('implementation') && (
-                                                                <div className="flex items-center gap-2 text-sm text-muted">
-                                                                    <span>Code examples</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ),
-                                                },
-                                                content: <FeatureFlagCodeExample featureFlag={featureFlag} />,
-                                            },
-                                        ]}
-                                    />
-
-                                    <div className="flex items-center gap-2 justify-end mt-6">
-                                        <LemonButton
-                                            data-attr="cancel-feature-flag"
-                                            type="secondary"
-                                            onClick={() => {
-                                                if (isEditingFlag) {
-                                                    editFeatureFlag(false)
-                                                    loadFeatureFlag()
-                                                } else {
-                                                    router.actions.push(urls.featureFlags())
-                                                }
-                                            }}
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-feature-flag"
-                                            htmlType="submit"
-                                            form="feature-flag"
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    </div>
-                                </>
-                            ) : (
-                                <>
-                                    {/* Original UI */}
-                                    <div className="max-w-1/2 deprecated-space-y-4">
-                                        <LemonField
-                                            name="key"
-                                            label="Key"
-                                            help={
-                                                hasKeyChanged && id !== 'new' ? (
-                                                    <span className="text-warning">
-                                                        <b>Warning! </b>Changing this key will
-                                                        <Link
-                                                            to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
-                                                            target="_blank"
-                                                            targetBlankIcon
-                                                        >
-                                                            {' '}
-                                                            affect the persistence of your flag
-                                                        </Link>
-                                                    </span>
-                                                ) : undefined
-                                            }
-                                        >
-                                            {({ value, onChange }) => (
-                                                <>
-                                                    <LemonInput
-                                                        value={value}
-                                                        onChange={(v) => {
-                                                            if (v !== value) {
-                                                                setHasKeyChanged(true)
-                                                            }
-                                                            onChange(v)
-                                                        }}
-                                                        data-attr="feature-flag-key"
-                                                        className="ph-ignore-input"
-                                                        autoFocus
-                                                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                                        autoComplete="off"
-                                                        autoCapitalize="off"
-                                                        autoCorrect="off"
-                                                        spellCheck={false}
-                                                    />
-                                                    <span className="text-secondary text-sm">
-                                                        Feature flag keys must be unique
-                                                    </span>
-                                                </>
-                                            )}
-                                        </LemonField>
-
-                                        <LemonField name="name" label="Description">
-                                            <LemonTextArea
-                                                className="ph-ignore-input"
-                                                data-attr="feature-flag-description"
-                                                defaultValue={featureFlag.name || ''}
-                                            />
-                                        </LemonField>
-                                    </div>
-                                    <SceneDivider />
-                                    <FeatureFlagRollout onGetFeedback={handleGetFeedback} />
-                                    <SceneDivider />
-                                    {!featureFlag.is_remote_configuration && (
+                            <div className="max-w-1/2 deprecated-space-y-4">
+                                <LemonField
+                                    name="key"
+                                    label="Key"
+                                    help={
+                                        hasKeyChanged && id !== 'new' ? (
+                                            <span className="text-warning">
+                                                <b>Warning! </b>Changing this key will
+                                                <Link
+                                                    to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                >
+                                                    {' '}
+                                                    affect the persistence of your flag
+                                                </Link>
+                                            </span>
+                                        ) : undefined
+                                    }
+                                >
+                                    {({ value, onChange }) => (
                                         <>
-                                            <FeatureFlagReleaseConditions
-                                                id={`${featureFlag.id}`}
-                                                filters={featureFlag.filters}
-                                                onChange={setFeatureFlagFilters}
-                                                evaluationRuntime={featureFlag.evaluation_runtime}
+                                            <LemonInput
+                                                value={value}
+                                                onChange={(v) => {
+                                                    if (v !== value) {
+                                                        setHasKeyChanged(true)
+                                                    }
+                                                    onChange(v)
+                                                }}
+                                                data-attr="feature-flag-key"
+                                                className="ph-ignore-input"
+                                                autoFocus
+                                                placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                                autoComplete="off"
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                                spellCheck={false}
                                             />
-                                            <SceneDivider />
+                                            <span className="text-secondary text-sm">
+                                                Feature flag keys must be unique
+                                            </span>
                                         </>
                                     )}
-                                    <LemonField name="active">
-                                        {({ value, onChange }) => {
-                                            const requiresApprovalToEnable =
-                                                isNewFeatureFlag &&
-                                                isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
+                                </LemonField>
 
-                                            // If approval is required and value is still true, set it to false
-                                            if (requiresApprovalToEnable && value) {
-                                                queueMicrotask(() => onChange(false))
-                                            }
+                                <LemonField name="name" label="Description">
+                                    <LemonTextArea
+                                        className="ph-ignore-input"
+                                        data-attr="feature-flag-description"
+                                        defaultValue={featureFlag.name || ''}
+                                    />
+                                </LemonField>
+                            </div>
+                            <SceneDivider />
+                            <FeatureFlagRollout onGetFeedback={handleGetFeedback} />
+                            <SceneDivider />
+                            {!featureFlag.is_remote_configuration && (
+                                <>
+                                    <FeatureFlagReleaseConditions
+                                        id={`${featureFlag.id}`}
+                                        filters={featureFlag.filters}
+                                        onChange={setFeatureFlagFilters}
+                                        evaluationRuntime={featureFlag.evaluation_runtime}
+                                    />
+                                    <SceneDivider />
+                                </>
+                            )}
+                            <LemonField name="active">
+                                {({ value, onChange }) => {
+                                    const requiresApprovalToEnable =
+                                        isNewFeatureFlag && isApprovalRequired(ApprovalActionKey.FEATURE_FLAG_ENABLE)
 
-                                            return (
-                                                <div className="border rounded p-4">
-                                                    <LemonCheckbox
-                                                        id="flag-enabled-checkbox"
-                                                        label="Enable feature flag"
-                                                        onChange={() => onChange(!value)}
-                                                        checked={value}
-                                                        disabledReason={
-                                                            requiresApprovalToEnable
-                                                                ? 'Enabling feature flags requires approval. Create the flag first, then enable it.'
-                                                                : undefined
-                                                        }
-                                                        data-attr="feature-flag-enabled-checkbox"
-                                                    />
-                                                    <div className="text-secondary text-sm pl-7">
-                                                        When enabled, this flag evaluates according to your release
-                                                        conditions. When disabled, this flag will not be evaluated and
-                                                        PostHog SDKs default to returning <code>false</code>.
-                                                    </div>
-                                                </div>
-                                            )
-                                        }}
-                                    </LemonField>
-                                    {isNewFeatureFlag &&
-                                        featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
-                                            <LemonField name="_should_create_usage_dashboard">
-                                                {({ value, onChange }) => (
-                                                    <div className="border rounded p-4">
-                                                        <LemonCheckbox
-                                                            id="create-usage-dashboard-checkbox"
-                                                            label="Create usage dashboard"
-                                                            onChange={() => onChange(!value)}
-                                                            checked={value}
-                                                            data-attr="create-usage-dashboard-checkbox"
-                                                        />
-                                                        <div className="text-secondary text-sm pl-7">
-                                                            Automatically track how often this flag is called and what
-                                                            values are returned. Creates a dashboard with call volume
-                                                            trends and variant distribution insights.
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </LemonField>
-                                        )}
-                                    {!featureFlag.is_remote_configuration && (
-                                        <LemonField name="ensure_experience_continuity">
-                                            {({ value, onChange }) => (
-                                                <div className="border rounded p-4">
-                                                    <LemonCheckbox
-                                                        id="continuity-checkbox"
-                                                        label="Persist flag across authentication steps"
-                                                        onChange={() => onChange(!value)}
-                                                        fullWidth
-                                                        checked={value}
-                                                    />
-                                                    <div className="text-secondary text-sm pl-7">
-                                                        If your feature flag is applied before identifying the user, use
-                                                        this to ensure that the flag value remains consistent for the
-                                                        same user. Depending on your setup, this option might not always
-                                                        be suitable. This feature requires creating profiles for
-                                                        anonymous users.{' '}
-                                                        <Link
-                                                            to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                            target="_blank"
-                                                        >
-                                                            Learn more
-                                                        </Link>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </LemonField>
+                                    // If approval is required and value is still true, set it to false
+                                    if (requiresApprovalToEnable && value) {
+                                        queueMicrotask(() => onChange(false))
+                                    }
+
+                                    return (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                disabledReason={
+                                                    requiresApprovalToEnable
+                                                        ? 'Enabling feature flags requires approval. Create the flag first, then enable it.'
+                                                        : undefined
+                                                }
+                                                data-attr="feature-flag-enabled-checkbox"
+                                            />
+                                            <div className="text-secondary text-sm pl-7">
+                                                When enabled, this flag evaluates according to your release conditions.
+                                                When disabled, this flag will not be evaluated and PostHog SDKs default
+                                                to returning <code>false</code>.
+                                            </div>
+                                        </div>
+                                    )
+                                }}
+                            </LemonField>
+                            {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_USAGE_DASHBOARD_CHECKBOX] && (
+                                <LemonField name="_should_create_usage_dashboard">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="create-usage-dashboard-checkbox"
+                                                label="Create usage dashboard"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                                data-attr="create-usage-dashboard-checkbox"
+                                            />
+                                            <div className="text-secondary text-sm pl-7">
+                                                Automatically track how often this flag is called and what values are
+                                                returned. Creates a dashboard with call volume trends and variant
+                                                distribution insights.
+                                            </div>
+                                        </div>
                                     )}
-                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                                        <>
-                                            <SceneDivider />
-                                            <SceneSection title="Evaluation runtime">
-                                                <div className="text-secondary text-sm mb-2">
-                                                    This setting controls where your feature flag can be evaluated. If
-                                                    you try to use a flag in a runtime where it's not allowed (e.g.,
-                                                    using a server-only flag in client-side code), it won't evaluate.{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                                        target="_blank"
-                                                        targetBlankIcon
-                                                    >
-                                                        Learn more about evaluation contexts
-                                                    </Link>
-                                                </div>
-                                                <LemonField name="evaluation_runtime">
-                                                    {({ value, onChange }) => (
-                                                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                                                            {[
-                                                                {
-                                                                    value: FeatureFlagEvaluationRuntime.ALL,
-                                                                    icon: <IconGlobe />,
-                                                                    title: 'Both client and server',
-                                                                    description:
-                                                                        'Single-user apps + multi-user systems',
-                                                                },
-                                                                {
-                                                                    value: FeatureFlagEvaluationRuntime.CLIENT,
-                                                                    icon: <IconLaptop />,
-                                                                    title: 'Client-side only',
-                                                                    description:
-                                                                        'Single-user apps (mobile, desktop, embedded)',
-                                                                },
-                                                                {
-                                                                    value: FeatureFlagEvaluationRuntime.SERVER,
-                                                                    icon: <IconServer />,
-                                                                    title: 'Server-side only',
-                                                                    description:
-                                                                        'Multi-user systems in trusted environments',
-                                                                },
-                                                            ].map((option) => (
-                                                                <div
-                                                                    key={option.value}
-                                                                    className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
-                                                                        value === option.value
-                                                                            ? 'border-primary bg-primary-highlight'
-                                                                            : 'border-border'
-                                                                    }`}
-                                                                    onClick={() => onChange(option.value)}
-                                                                >
-                                                                    <div className="flex items-start gap-3">
-                                                                        <div className="text-lg text-muted">
-                                                                            {option.icon}
-                                                                        </div>
-                                                                        <div className="flex-1">
-                                                                            <div className="font-medium text-sm">
-                                                                                {option.title}
-                                                                            </div>
-                                                                            <div className="text-xs text-muted mt-1">
-                                                                                {option.description}
-                                                                            </div>
-                                                                        </div>
-                                                                        <input
-                                                                            type="radio"
-                                                                            name="evaluation-environment"
-                                                                            checked={value === option.value}
-                                                                            onChange={() => onChange(option.value)}
-                                                                            className="cursor-pointer"
-                                                                        />
+                                </LemonField>
+                            )}
+                            {!featureFlag.is_remote_configuration && (
+                                <LemonField name="ensure_experience_continuity">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="continuity-checkbox"
+                                                label="Persist flag across authentication steps"
+                                                onChange={() => onChange(!value)}
+                                                fullWidth
+                                                checked={value}
+                                            />
+                                            <div className="text-secondary text-sm pl-7">
+                                                If your feature flag is applied before identifying the user, use this to
+                                                ensure that the flag value remains consistent for the same user.
+                                                Depending on your setup, this option might not always be suitable. This
+                                                feature requires creating profiles for anonymous users.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                    target="_blank"
+                                                >
+                                                    Learn more
+                                                </Link>
+                                            </div>
+                                        </div>
+                                    )}
+                                </LemonField>
+                            )}
+                            {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection title="Evaluation runtime">
+                                        <div className="text-secondary text-sm mb-2">
+                                            This setting controls where your feature flag can be evaluated. If you try
+                                            to use a flag in a runtime where it's not allowed (e.g., using a server-only
+                                            flag in client-side code), it won't evaluate.{' '}
+                                            <Link
+                                                to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                target="_blank"
+                                                targetBlankIcon
+                                            >
+                                                Learn more about using evaluation contexts
+                                            </Link>
+                                        </div>
+                                        <LemonField name="evaluation_runtime">
+                                            {({ value, onChange }) => (
+                                                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                    {[
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.ALL,
+                                                            icon: <IconGlobe />,
+                                                            title: 'Both client and server',
+                                                            description: 'Single-user apps + multi-user systems',
+                                                        },
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.CLIENT,
+                                                            icon: <IconLaptop />,
+                                                            title: 'Client-side only',
+                                                            description: 'Single-user apps (mobile, desktop, embedded)',
+                                                        },
+                                                        {
+                                                            value: FeatureFlagEvaluationRuntime.SERVER,
+                                                            icon: <IconServer />,
+                                                            title: 'Server-side only',
+                                                            description: 'Multi-user systems in trusted environments',
+                                                        },
+                                                    ].map((option) => (
+                                                        <div
+                                                            key={option.value}
+                                                            className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-primary-light ${
+                                                                value === option.value
+                                                                    ? 'border-primary bg-primary-highlight'
+                                                                    : 'border-border'
+                                                            }`}
+                                                            onClick={() => onChange(option.value)}
+                                                        >
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="text-lg text-muted">{option.icon}</div>
+                                                                <div className="flex-1">
+                                                                    <div className="font-medium text-sm">
+                                                                        {option.title}
+                                                                    </div>
+                                                                    <div className="text-xs text-muted mt-1">
+                                                                        {option.description}
                                                                     </div>
                                                                 </div>
-                                                            ))}
+                                                                <input
+                                                                    type="radio"
+                                                                    name="evaluation-environment"
+                                                                    checked={value === option.value}
+                                                                    onChange={() => onChange(option.value)}
+                                                                    className="cursor-pointer"
+                                                                />
+                                                            </div>
                                                         </div>
-                                                    )}
-                                                </LemonField>
-                                            </SceneSection>
-                                        </>
-                                    )}
-                                    {hasAvailableFeature(AvailableFeature.TAGGING) && (
-                                        <>
-                                            <SceneDivider />
-                                            <SceneSection title="Tags & Evaluation Contexts">
-                                                {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
-                                                    <div className="text-secondary text-sm mb-2">
-                                                        Use tags to organize and filter your feature flags. Mark
-                                                        specific tags as <strong>evaluation contexts</strong> to control
-                                                        when flags can be evaluated – flags will only evaluate when the
-                                                        SDK provides matching environment tags.{' '}
-                                                        <Link
-                                                            to="https://posthog.com/docs/feature-flags/evaluation-environments"
-                                                            target="_blank"
-                                                            targetBlankIcon
-                                                        >
-                                                            Learn more about evaluation contexts
-                                                        </Link>
-                                                    </div>
-                                                )}
-                                                <LemonField name="tags">
-                                                    {({ value: formTags, onChange: onChangeTags }) => (
-                                                        <>
-                                                            {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                                                                <LemonField name="evaluation_tags">
-                                                                    {({
-                                                                        value: formEvalTags,
-                                                                        onChange: onChangeEvalTags,
-                                                                    }) => (
-                                                                        <FeatureFlagEvaluationTags
-                                                                            tags={formTags}
-                                                                            evaluationTags={formEvalTags || []}
-                                                                            onChange={(
-                                                                                updatedTags,
-                                                                                updatedEvaluationTags
-                                                                            ) => {
-                                                                                onChangeTags(updatedTags)
-                                                                                onChangeEvalTags(updatedEvaluationTags)
-                                                                            }}
-                                                                            tagsAvailable={tags.filter(
-                                                                                (tag: string) =>
-                                                                                    !formTags?.includes(tag)
-                                                                            )}
-                                                                            className="mt-2"
-                                                                            flagId={featureFlag.id}
-                                                                            context="form"
-                                                                        />
-                                                                    )}
-                                                                </LemonField>
-                                                            ) : (
-                                                                <ObjectTags
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </LemonField>
+                                    </SceneSection>
+                                </>
+                            )}
+                            {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                <>
+                                    <SceneDivider />
+                                    <SceneSection title="Tags & Evaluation Contexts">
+                                        {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] && (
+                                            <div className="text-secondary text-sm mb-2">
+                                                Use tags to organize and filter your feature flags. Mark specific tags
+                                                as <strong>evaluation contexts</strong> to control when flags can be
+                                                evaluated – flags will only evaluate when the SDK provides matching
+                                                environment tags.{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/feature-flags/evaluation-environments"
+                                                    target="_blank"
+                                                    targetBlankIcon
+                                                >
+                                                    Learn more about evaluation contexts
+                                                </Link>
+                                            </div>
+                                        )}
+                                        <LemonField name="tags">
+                                            {({ value: formTags, onChange: onChangeTags }) => (
+                                                <>
+                                                    {featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
+                                                        <LemonField name="evaluation_tags">
+                                                            {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                                <FeatureFlagEvaluationTags
                                                                     tags={formTags}
-                                                                    onChange={onChangeTags}
-                                                                    saving={featureFlagLoading}
+                                                                    evaluationTags={formEvalTags || []}
+                                                                    onChange={(updatedTags, updatedEvaluationTags) => {
+                                                                        onChangeTags(updatedTags)
+                                                                        onChangeEvalTags(updatedEvaluationTags)
+                                                                    }}
                                                                     tagsAvailable={tags.filter(
                                                                         (tag: string) => !formTags?.includes(tag)
                                                                     )}
                                                                     className="mt-2"
+                                                                    flagId={featureFlag.id}
+                                                                    context="form"
                                                                 />
                                                             )}
-                                                        </>
+                                                        </LemonField>
+                                                    ) : (
+                                                        <ObjectTags
+                                                            tags={formTags}
+                                                            onChange={onChangeTags}
+                                                            saving={featureFlagLoading}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag: string) => !formTags?.includes(tag)
+                                                            )}
+                                                            className="mt-2"
+                                                        />
                                                     )}
-                                                </LemonField>
-                                            </SceneSection>
-                                        </>
-                                    )}
-                                    <SceneDivider />
-
-                                    <FeatureFlagCodeExample featureFlag={featureFlag} />
-                                    <LemonDivider />
-                                    {isNewFeatureFlag && (
-                                        <>
-                                            <div>
-                                                <LemonButton
-                                                    fullWidth
-                                                    onClick={() =>
-                                                        setAdvancedSettingsExpanded(!advancedSettingsExpanded)
-                                                    }
-                                                    sideIcon={
-                                                        advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />
-                                                    }
-                                                >
-                                                    <div>
-                                                        <h3 className="l4 mt-2">Advanced settings</h3>
-                                                        <div className="text-secondary mb-2 font-medium">
-                                                            Define who can modify this flag.
-                                                        </div>
-                                                    </div>
-                                                </LemonButton>
-                                            </div>
-                                            {advancedSettingsExpanded && (
-                                                <>
-                                                    <div className="border rounded bg-surface-primary">
-                                                        <h3 className="p-2 mb-0">Permissions</h3>
-                                                        <LemonDivider className="my-0" />
-                                                        <div className="p-3">
-                                                            <FeatureFlagPermissions featureFlag={featureFlag} />
-                                                        </div>
-                                                    </div>
                                                 </>
                                             )}
-                                            <LemonDivider />
-                                        </>
-                                    )}
-                                    <div className="flex items-center gap-2 justify-end">
-                                        <LemonButton
-                                            data-attr="cancel-feature-flag"
-                                            type="secondary"
-                                            onClick={() => {
-                                                if (isEditingFlag) {
-                                                    editFeatureFlag(false)
-                                                    loadFeatureFlag()
-                                                } else {
-                                                    router.actions.push(urls.featureFlags())
-                                                }
-                                            }}
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-feature-flag"
-                                            htmlType="submit"
-                                            form="feature-flag"
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    </div>
+                                        </LemonField>
+                                    </SceneSection>
                                 </>
                             )}
+                            <SceneDivider />
+
+                            <FeatureFlagCodeExample featureFlag={featureFlag} />
+                            <LemonDivider />
+                            {isNewFeatureFlag && (
+                                <>
+                                    <div>
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                            sideIcon={advancedSettingsExpanded ? <IconCollapse /> : <IconExpand />}
+                                        >
+                                            <div>
+                                                <h3 className="l4 mt-2">Advanced settings</h3>
+                                                <div className="text-secondary mb-2 font-medium">
+                                                    Define who can modify this flag.
+                                                </div>
+                                            </div>
+                                        </LemonButton>
+                                    </div>
+                                    {advancedSettingsExpanded && (
+                                        <>
+                                            <div className="border rounded bg-surface-primary">
+                                                <h3 className="p-2 mb-0">Permissions</h3>
+                                                <LemonDivider className="my-0" />
+                                                <div className="p-3">
+                                                    <FeatureFlagPermissions featureFlag={featureFlag} />
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                    <LemonDivider />
+                                </>
+                            )}
+                            <div className="flex items-center gap-2 justify-end">
+                                <LemonButton
+                                    data-attr="cancel-feature-flag"
+                                    type="secondary"
+                                    onClick={() => {
+                                        if (isEditingFlag) {
+                                            editFeatureFlag(false)
+                                            loadFeatureFlag()
+                                        } else {
+                                            router.actions.push(urls.featureFlags())
+                                        }
+                                    }}
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    data-attr="save-feature-flag"
+                                    htmlType="submit"
+                                    form="feature-flag"
+                                >
+                                    Save
+                                </LemonButton>
+                            </div>
                         </SceneContent>
                     </Form>
                 ) : (
