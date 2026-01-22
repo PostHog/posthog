@@ -1,3 +1,5 @@
+import { api } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
@@ -234,6 +236,94 @@ describe('experimentLogic', () => {
                         null,
                     ],
                 })
+        })
+    })
+
+    describe('removeSharedMetricFromExperiment', () => {
+        beforeEach(() => {
+            jest.spyOn(api, 'update')
+            api.update.mockClear()
+        })
+
+        it('removes orphaned shared metric from metrics array', async () => {
+            const orphanedSharedMetricId = 46275
+            const experimentWithOrphan = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Orphaned Shared Metric',
+                        uuid: 'orphan-uuid',
+                        isSharedMetric: true,
+                        sharedMetricId: orphanedSharedMetricId,
+                    },
+                    experiment.metrics[0],
+                ],
+                metrics_secondary: [],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(experimentWithOrphan)
+            api.update.mockResolvedValue(experimentWithOrphan)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [],
+                    metrics: [experiment.metrics[0]],
+                    metrics_secondary: [],
+                })
+            )
+        })
+
+        it('removes orphaned shared metric from metrics_secondary array', async () => {
+            const orphanedSharedMetricId = 99999
+            const experimentWithOrphan = {
+                ...experiment,
+                saved_metrics: [],
+                metrics: [],
+                metrics_secondary: [
+                    {
+                        kind: 'ExperimentMetric',
+                        name: 'Orphaned Secondary Metric',
+                        uuid: 'orphan-secondary-uuid',
+                        isSharedMetric: true,
+                        sharedMetricId: orphanedSharedMetricId,
+                    },
+                ],
+            } as unknown as Experiment
+
+            logic.actions.setExperiment(experimentWithOrphan)
+            api.update.mockResolvedValue(experimentWithOrphan)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': experimentWithOrphan,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSharedMetricFromExperiment(orphanedSharedMetricId)
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({
+                    saved_metrics_ids: [],
+                    metrics: [],
+                    metrics_secondary: [],
+                })
+            )
         })
     })
 })

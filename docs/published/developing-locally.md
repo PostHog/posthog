@@ -79,6 +79,8 @@ This is the recommended option for most developers.
 
 > Note: Importantly, if you're internal to PostHog we are standardised on working on MacOS (not Linux). In part because of SOC2 auditing gains it gives us.
 
+> Note: If you're running PostHog on WSL2, make sure to change $HOST_BIND to 0.0.0.0 and set the debugpy address to 0.0.0.0:5678.
+
 1. Install Docker following the [official Docker installation guide for Ubuntu](https://docs.docker.com/engine/install/ubuntu/).
 
 2. Install the `build-essential` package:
@@ -447,6 +449,16 @@ If you need to start fresh with a clean database (for example, if your local dat
 4. Once PostHog is running, click the **generate-demo-data** button in the UI, then type `r` to generate test data.
 
 > **Note:** This process will completely wipe your local database. Make sure you don't have any important local data before proceeding.
+
+## Extra: API types
+
+When modifying Django serializers or views, you may need to regenerate TypeScript types:
+
+```bash
+hogli build:openapi
+```
+
+See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
 
 ## Extra: Working with the data warehouse
 

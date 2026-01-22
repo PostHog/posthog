@@ -46,13 +46,20 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
 ) -> ast.Expr:
+    def make_field(breakdown: str | int) -> ast.Expr:
+        if properties_column is None:
+            # breakdown already refers to a top-level field
+            return ast.Field(chain=[breakdown])
+        else:
+            return ast.Field(chain=[*properties_column.split("."), breakdown])
+
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Call(name="toString", args=[make_field(breakdowns)]),
                 ast.Constant(value=""),
             ],
         )
@@ -62,7 +69,7 @@ def get_breakdown_expr(
             expr: ast.Expr = ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Call(name="toString", args=[make_field(breakdown)]),
                     ast.Constant(value=""),
                 ],
             )

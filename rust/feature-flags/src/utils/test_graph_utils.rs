@@ -351,8 +351,13 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
+            assert!(
+                nodes_with_missing_deps.is_empty(),
+                "Expected no missing deps, found: {nodes_with_missing_deps:?}"
+            );
             assert_eq!(graph.node_count(), 3);
             assert_eq!(graph.edge_count(), 0);
         }
@@ -368,8 +373,13 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
+            assert!(
+                nodes_with_missing_deps.is_empty(),
+                "Expected no missing deps"
+            );
             assert_eq!(graph.node_count(), 6);
             assert_eq!(graph.edge_count(), 3);
         }
@@ -402,7 +412,7 @@ mod tests {
                 TestItem::new(16, HashSet::from([14])),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert_eq!(
                 errors.len(),
                 2,
@@ -450,30 +460,44 @@ mod tests {
 
         #[test]
         fn test_build_from_nodes_with_missing_dependencies() {
-            // 4 -> 3 -> 1 -> (999: missing)
-            // 2 -> 1 -> (999: missing)
+            // Test that nodes with missing dependencies (direct or transitive) are
+            // KEPT in the graph but tracked for fail-closed evaluation.
+            //
+            // Graph structure:
+            // 4 -> 2 -> 1 -> (999: missing)
+            // 3 -> 1 -> (999: missing)
             // 6 -> (1000: missing)
+            // 5 (no deps, valid)
+            //
+            // Expected: nodes 1, 2, 3, 4, 6 should be tracked (transitive propagation)
+            // Only node 5 should NOT be tracked.
             let items = vec![
-                TestItem::new(1, HashSet::from([999])),  // Missing dependency.
-                TestItem::new(2, HashSet::from([1])), // Depends on node that depends on a missing dependency.
-                TestItem::new(3, HashSet::from([1])), // Depends on node that depends on a missing dependency.
-                TestItem::new(4, HashSet::from([2])), // Depends on node that depends on a node that depends on a missing dependency.
-                TestItem::new(5, HashSet::new()),     // Should remain.
-                TestItem::new(6, HashSet::from([1000])), // Missing dependency.
+                TestItem::new(1, HashSet::from([999])), // Direct missing dependency
+                TestItem::new(2, HashSet::from([1])),   // Transitive (via 1)
+                TestItem::new(3, HashSet::from([1])),   // Transitive (via 1)
+                TestItem::new(4, HashSet::from([2])),   // Transitive (via 2 -> 1)
+                TestItem::new(5, HashSet::new()),       // No deps, valid
+                TestItem::new(6, HashSet::from([1000])), // Direct missing dependency
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(&items).unwrap();
+
+            // All nodes are kept in the graph (no removal of broken flags)
             assert_eq!(
                 graph.node_count(),
-                1,
-                "Expected only the valid subgraph (5)"
+                6,
+                "All nodes should be kept in the graph"
             );
+
+            // Errors only track the DIRECT missing dependencies (not transitive)
             assert_eq!(
                 errors.len(),
                 2,
-                "Expected two errors due to missing dependencies"
+                "Expected two errors due to direct missing dependencies"
             );
-            // Check that both missing dependencies are reported (order may vary)
+
+            // Check that both missing dependencies are reported
             let missing_ids: Vec<_> = errors
                 .iter()
                 .filter_map(|e| {
@@ -492,12 +516,100 @@ mod tests {
                 missing_ids.contains(&1000),
                 "Expected missing dependency 1000"
             );
+
+            // All nodes that transitively depend on missing deps are tracked
+            assert_eq!(
+                nodes_with_missing_deps.len(),
+                5,
+                "Expected 5 nodes with missing deps (1, 2, 3, 4, 6)"
+            );
+            assert!(nodes_with_missing_deps.contains(&1));
+            assert!(nodes_with_missing_deps.contains(&2));
+            assert!(nodes_with_missing_deps.contains(&3));
+            assert!(nodes_with_missing_deps.contains(&4));
+            assert!(nodes_with_missing_deps.contains(&6));
+            assert!(
+                !nodes_with_missing_deps.contains(&5),
+                "Node 5 should NOT be tracked (no missing deps)"
+            );
+
+            // All nodes are present in the graph
+            assert!(graph.contains_node(1));
+            assert!(graph.contains_node(2));
+            assert!(graph.contains_node(3));
+            assert!(graph.contains_node(4));
             assert!(graph.contains_node(5));
-            assert!(!graph.contains_node(1));
-            assert!(!graph.contains_node(2));
-            assert!(!graph.contains_node(3));
-            assert!(!graph.contains_node(4));
-            assert!(!graph.contains_node(6));
+            assert!(graph.contains_node(6));
+        }
+
+        #[test]
+        fn test_diamond_dependency_with_missing_dep() {
+            // Test diamond dependency where one branch has a missing dep.
+            //
+            // Graph structure:
+            //       1
+            //      / \
+            //     2   3
+            //      \ /
+            //       4 -> (999: missing)
+            //
+            // Expected: nodes 1, 2, 3, 4 should all be in nodes_with_missing_deps
+            let items = vec![
+                TestItem::new(1, HashSet::from([2, 3])), // Depends on both 2 and 3
+                TestItem::new(2, HashSet::from([4])),    // Depends on 4
+                TestItem::new(3, HashSet::from([4])),    // Depends on 4
+                TestItem::new(4, HashSet::from([999])),  // Missing dependency
+            ];
+
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(&items).unwrap();
+
+            assert_eq!(graph.node_count(), 4);
+            assert_eq!(errors.len(), 1);
+
+            // All nodes transitively depend on the missing dependency
+            assert_eq!(nodes_with_missing_deps.len(), 4);
+            assert!(nodes_with_missing_deps.contains(&1));
+            assert!(nodes_with_missing_deps.contains(&2));
+            assert!(nodes_with_missing_deps.contains(&3));
+            assert!(nodes_with_missing_deps.contains(&4));
+        }
+
+        #[test]
+        fn test_partial_missing_dependency_branch() {
+            // Test where only one branch of dependencies has a missing dep.
+            //
+            // Graph structure:
+            //   1 -> 2 -> (999: missing)
+            //   3 -> 4 (valid, no missing deps)
+            //   5 (no deps)
+            //
+            // Expected: only nodes 1, 2 should be in nodes_with_missing_deps
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])), // Depends on 2 (transitive missing)
+                TestItem::new(2, HashSet::from([999])), // Missing dependency
+                TestItem::new(3, HashSet::from([4])), // Depends on 4 (valid)
+                TestItem::new(4, HashSet::new()),     // No deps, valid
+                TestItem::new(5, HashSet::new()),     // No deps, valid
+            ];
+
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(&items).unwrap();
+
+            assert_eq!(graph.node_count(), 5);
+            assert_eq!(errors.len(), 1);
+
+            // Only nodes 1 and 2 should be tracked (the broken branch)
+            assert_eq!(
+                nodes_with_missing_deps.len(),
+                2,
+                "Expected 2 nodes with missing deps, got: {nodes_with_missing_deps:?}"
+            );
+            assert!(nodes_with_missing_deps.contains(&1));
+            assert!(nodes_with_missing_deps.contains(&2));
+            assert!(!nodes_with_missing_deps.contains(&3));
+            assert!(!nodes_with_missing_deps.contains(&4));
+            assert!(!nodes_with_missing_deps.contains(&5));
         }
     }
 
@@ -512,7 +624,7 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -539,7 +651,7 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -559,7 +671,7 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -591,7 +703,7 @@ mod tests {
                 TestItem::new(4, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -628,7 +740,7 @@ mod tests {
                 TestItem::new(9, HashSet::new()),
             ];
 
-            let (graph, errors) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -658,7 +770,9 @@ mod tests {
 #[cfg(test)]
 mod filter_graph_by_keys_tests {
     use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup};
-    use crate::utils::graph_utils::{build_dependency_graph, filter_graph_by_keys};
+    use crate::utils::graph_utils::{
+        build_dependency_graph, filter_graph_by_keys, DependencyGraphResult, FilteredGraphResult,
+    };
     use crate::utils::test_utils::create_test_flag;
     use std::collections::HashSet;
 
@@ -718,15 +832,19 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &[]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &[], &flags_with_missing_deps);
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 0);
-        assert_eq!(filtered_graph.edge_count(), 0);
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         assert_eq!(nodes.len(), 0);
     }
 
@@ -741,17 +859,25 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 1);
-        assert_eq!(filtered_graph.edge_count(), 0);
-        assert!(filtered_graph.contains_node(1));
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 1);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.contains_node(1));
 
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].id, 1);
         assert_eq!(nodes[0].key, "flag1");
@@ -768,18 +894,26 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 2);
-        assert_eq!(filtered_graph.edge_count(), 1);
-        assert!(filtered_graph.contains_node(1));
-        assert!(filtered_graph.contains_node(2));
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 1);
+        assert!(graph.contains_node(1));
+        assert!(graph.contains_node(2));
 
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         assert_eq!(nodes.len(), 2);
         let flag_ids: Vec<i32> = nodes.iter().map(|f| f.id).collect();
         let flag_keys: Vec<&str> = nodes.iter().map(|f| f.key.as_str()).collect();
@@ -801,21 +935,27 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result =
-            filter_graph_by_keys(&global_graph, &["flag1".to_string(), "flag2".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string(), "flag2".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 3);
-        assert_eq!(filtered_graph.edge_count(), 2);
-        assert!(filtered_graph.contains_node(1));
-        assert!(filtered_graph.contains_node(2));
-        assert!(filtered_graph.contains_node(3));
-        assert!(!filtered_graph.contains_node(4)); // flag4 should not be included
-                                                   // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 2);
+        assert!(graph.contains_node(1));
+        assert!(graph.contains_node(2));
+        assert!(graph.contains_node(3));
+        assert!(!graph.contains_node(4)); // flag4 should not be included
+                                          // Verify the actual flag content
+        let nodes = graph.get_all_nodes();
         let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
         let flag_keys: std::collections::HashSet<&str> =
             nodes.iter().map(|f| f.key.as_str()).collect();
@@ -836,16 +976,23 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &["nonexistent_flag".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["nonexistent_flag".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 0);
-        assert_eq!(filtered_graph.edge_count(), 0);
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 0);
+        assert_eq!(graph.edge_count(), 0);
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         assert_eq!(nodes.len(), 0);
     }
 
@@ -859,21 +1006,25 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
         let result = filter_graph_by_keys(
             &global_graph,
             &["flag1".to_string(), "nonexistent_flag".to_string()],
+            &flags_with_missing_deps,
         );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 1);
-        assert_eq!(filtered_graph.edge_count(), 0);
-        assert!(filtered_graph.contains_node(1));
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 1);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.contains_node(1));
 
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].id, 1);
         assert_eq!(nodes[0].key, "flag1");
@@ -896,22 +1047,29 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 4);
-        assert_eq!(filtered_graph.edge_count(), 4);
-        assert!(filtered_graph.contains_node(1));
-        assert!(filtered_graph.contains_node(2));
-        assert!(filtered_graph.contains_node(3));
-        assert!(filtered_graph.contains_node(4));
-        assert!(!filtered_graph.contains_node(5)); // flag5 should not be included
-        assert!(!filtered_graph.contains_node(6)); // flag6 should not be included
-                                                   // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 4);
+        assert_eq!(graph.edge_count(), 4);
+        assert!(graph.contains_node(1));
+        assert!(graph.contains_node(2));
+        assert!(graph.contains_node(3));
+        assert!(graph.contains_node(4));
+        assert!(!graph.contains_node(5)); // flag5 should not be included
+        assert!(!graph.contains_node(6)); // flag6 should not be included
+                                          // Verify the actual flag content
+        let nodes = graph.get_all_nodes();
         let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
         let flag_keys: std::collections::HashSet<&str> =
             nodes.iter().map(|f| f.key.as_str()).collect();
@@ -939,21 +1097,27 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result =
-            filter_graph_by_keys(&global_graph, &["flag1".to_string(), "flag3".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string(), "flag3".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 4);
-        assert_eq!(filtered_graph.edge_count(), 2);
-        assert!(filtered_graph.contains_node(1));
-        assert!(filtered_graph.contains_node(2));
-        assert!(filtered_graph.contains_node(3));
-        assert!(filtered_graph.contains_node(4));
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 4);
+        assert_eq!(graph.edge_count(), 2);
+        assert!(graph.contains_node(1));
+        assert!(graph.contains_node(2));
+        assert!(graph.contains_node(3));
+        assert!(graph.contains_node(4));
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
         let flag_keys: std::collections::HashSet<&str> =
             nodes.iter().map(|f| f.key.as_str()).collect();
@@ -980,16 +1144,23 @@ mod filter_graph_by_keys_tests {
         let feature_flags = FeatureFlagList { flags };
         let team_id = 1;
 
-        let (global_graph, _) =
-            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
-        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+        let DependencyGraphResult {
+            graph: global_graph,
+            flags_with_missing_deps,
+            ..
+        } = crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string()],
+            &flags_with_missing_deps,
+        );
 
         assert!(result.is_some());
-        let filtered_graph = result.unwrap();
-        assert_eq!(filtered_graph.node_count(), 3);
-        assert_eq!(filtered_graph.edge_count(), 3);
+        let FilteredGraphResult { graph, .. } = result.unwrap();
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 3);
         // Verify the actual flag content
-        let nodes = filtered_graph.get_all_nodes();
+        let nodes = graph.get_all_nodes();
         let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
         let flag_keys: std::collections::HashSet<&str> =
             nodes.iter().map(|f| f.key.as_str()).collect();
@@ -999,7 +1170,7 @@ mod filter_graph_by_keys_tests {
             ["flag1", "flag2", "flag3"].iter().cloned().collect()
         );
         // Verify the edge structure is preserved
-        let evaluation_stages = filtered_graph.evaluation_stages().unwrap();
+        let evaluation_stages = graph.evaluation_stages().unwrap();
         assert_eq!(evaluation_stages.len(), 3);
         assert_eq!(evaluation_stages[0].len(), 1); // flag3 (no dependencies)
         assert_eq!(evaluation_stages[1].len(), 1); // flag2 (depends on flag3)

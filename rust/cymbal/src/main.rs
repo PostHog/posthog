@@ -56,6 +56,8 @@ async fn main() {
 
     let context = Arc::new(AppContext::from_config(&config).await.unwrap());
 
-    start_server(&config, context.clone()).await;
-    start_consumer(&config, context.clone()).await;
+    tokio::join!(
+        start_server(config.clone(), context.clone()),
+        start_consumer(&config, context.clone())
+    );
 }

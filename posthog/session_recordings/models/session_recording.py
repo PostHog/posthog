@@ -110,6 +110,10 @@ class SessionRecording(UUIDTModel):
         return self._metadata.get("snapshot_source", "web") if self._metadata else "web"
 
     @property
+    def snapshot_library(self) -> Optional[str]:
+        return self._metadata.get("snapshot_library") if self._metadata else None
+
+    @property
     def person(self) -> Union[Person, MissingPerson]:
         if self._person:
             return self._person

@@ -43,7 +43,6 @@ export const urls = {
     database: (): string => '/data-management/database',
     dataWarehouseManagedViewsets: (): string => '/data-management/managed-viewsets',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    feed: (): string => '/feed',
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
@@ -111,14 +110,35 @@ export const urls = {
     signup: (): string => '/signup',
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
+    vercelLinkError: (): string => '/integrations/vercel/link-error',
     inviteSignup: (id: string): string => `/signup/${id}`,
-    products: (): string => '/products',
-    useCaseSelection: (): string => '/onboarding/use-case',
-    onboardingCoupon: (campaign: string): string => `/onboarding/coupons/${campaign}`,
-    onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
-            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
-        }`,
+    onboarding: ({
+        campaign,
+        productKey,
+        stepKey,
+        sdk,
+    }: {
+        campaign?: string
+        productKey?: string
+        stepKey?: OnboardingStepKey
+        sdk?: SDKKey
+    } = {}): string => {
+        if (campaign) {
+            return `/onboarding/coupons/${campaign}`
+        }
+
+        const params = new URLSearchParams()
+        if (stepKey) {
+            params.set('step', stepKey)
+        }
+        if (sdk) {
+            params.set('sdk', sdk)
+        }
+
+        const base = `/onboarding${productKey ? `/${productKey}` : ''}`
+        const queryString = params.toString()
+        return `${base}${queryString ? `?${queryString}` : ''}`
+    },
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -188,7 +208,8 @@ export const urls = {
     hogFunction: (id: string, tab?: HogFunctionSceneTab): string => `/functions/${id}${tab ? `?tab=${tab}` : ''}`,
     hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
     productTours: (): string => '/product_tours',
-    productTour: (id: string): string => `/product_tours/${id}`,
+    productTour: (id: string, params?: string): string =>
+        `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     approvals: (): string => '/settings/organization-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,

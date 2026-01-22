@@ -214,6 +214,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
+    external_references = serializers.SerializerMethodField()
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
@@ -233,6 +234,24 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
     def get_activity_score(self, obj: SessionRecording) -> float | None:
         return getattr(obj, "activity_score", None)
+
+    def get_external_references(self, obj: SessionRecording) -> list[dict]:
+        """Load external references (linked issues) for this recording"""
+
+        # Skip loading in list views to prevent N+1 queries
+        view = self.context.get("view")
+        if view and getattr(view, "action", None) == "list":
+            return []
+
+        from posthog.session_recordings.session_recording_external_reference_api import (
+            SessionRecordingExternalReferenceSerializer,
+        )
+
+        return list(
+            SessionRecordingExternalReferenceSerializer(
+                obj.external_references.select_related("integration").all(), many=True, context=self.context
+            ).data
+        )
 
     class Meta:
         model = SessionRecording
@@ -258,8 +277,10 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
+            "external_references",
         ]
 
         read_only_fields = [
@@ -282,6 +303,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "expiry_time",
             "recording_ttl",
             "snapshot_source",
+            "snapshot_library",
             "ongoing",
             "activity_score",
         ]
@@ -474,6 +496,7 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
+@extend_schema(tags=["replay"])
 class SessionRecordingViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
 ):
@@ -680,6 +703,7 @@ class SessionRecordingViewSet(
             # older recordings did not store this and so "null" is equivalent to web
             # but for reporting we want to distinguish between not loaded and no value to load
             "snapshot_source": player_metadata.get("snapshot_source", "unknown"),
+            "snapshot_library": player_metadata.get("snapshot_library"),
         }
         user: User | AnonymousUser = cast(User | AnonymousUser, request.user)
 

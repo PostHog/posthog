@@ -11,8 +11,8 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer
-from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value

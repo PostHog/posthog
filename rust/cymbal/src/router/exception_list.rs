@@ -49,7 +49,17 @@ impl ProcessExceptionListError {
     }
 
     fn to_json(&self) -> Json<Value> {
-        Json(json!({ "error": format!("{self}") }))
+        match self {
+            ProcessExceptionListError::InvalidExceptionList(err) => {
+                Json(json!({ "error": err.to_string() }))
+            }
+            ProcessExceptionListError::ResolveExceptionError(err) => {
+                Json(json!({ "error": err.to_string() }))
+            }
+            ProcessExceptionListError::ResolveStackError(err) => {
+                Json(json!({ "error": err.to_string() }))
+            }
+        }
     }
 }
 

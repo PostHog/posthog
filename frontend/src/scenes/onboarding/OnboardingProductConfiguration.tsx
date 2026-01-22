@@ -5,10 +5,10 @@ import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from './OnboardingStep'
+import { OnboardingStepComponentType } from './onboardingLogic'
 import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
 type ConfigType = 'toggle' | 'select'
@@ -30,15 +30,13 @@ type ConfigOption =
           onChange: (newValue: boolean) => void
       }
 
-export const OnboardingProductConfiguration = ({
-    stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
+interface OnboardingProductConfigurationProps {
+    options: ProductConfigOption[]
+}
+
+export const OnboardingProductConfiguration: OnboardingStepComponentType<OnboardingProductConfigurationProps> = ({
     options,
-}: {
-    stepKey?: OnboardingStepKey
-    options: (ProductConfigOption | undefined)[]
-    // which product is being configured
-    product?: ProductKey
-}): JSX.Element | null => {
+}) => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
 
@@ -49,7 +47,7 @@ export const OnboardingProductConfiguration = ({
     }, [configOptions])
 
     useOnMountEffect(() => {
-        setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
+        setConfigOptions(options)
     })
 
     const combinedList: ConfigOption[] = configOptions
@@ -76,7 +74,11 @@ export const OnboardingProductConfiguration = ({
         }))
 
     return combinedList.length > 0 ? (
-        <OnboardingStep title="Set up your configuration" stepKey={stepKey} onContinue={saveConfiguration}>
+        <OnboardingStep
+            title="Set up your configuration"
+            stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+            onContinue={saveConfiguration}
+        >
             <div className="mt-6">
                 <h2 className="pt-2">Options</h2>
                 {combinedList.map((item, idx) => (
@@ -120,3 +122,5 @@ export const OnboardingProductConfiguration = ({
         </OnboardingStep>
     ) : null
 }
+
+OnboardingProductConfiguration.stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION

@@ -5,6 +5,9 @@ Endpoint:
 - POST /api/environments/:id/llm_analytics/translate/ - Translate text
 """
 
+import time
+from typing import cast
+
 from django.conf import settings
 
 import structlog
@@ -12,13 +15,17 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
+from posthog.models import User
 from posthog.rate_limit import (
     LLMAnalyticsTranslationBurstThrottle,
     LLMAnalyticsTranslationDailyThrottle,
     LLMAnalyticsTranslationSustainedThrottle,
 )
 
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 from products.llm_analytics.backend.translation.constants import DEFAULT_TARGET_LANGUAGE
 from products.llm_analytics.backend.translation.llm import translate_text
 
@@ -65,6 +72,8 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "AI data processing must be approved by your organization before using translation"
             )
 
+    @llma_track_latency("llma_translate")
+    @monitor(feature=None, endpoint="llma_translate", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Translate text to target language."""
         self._validate_feature_access(request)
@@ -87,12 +96,27 @@ class LLMAnalyticsTranslateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 target_language=target_language,
                 text_length=len(text),
             )
+            start_time = time.time()
             translation = translate_text(text, target_language)
+            duration_seconds = time.time() - start_time
             logger.info(
                 "translation_completed",
                 target_language=target_language,
                 translation_length=len(translation),
             )
+
+            report_user_action(
+                cast(User, request.user),
+                "llma translation generated",
+                {
+                    "target_language": target_language,
+                    "text_length": len(text),
+                    "translation_length": len(translation),
+                    "duration_seconds": duration_seconds,
+                },
+                self.team,
+            )
+
             return Response(
                 {
                     "translation": translation,

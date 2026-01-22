@@ -76,6 +76,7 @@ export { ChartDisplayCategory }
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
@@ -411,6 +412,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[]
 }
 
 export interface DataWarehouseEventsModifier {
@@ -757,6 +760,17 @@ export interface ActionsNode extends EntityNode {
 
 export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
+export interface GroupNode extends EntityNode {
+    kind: NodeKind.GroupNode
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** Entities to combine in this group */
+    nodes: AnyEntityNode[]
+    limit?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -1100,6 +1114,8 @@ interface DataTableNodeViewProps {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show count of total and filtered results */
+    showCount?: boolean
     /** Show the time it takes to run a query */
     showElapsedTime?: boolean
     /** Show a detailed query timing breakdown */
@@ -1331,7 +1347,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -2039,7 +2055,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     filterTestAccounts?: boolean
     /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
-    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
     interval?: IntervalType
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: integer | null
@@ -2436,11 +2452,6 @@ export interface ErrorTrackingIssueImpactToolOutput {
     events: string[]
 }
 
-export interface ErrorTrackingExplainIssueToolContext {
-    stacktrace: string
-    issue_name: string
-}
-
 export type ErrorTrackingIssueAssigneeType = 'user' | 'role'
 
 export interface ErrorTrackingIssueAssignee {
@@ -2648,6 +2659,9 @@ export interface LogMessage {
     new?: boolean
 }
 
+/** Field to break down sparkline data by */
+export type LogsSparklineBreakdownBy = 'severity' | 'service'
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2661,6 +2675,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     liveLogsCheckpoint?: string
     /** Cursor for fetching the next page of results */
     after?: string
+    /** Field to break down sparkline data by (used only by sparkline endpoint) */
+    sparklineBreakdownBy?: LogsSparklineBreakdownBy
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2839,7 +2855,6 @@ export type FileSystemIconType =
     | 'insight/stickiness'
     | 'insight/hog'
     | 'team_activity'
-    | 'feed'
     | 'home'
     | 'apps'
     | 'live'
@@ -2847,6 +2862,8 @@ export type FileSystemIconType =
     | 'search'
     | 'folder'
     | 'folder_open'
+    | 'conversations'
+    | 'toolbar'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -2934,6 +2951,7 @@ export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
     credible_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
@@ -2941,11 +2959,13 @@ export interface MaxExperimentVariantResultFrequentist {
     key: string
     p_value: number | null
     confidence_interval: number[] | null
+    delta: number | null
     significant: boolean
 }
 
 export interface MaxExperimentMetricResult {
     name: string
+    goal: 'increase' | 'decrease' | null
     variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
 }
 
@@ -5115,6 +5135,7 @@ export enum ProductKey {
     ANNOTATIONS = 'annotations',
     COHORTS = 'cohorts',
     COMMENTS = 'comments',
+    CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
@@ -5135,17 +5156,21 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MOBILE_REPLAY = 'mobile_replay',
+    NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
     PIPELINE_DESTINATIONS = 'pipeline_destinations',
     PLATFORM_AND_SUPPORT = 'platform_and_support',
     PRODUCT_ANALYTICS = 'product_analytics',
+    PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SURVEYS = 'surveys',
-    USER_INTERVIEWS = 'user_interviews',
+    TASKS = 'tasks',
     TEAMS = 'teams',
+    TOOLBAR = 'toolbar',
+    USER_INTERVIEWS = 'user_interviews',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',
 }
@@ -5183,6 +5208,7 @@ export enum ProductIntentContext {
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',
+    LOGS_SET_FILTERS = 'logs_set_filters',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
@@ -5257,6 +5283,37 @@ export enum ProductIntentContext {
     // Workflows
     WORKFLOW_CREATED = 'workflow_created',
 
+    // Data Pipelines
+    DATA_PIPELINE_CREATED = 'data_pipeline_created',
+
+    // Notebooks
+    NOTEBOOK_CREATED = 'notebook_created',
+
+    // Product Tours
+    PRODUCT_TOUR_CREATED = 'product_tour_created',
+
+    // Tasks
+    TASK_CREATED = 'task_created',
+
+    // Toolbar
+    TOOLBAR_LAUNCHED = 'toolbar_launched',
+
     // Used by the backend but defined here for type safety
     VERCEL_INTEGRATION = 'vercel_integration',
 }
+
+// Known prod_interest values from posthog.com
+export type WebsiteBrowsingHistoryProdInterest =
+    | 'product-analytics'
+    | 'web-analytics'
+    | 'session-replay'
+    | 'feature-flags'
+    | 'experiments'
+    | 'error-tracking'
+    | 'surveys'
+    | 'data-warehouse'
+    | 'llm-analytics'
+    | 'revenue-analytics'
+    | 'workflows'
+    | 'logs'
+    | 'endpoints'

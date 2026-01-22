@@ -142,7 +142,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.useCaseSelection())
+                actions.switchTeam(currentProject.id, urls.onboarding())
             }
         },
 

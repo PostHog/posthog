@@ -412,16 +412,24 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
-        with patch(
-            "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
-        ) as mock_pause_saved_query_schedule:
+        with (
+            patch(
+                "products.data_warehouse.backend.api.saved_query.saved_query_workflow_exists",
+                return_value=True,
+            ) as mock_workflow_exists,
+            patch(
+                "products.data_warehouse.backend.api.saved_query.pause_saved_query_schedule"
+            ) as mock_pause_saved_query_schedule,
+        ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
-
             self.assertEqual(response.status_code, 200)
-            mock_pause_saved_query_schedule.assert_called_once_with(saved_query["id"])
+            saved_query_id = response.json()["id"]
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+            mock_workflow_exists.assert_called_once_with(saved_query)
+            mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_update_with_types(self):
         response = self.client.post(
@@ -464,17 +472,18 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
-        saved_query = response.json()
+        saved_query_id = response.json()["id"]
+        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
         with patch(
             "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
         ) as mock_delete_saved_query_schedule:
             response = self.client.delete(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
             )
 
             self.assertEqual(response.status_code, 204)
-            mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
+            mock_delete_saved_query_schedule.assert_called_once_with(saved_query)
 
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(

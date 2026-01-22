@@ -8,6 +8,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.organization import OrganizationMembership
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
@@ -135,6 +136,19 @@ def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySe
         .values("name", "short_id", "view_count")
         .order_by("-view_count")
     )
+
+
+def query_user_product_suggestions(
+    user_id: int, team_id: int, period_start: datetime, period_end: datetime
+) -> QuerySet:
+    return UserProductList.objects.filter(
+        user_id=user_id,
+        team_id=team_id,
+        enabled=True,
+        reason__in=[UserProductList.Reason.SALES_LED, UserProductList.Reason.NEW_PRODUCT],
+        created_at__gt=period_start,
+        created_at__lte=period_end,
+    ).values("product_path", "reason", "reason_text")
 
 
 @database_sync_to_async

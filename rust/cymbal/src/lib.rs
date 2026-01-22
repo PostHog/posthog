@@ -14,14 +14,12 @@ pub mod consumer;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod issue_buckets;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
 pub mod pipeline;
 pub mod posthog_utils;
 pub mod router;
-
 pub mod server;
 pub mod symbol_store;
 pub mod teams;

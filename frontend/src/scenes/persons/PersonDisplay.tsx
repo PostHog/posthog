@@ -28,6 +28,9 @@ export interface PersonDisplayProps {
     withCopyButton?: boolean
     placement?: 'top' | 'bottom' | 'left' | 'right'
     inline?: boolean
+    className?: string
+    /** Use muted/secondary text color instead of default */
+    muted?: boolean
 }
 
 export function PersonIcon({
@@ -70,6 +73,8 @@ export function PersonDisplay({
     withCopyButton,
     placement,
     inline,
+    className,
+    muted,
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -101,7 +106,10 @@ export function PersonDisplay({
     )
 
     content = (
-        <span className="PersonDisplay" onClick={!noPopover ? handleClick : undefined}>
+        <span
+            className={clsx('PersonDisplay', muted && 'PersonDisplay--muted', className)}
+            onClick={!noPopover ? handleClick : undefined}
+        >
             {noLink || !href || (visible && !person?.properties) ? (
                 content
             ) : (

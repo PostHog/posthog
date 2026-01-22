@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
@@ -35,7 +34,6 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
             href: urls.logs(),
-            flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
             tags: ['beta'],
             sceneKey: 'Logs',
         },

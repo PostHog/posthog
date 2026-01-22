@@ -32,6 +32,7 @@ const ALWAYS_EXTRA_TABS = [
 const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Max,
     SidePanelTab.Notebooks,
+
     SidePanelTab.Activity,
     SidePanelTab.Activation,
     SidePanelTab.Discussion,
@@ -40,6 +41,9 @@ const TABS_REQUIRING_A_TEAM = [
     SidePanelTab.Health,
 ]
 
+/**
+ * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
+ */
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
@@ -111,7 +115,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.SdkDoctor)
+                if (isCloudOrDev) {
+                    tabs.push(SidePanelTab.SdkDoctor)
+                }
                 tabs.push(SidePanelTab.Health)
                 tabs.push(SidePanelTab.Changelog)
 
