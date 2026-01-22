@@ -62,14 +62,17 @@ export function calculateDuplicateLayout(
             continue
         }
         const xsLayout = currentLayouts?.xs?.find((l) => l.i === smLayout.i)
-        const xsInsertY = originalXsLayout ? originalXsLayout.y + originalXsLayout.h : 0
+        const xsInsertY = originalXsLayout ? originalXsLayout.y + originalXsLayout.h : undefined
         result.tilesToUpdate.push({
             id: parseInt(smLayout.i),
             layouts: {
                 sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
                 xs:
-                    xsLayout && xsLayout.y >= xsInsertY
-                        ? { x: xsLayout.x, y: xsLayout.y + (originalXsLayout?.h || h), w: xsLayout.w, h: xsLayout.h }
+                    xsLayout && xsInsertY !== undefined && xsLayout.y >= xsInsertY
+                        ? { x: xsLayout.x, y: xsLayout.y + originalXsLayout!.h, w: xsLayout.w, h: xsLayout.h }
+                        : xsLayout
+                        ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
+                        : undefined,
                         : xsLayout
                           ? { x: xsLayout.x, y: xsLayout.y, w: xsLayout.w, h: xsLayout.h }
                           : undefined,
