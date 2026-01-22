@@ -1130,12 +1130,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         selectedQueryColumns: [
             (s) => [s.queryInput],
-            (queryInput: string | null): string[] => {
+            (queryInput: string | null): Record<string, boolean> => {
                 const tablesAndColumns = parseQueryTablesAndColumns(queryInput)
 
-                return Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
-                    return Object.keys(columns).map((column) => `${table}.${column}`)
-                })
+                return Object.fromEntries(
+                    Object.entries(tablesAndColumns).flatMap(([table, columns]) => {
+                        return Object.keys(columns).map((column) => [`${table}.${column}`, true])
+                    })
+                )
             },
             { resultEqualityCheck: objectsEqual },
         ],

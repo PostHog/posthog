@@ -53,7 +53,6 @@ export const QueryDatabase = (): JSX.Element => {
     const { setQueryInput } = useActions(multitabEditorLogic)
     const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
-    const selectedColumnKeys = new Set(selectedQueryColumns)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -121,7 +120,7 @@ export const QueryDatabase = (): JSX.Element => {
                                         ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         item.record?.type === 'column' &&
-                                            selectedColumnKeys.has(`${item.record.table}.${item.record.columnName}`) &&
+                                            selectedQueryColumns[`${item.record.table}.${item.record.columnName}`] &&
                                             'underline underline-offset-2',
                                         'truncate'
                                     )}
