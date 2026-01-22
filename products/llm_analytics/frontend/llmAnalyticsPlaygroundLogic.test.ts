@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -225,8 +226,32 @@ describe('llmAnalyticsPlaygroundLogic', () => {
 
             await expectLogic(errorLogic).toFinishAllListeners()
 
-            // Should not crash and maintain previous model options
-            expect(errorLogic.values.modelOptions).toEqual(MOCK_MODEL_OPTIONS)
+            // Should not crash, model options remain empty on error
+            expect(errorLogic.values.modelOptions).toEqual([])
+            // Error status should be null for non-ApiError
+            expect(errorLogic.values.modelOptionsErrorStatus).toBeNull()
+
+            errorLogic.unmount()
+        })
+
+        it('should capture status code from ApiError', async () => {
+            useMocks({
+                get: {
+                    '/api/llm_proxy/models/': () => {
+                        throw new ApiError('Rate limited', 429)
+                    },
+                },
+            })
+
+            const errorLogic = llmAnalyticsPlaygroundLogic()
+            errorLogic.mount()
+
+            await expectLogic(errorLogic).toFinishAllListeners()
+
+            // Should not crash, model options remain empty on error
+            expect(errorLogic.values.modelOptions).toEqual([])
+            // Error status should capture the HTTP status code
+            expect(errorLogic.values.modelOptionsErrorStatus).toBe(429)
 
             errorLogic.unmount()
         })
