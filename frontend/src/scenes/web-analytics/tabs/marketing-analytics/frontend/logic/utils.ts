@@ -425,48 +425,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             return null
         },
     },
-    // TODO this is temporary, I should revisit this once I do the marketing analytics integration.
-    SnapchatAds: {
-        idField: 'id',
-        timestampField: 'start_time',
-        columnMappings: {
-            cost: 'spend',
-            impressions: 'impressions',
-            clicks: 'swipes',
-            reportedConversion: 'conversion_purchases',
-            reportedConversionValue: 'conversion_purchases_value',
-            costNeedsDivision: true, // Snapchat spend is in micros
-        },
-        specialConversionLogic: (table, tileColumnSelection) => {
-            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                const hasConversionsColumn = table.fields && 'conversion_purchases' in table.fields
-                if (hasConversionsColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(toFloat(conversion_purchases))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
-            }
-            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                const hasConversionValueColumn = table.fields && 'conversion_purchases_value' in table.fields
-                if (hasConversionValueColumn) {
-                    return {
-                        math: 'hogql' as any,
-                        math_hogql: 'SUM(ifNull(toFloat(conversion_purchases_value), 0))',
-                    }
-                }
-                return {
-                    math: 'hogql' as any,
-                    math_hogql: '0',
-                }
-            }
-            return null
-        },
-    },
 }
 
 function createColumnConfig(columnName: string, type: 'float' | 'integer', needsDivision = false): ColumnConfig {

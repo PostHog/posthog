@@ -20156,80 +20156,6 @@
                         "primarySource"
                     ],
                     "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "campaignTableName": {
-                            "const": "campaigns",
-                            "type": "string"
-                        },
-                        "defaultSources": {
-                            "items": [
-                                {
-                                    "const": "snapchat",
-                                    "type": "string"
-                                },
-                                {
-                                    "const": "snap",
-                                    "type": "string"
-                                }
-                            ],
-                            "maxItems": 2,
-                            "minItems": 2,
-                            "type": "array"
-                        },
-                        "idField": {
-                            "const": "id",
-                            "type": "string"
-                        },
-                        "nameField": {
-                            "const": "name",
-                            "type": "string"
-                        },
-                        "primarySource": {
-                            "const": "snapchat",
-                            "type": "string"
-                        },
-                        "sourceType": {
-                            "const": "SnapchatAds",
-                            "type": "string"
-                        },
-                        "statsTableName": {
-                            "const": "campaign_stats_daily",
-                            "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "stats",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        }
-                    },
-                    "required": [
-                        "sourceType",
-                        "nameField",
-                        "idField",
-                        "campaignTableName",
-                        "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
-                        "defaultSources",
-                        "primarySource"
-                    ],
-                    "type": "object"
                 }
             ]
         },
@@ -21370,7 +21296,7 @@
             "type": "string"
         },
         "NativeMarketingSource": {
-            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds", "SnapchatAds"],
+            "enum": ["GoogleAds", "LinkedinAds", "MetaAds", "TikTokAds", "RedditAds", "BingAds"],
             "type": "string"
         },
         "NewExperimentQueryResponse": {
@@ -30093,18 +30019,6 @@
         },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
-            "type": "string"
-        },
-        "SnapchatAdsDefaultSources": {
-            "enum": ["snapchat", "snap"],
-            "type": "string"
-        },
-        "SnapchatAdsTableExclusions": {
-            "enum": ["stats"],
-            "type": "string"
-        },
-        "SnapchatAdsTableKeywords": {
-            "enum": ["campaigns"],
             "type": "string"
         },
         "SourceConfig": {
