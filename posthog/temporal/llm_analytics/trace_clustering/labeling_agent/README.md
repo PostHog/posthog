@@ -109,11 +109,11 @@ The system prompt guides the agent through a two-phase approach:
 
 From `constants.py`:
 
-| Constant                         | Value                      | Description                        |
-| -------------------------------- | -------------------------- | ---------------------------------- |
-| `LABELING_AGENT_MODEL`           | `claude-sonnet-4-20250514` | Claude model for reasoning         |
-| `LABELING_AGENT_RECURSION_LIMIT` | 150                        | Max graph steps before forced stop |
-| `LABELING_AGENT_TIMEOUT`         | 600.0                      | LLM request timeout (seconds)      |
+| Constant                         | Value     | Description                        |
+| -------------------------------- | --------- | ---------------------------------- |
+| `LABELING_AGENT_MODEL`           | `gpt-5.1` | OpenAI model for reasoning         |
+| `LABELING_AGENT_RECURSION_LIMIT` | 150       | Max graph steps before forced stop |
+| `LABELING_AGENT_TIMEOUT`         | 600.0     | LLM request timeout (seconds)      |
 
 ## Usage
 

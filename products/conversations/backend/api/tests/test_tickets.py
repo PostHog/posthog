@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -32,7 +32,7 @@ class BaseConversationsAPITest(APIBaseTest):
         self.mock_feature_flag = self.feature_flag_patcher.start()
 
         def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "product-conversations":
+            if flag_name == "product-support":
                 return enabled
             return False
 
@@ -42,7 +42,7 @@ class BaseConversationsAPITest(APIBaseTest):
 class TestTicketAPI(BaseConversationsAPITest):
     def setUp(self):
         super().setUp()
-        self.ticket = Ticket.objects.create(
+        self.ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
             widget_session_id="test-session-123",
@@ -57,7 +57,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
 
     def test_list_tickets_only_returns_team_tickets(self):
-        other_ticket = Ticket.objects.create(
+        other_ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.EMAIL,
             widget_session_id="other-session",
@@ -154,7 +154,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         if "user" in other_ticket_attrs.get("assigned_to", ""):
             other_ticket_attrs["assigned_to"] = self.user
 
-        Ticket.objects.create(
+        Ticket.objects.create_with_number(
             team=self.team,
             channel_source=other_channel,
             widget_session_id="other-session",
@@ -222,7 +222,7 @@ class TestTicketAPI(BaseConversationsAPITest):
         """Verify ticket list doesn't trigger N+1 queries for messages and assigned users."""
         # Create 10 tickets with messages and assigned users
         for i in range(10):
-            ticket = Ticket.objects.create(
+            ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
                 widget_session_id=f"session-{i}",
@@ -260,7 +260,7 @@ class TestTicketAPI(BaseConversationsAPITest):
                 self.assertIn("assigned_to_user", ticket_data)
 
     def test_feature_flag_required(self):
-        """Verify that product-conversations feature flag is required for API access."""
+        """Verify that product-support feature flag is required for API access."""
         self.set_conversations_feature_flag(False)
 
         endpoints = [
@@ -278,3 +278,31 @@ class TestTicketAPI(BaseConversationsAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Failed for {method} {url}: expected 403, got {response.status_code}",
             )
+
+
+class TestTicketManager(BaseTest):
+    def test_requires_team(self):
+        with self.assertRaises(ValueError) as ctx:
+            Ticket.objects.create_with_number(
+                channel_source=Channel.WIDGET,
+                widget_session_id="test-session",
+                distinct_id="user-123",
+            )
+        self.assertEqual(str(ctx.exception), "team is required")
+
+    def test_auto_increments_ticket_number(self):
+        ticket1 = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-1",
+            distinct_id="user-1",
+        )
+        ticket2 = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="session-2",
+            distinct_id="user-2",
+        )
+
+        self.assertEqual(ticket1.ticket_number, 1)
+        self.assertEqual(ticket2.ticket_number, 2)

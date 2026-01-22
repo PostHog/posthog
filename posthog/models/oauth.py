@@ -59,6 +59,21 @@ class OAuthApplication(AbstractApplication):
             ),
         ]
 
+    # Dangerous URI schemes that could be used for attacks (XSS, data exfiltration, etc.)
+    DEFAULT_BLOCKED_SCHEMES = frozenset(["javascript", "data", "file", "blob", "vbscript"])
+
+    @staticmethod
+    def get_blocked_schemes() -> set[str]:
+        """Get the set of blocked redirect URI schemes from settings."""
+        return set(
+            cast(
+                list[str],
+                settings.OAUTH2_PROVIDER.get(
+                    "BLOCKED_REDIRECT_URI_SCHEMES", list(OAuthApplication.DEFAULT_BLOCKED_SCHEMES)
+                ),
+            )
+        )
+
     def clean(self):
         super().clean()
 
@@ -76,13 +91,12 @@ class OAuthApplication(AbstractApplication):
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:
-                allowed_schemes = cast(
-                    list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"])
-                )
-                if parsed_uri.scheme not in allowed_schemes:
+                # Block dangerous schemes that could be used for attacks (XSS, data exfiltration, etc.)
+                # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist
+                if parsed_uri.scheme in self.get_blocked_schemes():
                     raise ValidationError(
                         {
-                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed. Allowed schemes: {', '.join(allowed_schemes)}"
+                            "redirect_uris": f"Redirect URI scheme '{parsed_uri.scheme}' is not allowed for security reasons"
                         }
                     )
             else:
@@ -107,17 +121,14 @@ class OAuthApplication(AbstractApplication):
         super().save(*args, **kwargs)
 
     def get_allowed_schemes(self) -> list[str]:
-        """Extract unique schemes from the application's registered redirect URIs, filtered against allowed schemes."""
-        from django.conf import settings
-
-        allowed_list = cast(list[str], settings.OAUTH2_PROVIDER.get("ALLOWED_REDIRECT_URI_SCHEMES", ["http", "https"]))
-        globally_allowed = set(allowed_list)
+        """Extract unique schemes from the application's registered redirect URIs, filtering out blocked schemes."""
+        blocked_schemes = self.get_blocked_schemes()
         schemes: set[str] = set()
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue
             parsed_uri = urlparse(uri)
-            if parsed_uri.scheme and parsed_uri.scheme in globally_allowed:
+            if parsed_uri.scheme and parsed_uri.scheme not in blocked_schemes:
                 schemes.add(parsed_uri.scheme)
         return list(schemes) if schemes else ["https"]
 
@@ -225,3 +236,63 @@ class OAuthGrant(AbstractGrant):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+
+def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
+    """Find an OAuth access token by its value using the token_checksum index."""
+    from hashlib import sha256
+
+    checksum = sha256(token.encode()).hexdigest()
+    try:
+        return OAuthAccessToken.objects.select_related("user", "application", "source_refresh_token").get(
+            token_checksum=checksum
+        )
+    except OAuthAccessToken.DoesNotExist:
+        return None
+
+
+def find_oauth_refresh_token(token: str) -> OAuthRefreshToken | None:
+    """Find an active OAuth refresh token by its value."""
+    try:
+        return OAuthRefreshToken.objects.select_related("user", "application", "access_token").get(
+            token=token, revoked__isnull=True
+        )
+    except OAuthRefreshToken.DoesNotExist:
+        return None
+
+
+def revoke_oauth_session(
+    access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
+) -> None:
+    """Revoke all OAuth artifacts related to a session (access token, refresh token, and grant)."""
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    # Get user and application from whichever token we have
+    if access_token:
+        user = access_token.user
+        application = access_token.application
+    elif refresh_token:
+        user = refresh_token.user
+        application = refresh_token.application
+    else:
+        return
+
+    if not user or not application:
+        # The user is technically nullable, so it's possible to hit this.
+        # We can't revoke the full session without user+application, but still revoke the specific token (best effort)
+        if access_token:
+            access_token.delete()
+        if refresh_token:
+            refresh_token.revoked = now
+            refresh_token.save(update_fields=["revoked"])
+    else:
+        # Delete all access tokens for this user+application
+        OAuthAccessToken.objects.filter(user=user, application=application).delete()
+
+        # Revoke all refresh tokens for this user+application
+        OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(revoked=now)
+
+        # Delete all grants for this user+application
+        OAuthGrant.objects.filter(user=user, application=application).delete()

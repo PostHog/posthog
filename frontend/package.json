@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=22 <23"
+        "node": ">=24 <25"
     },
     "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b",
     "scripts": {
@@ -50,6 +50,7 @@
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
+        "@base-ui/react": "^1.0.0",
         "@dagrejs/dagre": "^1.1.5",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
@@ -65,7 +66,7 @@
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/icons": "*",
+        "@posthog/icons": "^0.36.4",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@posthog/products-actions": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
@@ -204,11 +205,12 @@
         "mdast-util-find-and-replace": "^3.0.2",
         "modern-screenshot": "^4.6.7",
         "monaco-editor": "^0.55.1",
+        "motion": "^12.26.1",
         "natural-orderby": "^3.0.2",
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.319.0",
+        "posthog-js": "1.333.0",
         "posthog-js-lite": "4.2.2",
         "prettier": "^3.6.2",
         "prop-types": "^15.7.2",

@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -44,6 +45,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_provider_key"
     permission_classes = [IsAuthenticated]
 
+    @monitor(feature=None, endpoint="llma_evaluation_config_list", method="GET")
     def list(self, request: Request, **kwargs) -> Response:
         """Get the evaluation config for this team"""
         config, _ = EvaluationConfig.objects.get_or_create(team_id=self.team_id)
@@ -51,6 +53,7 @@ class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=["post"])
+    @monitor(feature=None, endpoint="llma_evaluation_config_set_active_key", method="POST")
     def set_active_key(self, request: Request, **kwargs) -> Response:
         """Set the active provider key for evaluations"""
         key_id = request.data.get("key_id")

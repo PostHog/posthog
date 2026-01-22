@@ -31,11 +31,9 @@ rdkafka = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 apache-avro = { version = "0.21.0", features = ["zstandard"] }
-prost = "0.13.5"
+prost = { workspace = true }
 bytes = { workspace = true }
 tower-http = { workspace = true }
-
-[dev-dependencies]
 
 [lints]
 workspace = true

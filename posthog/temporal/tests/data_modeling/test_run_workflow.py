@@ -35,6 +35,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     CleanupRunningJobsActivityInputs,
     CreateJobModelInputs,
     ModelNode,
+    NonRetryableException,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -44,6 +45,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     create_job_model_activity,
     fail_jobs_activity,
     finish_run_activity,
+    hogql_table,
     materialize_model,
     run_dag_activity,
     start_run_activity,
@@ -1004,7 +1006,7 @@ async def test_run_workflow_timeout_exceeded(
         ) as mock_pause_saved_query_schedule,
     ):
         mock_hogql_table.side_effect = Exception(
-            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))"
+            "Code: 159. DB::Exception: Timeout exceeded: elapsed 600585.167566 ms, maximum: 600000 ms. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))"
         )
 
         async with temporalio.worker.Worker(
@@ -1645,6 +1647,58 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
+async def test_materialize_model_empty_results(ateam, bucket_name, minio_client):
+    """Test that materialize_model raises NonRetryableException when query returns no results."""
+    query = "SELECT 1 WHERE 1 = 0"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="empty_results_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    async def mock_hogql_table(*args, **kwargs):
+        return
+        yield  # makes this a generator but nothing is ever yielded because of the return
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            DATAWAREHOUSE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=0),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.a_pause_saved_query_schedule"),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        with pytest.raises(NonRetryableException) as exc_info:
+            await materialize_model(
+                saved_query.id.hex,
+                ateam,
+                saved_query,
+                job,
+                unittest.mock.AsyncMock(),
+            )
+
+        assert "returned no results" in str(exc_info.value)
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.FAILED
+        assert job.error is not None
+        assert "returned no results" in job.error
+
+        await database_sync_to_async(saved_query.refresh_from_db)()
+        assert saved_query.latest_error is not None
+        assert "returned no results" in saved_query.latest_error
+
+
 child_ducklake_workflow_runs: list[dict] = []
 
 
@@ -1653,3 +1707,66 @@ class DummyDuckLakeCopyDataModelingWorkflow:
     @temporal_workflow.run
     async def run(self, inputs: dict) -> None:
         child_ducklake_workflow_runs.append(inputs)
+
+
+async def test_hogql_table_applies_custom_modifier_to_sessions_query(ateam):
+    """Test that team-level bounceRateDurationSeconds is applied to sessions queries.
+
+    The $is_bounce calculation uses bounceRateDurationSeconds. Without the fix to pass
+    modifiers to HogQLContext, the default value (10) would be used instead of the
+    team's custom value.
+    """
+    # Set custom bounce rate duration (default is 10)
+    custom_bounce_rate_duration = 123
+    ateam.modifiers = {"bounceRateDurationSeconds": custom_bounce_rate_duration}
+    await database_sync_to_async(ateam.save)()
+
+    captured_sql = None
+
+    async def mock_astream_query(self, query, *args, **kwargs):
+        nonlocal captured_sql
+        captured_sql = query
+        # returns early but yield makes this a generator. intentional unreachable
+        return
+        yield  # type: ignore[unreachable]
+
+    logger = unittest.mock.AsyncMock()
+    query = "SELECT $is_bounce FROM sessions LIMIT 1"
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
+        mock_astream_query,
+    ):
+        try:
+            async for _ in hogql_table(query, ateam, logger):
+                break
+        except (StopAsyncIteration, StopIteration):
+            pass
+
+    assert captured_sql is not None, "SQL was not captured"
+    assert str(custom_bounce_rate_duration) in captured_sql, (
+        f"Expected bounce rate duration {custom_bounce_rate_duration} in SQL, got: {captured_sql}"
+    )
+
+
+async def test_create_default_modifiers_for_team_in_async_context(ateam):
+    """Test that create_default_modifiers_for_team must be wrapped with database_sync_to_async in async context.
+
+    The function accesses team.organization.created_at via person_on_events_mode_flag_based_default,
+    which triggers a lazy load of the organization foreign key. Without database_sync_to_async,
+    this raises SynchronousOnlyOperation in an async context.
+
+    This is a regression test for the fix that wrapped the call in hogql_table and get_query_row_count.
+    """
+    from django.core.exceptions import SynchronousOnlyOperation
+
+    from posthog.hogql.modifiers import create_default_modifiers_for_team
+
+    # fetch team without select_related to ensure organization needs lazy loading
+    team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
+    # mock is_cloud() to return true so that the code path accessing team.organization.created_at is triggered
+    with unittest.mock.patch("posthog.models.team.team.is_cloud", return_value=True):
+        # calling directly raises
+        with pytest.raises(SynchronousOnlyOperation):
+            create_default_modifiers_for_team(team)
+        # wrapped doesn't raise
+        await database_sync_to_async(create_default_modifiers_for_team)(team)

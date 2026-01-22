@@ -11,12 +11,15 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { useOpenAi } from 'scenes/max/useOpenAi'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
+
+import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
@@ -260,12 +263,15 @@ const SupportResponseTimesTable = ({
 
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     useValues(userLogic)
     const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
+    const { openAi } = useOpenAi()
+
+    const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
     const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
@@ -343,7 +349,7 @@ export function SidePanelSupport(): JSX.Element {
 
             <div className="overflow-y-auto flex flex-col h-full">
                 <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
-                    {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
+                    {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock
                             onCancel={() => {
                                 closeEmailForm()
@@ -366,7 +372,7 @@ export function SidePanelSupport(): JSX.Element {
                                             fullWidth
                                             center
                                             onClick={() => {
-                                                openSidePanel(SidePanelTab.Max)
+                                                openAi()
                                             }}
                                             targetBlank={false}
                                             className="mt-2"
@@ -377,7 +383,15 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {showEmailSupport && isBillingLoaded && (
+                            {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
+                                <Section title="Contact us">
+                                    <StatusPageAlert />
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
+                                    <SidePanelTickets />
+                                </Section>
+                            )}
+
+                            {showEmailSupport && isBillingLoaded && !useProductSupportSidePanel && (
                                 <Section title="Contact us">
                                     <StatusPageAlert />
                                     <p>Can't find what you need and PostHog AI unable to help?</p>

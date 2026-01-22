@@ -85,6 +85,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
                                                 }).url
                                             }
                                             className="font-mono text-sm"
+                                            data-attr="llm-errors-row-click"
                                         >
                                             {displayValue}
                                         </Link>
