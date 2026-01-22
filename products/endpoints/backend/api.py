@@ -165,7 +165,23 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "reason": reason if not can_mat else None,
         }
 
-    def _serialize_endpoint(self, endpoint: Endpoint, request: Request | None = None) -> dict:
+    def _serialize(
+        self,
+        obj: Endpoint | EndpointVersion,
+        request: Request | None = None,
+    ) -> dict:
+        """Serialize an Endpoint or EndpointVersion.
+
+        Both return the same base fields. EndpointVersion adds version-specific fields.
+        """
+        is_version = isinstance(obj, EndpointVersion)
+        if is_version:
+            endpoint = obj.endpoint
+            version = obj
+        else:
+            endpoint = obj
+            version = endpoint.get_version()
+
         url = None
         ui_url = None
         if request:
@@ -173,37 +189,39 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             ui_path = f"/project/{endpoint.team_id}/endpoints/{endpoint.name}"
             ui_url = request.build_absolute_uri(ui_path)
 
-        # Get current version for version-specific fields
-        # Note: Every endpoint has at least version 1 (created in create())
-        current_version = endpoint.get_version()
-        is_materialized = bool(current_version.is_materialized and current_version.saved_query)
-
         result = {
             "id": str(endpoint.id),
             "name": endpoint.name,
-            "description": current_version.description,
-            "query": current_version.query,
-            "is_active": endpoint.is_active,
-            "cache_age_seconds": current_version.cache_age_seconds,
+            "description": version.description,
+            "query": version.query,
+            "is_active": version.is_active if is_version else endpoint.is_active,
+            "cache_age_seconds": version.cache_age_seconds,
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
             "ui_url": ui_url,
             "created_at": endpoint.created_at,
             "updated_at": endpoint.updated_at,
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
-            "is_materialized": is_materialized,
+            "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
-            "materialization": self._build_materialization_info(current_version),
+            "materialization": self._build_materialization_info(version),
         }
+
+        if is_version:
+            result["version"] = version.version
+            result["version_id"] = str(version.id)
+            result["endpoint_is_active"] = endpoint.is_active
+            result["version_created_at"] = version.created_at.isoformat()
+            result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
 
         return result
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
-        results = [self._serialize_endpoint(endpoint, request) for endpoint in queryset]
+        results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
@@ -214,14 +232,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if version_number is not None:
             try:
                 version = endpoint.get_version(version_number)
-                return Response(self._serialize_endpoint_version(version), status=status.HTTP_200_OK)
+                return Response(self._serialize(version), status=status.HTTP_200_OK)
             except EndpointVersion.DoesNotExist:
                 return Response(
                     {"error": f"Version {version_number} not found"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-        return Response(self._serialize_endpoint(endpoint, request), status=status.HTTP_200_OK)
+        return Response(self._serialize(endpoint, request), status=status.HTTP_200_OK)
 
     def _validate_cache_age_seconds(self, cache_age_seconds: float | None) -> None:
         """Validate cache_age_seconds is within allowed range."""
@@ -334,7 +352,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
 
             return Response(
-                self._serialize_endpoint(endpoint, request),
+                self._serialize(endpoint, request),
                 status=status.HTTP_201_CREATED,
             )
 
@@ -526,8 +544,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             # When targeting a specific version, return version data; otherwise return endpoint data
             if target_version_override is not None:
-                return Response(self._serialize_endpoint_version(target_version))
-            return Response(self._serialize_endpoint(endpoint, request))
+                return Response(self._serialize(target_version))
+            return Response(self._serialize(endpoint, request))
 
         except Exception as e:
             current_version = endpoint.get_version()
@@ -1111,23 +1129,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         tag_queries(client_query_id=query_id)
 
-    # Claude: TODO: This has to be standardized into a single serializer
-    def _serialize_endpoint_version(self, version: EndpointVersion) -> dict:
-        """Serialize an EndpointVersion object."""
-        result = {
-            "id": str(version.id),
-            "version": version.version,
-            "query": version.query,
-            "is_active": version.is_active,
-            "is_materialized": version.is_materialized,
-            "description": version.description,
-            "cache_age_seconds": version.cache_age_seconds,
-            "created_at": version.created_at.isoformat(),
-            "created_by": UserBasicSerializer(version.created_by).data if version.created_by else None,
-            "materialization": self._build_materialization_info(version),
-        }
-        return result
-
     @extend_schema(
         description="List all versions for an endpoint.",
     )
@@ -1140,7 +1141,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
         versions = endpoint.versions.all()
 
-        results = [self._serialize_endpoint_version(v) for v in versions]
+        results = [self._serialize(v) for v in versions]
         return Response(results)
 
     @extend_schema(
