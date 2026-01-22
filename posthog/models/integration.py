@@ -1324,6 +1324,7 @@ class EmailIntegration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
+        mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
@@ -1341,7 +1342,7 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, team_id=team_id)
+            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -1355,6 +1356,7 @@ class EmailIntegration:
                 "config": {
                     "email": email_address,
                     "domain": domain,
+                    "mail_from_subdomain": mail_from_subdomain,
                     "name": name,
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
@@ -1369,13 +1371,42 @@ class EmailIntegration:
 
         return integration
 
+    def update_native_integration(self, config: dict) -> Integration:
+        provider = self.integration.config.get("provider")
+        domain = self.integration.config.get("domain")
+        # Only name and mail_from_subdomain can be updated
+        name: str = config.get("name", self.integration.config.get("name"))
+        mail_from_subdomain: str = config.get(
+            "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
+        )
+
+        # Update domain in the appropriate provider
+        if provider == "ses":
+            ses = SESProvider()
+            ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+        elif provider == "maildev" and settings.DEBUG:
+            pass
+        else:
+            raise ValueError(f"Invalid provider: must be 'ses'")
+
+        self.integration.config.update(
+            {
+                "name": name,
+                "mail_from_subdomain": mail_from_subdomain,
+            }
+        )
+        self.integration.save()
+
+        return self.integration
+
     def verify(self):
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
 
         # Use the appropriate provider for verification
         if provider == "ses":
-            verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
+            verification_result = self.ses_provider.verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",

@@ -1,1 +1,1 @@
-0009_endpointversion_version_fields
+0012_remove_deprecated_endpoint_fields

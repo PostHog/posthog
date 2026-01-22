@@ -48,23 +48,9 @@ import {
     ZapierInstallation,
 } from '@posthog/shared-onboarding/product-analytics'
 
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
-
 import { SDKInstructionsMap, SDKKey } from '~/types'
 
-// Helper to create wrapped instruction components without recreating snippets on every render
-function withOnboardingDocsWrapper(
-    Installation: React.ComponentType,
-    snippets?: Record<string, React.ComponentType<any>>
-): () => JSX.Element {
-    return function WrappedInstallation() {
-        return (
-            <OnboardingDocsContentWrapper snippets={snippets}>
-                <Installation />
-            </OnboardingDocsContentWrapper>
-        )
-    }
-}
+import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
 // Snippet configurations (defined once, not recreated on render)
 const JS_WEB_SNIPPETS = {
