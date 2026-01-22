@@ -11,12 +11,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import query_with_columns
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.llm_analytics.run_evaluation import RunEvaluationInputs
+
+from products.llm_analytics.backend.api.metrics import llma_track_latency
 
 from ..models.evaluations import Evaluation
 
@@ -35,6 +38,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated]
 
+    @llma_track_latency("llma_evaluation_runs_create")
+    @monitor(feature=None, endpoint="llma_evaluation_runs_create", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Create a new evaluation run.
@@ -118,7 +123,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )

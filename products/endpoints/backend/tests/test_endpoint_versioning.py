@@ -5,6 +5,7 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 
 class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
@@ -46,17 +47,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_update_query_creates_new_version(self):
         """Changing query should increment version."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="version_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -89,17 +83,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_update_metadata_does_not_create_version(self):
         """Changing name/description shouldn't create new version."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="metadata_test",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -145,19 +132,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_run_latest_version_by_default(self):
         """Running without version param should use latest."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="run_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1 as v1"},
             created_by=self.user,
             is_active=True,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
-            created_by=self.user,
         )
 
         # Create version 2
@@ -178,19 +158,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_run_specific_version(self):
         """Running with version param should execute that version."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="run_v1_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1 as v1"},
             created_by=self.user,
             is_active=True,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
-            created_by=self.user,
         )
 
         # Create version 2
@@ -210,19 +183,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_run_nonexistent_version_returns_404(self):
         """Running non-existent version should return 404."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="404_test",
             team=self.team,
             query=self.sample_query,
             created_by=self.user,
             is_active=True,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
-            created_by=self.user,
         )
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=999")
@@ -234,19 +200,12 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_run_invalid_version_returns_400(self):
         """Running with invalid version param should return 400."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="invalid_version_test",
             team=self.team,
             query=self.sample_query,
             created_by=self.user,
             is_active=True,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
-            created_by=self.user,
         )
 
         response = self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/?version=abc")
@@ -257,17 +216,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_list_versions(self):
         """Should list all versions in descending order."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="list_versions_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -290,17 +242,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_get_version_detail(self):
         """Should get specific version details."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="version_detail_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -315,17 +260,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_delete_endpoint_cascades_to_versions(self):
         """Deleting endpoint should delete all versions."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="cascade_test",
             team=self.team,
             query=self.sample_query,
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -349,17 +287,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_version_query_immutability(self):
         """Version queries should be immutable."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="immutable_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -380,17 +311,10 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_activity_log_tracks_version_creation(self):
         """Activity log should record version changes."""
-        endpoint = Endpoint.objects.create(
+        endpoint = create_endpoint_with_version(
             name="activity_test",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
             created_by=self.user,
         )
 
@@ -417,32 +341,34 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
+
         # Create endpoint with a query that references a table
         endpoint = Endpoint.objects.create(
             name="materialized_test",
             team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"},
             created_by=self.user,
             current_version=1,
         )
-        EndpointVersion.objects.create(
+        version1 = EndpointVersion.objects.create(
             endpoint=endpoint,
             version=1,
-            query=endpoint.query,
+            query=initial_query,
             created_by=self.user,
         )
 
-        # Create initial saved query (simulating materialization)
+        # Create initial saved query (simulating materialization) on the version
         old_saved_query = DataWarehouseSavedQuery.objects.create(
             name=endpoint.name,
             team=self.team,
-            query=endpoint.query,
+            query=initial_query,
             is_materialized=True,
             sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
-        endpoint.saved_query = old_saved_query
-        endpoint.save()
+        version1.saved_query = old_saved_query
+        version1.is_materialized = True
+        version1.save()
 
         old_saved_query_id = old_saved_query.id
 
@@ -464,12 +390,14 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, endpoint.current_version)
         self.assertEqual(2, endpoint.versions.count())
 
-        # Verify new saved query was created
-        self.assertIsNotNone(endpoint.saved_query)
-        self.assertNotEqual(endpoint.saved_query.id, old_saved_query_id)
+        # Verify new saved query was created on the new version
+        new_version = endpoint.get_version()
+        assert new_version is not None
+        assert new_version.saved_query is not None
+        self.assertNotEqual(new_version.saved_query.id, old_saved_query_id)
 
         # Verify new saved query has correct properties
-        new_saved_query = endpoint.saved_query
+        new_saved_query = new_version.saved_query
         assert new_saved_query is not None
         self.assertTrue(new_saved_query.is_materialized)
         self.assertEqual(new_saved_query.sync_frequency_interval, timedelta(hours=24))
@@ -484,23 +412,18 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_materialization_transfer_for_non_materialized_endpoint(self):
         """Non-materialized endpoints should not trigger materialization transfer."""
-        # Create non-materialized endpoint
-        endpoint = Endpoint.objects.create(
+        # Create non-materialized endpoint using helper
+        initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}
+        endpoint = create_endpoint_with_version(
             name="non_materialized_test",
             team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            created_by=self.user,
-            current_version=1,
-        )
-        EndpointVersion.objects.create(
-            endpoint=endpoint,
-            version=1,
-            query=endpoint.query,
+            query=initial_query,
             created_by=self.user,
         )
+        version = endpoint.get_version()
 
-        # Ensure no saved query
-        self.assertIsNone(endpoint.saved_query)
+        # Ensure no saved query on version
+        self.assertIsNone(version.saved_query)
 
         # Update query
         new_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
@@ -514,6 +437,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
 
         endpoint.refresh_from_db()
 
-        # Verify version was incremented but no saved query was created
+        # Verify version was incremented but no saved query was created on new version
         self.assertEqual(2, endpoint.current_version)
-        self.assertIsNone(endpoint.saved_query)
+        new_version = endpoint.get_version()
+        self.assertIsNone(new_version.saved_query)

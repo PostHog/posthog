@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
@@ -11,6 +11,8 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { multitabEditorLogic } from 'scenes/data-warehouse/editor/multitabEditorLogic'
+import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -47,8 +49,9 @@ export const QueryDatabase = (): JSX.Element => {
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery, runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
-
     const { deleteDraft } = useActions(draftsLogic)
+    const { setQueryInput } = useActions(multitabEditorLogic)
+    const builtTabLogic = useMountedLogic(multitabEditorLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -84,7 +87,10 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
-                    void copyToClipboard(item.record.columnName, item.record.columnName)
+                    const currentQueryInput = builtTabLogic.values.queryInput
+                    setQueryInput(
+                        buildQueryForColumnClick(currentQueryInput, item.record.table, item.record.columnName)
+                    )
                 }
 
                 if (item && item.record?.type === 'unsaved-query') {
@@ -95,7 +101,6 @@ export const QueryDatabase = (): JSX.Element => {
                 // Check if item has search matches for highlighting
                 const matches = item.record?.searchMatches
                 const hasMatches = matches && matches.length > 0
-
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (

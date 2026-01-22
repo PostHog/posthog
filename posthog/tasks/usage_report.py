@@ -15,7 +15,6 @@ from django.db.models import Count, F, Q, Sum
 
 import requests
 import structlog
-import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -224,7 +223,7 @@ class UsageReportCounters:
     # Logs
     logs_bytes_in_period: int
     logs_records_in_period: int
-    logs_gb_in_period: float
+    logs_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -914,6 +913,48 @@ def get_teams_with_feature_flag_requests_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+    begin: datetime, end: datetime, request_type: FlagRequestType
+) -> list[tuple[int, str, int]]:
+    """
+    Get per-SDK breakdown of feature flag requests for each team.
+    Returns list of (team_id, sdk_name, count) tuples.
+    """
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
+
+    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+
+    result = sync_execute(
+        """
+        SELECT
+            distinct_id as team,
+            arrayJoin(JSONExtractKeys(properties, 'sdk_breakdown')) as sdk,
+            sum(JSONExtractInt(JSONExtractRaw(properties, 'sdk_breakdown'), sdk)) as sum
+        FROM events
+        WHERE team_id = %(team_to_query)s
+          AND event = %(target_event)s
+          AND timestamp >= %(begin)s AND timestamp < %(end)s
+          AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
+          AND JSONHas(properties, 'sdk_breakdown')
+        GROUP BY team, sdk
+    """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+            "validity_token": validity_token,
+            "target_event": target_event,
+        },
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return result
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_survey_responses_count_in_period(
     begin: datetime,
     end: datetime,
@@ -1028,7 +1069,16 @@ def get_teams_with_ai_credits_used_in_period(
     Using the field from properties to filter events instead.
     """
     region = get_instance_region()
-    assert region is not None, "Region must be set in production infrastructure"
+
+    if region is None:
+        # In production, we want to fail fast if region is not set
+        # In non-production environments (e.g., tests), we can return gracefully
+        from posthog.settings import TEST
+
+        if not TEST:
+            assert region is not None, "Region must be set in production infrastructure"
+        return []
+
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
@@ -1682,11 +1732,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         period_start, period_end
     )
 
-    # Check if AI billing usage report is enabled
-    is_ai_billing_enabled = posthoganalytics.feature_enabled(
-        "posthog-ai-billing-usage-report", "internal_billing_events"
-    )
-
     return {
         "teams_with_event_count_in_period": get_teams_with_billable_event_count_in_period(
             period_start, period_end, count_distinct=True
@@ -1898,9 +1943,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_ai_event_count_in_period": get_teams_with_ai_event_count_in_period(period_start, period_end),
-        "teams_with_ai_credits_used_in_period": (
-            get_teams_with_ai_credits_used_in_period(period_start, period_end) if is_ai_billing_enabled else []
-        ),
+        "teams_with_ai_credits_used_in_period": get_teams_with_ai_credits_used_in_period(period_start, period_end),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2065,8 +2108,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
-        # decimal GB (not GiB) to match pricing; billing uses logs_bytes_in_period for precision
-        logs_gb_in_period=round(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) / 1_000_000_000, 3),
+        logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 

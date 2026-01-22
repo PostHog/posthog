@@ -224,6 +224,8 @@ export type IngestionConsumerConfig = {
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
+    /** When true, use batch SQL queries for person updates. When false, use individual queries. */
+    PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number

@@ -801,7 +801,13 @@ class HogQLPrinter(Visitor[str]):
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     db = django_settings.CLICKHOUSE_DATABASE
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                    # Build rate lookup expressions
+                    from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
+                    to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+                    # Use if() around divisor to avoid division by zero with enable_analyzer=0
+                    # (old analyzer evaluates all branches regardless of condition)
+                    safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
                 elif node.name == "getSurveyResponse":
                     question_index_obj = node.args[0]
                     if not isinstance(question_index_obj, ast.Constant):
@@ -994,6 +1000,9 @@ class HogQLPrinter(Visitor[str]):
                     self.visit(field_type.table_type),
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
             # Check for dmat (dynamic materialized) columns
@@ -1002,6 +1011,9 @@ class HogQLPrinter(Visitor[str]):
                     self.visit(field_type.table_type),
                     self._print_identifier(dmat_column),
                     is_nullable=True,
+                    has_minmax_index=False,
+                    has_ngram_lower_index=False,
+                    has_bloom_filter_index=False,
                 )
 
             if self.dialect == "clickhouse" and self.context.modifiers.propertyGroupsMode in (
@@ -1032,6 +1044,9 @@ class HogQLPrinter(Visitor[str]):
                     None,
                     self._print_identifier(materialized_column.name),
                     is_nullable=materialized_column.is_nullable,
+                    has_minmax_index=materialized_column.has_minmax_index,
+                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
+                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
                 )
 
     def visit_property_type(self, type: ast.PropertyType):
@@ -1341,16 +1356,21 @@ class HogQLPrinter(Visitor[str]):
         for key, value in settings:
             if value is None:
                 continue
-            if not isinstance(value, int | float | str):
-                raise QueryError(f"Setting {key} must be a string, int, or float")
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")
             if isinstance(value, bool):
                 pairs.append(f"{key}={1 if value else 0}")
             elif isinstance(value, int) or isinstance(value, float):
                 pairs.append(f"{key}={value}")
-            else:
+            elif isinstance(value, list):
+                if not all(isinstance(item, str) and item for item in value):
+                    raise QueryError(f"List setting {key} can only contain non-empty strings")
+                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
+            elif isinstance(value, str):
                 pairs.append(f"{key}={self._print_escaped_string(value)}")
+            else:
+                raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None

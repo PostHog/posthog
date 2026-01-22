@@ -284,9 +284,11 @@ export enum AccessControlResourceType {
     SessionRecording = 'session_recording',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
+    Logs = 'logs',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    ExternalDataSource = 'external_data_source',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
 }
@@ -328,6 +330,7 @@ export interface UserType extends UserBaseType {
         all_weekly_digest_disabled: boolean
         error_tracking_issue_assigned: boolean
         discussions_mentioned: boolean
+        data_pipeline_error_threshold?: number
     }
     events_column_config: ColumnConfig
     anonymize_data: boolean
@@ -338,6 +341,7 @@ export interface UserType extends UserBaseType {
     is_staff: boolean
     is_impersonated: boolean
     is_impersonated_until?: string
+    is_impersonated_read_only?: boolean
     sensitive_session_expires_at: string
     organization: OrganizationType | null
     team: TeamBasicType | null
@@ -355,6 +359,7 @@ export interface UserType extends UserBaseType {
     hedgehog_config?: Partial<HedgehogConfig>
     allow_sidebar_suggestions?: boolean
     role_at_organization?: UserRole | null
+    passkeys_enabled_for_2fa?: boolean
 }
 
 export type HedgehogColorOptions =
@@ -395,6 +400,8 @@ export interface NotificationSettings {
     all_weekly_digest_disabled: boolean
     error_tracking_issue_assigned: boolean
     discussions_mentioned: boolean
+    data_pipeline_error_threshold?: number
+    project_api_key_exposed?: boolean
 }
 
 export interface PluginAccess {
@@ -597,6 +604,11 @@ export interface ConversationsSettings {
     widget_color?: string
     widget_public_token?: string | null
     widget_domains?: string[] | null
+    notification_recipients?: number[] | null
+}
+
+export interface LogsSettings {
+    capture_console_logs?: boolean
 }
 
 export interface TeamType extends TeamBasicType {
@@ -624,6 +636,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
+    logs_settings?: LogsSettings | null
     autocapture_exceptions_opt_in: boolean
     autocapture_web_vitals_opt_in?: boolean
     autocapture_web_vitals_allowed_metrics?: SupportedWebVitalsMetrics[]
@@ -675,13 +688,14 @@ export interface TeamType extends TeamBasicType {
     flags_persistence_default: boolean
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
-    default_evaluation_environments_enabled: boolean
-    require_evaluation_environment_tags: boolean
+    default_evaluation_contexts_enabled: boolean
+    require_evaluation_contexts: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    default_experiment_confidence_level?: number | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
@@ -762,12 +776,15 @@ export type ToolbarUserIntent =
     | 'edit-experiment'
     | 'add-product-tour'
     | 'edit-product-tour'
+    | 'preview-product-tour'
 export type ToolbarSource = 'url' | 'localstorage'
 export type ToolbarVersion = 'toolbar'
 
 export type ExperimentIdType = number | 'new' | 'web'
+
 /* sync with posthog-js */
 export interface ToolbarParams {
+    /** @deprecated, not needed if `posthog` is passed as prop instead */
     apiURL?: string
     token?: string /** public posthog-js token */
     temporaryToken?: string /** private temporary user token */
@@ -1376,10 +1393,13 @@ export type SearchableEntity =
     | 'cohort'
     | 'insight'
     | 'dashboard'
+    | 'early_access_feature'
     | 'event_definition'
     | 'experiment'
     | 'feature_flag'
+    | 'hog_flow'
     | 'notebook'
+    | 'property_definition'
     | 'survey'
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
@@ -1496,6 +1516,8 @@ export interface CohortType {
     created_at?: string
     deleted?: boolean
     id: number | 'new'
+    version?: number | null
+    pending_version?: number | null
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
@@ -1721,6 +1743,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
+    snapshot_library?: string
     /** whether we have received data for this recording in the last 5 minutes
      * (assumes the recording was loaded from ClickHouse)
      * **/
@@ -2213,7 +2236,6 @@ export interface EndpointType extends WithAccessControl {
     description: string
     derived_from_insight?: string | null
     query: HogQLQuery | InsightQueryNode
-    parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
     created_at: string
@@ -3240,14 +3262,16 @@ export interface ChoiceQuestionResponseData {
     isPredefined: boolean
     // For unique responses (value === 1), include person data for display
     distinctId?: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
 export interface OpenQuestionResponseData {
     distinctId: string
     response: string
-    personProperties?: Record<string, any>
+    /** Pre-computed display name from server (email, name, etc.) - avoids brittle client-side property extraction */
+    personDisplayName?: string
     timestamp?: string
 }
 
@@ -3312,7 +3336,32 @@ export interface ProductTourSurveyQuestion {
 
 export type ProductTourProgressionTriggerType = 'button' | 'click'
 
-export type ProductTourStepType = 'element' | 'modal' | 'survey'
+export type ProductTourStepType = 'element' | 'modal' | 'survey' | 'banner'
+
+export interface ProductTourBannerConfig {
+    behavior: 'sticky' | 'static'
+    action?: {
+        type: 'none' | 'link' | 'trigger_tour'
+        link?: string
+        tourId?: string
+    }
+}
+
+export type ProductTourButtonAction = 'dismiss' | 'link' | 'next_step' | 'previous_step' | 'trigger_tour'
+
+export interface ProductTourStepButton {
+    text: string
+    action: ProductTourButtonAction
+    /** URL to open when action is 'link' */
+    link?: string
+    /** Tour ID to trigger when action is 'trigger_tour' */
+    tourId?: string
+}
+
+export interface ProductTourStepButtons {
+    primary?: ProductTourStepButton
+    secondary?: ProductTourStepButton
+}
 
 /** Preset width options for product tour tooltips */
 export type ProductTourStepWidth = 'compact' | 'default' | 'wide' | 'extra-wide'
@@ -3350,6 +3399,10 @@ export interface ProductTourStep {
     screenshotMediaId?: string
     /** enhanced element data for more reliable lookup at runtime */
     inferenceData?: InferredSelector
+    /** Button configuration for tour steps (modals / announcements) */
+    buttons?: ProductTourStepButtons
+    /** Banner configuration (only for banner steps) */
+    bannerConfig?: ProductTourBannerConfig
 }
 
 /** Tracks a snapshot of steps at a point in time for funnel analysis */
@@ -3393,9 +3446,12 @@ export interface ProductTourAppearance {
     whiteLabel?: boolean
     /** defaults to true, auto-set to false for announcements/banners */
     dismissOnClickOutside?: boolean
+    zIndex?: number
 }
 
 export type ProductTourType = 'tour' | 'announcement'
+
+export type ProductTourDisplayFrequency = 'show_once' | 'until_interacted' | 'always'
 
 export interface ProductTourContent {
     type?: ProductTourType
@@ -3404,6 +3460,7 @@ export interface ProductTourContent {
     conditions?: ProductTourDisplayConditions
     /** History of step order changes for funnel analysis */
     step_order_history?: StepOrderVersion[]
+    displayFrequency?: ProductTourDisplayFrequency
 }
 
 export interface ProductTour {
@@ -3456,6 +3513,7 @@ export interface Survey extends WithAccessControl {
     response_sampling_limit?: number | null
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
+    enable_iframe_embedding?: boolean | null
     _create_in_folder?: string | null
     headline_summary?: string | null
     headline_response_count?: number | null
@@ -3693,8 +3751,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     updated_at: string | null
     version: number | null
     last_modified_by: UserBasicType | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
@@ -3718,8 +3774,6 @@ export interface OrganizationFeatureFlag {
     team_id: number | null
     created_by: UserBasicType | null
     created_at: string | null
-    is_simple_flag: boolean
-    rollout_percentage: number | null
     filters: FeatureFlagFilters
     active: boolean
 }
@@ -3812,6 +3866,7 @@ export enum RecurrenceInterval {
     Daily = 'daily',
     Weekly = 'weekly',
     Monthly = 'monthly',
+    Yearly = 'yearly',
 }
 
 export type ScheduledChangePayload =
@@ -3968,7 +4023,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
-
+    | 'delete'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
 
 export interface EventDefinition {
@@ -4649,6 +4704,7 @@ export const INTEGRATION_KINDS = [
     'bing-ads',
     'vercel',
     'azure-blob',
+    'firebase',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -4832,6 +4888,7 @@ export type APIScopeObject =
     | 'event_definition'
     | 'experiment'
     | 'experiment_saved_metric'
+    | 'external_data_source'
     | 'export'
     | 'feature_flag'
     | 'group'
@@ -5000,6 +5057,7 @@ export enum ActivityScope {
     USER = 'User',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
+    PRODUCT_TOUR = 'ProductTour',
 }
 
 export type CommentType = {
@@ -5142,6 +5200,7 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    user_access_level: AccessControlLevel
 }
 
 export interface DataModelingJob {
@@ -5644,6 +5703,9 @@ export enum AppMetricsTab {
     History = 'history',
 }
 
+/*
+    WARNING: Everything below 'Notebooks' is to be removed in future releases
+*/
 export enum SidePanelTab {
     Max = 'max',
     Notebooks = 'notebook',
@@ -6158,7 +6220,7 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: FileSystemImport[]
+    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[] })[] // Require `intents` to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
 }
@@ -6345,7 +6407,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-    AI_CONSENT = 'ai_consent',
     TELL_US_MORE = 'tell_us_more',
 }
 

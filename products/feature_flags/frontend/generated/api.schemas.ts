@@ -77,10 +77,11 @@ export interface UserBasicApi {
  * `web_experiments` - web_experiments
  * `product_tours` - product_tours
  */
-export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
+export type FeatureFlagCreationContextEnumApi =
+    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationContextEnumApi = {
+export const FeatureFlagCreationContextEnumApi = {
     feature_flags: 'feature_flags',
     experiments: 'experiments',
     surveys: 'surveys',
@@ -139,9 +140,6 @@ export interface FeatureFlagApi {
     readonly updated_at: string | null
     version?: number
     readonly last_modified_by: UserBasicApi
-    readonly is_simple_flag: boolean
-    /** @nullable */
-    readonly rollout_percentage: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: string
@@ -170,7 +168,7 @@ export interface FeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -229,9 +227,6 @@ export interface PatchedFeatureFlagApi {
     readonly updated_at?: string | null
     version?: number
     readonly last_modified_by?: UserBasicApi
-    readonly is_simple_flag?: boolean
-    /** @nullable */
-    readonly rollout_percentage?: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set?: string
@@ -260,7 +255,7 @@ export interface PatchedFeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -406,7 +401,7 @@ export type FeatureFlagsListParams = {
      */
     excluded_properties?: string
     /**
-     * Filter feature flags by presence of evaluation environment tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
+     * Filter feature flags by presence of evaluation context tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.
      */
     has_evaluation_tags?: FeatureFlagsListHasEvaluationTags
     /**
