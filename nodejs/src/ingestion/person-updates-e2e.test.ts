@@ -23,7 +23,7 @@ import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/he
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
-import { SURVEY_EVENTS, SURVEY_PERSON_PROPERTIES } from '../worker/ingestion/persons/person-update'
+import { SURVEY_EVENTS, SURVEY_PERSON_PROPERTIES } from './event-preprocessing/enrich-survey-person-properties'
 import { IngestionConsumer } from './ingestion-consumer'
 
 jest.mock('~/utils/token-bucket', () => {

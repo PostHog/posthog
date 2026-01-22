@@ -2,7 +2,7 @@ import { InternalPerson } from '../../../types'
 import { defaultRetryConfig, promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
-import { applyEventPropertyUpdates, computeEventPropertyUpdates, getSetPropertiesForEvent } from './person-update'
+import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 /**
@@ -50,8 +50,7 @@ export class PersonPropertyService {
         let properties = {}
         let propertiesOnce = {}
         if (this.context.processPerson) {
-            // Use shared helper to get all $set properties including event-based ones
-            properties = getSetPropertiesForEvent(this.context.event)
+            properties = this.context.eventProperties['$set'] || {}
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
