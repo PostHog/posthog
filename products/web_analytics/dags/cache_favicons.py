@@ -77,7 +77,7 @@ def cache_favicons(context: dagster.AssetExecutionContext, s3: S3Resource) -> da
             domain, data, content_type, source_url = download_favicon(context, domain, client)
             if data is None:
                 continue
-            key = f"/favicons/{domain}.png"
+            key = f"favicons/{domain}.png"
             upload_if_missing(
                 context,
                 s3_client,
