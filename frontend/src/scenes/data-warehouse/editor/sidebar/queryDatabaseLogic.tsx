@@ -611,6 +611,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['joins', 'joinsLoading'],
             databaseTableListLogic,
             [
+                'allPosthogTables',
                 'posthogTables',
                 'dataWarehouseTables',
                 'posthogTablesMap',
@@ -849,6 +850,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         searchTreeData: [
             (s) => [
+                s.allPosthogTables,
                 s.relevantPosthogTables,
                 s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
@@ -861,6 +863,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.expandedSearchFolders,
             ],
             (
+                allPosthogTables: DatabaseSchemaTable[],
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
@@ -877,9 +880,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 const tableLookup = Object.fromEntries(
-                    [...relevantPosthogTables, ...relevantSystemTables, ...relevantDataWarehouseTables].map(
-                        ([table]) => [table.name, table]
-                    )
+                    [
+                        ...allPosthogTables,
+                        ...relevantSystemTables.map(([table]) => table),
+                        ...relevantDataWarehouseTables.map(([table]) => table),
+                    ].map((table) => [table.name, table])
                 )
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
@@ -1002,6 +1007,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         ],
         treeData: [
             (s) => [
+                s.allPosthogTables,
                 s.posthogTables,
                 s.systemTables,
                 s.dataWarehouseTables,
@@ -1018,6 +1024,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.expandedFolders,
             ],
             (
+                allPosthogTables: DatabaseSchemaTable[],
                 posthogTables: DatabaseSchemaTable[],
                 systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
@@ -1035,7 +1042,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
                 const tableLookup = Object.fromEntries(
-                    [...posthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
+                    [...allPosthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
                 )
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const tableNodeOptions = { expandedLazyNodeIds }
