@@ -36,6 +36,16 @@ class LivenessTracker:
         with self._lock:
             self._last_workflow_time = time.time()
 
+    def record_heartbeat(self) -> None:
+        """Record an activity heartbeat.
+
+        This is called during long-running activities to indicate the worker
+        is still processing work, even if the activity hasn't completed yet.
+        """
+
+        with self._lock:
+            self._last_activity_time = time.time()
+
     def get_last_execution_time(self) -> float:
         """Get the most recent execution time (activity or workflow)."""
 
