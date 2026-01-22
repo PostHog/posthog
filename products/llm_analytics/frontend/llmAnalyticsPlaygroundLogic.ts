@@ -297,21 +297,23 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
         modelOptions: {
             __default: [] as ModelOption[],
             loadModelOptions: async () => {
-                try {
-                    const response = await api.get('/api/llm_proxy/models/')
-                    if (!response) {
-                        return []
-                    }
-                    const options = response as ModelOption[]
-                    const closestMatch = matchClosestModel(values.model, options)
-                    if (values.model !== closestMatch) {
-                        llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
-                    }
-                    return options
-                } catch (error) {
-                    console.error('Error loading model options:', error)
-                    return values.modelOptions
+                // FAKE ERROR FOR TESTING - REMOVE THIS
+                throw new ApiError('Rate limited', 429)
+
+                const response = await api.get('/api/llm_proxy/models/')
+
+                if (!response) {
+                    return []
                 }
+
+                const options = response as ModelOption[]
+                const closestMatch = matchClosestModel(values.model, options)
+
+                if (values.model !== closestMatch) {
+                    llmAnalyticsPlaygroundLogic.actions.setModel(closestMatch)
+                }
+
+                return options
             },
         },
     })),
