@@ -197,7 +197,7 @@ const resolveFieldTraverserTarget = (
     let index = 0
 
     while (index < field.chain.length) {
-        const segment = field.chain[index]
+        const segment: string | number = field.chain[index]
         const segmentKey = String(segment)
 
         if (segmentKey === '..') {
@@ -205,7 +205,7 @@ const resolveFieldTraverserTarget = (
         }
 
         if (!currentField) {
-            const nextField = currentTable?.fields?.[segmentKey]
+            const nextField: DatabaseSchemaField | undefined = currentTable?.fields?.[segmentKey]
             if (!nextField) {
                 return null
             }

@@ -187,6 +187,7 @@ export const QueryDatabase = (): JSX.Element => {
                 const hasMatches = matches && matches.length > 0
                 const isColumn = item.record?.type === 'column'
                 const columnType = isColumn ? item.record?.field?.type : null
+                const columnKey = isColumn && item.record ? `${item.record.table}.${item.record.columnName}` : null
 
                 return (
                     <span className="truncate">
@@ -210,10 +211,8 @@ export const QueryDatabase = (): JSX.Element => {
                                                 'endpoints',
                                             ].includes(item.record?.type) && 'font-semibold',
                                             isColumn && 'font-mono text-xs',
-                                            isColumn &&
-                                                selectedQueryColumns[
-                                                    `${item.record.table}.${item.record.columnName}`
-                                                ] &&
+                                            columnKey &&
+                                                selectedQueryColumns[columnKey] &&
                                                 'underline underline-offset-2',
                                             'truncate shrink-0'
                                         )}
