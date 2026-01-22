@@ -343,60 +343,6 @@ class LazyTableResolver(TraversingVisitor):
                 new_join.to_table in joins_to_add or new_join.to_table in tables_to_add
             ):
                 create_override(new_join.to_table, new_join.lazy_join.to_field)
-
-        # Predicate pushdown: mark events table for wrapping in a subquery with pushed-down predicates.
-        # This allows ClickHouse to filter events early before joining with lazy tables.
-        # The actual subquery wrapping is done by the printer when it sees pushdown_where.
-        # Skip pushdown if there's a SAMPLE clause since ClickHouse doesn't support SAMPLE on subqueries.
-        if (
-            len(joins_to_add) > 0
-            and node.select_from is not None
-            and node.select_from.sample is None
-            and isinstance(node.select_from.table, ast.Field)
-            and node.select_from.table.chain == ["events"]
-            and node.where is not None
-        ):
-            from posthog.hogql.database.schema.util.where_clause_extractor import (
-                EventsPredicatePushdownExtractor,
-                unwrap_table_aliases,
-            )
-
-            # Extract predicates that can be pushed down (events-only predicates).
-            # Pass the joined table aliases so predicates referencing them are excluded.
-            # The extractor also checks types for lazy joins and subqueries.
-            joined_aliases = set(joins_to_add.keys())
-            extractor = EventsPredicatePushdownExtractor(joined_table_aliases=joined_aliases)
-            inner_where, _outer_where = extractor.get_pushdown_predicates(node.where)
-
-            if inner_where is not None:
-                # Unwrap table aliases so that fields reference the actual table (events)
-                # instead of the alias (e.g., "e") which doesn't exist inside the subquery.
-                inner_where = unwrap_table_aliases(inner_where)
-
-                # Store the pushdown predicates on the JoinExpr.
-                # The printer will wrap the table in a subquery with these predicates.
-                # Always include team_id filter in the inner subquery for security and performance.
-                if self.context.team_id is not None and node.select_from.type is not None:
-                    # Get the table type from the events table to properly type the team_id field
-                    table_type = node.select_from.type
-                    if isinstance(table_type, ast.TableAliasType):
-                        table_type = table_type.table_type
-                    team_id_filter = ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(
-                            chain=["team_id"],
-                            type=ast.FieldType(name="team_id", table_type=table_type),
-                        ),
-                        right=ast.Constant(value=self.context.team_id),
-                        type=ast.BooleanType(),
-                    )
-                    node.select_from.pushdown_where = ast.And(exprs=[team_id_filter, inner_where])
-                else:
-                    node.select_from.pushdown_where = inner_where
-                # NOTE: We keep node.where intact so that:
-                # 1. The sessions timestamp extractor can still find timestamp predicates
-                # 2. Predicates appear in both inner and outer WHERE (redundant but safe)
-
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
             subquery = table_to_add.lazy_table.lazy_select(table_to_add, self.context, node=node)

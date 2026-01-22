@@ -784,9 +784,6 @@ class JoinExpr(Expr):
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
-    # Predicates to push down into a subquery wrapping this table.
-    # Used for predicate pushdown optimization when lazy joins are present.
-    pushdown_where: Optional[Expr] = None
 
 
 @dataclass(kw_only=True)

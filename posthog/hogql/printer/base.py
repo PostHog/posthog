@@ -330,20 +330,9 @@ class HogQLPrinter(Visitor[str]):
             elif node.table_args is not None:
                 raise QueryError(f"Table '{table_type.table.to_printed_hogql()}' does not accept arguments")
 
-            # Handle predicate pushdown: wrap the table in a subquery with the pushdown predicates
-            if node.pushdown_where is not None and self.dialect == "clickhouse":
-                pushdown_where_sql = self.visit(node.pushdown_where)
-                # Wrap the table in a subquery: (SELECT * FROM table WHERE pushdown_predicates)
-                sql = f"(SELECT * FROM {sql} WHERE {pushdown_where_sql})"
-                join_strings.append(sql)
-                # Always add alias after a subquery
-                alias = node.alias or (str(node.table.chain[0]) if isinstance(node.table, ast.Field) else None)
-                if alias:
-                    join_strings.append(f"AS {self._print_identifier(alias)}")
-            else:
-                join_strings.append(sql)
-                if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
-                    join_strings.append(f"AS {self._print_identifier(node.alias)}")
+            join_strings.append(sql)
+            if isinstance(node.type, ast.TableAliasType) and node.alias is not None and node.alias != sql:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
