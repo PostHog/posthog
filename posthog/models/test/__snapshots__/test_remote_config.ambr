@@ -373,10 +373,7 @@
           return inputs;}
           const source = (function() {
                       
-                      return {
-                          onLoad: typeof onLoad !== 'undefined' ? onLoad : undefined,
-                          onEvent: typeof onEvent !== 'undefined' ? onEvent : undefined
-                      };
+                      return {};
                   })();
               let processEvent = undefined;
               if ('onEvent' in source) {
@@ -429,10 +426,7 @@
           return inputs;}
           const source = (function() {
                       
-                      return {
-                          onLoad: typeof onLoad !== 'undefined' ? onLoad : undefined,
-                          onEvent: typeof onEvent !== 'undefined' ? onEvent : undefined
-                      };
+                      return {};
                   })();
               let processEvent = undefined;
               if ('onEvent' in source) {
