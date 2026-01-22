@@ -2625,7 +2625,7 @@ const api = {
             data,
         }: {
             teamId?: TeamType['id']
-            data: any
+            data: Partial<ColumnConfigurationApi>
         }): Promise<ColumnConfigurationApi> {
             return new ApiRequest().columnConfigurations(teamId).create({ data })
         },
@@ -2637,7 +2637,7 @@ const api = {
         }: {
             teamId?: TeamType['id']
             id: string
-            data: any
+            data: Partial<ColumnConfigurationApi>
         }): Promise<ColumnConfigurationApi> {
             return new ApiRequest().columnConfigurationDetail(id, teamId).update({ data })
         },
