@@ -368,7 +368,7 @@ impl EventRestrictionService {
     }
 }
 
-/// Redis entry format (version 1)
+/// Redis entry format (version 2)
 #[derive(Debug, Clone, Deserialize)]
 struct RedisRestrictionEntry {
     version: Option<i32>,
