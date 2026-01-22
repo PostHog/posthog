@@ -119,6 +119,11 @@ const sortFieldsWithPrimary = (tableName: string, fields: DatabaseSchemaField[])
         if (primaryKeyName && b.name === primaryKeyName) {
             return 1
         }
+        const aIsVirtual = a.name.startsWith('$')
+        const bIsVirtual = b.name.startsWith('$')
+        if (aIsVirtual !== bIsVirtual) {
+            return aIsVirtual ? 1 : -1
+        }
         return a.name.localeCompare(b.name)
     })
 }
