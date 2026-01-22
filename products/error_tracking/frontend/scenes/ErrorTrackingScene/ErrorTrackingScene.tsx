@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { CyclotronJobFilterEvents } from '~/types'
 
 import { ErrorTrackingIssueFilteringTool } from '../../components/IssueFilteringTool'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -38,11 +39,10 @@ import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 
-// Filter groups for error tracking alert destinations
-const ERROR_TRACKING_ALERT_FILTER_GROUPS = [
-    { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
-    { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
-    { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFilterEvents[] = [
+    { id: '$error_tracking_issue_created', type: 'events' },
+    { id: '$error_tracking_issue_reopened', type: 'events' },
+    { id: '$error_tracking_issue_spiking', type: 'events' },
 ]
 
 export const scene: SceneExport = {
@@ -55,29 +55,20 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasIssueCorrelation = useFeatureFlag('ERROR_TRACKING_ISSUE_CORRELATION')
-    const [alertDestinationCount, setAlertDestinationCount] = useState<number | null>(null)
 
-    // Fetch alert destination count on mount
     useEffect(() => {
         api.hogFunctions
             .list({
                 types: ['internal_destination'],
                 filter_groups: ERROR_TRACKING_ALERT_FILTER_GROUPS,
             })
-            .then((res) => setAlertDestinationCount(res.results.length))
-            .catch(() => setAlertDestinationCount(0))
-    }, [])
-
-    // Fire analytics event when alert count is loaded
-    useEffect(() => {
-        if (alertDestinationCount !== null) {
-            posthog.capture('error_tracking_issues_list_viewed', {
-                active_tab: activeTab,
-                alert_destination_count: alertDestinationCount,
+            .then((res) => {
+                posthog.capture('error_tracking_issues_list_viewed', {
+                    active_tab: activeTab,
+                    alert_destination_count: res.results.length,
+                })
             })
-        }
-        // oxlint-disable-next-line exhaustive-deps we only want to fire when alert count is first loaded
-    }, [alertDestinationCount])
+    }, [])
 
     return (
         <StyleVariables>
