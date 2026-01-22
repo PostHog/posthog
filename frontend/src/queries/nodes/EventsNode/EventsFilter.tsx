@@ -81,8 +81,10 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
                     size="small"
                     type="secondary"
                     onClick={() => setIsAdding(true)}
-                    tooltip="Add event filter"
-                />
+                    tooltip="Add another event to filter by (OR)"
+                >
+                    Add event
+                </LemonButton>
             )}
         </div>
     )
