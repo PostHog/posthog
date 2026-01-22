@@ -23,25 +23,9 @@ import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
+import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
-
-const validateExperiment = (
-    experiment: Experiment,
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
-    mode?: 'create' | 'link'
-): boolean => {
-    const validExperimentName = experiment.name !== null && experiment.name.trim().length > 0
-
-    const variantsValidation = validateVariants({
-        flagKey: experiment.feature_flag_key,
-        variants: experiment.parameters?.feature_flag_variants ?? [],
-        featureFlagKeyValidation,
-        mode,
-    })
-
-    return validExperimentName && !variantsValidation.hasErrors
-}
 
 /**
  * Fields that can be updated on an existing experiment.
@@ -280,12 +264,38 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     })),
     selectors(() => ({
         canSubmitExperiment: [
-            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode],
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
                 experiment: Experiment,
                 featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
-                mode: 'create' | 'link'
-            ) => validateExperiment(experiment, featureFlagKeyValidation, mode),
+                mode: 'create' | 'link',
+                experimentErrors: Record<string, string>
+            ) => {
+                const validation = validateExperimentSubmission({
+                    experiment,
+                    featureFlagKeyValidation,
+                    mode,
+                    experimentErrors,
+                })
+                return validation.isValid
+            },
+        ],
+        experimentValidationErrors: [
+            (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
+            (
+                experiment: Experiment,
+                featureFlagKeyValidation: { valid: boolean; error: string | null } | null,
+                mode: 'create' | 'link',
+                experimentErrors: Record<string, string>
+            ): string | undefined => {
+                const validation = validateExperimentSubmission({
+                    experiment,
+                    featureFlagKeyValidation,
+                    mode,
+                    experimentErrors,
+                })
+                return validation.errors.length > 0 ? validation.errors.join(', ') : undefined
+            },
         ],
         isEditMode: [
             (s) => [s.experiment],
@@ -328,6 +338,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
             // Only auto-generate flag key when creating a new flag, not when editing or linking an existing flag
+
+            // Disable auto-generation for the new experiment form layout (showNewExperimentFormLayout)
+            const EXPERIMENTS_LEAN_CREATION_FORM = 'experiments-lean-creation-form' // Reference for future cleanup
+            if (values.featureFlags[EXPERIMENTS_LEAN_CREATION_FORM] === 'test') {
+                return
+            }
             if (name === 'name' && !values.featureFlagKeyDirty && values.isCreateMode && values.mode === 'create') {
                 const key = generateFeatureFlagKey(value)
                 actions.setFeatureFlagConfig({
@@ -358,6 +374,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 actions.saveExperimentFailure()
                 return
             }
+
+            // Clear previous errors before validation is triggered
+            actions.setExperimentErrors({})
 
             // Validate using canSubmitExperiment
             if (!values.canSubmitExperiment) {
