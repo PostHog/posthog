@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -24,6 +25,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { DateRange, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
+    ActivityScope,
     FeatureFlagFilters,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
@@ -239,6 +241,11 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                 <TargetingSummary tour={productTour} targetingFlagFilters={targetingFlagFilters} />
                             </div>
                         ),
+                    },
+                    {
+                        key: 'history',
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.PRODUCT_TOUR} id={id} />,
                     },
                 ]}
             />

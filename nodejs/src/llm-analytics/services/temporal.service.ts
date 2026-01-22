@@ -17,7 +17,7 @@ export type TemporalServiceHub = Pick<
     | 'TEMPORAL_NAMESPACE'
 >
 
-const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'general-purpose-task-queue'
+const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',

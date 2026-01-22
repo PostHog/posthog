@@ -205,7 +205,12 @@ import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
-import { HogFlow, HogFlowAction, HogFlowTemplate } from 'products/workflows/frontend/Workflows/hogflows/types'
+import {
+    HogFlow,
+    HogFlowAction,
+    HogFlowBatchJob,
+    HogFlowTemplate,
+} from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
@@ -1388,6 +1393,10 @@ export class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('clickup_workspaces')
     }
 
+    public integrationEmail(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('email')
+    }
+
     public integrationEmailVerify(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('email/verify')
     }
@@ -2233,6 +2242,7 @@ const api = {
                     ActivityScope.EXPERIMENT,
                     ActivityScope.TAG,
                     ActivityScope.ENDPOINT,
+                    ActivityScope.PRODUCT_TOUR,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -4565,6 +4575,12 @@ const api = {
         async verifyEmail(id: IntegrationType['id']): Promise<EmailSenderDomainStatus> {
             return await new ApiRequest().integrationEmailVerify(id).create()
         },
+        async updateEmailConfig(
+            integrationId: IntegrationType['id'],
+            data: Partial<IntegrationType> | FormData
+        ): Promise<IntegrationType> {
+            return await new ApiRequest().integrationEmail(integrationId).update({ data })
+        },
     },
 
     organizationIntegrations: {
@@ -4774,9 +4790,14 @@ const api = {
             hogFlowId: HogFlow['id'],
             data: {
                 variables: Record<string, HogQLVariable>
+                filters: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
+                scheduled_at?: string | null
             }
         ): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').create({ data })
+        },
+        async getHogFlowBatchJobs(hogFlowId: HogFlow['id']): Promise<HogFlowBatchJob[]> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('batch_jobs').get()
         },
     },
     hogFlowTemplates: {
