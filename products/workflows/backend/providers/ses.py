@@ -115,14 +115,15 @@ class SESProvider:
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
         try:
-            resp = self.ses_client.set_identity_mail_from_domain(
+            self.ses_client.set_identity_mail_from_domain(
                 Identity=domain,
                 MailFromDomain=f"{mail_from_subdomain}.{domain}",
                 BehaviorOnMXFailure="UseDefaultValue",
             )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
+        except (ClientError, BotoCoreError) as e:
+            # Log but continue - MAIL FROM is optional and shouldn't block verification
+            # SES will fall back to default MAIL FROM domain (amazonses.com)
+            logger.warning(f"Failed to set MAIL FROM domain for {domain}: {e}")
 
         ses_region = getattr(settings, "SES_REGION", "us-east-1")
 

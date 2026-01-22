@@ -206,3 +206,42 @@ class TestSESProvider(TestCase):
             # Should return verified status with DNS records
             assert result["status"] == "success"
             assert len(result["dnsRecords"]) > 0  # Records are now always returned
+
+    def test_verify_email_domain_continues_when_mail_from_setup_fails(self):
+        """Test that verification continues even if set_identity_mail_from_domain fails."""
+        from botocore.exceptions import ClientError
+
+        provider = SESProvider()
+
+        # Mock the SES client on the provider instance
+        with patch.object(provider, "ses_client") as mock_ses_client:
+            # Mock successful verification and DKIM
+            mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+            mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+
+            # Mock set_identity_mail_from_domain to raise an error
+            mock_ses_client.set_identity_mail_from_domain.side_effect = ClientError(
+                {"Error": {"Code": "InvalidIdentity", "Message": "Identity does not exist"}},
+                "SetIdentityMailFromDomain",
+            )
+
+            # Mock the status checks
+            mock_ses_client.get_identity_verification_attributes.return_value = {
+                "VerificationAttributes": {TEST_DOMAIN: {"VerificationStatus": "Success"}}
+            }
+            mock_ses_client.get_identity_dkim_attributes.return_value = {
+                "DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}
+            }
+            mock_ses_client.get_identity_mail_from_domain_attributes.return_value = {
+                "MailFromDomainAttributes": {TEST_DOMAIN: {"MailFromDomainStatus": "Pending"}}
+            }
+
+            # Verification should succeed despite MAIL FROM setup failure
+            result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail")
+
+            # Status should be pending (because MAIL FROM is pending, not success)
+            assert result["status"] == "pending"
+            # DNS records should still be returned including MAIL FROM records
+            assert len(result["dnsRecords"]) > 0
+            mail_from_records = [r for r in result["dnsRecords"] if r["type"] == "mail_from"]
+            assert len(mail_from_records) == 2  # MX and TXT records
