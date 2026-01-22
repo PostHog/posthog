@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import uuid
 import shutil
@@ -271,8 +272,15 @@ def detect_recording_resolution(
 
 def detect_inactivity_periods(
     page: Page,
+    playback_speed: int,
+    segment_start_timestamps: dict[int, float] | None = None,
 ) -> list[ReplayInactivityPeriod] | None:
-    """Detect inactivity periods when recording session videos."""
+    """
+    Detect inactivity periods when recording session videos.
+    If segment_timestamps is provided, merges video timestamps into periods.
+    Timestamps are adjusted for playback_speed since the final video is slowed down
+    using setpts={playback_speed}*PTS to show the session at normal 1x speed.
+    """
     try:
         # Get data from the global variable using browser
         logger.debug("video_exporter.waiting_for_inactivity_periods_global")
@@ -285,12 +293,23 @@ def detect_inactivity_periods(
                     ts_from_s: Number(p.ts_from_s),
                     ts_to_s: p.ts_to_s !== undefined ? Number(p.ts_to_s) : null,
                     active: Boolean(p.active),
-                    recording_ts_from_s: p.recording_ts_from_s !== undefined ? Number(p.recording_ts_from_s) : null,
                 }));
             }
             """,
             timeout=15000,
         ).json_value()
+
+        # Merge segment timestamps into periods if provided
+        # Adjust for playback_speed since video is slowed down in post-processing
+        if segment_start_timestamps:
+            for period in inactivity_periods_raw:
+                ts_from_s = period.get("ts_from_s")
+                if ts_from_s is not None and ts_from_s in segment_start_timestamps:
+                    # Raw timestamp * playback_speed = final video timestamp
+                    # (video is slowed down by playback_speed in ffmpeg)
+                    raw_timestamp = segment_start_timestamps[ts_from_s]
+                    period["recording_ts_from_s"] = round(raw_timestamp * playback_speed)
+
         inactivity_periods = [ReplayInactivityPeriod.model_validate(period) for period in inactivity_periods_raw]
         logger.debug("video_exporter.inactivity_periods_detected", inactivity_periods=inactivity_periods)
         return inactivity_periods
@@ -299,29 +318,80 @@ def detect_inactivity_periods(
         return None
 
 
-def detect_recording_ended(page: Page, max_wait_ms: int) -> None:
-    """Detect if the recording has ended."""
-    try:
-        logger.debug("video_exporter.waiting_for_recording_ended_global")
-        recording_ended = page.wait_for_function(
-            """
-            () => {
-                const r = (window).__POSTHOG_RECORDING_ENDED__;
-                return Boolean(r);
-            }
-            """,
-            timeout=max_wait_ms,
-        ).json_value()
-        logger.debug("video_exporter.recording_ended_detected", recording_ended=recording_ended)
-        return None
-    except PlaywrightTimeoutError:
-        logger.exception("video_exporter.recording_ended_detection_failed")
-        # If exceeded safety timeout, continue with the recorded video
-        pass
-    # Unexpected error
-    except Exception as e:
-        logger.exception("video_exporter.recording_ended_detection_failed", error=str(e))
-        raise
+def wait_for_recording_with_segments(
+    page: Page,
+    max_wait_ms: int,
+    playback_started: float,
+) -> dict[int, float]:
+    """
+    Wait for recording to end while tracking segment changes.
+    Returns a dict mapping ts_from_s -> video_timestamp_seconds for each segment.
+    """
+
+    # Track time from the video start related to the in-player start timestamps
+    segment_start_timestamps: dict[int, float] = {}
+    last_counter = 0
+    logger.debug("video_exporter.waiting_for_recording_with_segments")
+
+    while True:
+        # Check if the recording should be ended by now and stop it manually
+        elapsed_ms = (time.monotonic() - playback_started) * 1000
+        if elapsed_ms >= max_wait_ms:
+            logger.warning("video_exporter.recording_wait_timeout", elapsed_ms=elapsed_ms, max_wait_ms=max_wait_ms)
+            break
+        try:
+            # Wait for either: recording ended OR segment counter changed
+            remaining_ms = max_wait_ms - elapsed_ms
+            result = page.wait_for_function(
+                f"""
+                () => {{
+                    if (window.__POSTHOG_RECORDING_ENDED__) return {{ ended: true }};
+                    const counter = window.__POSTHOG_SEGMENT_COUNTER__ || 0;
+                    if (counter > {last_counter}) return {{
+                        counter: counter,
+                        segment_start_ts: window.__POSTHOG_CURRENT_SEGMENT_START_TS__
+                    }};
+                    return null;
+                }}
+                """,
+                # The check should be instant (if present), or up to 1s
+                timeout=min(1000, remaining_ms),
+            ).json_value()
+            # If no globals are available
+            if result is None:
+                continue
+            # If the recording ended, assuming all the required data was already collected
+            if result.get("ended"):
+                logger.debug("video_exporter.recording_ended_detected")
+                break
+            # Segment changed - record the video timestamp on BE to be consistent (rendering delays, etc.)
+            segment_start_ts = result.get("segment_start_ts")
+            new_counter = result.get("counter", 0)
+            if segment_start_ts is not None and new_counter > last_counter:
+                video_time = time.monotonic() - playback_started
+                segment_start_timestamps[segment_start_ts] = video_time
+                logger.debug(
+                    "video_exporter.segment_change_detected",
+                    segment_start_ts=segment_start_ts,
+                    video_time=video_time,
+                    counter=new_counter,
+                )
+                last_counter = new_counter
+
+        # No change in 1s, continue waiting
+        except PlaywrightTimeoutError:
+            continue
+        # Unexpected error, continue waiting
+        except Exception as e:
+            logger.exception("video_exporter.segment_tracking_error", error=str(e))
+            # Continue waiting despite errors
+            continue
+
+    logger.debug("video_exporter.segment_tracking_complete", segments_tracked=len(segment_start_timestamps))
+    # TODO: Remove after testing
+    with open("segment_start_timestamps.json", "w") as f:
+        json.dump(segment_start_timestamps, f)
+    return segment_start_timestamps
 
 
 def ensure_playback_speed(url_to_render: str, playback_speed: int) -> str:
@@ -440,13 +510,22 @@ def record_replay_to_file(
             ready_at = time.monotonic()
             page.wait_for_timeout(500)
 
-            # Wait for playback to reach the end, with session_duration as safety timeout
+            # Wait for playback to reach the end while tracking segment changes
+            # This allows us to record accurate video timestamps for each segment
             max_wait_ms = int((opts.recording_duration / playback_speed) * 1000)
-            detect_recording_ended(page=page, max_wait_ms=max_wait_ms)
+            segment_start_timestamps = wait_for_recording_with_segments(
+                page=page,
+                max_wait_ms=max_wait_ms,
+                playback_started=ready_at,
+            )
 
-            # Collect data on inactivity periods after playback completes
-            # This ensures recording_ts_from_s is populated for all segments
-            inactivity_periods = detect_inactivity_periods(page=page)
+            # Collect inactivity periods and merge with segment timestamps
+            # Pass playback_speed to adjust timestamps for the final slowed-down video
+            inactivity_periods = detect_inactivity_periods(
+                page=page,
+                playback_speed=playback_speed,
+                segment_start_timestamps=segment_start_timestamps,
+            )
 
             # Stop the recording, either after detecting end or reaching safety timeout
             page.close()
