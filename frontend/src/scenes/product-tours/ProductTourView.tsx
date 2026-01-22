@@ -86,6 +86,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                     type: 'primary',
                                     onClick: () => deleteProductTour(id),
                                     size: 'small',
+                                    'data-attr': 'product-tour-panel-action-button__confirm-delete',
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
@@ -94,6 +95,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
                                 },
                             })
                         }}
+                        data-attr="product-tour-panel-action-button__delete"
                     >
                         <IconTrash />
                         Delete product tour

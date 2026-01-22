@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test'
+import { Locator, Page } from '@playwright/test'
 
 export function randomString(prefix = ''): string {
     const id = Math.floor(Math.random() * 1e6)
@@ -19,4 +19,8 @@ export async function setLemonSwitchValue(page: Page, label: string, value: bool
     if (value !== currentValue) {
         await button.click()
     }
+}
+
+export async function locateByDataAttr(page: Page, attr: string): Promise<Locator> {
+    return page.locator(`[data-attr="${attr}"]`)
 }

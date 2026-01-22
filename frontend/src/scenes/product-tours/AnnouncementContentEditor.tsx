@@ -25,7 +25,7 @@ export function AnnouncementContentEditor({ step, appearance, onChange }: Announ
     }
 
     return (
-        <div className="flex gap-8 items-start">
+        <div className="flex gap-8 items-start" data-attr="announcement-content-editor__modal">
             <div className="flex-1 min-w-0">
                 <StepContentEditor
                     content={step.content as JSONContent | null}

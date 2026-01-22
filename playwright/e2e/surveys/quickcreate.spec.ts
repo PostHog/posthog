@@ -73,9 +73,6 @@ const launchSurvey = async (page: Page, name: string): Promise<void> => {
     await expect(page.locator('[data-attr="stop-survey"]')).toBeVisible()
 }
 
-// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
-test.describe.configure({ mode: 'serial' })
-
 test.describe('Quick create survey from feature flag', () => {
     let name: string
 

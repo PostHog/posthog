@@ -2,7 +2,9 @@
     "name": "@posthog/playwright",
     "scripts": {
         "build:products": "pnpm --filter=@posthog/frontend build:products",
-        "test": "pnpm build:products && playwright test"
+        "test": "pnpm build:products && playwright test",
+        "test:ui": "pnpm build:products && playwright test --ui",
+        "test:tours:ui": "pnpm build:products && playwright test playwright/e2e/product-tours/* --ui"
     },
     "dependencies": {
         "@playwright/test": "1.45.0",

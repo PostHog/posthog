@@ -296,6 +296,8 @@ export function ProductToursTable(): JSX.Element {
                                                             type: 'primary',
                                                             onClick: () => deleteProductTour(tour.id),
                                                             size: 'small',
+                                                            'data-attr':
+                                                                'product-tour-table-action-button__confirm-delete',
                                                         },
                                                         secondaryButton: {
                                                             children: 'Cancel',

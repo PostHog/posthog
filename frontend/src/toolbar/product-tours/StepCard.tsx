@@ -70,6 +70,7 @@ export function StepCard({
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDragEnd={onDragEnd}
+            data-attr={`product-tour-step-card-${index}`}
         >
             <button
                 type="button"

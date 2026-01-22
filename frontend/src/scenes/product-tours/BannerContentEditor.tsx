@@ -49,7 +49,7 @@ export function BannerContentEditor({ step, appearance, onChange }: BannerConten
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6" data-attr="announcement-content-editor__banner">
             {/* Full-width preview */}
             <BannerPreviewWrapper step={step} appearance={appearance} />
 
