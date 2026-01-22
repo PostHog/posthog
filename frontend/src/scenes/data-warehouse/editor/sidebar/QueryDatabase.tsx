@@ -65,6 +65,36 @@ export const QueryDatabase = (): JSX.Element => {
     const { setQueryInput } = useActions(multitabEditorLogic)
     const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const getFieldTypeIconClassName = (fieldType: DatabaseSerializedFieldType): string => {
+        switch (fieldType) {
+            case 'string':
+                return 'text-sky-500'
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return 'text-emerald-500'
+            case 'boolean':
+                return 'text-purple-500'
+            case 'datetime':
+                return 'text-amber-500'
+            case 'date':
+                return 'text-orange-500'
+            case 'array':
+            case 'json':
+                return 'text-teal-500'
+            case 'expression':
+            case 'field_traverser':
+                return 'text-slate-500'
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return 'text-blue-500'
+            default:
+                return 'text-tertiary'
+        }
+    }
+
     const getFieldTypeIcon = (fieldType?: DatabaseSerializedFieldType): JSX.Element | null => {
         if (!fieldType) {
             return null
@@ -72,31 +102,31 @@ export const QueryDatabase = (): JSX.Element => {
 
         switch (fieldType) {
             case 'string':
-                return <IconTextSize className="text-tertiary" />
+                return <IconTextSize className={getFieldTypeIconClassName(fieldType)} />
             case 'integer':
             case 'float':
             case 'decimal':
-                return <IconCalculator className="text-tertiary" />
+                return <IconCalculator className={getFieldTypeIconClassName(fieldType)} />
             case 'boolean':
-                return <IconCheck className="text-tertiary" />
+                return <IconCheck className={getFieldTypeIconClassName(fieldType)} />
             case 'datetime':
-                return <IconClock className="text-tertiary" />
+                return <IconClock className={getFieldTypeIconClassName(fieldType)} />
             case 'date':
-                return <IconCalendar className="text-tertiary" />
+                return <IconCalendar className={getFieldTypeIconClassName(fieldType)} />
             case 'array':
             case 'json':
-                return <IconBrackets className="text-tertiary" />
+                return <IconBrackets className={getFieldTypeIconClassName(fieldType)} />
             case 'expression':
-                return <IconCode className="text-tertiary" />
+                return <IconCode className={getFieldTypeIconClassName(fieldType)} />
             case 'field_traverser':
-                return <IconCode2 className="text-tertiary" />
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
             case 'view':
             case 'materialized_view':
             case 'lazy_table':
             case 'virtual_table':
-                return <IconDatabase className="text-tertiary" />
+                return <IconDatabase className={getFieldTypeIconClassName(fieldType)} />
             default:
-                return <IconCode2 className="text-tertiary" />
+                return <IconCode2 className={getFieldTypeIconClassName(fieldType)} />
         }
     }
 
