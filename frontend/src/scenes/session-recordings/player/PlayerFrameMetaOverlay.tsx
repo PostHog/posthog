@@ -8,9 +8,12 @@ import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoor
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 declare global {
-    // Track active/inactive periods to consume from backend later
     interface Window {
+        // Track active/inactive periods to consume from backend later
         __POSTHOG_INACTIVITY_PERIODS__?: ReplayInactivityPeriod[]
+        // Signal segment changes to backend (backend tracks actual video timestamps)
+        __POSTHOG_CURRENT_SEGMENT_START_TS__?: number
+        __POSTHOG_SEGMENT_COUNTER__?: number
     }
 }
 
@@ -21,15 +24,17 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
     // Load pre-processed segments
     const { segments: recordingSegments } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    // Track when recording playback started
+    // Track when recording playback started (for VIDEO_T display)
     const recordingPlaybackStartTime = useRef<number | null>(null)
     // Track how much time passed since the first playback started (state for re-renders)
     const [timePassedSinceFirstPlayback, setTimePassedSinceFirstPlayback] = useState<number | null>(null)
-    // Track which segments we've already processed to avoid duplicates
-    const processedSegmentTimestamps = useRef<Set<number>>(new Set())
 
     // Process all segments at once when available to fill data on all active/inactive periods
     useEffect(() => {
+        // Reset segment tracking globals
+        window.__POSTHOG_CURRENT_SEGMENT_START_TS__ = undefined
+        window.__POSTHOG_SEGMENT_COUNTER__ = 0
+
         // If no segments available - no periods to track
         if (!recordingSegments || recordingSegments.length === 0) {
             window.__POSTHOG_INACTIVITY_PERIODS__ = []
@@ -38,6 +43,7 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         // Segments use Unix timestamps, so we need to use them also (instead of 0 as a start)
         const recordingStartTimestamp = recordingSegments[0].startTimestamp
         // Convert segments into inactivity periods metadata
+        // Note: recording_ts_from_s will be added by the backend based on actual video time
         const periods: ReplayInactivityPeriod[] = recordingSegments
             // Skipping buffers, keeping windows and gaps
             .filter((segment) => segment.kind !== 'buffer')
@@ -48,15 +54,11 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
             }))
             // Ensure to keep only periods with >0 duration
             .filter((p) => p.ts_to_s > p.ts_from_s)
-        // Ensure the first period starts at video time 0
-        if (periods?.[0]) {
-            periods[0].recording_ts_from_s = 0
-        }
         // Store into the global variable to be used by the backend
         window.__POSTHOG_INACTIVITY_PERIODS__ = periods
     }, [recordingSegments])
 
-    // Track when the first playback starts to get the starting point
+    // Track when the first playback starts (for VIDEO_T display)
     useEffect(() => {
         if (currentPlayerState === SessionPlayerState.PLAY && recordingPlaybackStartTime.current === null) {
             recordingPlaybackStartTime.current = performance.now()
@@ -73,37 +75,22 @@ export function PlayerFrameMetaOverlay(): JSX.Element | null {
         return () => clearInterval(interval)
     }, [])
 
-    // Update period's recording_ts_from_s when segment changes
+    // Signal segment changes to backend via globals
+    // Backend will track actual video timestamps when these change
     useEffect(() => {
-        // Skip if no segments available
-        if (!currentSegment || !recordingSegments?.length || recordingPlaybackStartTime.current === null) {
+        if (!currentSegment || !recordingSegments?.length) {
             return
         }
         // Skip buffers
         if (currentSegment.kind === 'buffer') {
             return
         }
-        // Skip if already processed this segment
-        // Assuming that each segment has its unique start timestamp
-        if (processedSegmentTimestamps.current.has(currentSegment.startTimestamp)) {
-            return
-        }
-        // Calculate the starting ts to match segments
+        // Calculate ts_from_s for this segment
         const recordingStartTimestamp = recordingSegments[0].startTimestamp
         const segmentTsFromS = Math.floor((currentSegment.startTimestamp - recordingStartTimestamp) / 1000)
-        // Calculate how much time has passed since the first playback started
-        const recordingTsFromS = Math.floor((performance.now() - recordingPlaybackStartTime.current) / 1000)
-        // Find and update the corresponding period
-        const periods = window.__POSTHOG_INACTIVITY_PERIODS__ || []
-        const updatedPeriods = periods.map((period) => {
-            if (period.ts_from_s === segmentTsFromS) {
-                return { ...period, recording_ts_from_s: recordingTsFromS }
-            }
-            return period
-        })
-        // Store into the global variable to be used by the backend
-        window.__POSTHOG_INACTIVITY_PERIODS__ = updatedPeriods
-        processedSegmentTimestamps.current.add(currentSegment.startTimestamp)
+        // Update globals to signal segment change to backend
+        window.__POSTHOG_CURRENT_SEGMENT_START_TS__ = segmentTsFromS
+        window.__POSTHOG_SEGMENT_COUNTER__ = (window.__POSTHOG_SEGMENT_COUNTER__ || 0) + 1
     }, [currentSegment, recordingSegments])
 
     // Skip rendering if no URL or player time is not available yet
