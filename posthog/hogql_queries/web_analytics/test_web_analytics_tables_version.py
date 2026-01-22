@@ -29,6 +29,7 @@ class TestWebAnalyticsTablesVersion(APIBaseTest):
         runner = WebOverviewQueryRunner(query=query, team=self.team)
         # use_v2_tables property still returns False for v1 setting
         # but the actual tables used are always v2
+        self.assertFalse(runner.use_v2_tables)
         self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
 
         # Test v2 setting (explicit)
@@ -51,6 +52,7 @@ class TestWebAnalyticsTablesVersion(APIBaseTest):
         self.team.web_analytics_pre_aggregated_tables_version = "v1"
         self.team.save()
         runner = WebStatsTableQueryRunner(query=query, team=self.team)
+        self.assertFalse(runner.use_v2_tables)
         self.assertEqual(runner.preaggregated_query_builder.stats_table, "web_pre_aggregated_stats")
 
     def test_web_trends_query_runner_uses_v2_tables(self):
