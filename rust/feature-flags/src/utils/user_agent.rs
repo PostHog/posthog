@@ -98,8 +98,8 @@ impl UserAgentInfo {
             "node" => ("posthog-node", RuntimeType::Server),
             "dotnet" => ("posthog-dotnet", RuntimeType::Server),
             "elixir" => ("posthog-elixir", RuntimeType::Server),
-            // Generic server-side SDK (for client SDKs running in server mode)
-            "server" => ("posthog-server", RuntimeType::Server),
+            // Generic server-side SDK (for client SDKs running in server mode, e.g., posthog-java)
+            "java-server" => ("posthog-java-server", RuntimeType::Server),
             // Client-side SDKs (mobile and browser)
             "js" => ("posthog-js", RuntimeType::Client),
             "android" => ("posthog-android", RuntimeType::Client),
@@ -234,14 +234,14 @@ mod tests {
         RuntimeType::Server
     )]
     #[case(
-        "posthog-server/1.0.0",
-        Some("posthog-server"),
+        "posthog-java-server/1.0.0",
+        Some("posthog-java-server"),
         Some("1.0.0"),
         RuntimeType::Server
     )]
     #[case(
-        "posthog-server/3.2.1 (Android SDK)",
-        Some("posthog-server"),
+        "posthog-java-server/3.2.1 (Android SDK)",
+        Some("posthog-java-server"),
         Some("3.2.1"),
         RuntimeType::Server
     )]
@@ -355,7 +355,7 @@ mod tests {
     #[case(Some("posthog-node/2.2.0"), "posthog-node")]
     #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
     #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
-    #[case(Some("posthog-server/1.0.0"), "posthog-server")]
+    #[case(Some("posthog-java-server/1.0.0"), "posthog-java-server")]
     #[case(
         Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
         "browser"
@@ -381,7 +381,7 @@ mod tests {
     #[case("posthog-python/3.0.0", Some("posthog-python"))]
     #[case("posthog-node/1.2.3", Some("posthog-node"))]
     #[case("posthog-android/3.0.0", Some("posthog-android"))]
-    #[case("posthog-server/1.0.0", Some("posthog-server"))]
+    #[case("posthog-java-server/1.0.0", Some("posthog-java-server"))]
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Some("web"))]
     #[case("Chrome/120.0.0.0 Safari/537.36", Some("web"))]
     #[case("curl/7.68.0", None)]
