@@ -208,7 +208,7 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
+        config = get_config(team_id=inputs.team_id)
         alias = "ducklake"
         with duckdb.connect() as conn:
             configure_connection(conn)
@@ -291,7 +291,7 @@ def verify_data_imports_ducklake_copy_activity(
 
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
-        config = get_config()
+        config = get_config(team_id=inputs.team_id)
         alias = "ducklake"
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
