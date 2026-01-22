@@ -964,7 +964,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
         },
     })),
-    listeners(({ props, actions, sharedListeners }) => ({
+    listeners(({ props, values, actions, sharedListeners }) => ({
         updateChartSettings: ({ settings }) => {
             actions.setQuery((query) => ({
                 ...query,
@@ -983,16 +983,16 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }))
         },
         toggleChartSettingsPanel: ({ open }, breakpoint) => {
-            const shouldOpen = open ?? !breakpoint.values.isChartSettingsPanelOpen
+            const shouldOpen = open ?? !values.isChartSettingsPanelOpen
             if (!shouldOpen) {
                 return
             }
 
-            if (breakpoint.values.visualizationType !== ChartDisplayType.TwoDimensionalHeatmap) {
+            if (values.visualizationType !== ChartDisplayType.TwoDimensionalHeatmap) {
                 return
             }
 
-            const heatmapSettings = breakpoint.values.chartSettings.heatmap ?? {}
+            const heatmapSettings = values.chartSettings.heatmap ?? {}
             const autoSettings = getHeatmapAutoSettings(breakpoint.values.columns, heatmapSettings)
 
             if (Object.keys(autoSettings).length === 0) {

@@ -189,7 +189,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                                     const nextStops = [...gradientStops]
                                     nextStops[index] = {
                                         ...nextStops[index],
-                                        value: normalizeNumberInput(value),
+                                        value: normalizeNumberInput(value ?? 0),
                                     }
                                     updateGradientStops(nextStops)
                                 }}
