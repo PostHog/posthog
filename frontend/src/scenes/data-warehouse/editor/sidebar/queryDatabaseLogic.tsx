@@ -93,28 +93,86 @@ const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIO
 const endpointTablesFuse = new Fuse<DatabaseSchemaEndpointTable>([], FUSE_OPTIONS)
 const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
-const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearch = false): TreeDataItem => ({
-    id: `${isSearch ? 'search-' : ''}col-${tableName}-${field.name}`,
+type TableLookup = Record<string, DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable>
+
+const createColumnNode = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    columnPath: string,
+    isSearch = false
+): TreeDataItem => ({
+    id: `${isSearch ? 'search-' : ''}col-${tableName}-${columnPath}`,
     name: field.name,
     type: 'node',
     record: {
         type: 'column',
-        columnName: field.name,
+        columnName: columnPath,
         field,
         table: tableName,
     },
 })
 
+const createVirtualTableField = (
+    fieldName: string,
+    parentField: DatabaseSchemaField,
+    tableLookup?: TableLookup
+): DatabaseSchemaField => {
+    const referencedTable = parentField.table ? tableLookup?.[parentField.table] : undefined
+    const referencedField = referencedTable?.fields?.[fieldName]
+
+    if (referencedField) {
+        return referencedField
+    }
+
+    return {
+        name: fieldName,
+        hogql_value: fieldName,
+        type: 'unknown',
+        schema_valid: true,
+    }
+}
+
+const createFieldNode = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup?: TableLookup
+): TreeDataItem => {
+    if (field.type === 'virtual_table') {
+        const children =
+            field.fields?.map((fieldName) => {
+                const childField = createVirtualTableField(fieldName, field, tableLookup)
+                return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup)
+            }) ?? []
+
+        return {
+            id: `${isSearch ? 'search-' : ''}virtual-${tableName}-${columnPath}`,
+            name: field.name,
+            type: 'node',
+            record: {
+                type: 'virtual-table',
+                field,
+                table: tableName,
+            },
+            children,
+        }
+    }
+
+    return createColumnNode(tableName, field, columnPath, isSearch)
+}
+
 const createTableNode = (
     table: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable,
     matches: FuseSearchMatch[] | null = null,
-    isSearch = false
+    isSearch = false,
+    tableLookup?: TableLookup
 ): TreeDataItem => {
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
         Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
-            tableChildren.push(createColumnNode(table.name, field, isSearch))
+            tableChildren.push(createFieldNode(table.name, field, isSearch, field.name, tableLookup))
         })
     }
 
@@ -158,7 +216,8 @@ const createDraftNode = (
 const createViewNode = (
     view: DataWarehouseSavedQuery,
     matches: FuseSearchMatch[] | null = null,
-    isSearch = false
+    isSearch = false,
+    tableLookup?: TableLookup
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
     const isMaterializedView = view.is_materialized === true
@@ -166,7 +225,7 @@ const createViewNode = (
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
     Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
-        viewChildren.push(createColumnNode(view.name, column, isSearch))
+        viewChildren.push(createFieldNode(view.name, column, isSearch, column.name, tableLookup))
     })
 
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
@@ -195,12 +254,13 @@ const createViewNode = (
 const createManagedViewNode = (
     managedView: DatabaseSchemaManagedViewTable,
     matches: FuseSearchMatch[] | null = null,
-    isSearch = false
+    isSearch = false,
+    tableLookup?: TableLookup
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
 
     Object.values(managedView.fields).forEach((field: DatabaseSchemaField) => {
-        viewChildren.push(createColumnNode(managedView.name, field, isSearch))
+        viewChildren.push(createFieldNode(managedView.name, field, isSearch, field.name, tableLookup))
     })
 
     const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
@@ -222,12 +282,13 @@ const createManagedViewNode = (
 const createEndpointNode = (
     endpoint: DatabaseSchemaEndpointTable,
     matches: FuseSearchMatch[] | null = null,
-    isSearch = false
+    isSearch = false,
+    tableLookup?: TableLookup
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
     Object.values(endpoint.fields).forEach((field: DatabaseSchemaField) => {
-        endpointChildren.push(createColumnNode(endpoint.name, field, isSearch))
+        endpointChildren.push(createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup))
     })
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
@@ -250,17 +311,18 @@ const createSourceFolderNode = (
     sourceType: string,
     tables: (DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable)[],
     matches: [any, FuseSearchMatch[] | null][] = [],
-    isSearch = false
+    isSearch = false,
+    tableLookup?: TableLookup
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
     if (isSearch && matches.length > 0) {
         matches.forEach(([table, tableMatches]) => {
-            sourceChildren.push(createTableNode(table, tableMatches, true))
+            sourceChildren.push(createTableNode(table, tableMatches, true, tableLookup))
         })
     } else {
         tables.forEach((table) => {
-            sourceChildren.push(createTableNode(table, null, false))
+            sourceChildren.push(createTableNode(table, null, false, tableLookup))
         })
     }
 
@@ -664,19 +726,26 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return []
                 }
 
+                const tableLookup = Object.fromEntries(
+                    [...relevantPosthogTables, ...relevantSystemTables, ...relevantDataWarehouseTables].map(
+                        ([table]) => [table.name, table]
+                    )
+                )
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
 
                 // Add PostHog tables
                 if (relevantPosthogTables.length > 0) {
                     expandedIds.push('search-posthog')
-                    sourcesChildren.push(createSourceFolderNode('PostHog', [], relevantPosthogTables, true))
+                    sourcesChildren.push(
+                        createSourceFolderNode('PostHog', [], relevantPosthogTables, true, tableLookup)
+                    )
                 }
 
                 // Add System tables
                 if (relevantSystemTables.length > 0) {
                     expandedIds.push('search-system')
-                    sourcesChildren.push(createSourceFolderNode('System', [], relevantSystemTables, true))
+                    sourcesChildren.push(createSourceFolderNode('System', [], relevantSystemTables, true, tableLookup))
                 }
 
                 // Group data warehouse tables by source type
@@ -697,7 +766,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 Object.entries(tablesBySourceType).forEach(([sourceType, tablesWithMatches]) => {
                     expandedIds.push(`search-${sourceType}`)
-                    sourcesChildren.push(createSourceFolderNode(sourceType, [], tablesWithMatches, true))
+                    sourcesChildren.push(createSourceFolderNode(sourceType, [], tablesWithMatches, true, tableLookup))
                 })
 
                 // Create views children
@@ -708,18 +777,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 // Add saved queries
                 relevantSavedQueries.forEach(([view, matches]) => {
-                    viewsChildren.push(createViewNode(view, matches, true))
+                    viewsChildren.push(createViewNode(view, matches, true, tableLookup))
                 })
 
                 // Add managed views
                 relevantManagedViews.forEach(([view, matches]) => {
-                    managedViewsChildren.push(createManagedViewNode(view, matches, true))
+                    managedViewsChildren.push(createManagedViewNode(view, matches, true, tableLookup))
                 })
 
                 // Add endpoints
                 if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
                     relevantEndpointTables.forEach(([endpoint, matches]) => {
-                        endpointChildren.push(createEndpointNode(endpoint, matches, true))
+                        endpointChildren.push(createEndpointNode(endpoint, matches, true, tableLookup))
                     })
                 }
 
@@ -798,6 +867,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 queryTabState: QueryTabState | null
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
+                const tableLookup = Object.fromEntries(
+                    [...posthogTables, ...systemTables, ...dataWarehouseTables].map((table) => [table.name, table])
+                )
 
                 // Add loading indicator for sources if still loading
                 if (databaseLoading && posthogTables.length === 0 && dataWarehouseTables.length === 0) {
@@ -812,13 +884,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
-                        sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
+                        sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup))
                     }
 
                     // Add System tables
                     if (systemTables.length > 0) {
                         systemTables.sort((a, b) => a.name.localeCompare(b.name))
-                        sourcesChildren.push(createSourceFolderNode('System', systemTables))
+                        sourcesChildren.push(createSourceFolderNode('System', systemTables, [], false, tableLookup))
                     }
 
                     // Group data warehouse tables by source type
@@ -836,7 +908,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add data warehouse tables
                     Object.entries(tablesBySourceType).forEach(([sourceType, tables]) => {
-                        sourcesChildren.push(createSourceFolderNode(sourceType, tables))
+                        sourcesChildren.push(createSourceFolderNode(sourceType, tables, [], false, tableLookup))
                     })
                 }
 
@@ -882,18 +954,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     // Add saved queries
                     dataWarehouseSavedQueries.forEach((view) => {
-                        viewsChildren.push(createViewNode(view))
+                        viewsChildren.push(createViewNode(view, null, false, tableLookup))
                     })
 
                     // Add managed views
                     managedViews.forEach((view) => {
-                        managedViewsChildren.push(createManagedViewNode(view))
+                        managedViewsChildren.push(createManagedViewNode(view, null, false, tableLookup))
                     })
 
                     // Add endpoints
                     if (featureFlags[FEATURE_FLAGS.ENDPOINTS]) {
                         endpointTables.forEach((endpoint) => {
-                            endpointChildren.push(createEndpointNode(endpoint))
+                            endpointChildren.push(createEndpointNode(endpoint, null, false, tableLookup))
                         })
                     }
                 }
