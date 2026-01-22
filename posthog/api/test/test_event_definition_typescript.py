@@ -9,9 +9,12 @@ Tests the complete flow:
 5. Run TypeScript compiler to verify no errors
 """
 
+import re
 import tempfile
 from pathlib import Path
+from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -20,11 +23,14 @@ from rest_framework import status
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
+@pytest.mark.usefixtures("unittest_snapshot")
 class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
     """
     Critical integration test ensuring TypeScript generation maintains type safety
     while allowing additional properties beyond the schema.
     """
+
+    snapshot: Any
 
     def setUp(self):
         super().setUp()
@@ -101,6 +107,15 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()["content"]
+
+    def _strip_dynamic_timestamp(self, content: str) -> str:
+        """Remove the dynamic timestamp from generated TypeScript to allow snapshot testing"""
+        # Replace the timestamp line with a fixed string
+        return re.sub(
+            r"Generated at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+",
+            "Generated at: <TIMESTAMP>",
+            content,
+        )
 
     @patch("subprocess.run")
     def test_typescript_allows_additional_properties(self, mock_subprocess_run):
@@ -262,7 +277,7 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
 """
             )
 
-            # Mock TypeScript compilation - we're testing the TS generation logic, not the actual compilation
-            # The mock returns success (returncode=0) so the test can verify the generated types are valid
-            # Note: We're mocking subprocess.run to skip actual pnpm install and tsc compilation
-            self.assertGreater(len(ts_content), 0)  # Verify we generated some TypeScript
+            # Use snapshot to verify the generated TypeScript structure and content
+            # This ensures any changes to the TypeScript generation are intentional and reviewed
+            # Strip the dynamic timestamp so the snapshot is stable
+            self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
