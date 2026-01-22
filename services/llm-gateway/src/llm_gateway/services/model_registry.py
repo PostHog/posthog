@@ -45,6 +45,12 @@ def _is_chat_model(cost_data: ModelCost) -> bool:
     return mode in ("chat", "completion", "")
 
 
+def _model_matches_allowlist(model_id: str, allowed_models: frozenset[str]) -> bool:
+    """Check if model matches allowlist using prefix matching (consistent with check_product_access)."""
+    model_lower = model_id.lower()
+    return any(model_lower.startswith(allowed) for allowed in allowed_models)
+
+
 class ModelRegistryService:
     """Singleton service for model discovery using LiteLLM data."""
 
@@ -89,7 +95,7 @@ class ModelRegistryService:
                 continue
             if not _is_chat_model(cost_data):
                 continue
-            if allowed_models is not None and model_id not in allowed_models:
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
                 continue
             model = self.get_model(model_id)
             if model is not None:
@@ -102,7 +108,7 @@ class ModelRegistryService:
 
         # If product has explicit allowed_models, check against those
         if config is not None and config.allowed_models is not None:
-            if model_id not in config.allowed_models:
+            if not _model_matches_allowlist(model_id, config.allowed_models):
                 return False
 
         model = self.get_model(model_id)
