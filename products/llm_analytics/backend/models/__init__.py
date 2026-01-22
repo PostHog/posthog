@@ -1,3 +1,4 @@
+from .annotations import LLMAnalyticsAnnotation
 from .datasets import Dataset, DatasetItem
 from .evaluation_config import EvaluationConfig
 from .evaluations import Evaluation
@@ -9,4 +10,5 @@ __all__ = [
     "Dataset",
     "DatasetItem",
     "LLMProviderKey",
+    "LLMAnalyticsAnnotation",
 ]
