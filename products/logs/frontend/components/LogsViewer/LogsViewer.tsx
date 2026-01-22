@@ -29,7 +29,7 @@ export interface LogsViewerProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     onAddFilter?: (key: string, value: string, operator?: PropertyOperator, type?: PropertyFilterType) => void
@@ -87,7 +87,7 @@ interface LogsViewerContentProps {
     totalLogsCount?: number
     hasMoreLogsToLoad?: boolean
     orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
+    onChangeOrderBy: (orderBy: LogsOrderBy, source: 'header' | 'toolbar') => void
     onRefresh?: () => void
     onLoadMore?: () => void
     sparklineData: LogsSparklineData
@@ -315,7 +315,11 @@ function LogsViewerContent({
                 onBreakdownByChange={onSparklineBreakdownByChange}
             />
             <SceneDivider />
-            <LogsViewerToolbar totalLogsCount={totalLogsCount} orderBy={orderBy} onChangeOrderBy={onChangeOrderBy} />
+            <LogsViewerToolbar
+                totalLogsCount={totalLogsCount}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'toolbar')}
+            />
             <LogsSelectionToolbar />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
@@ -327,6 +331,8 @@ function LogsViewerContent({
                     fixedHeight={250}
                     disableInfiniteScroll
                     disableCursor
+                    orderBy={orderBy}
+                    onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
                 />
             )}
 
@@ -340,6 +346,8 @@ function LogsViewerContent({
                 hasMoreLogsToLoad={hasMoreLogsToLoad}
                 onLoadMore={onLoadMore}
                 onExpandTimeRange={onExpandTimeRange}
+                orderBy={orderBy}
+                onChangeOrderBy={(newOrderBy) => onChangeOrderBy(newOrderBy, 'header')}
             />
 
             <LogDetailsModal timezone={timezone} />

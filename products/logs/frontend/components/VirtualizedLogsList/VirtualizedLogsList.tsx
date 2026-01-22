@@ -21,7 +21,7 @@ import {
     getMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 interface VirtualizedLogsListProps {
     dataSource: ParsedLogMessage[]
@@ -36,6 +36,8 @@ interface VirtualizedLogsListProps {
     hasMoreLogsToLoad?: boolean
     onLoadMore?: () => void
     onExpandTimeRange?: () => void
+    orderBy?: LogsOrderBy
+    onChangeOrderBy?: (orderBy: LogsOrderBy) => void
 }
 
 export function VirtualizedLogsList({
@@ -51,6 +53,8 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
     onExpandTimeRange,
+    orderBy,
+    onChangeOrderBy,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         tabId,
@@ -292,6 +296,8 @@ export function VirtualizedLogsList({
                                     totalCount={dataSource.length}
                                     onSelectAll={() => selectAll(dataSource)}
                                     onClearSelection={clearSelection}
+                                    orderBy={orderBy}
+                                    onChangeOrderBy={onChangeOrderBy}
                                 />
                                 <List
                                     ref={listRef}
@@ -342,6 +348,8 @@ export function VirtualizedLogsList({
                                 totalCount={dataSource.length}
                                 onSelectAll={() => selectAll(dataSource)}
                                 onClearSelection={clearSelection}
+                                orderBy={orderBy}
+                                onChangeOrderBy={onChangeOrderBy}
                             />
                             <List
                                 ref={listRef}

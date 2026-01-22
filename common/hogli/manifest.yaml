@@ -86,19 +86,12 @@ metadata:
                 output and easy process management.
 devenv:
     dev:setup:
-        description: Interactive wizard to configure your dev environment
     dev:start:
-        description: Start dev environment based on your profile
     dev:explain:
-        description: Show what services would be started for intents
     dev:intents:
-        description: List available intents (products you can work on)
     dev:presets:
-        description: List available presets
     dev:profile:
-        description: Show current developer profile
     dev:edit:
-        description: Re-run setup wizard to edit your profile
 core:
     categories:
         description: Show all available commands grouped by category
@@ -141,8 +134,15 @@ core:
               else: migrations:run
             - dev:demo-data
             - dev:sync-flags
+            - dev:api-key
         description: Full reset - wipe volumes, migrate, load demo data, sync flags
         prompt: true
+    dev:api-key:
+        cmd: python manage.py setup_local_api_key
+        description: Creates a personal API key that's always the same,
+            so you don't need to manually create a new one every time you reset the stack.
+        services:
+            - postgresql
 health_checks:
     check:clickhouse:
         bin_script: check_clickhouse_up

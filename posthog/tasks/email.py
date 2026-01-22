@@ -37,6 +37,7 @@ from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
 
+from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
 
 logger = structlog.get_logger(__name__)
@@ -806,30 +807,47 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
         memberships_to_email = [test_membership]
         logger.info(f"Sending test HogFunctions digest email to {test_email_override}")
 
-    campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
+    all_functions = digest_data["functions"]
+    date_suffix = timezone.now().strftime("%Y-%m-%d")
+    emails_sent = 0
 
-    # Sort functions by failure rate descending (highest first)
-    sorted_functions = sorted(
-        digest_data["functions"], key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True
-    )
-
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"Data Pipeline Failures Alert for {team.name}",
-        template_name="hog_functions_daily_digest",
-        template_context={
-            "team": team,
-            "functions": sorted_functions,
-            "site_url": settings.SITE_URL,
-        },
-    )
-
-    # Add recipients (either filtered list for test override or full list for normal flow)
+    # Send a unique email to each member with functions filtered by their threshold
     for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
+        user = membership.user
 
-    message.send()
-    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
+        # Filter functions based on user's threshold
+        # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
+        user_functions = [
+            f
+            for f in all_functions
+            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
+        ]
+
+        # Skip this user if no functions exceed their threshold
+        if len(user_functions) == 0:
+            continue
+
+        # Sort functions by failure rate descending (highest first)
+        sorted_functions = sorted(user_functions, key=lambda x: float(x.get("failure_rate", 0) or 0), reverse=True)
+
+        campaign_key = f"hog_functions_daily_digest_{team_id}_{user.uuid}_{date_suffix}"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"Data Pipeline Failures Alert for {team.name}",
+            template_name="hog_functions_daily_digest",
+            template_context={
+                "team": team,
+                "functions": sorted_functions,
+                "site_url": settings.SITE_URL,
+            },
+        )
+
+        message.add_user_recipient(user)
+        message.send()
+        emails_sent += 1
+
+    logger.info(f"Sent HogFunctions digest email to {emails_sent} members for team {team_id}")
 
 
 @shared_task(ignore_result=True)
@@ -1129,3 +1147,71 @@ def send_oauth_token_exposed(user_id: int, token_type: str, mask_value: str, mor
     )
     message.add_user_recipient(user)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_content: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Skipping new ticket notification: email service not available")
+        return
+
+    try:
+        team = Team.objects.get(pk=team_id)
+        ticket = Ticket.objects.get(id=ticket_id, team=team)
+    except (Team.DoesNotExist, Ticket.DoesNotExist):
+        logger.warning(f"Skipping new ticket notification: ticket or team not found (ticket_id={ticket_id})")
+        return
+
+    # Get notification recipients from team settings
+    conversations_settings = team.conversations_settings or {}
+    recipient_ids = conversations_settings.get("notification_recipients", [])
+
+    if not recipient_ids:
+        return
+
+    # Get users who should receive notifications and have access to the project
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id,
+        user_id__in=recipient_ids,
+    )
+
+    memberships_to_email = []
+    for membership in memberships:
+        team_permissions = UserPermissions(membership.user).team(team)
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+
+    if not memberships_to_email:
+        return
+
+    # Extract customer info from anonymous_traits
+    traits = ticket.anonymous_traits or {}
+    customer_name = traits.get("name")
+    customer_email = traits.get("email")
+
+    ticket_url = f"{settings.SITE_URL}/project/{team.pk}/conversations/tickets/{ticket.id}"
+
+    campaign_key = f"new_conversation_ticket_{ticket.id}"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=campaign_key,
+        subject=f"[Ticket #{ticket.ticket_number}] New support ticket in {team.name}",
+        template_name="new_conversation_ticket",
+        template_context={
+            "team_name": team.name,
+            "ticket_number": ticket.ticket_number,
+            "customer_name": customer_name,
+            "customer_email": customer_email,
+            "first_message": first_message_content[:500] if first_message_content else "",
+            "ticket_url": ticket_url,
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+
+    message.send()
+    logger.info(f"Sent new ticket notification for ticket {ticket.id} to {len(memberships_to_email)} recipients")
