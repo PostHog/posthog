@@ -28,11 +28,11 @@ Related:
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 from dagster import build_op_context
 from freezegun import freeze_time
+from unittest.mock import MagicMock, patch
 
 from posthog.dags.postgres_to_clickhouse_etl import (
     ETLState,
