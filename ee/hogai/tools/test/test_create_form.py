@@ -27,6 +27,7 @@ class TestCreateFormTool(BaseTest):
         return [
             MultiQuestionFormQuestion(
                 id=f"q{i}",
+                title=f"Question {i}?",
                 question=f"Question {i}?",
                 options=[{"value": "Option A"}, {"value": "Option B"}],
             )

@@ -2,7 +2,7 @@ import './QuestionInput.scss'
 
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -10,11 +10,31 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, formatSuggestion, stripSuggestionPlaceholders } from '../utils'
+import { InputFormArea } from './InputFormArea'
 import { QuestionInput } from './QuestionInput'
 
 export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean }): JSX.Element {
     const { focusCounter, threadVisible } = useValues(maxLogic)
-    const { threadLoading } = useValues(maxThreadLogic)
+    // Use raw state values instead of selector to ensure re-renders on state changes
+    const {
+        threadLoading,
+        activeMultiQuestionForm,
+        pendingApprovalProposalId,
+        pendingApprovalsData,
+        resolvedApprovalStatuses,
+    } = useValues(maxThreadLogic)
+
+    // Check if there's a pending (not yet resolved) approval to show
+    const hasApprovalToShow = useMemo(() => {
+        if (!pendingApprovalProposalId) {
+            return false
+        }
+        // Don't show if already resolved - resolved approvals appear as summaries in the chat thread
+        if (resolvedApprovalStatuses[pendingApprovalProposalId]) {
+            return false
+        }
+        return !!pendingApprovalsData[pendingApprovalProposalId]
+    }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
 
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -30,6 +50,20 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
             textAreaRef.current.setSelectionRange(textAreaRef.current.value.length, textAreaRef.current.value.length)
         }
     }, [focusCounter]) // Update focus when focusCounter changes
+
+    // Show form area directly when there's a pending form/approval (even if showInput is false)
+    if (activeMultiQuestionForm || hasApprovalToShow) {
+        return (
+            <div className="w-full max-w-180 self-center px-3 mx-auto pb-1 bg-[var(--scene-layout-background)]/50 backdrop-blur-sm">
+                <div className="border border-primary rounded-lg bg-surface-primary">
+                    <InputFormArea />
+                </div>
+                <p className="w-full flex text-xs text-muted mt-1">
+                    <span className="mx-auto">PostHog AI can make mistakes. Please double-check responses.</span>
+                </p>
+            </div>
+        )
+    }
 
     return (
         <QuestionInput
