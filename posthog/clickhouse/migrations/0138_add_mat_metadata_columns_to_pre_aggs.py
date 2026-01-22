@@ -4,7 +4,7 @@ from posthog.models.web_preaggregated.migrations import add_mat_metadata_fields_
 
 # Add mat_metadata_loggedIn and mat_metadata_backend columns to existing web analytics tables in all clusters
 # The columns will exist everywhere but only be populated with data in EU cluster
-# V1 tables removed - they are dropped in migration 0198
+# V1 tables removed - they are dropped in migration 0216
 operations = [
     run_sql_with_exceptions(
         add_mat_metadata_fields_to_table("web_pre_aggregated_stats"),
