@@ -79,7 +79,7 @@ const toKey = (log: LogEntry): string => {
 
 const toAbsoluteClickhouseTimestamp = (timestamp: Dayjs): string => {
     // TRICKY: CH query is timezone aware so we dont send iso
-    return timestamp.format('YYYY-MM-DD HH:mm:ss.SSS')
+    return timestamp.tz('UTC').format('YYYY-MM-DD HH:mm:ss.SSS')
 }
 
 const buildBoundaryFilters = (request: LogEntryParams): string => {
@@ -342,7 +342,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     if (!results.length) {
                         actions.markLogsEnd()
                     }
-                    return groupLogs([...results, ...values.groupedLogs.flatMap((group) => group.entries)])
+                    return groupLogs([...values.groupedLogs.flatMap((group) => group.entries), ...results])
                 },
 
                 addLogGroups: ({ logGroups }) => {
