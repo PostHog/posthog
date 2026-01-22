@@ -317,6 +317,7 @@ and failing evaluations, providing actionable recommendations.
                     "force_refresh": force_refresh,
                     "pass_count": result["statistics"]["pass_count"],
                     "fail_count": result["statistics"]["fail_count"],
+                    "na_count": result["statistics"]["na_count"],
                 },
                 self.team,
             )

@@ -31,6 +31,9 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
+                "evaluation_id": "eval_123",
+                "evaluation_name": "Test Evaluation",
+                "evaluation_prompt": "Evaluate the response quality",
                 "evaluation_runs": [
                     {"generation_id": "gen_123", "result": True, "reasoning": "Good response"},
                 ],
@@ -109,6 +112,9 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
+                "evaluation_id": "eval_123",
+                "evaluation_name": "Response Quality",
+                "evaluation_prompt": "Evaluate whether the response addresses the user's question",
                 "evaluation_runs": [
                     {"generation_id": "gen_001", "result": True, "reasoning": "Good response"},
                     {"generation_id": "gen_002", "result": True, "reasoning": "Another good response"},
@@ -172,6 +178,9 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
+                "evaluation_id": "eval_456",
+                "evaluation_name": "Response Quality",
+                "evaluation_prompt": "Evaluate whether the response is good",
                 "evaluation_runs": [
                     {"generation_id": "gen_101", "result": True, "reasoning": "Good response 1"},
                     {"generation_id": "gen_102", "result": True, "reasoning": "Good response 2"},
@@ -192,7 +201,12 @@ class TestEvaluationSummaryAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
-            {"evaluation_runs": runs},
+            {
+                "evaluation_id": "eval_max",
+                "evaluation_name": "Max Runs Test",
+                "evaluation_prompt": "Test prompt",
+                "evaluation_runs": runs,
+            },
             format="json",
         )
 
@@ -231,6 +245,9 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
             {
+                "evaluation_id": "eval_na",
+                "evaluation_name": "N/A Evaluation Test",
+                "evaluation_prompt": "Evaluate whether criteria applies",
                 "evaluation_runs": [
                     {
                         "generation_id": "gen_na_001",
