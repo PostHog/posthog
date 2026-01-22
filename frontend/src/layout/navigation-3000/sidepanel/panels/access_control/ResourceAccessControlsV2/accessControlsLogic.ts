@@ -145,6 +145,18 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
         ],
 
+        canEditRow: [
+            (s) => [s.canEditAccessControls, s.canEditRoleBasedAccessControls],
+            (canEditAccessControls, canEditRoleBasedAccessControls) =>
+                (row: AccessControlRow): boolean => {
+                    const isProjectRule = row.resourceKey === 'project'
+
+                    return (
+                        row.isException && (isProjectRule ? !!canEditAccessControls : !!canEditRoleBasedAccessControls)
+                    )
+                },
+        ],
+
         allMembers: [(s) => [s.sortedMembers], (sortedMembers): OrganizationMemberType[] => sortedMembers ?? []],
 
         resourcesWithProject: [

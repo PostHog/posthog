@@ -39,6 +39,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         canEditAny,
         loading,
         roles,
+        canEditRow,
         canEditAccessControls,
         canEditRoleBasedAccessControls,
     } = useValues(logic)
@@ -111,8 +112,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 activeTab={activeTab}
                                 rows={filteredSortedRows}
                                 loading={loading}
-                                canEditAccessControls={canEditAccessControls}
-                                canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
+                                canEditRow={canEditRow}
                                 onEdit={(row) => openRuleModal({ mode: 'edit', row })}
                                 onDelete={confirmDelete}
                             />

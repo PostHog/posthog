@@ -37,20 +37,13 @@ export interface AccessControlTableProps {
     activeTab: AccessControlsTab
     rows: AccessControlRow[]
     loading: boolean
-    canEditAccessControls: boolean | null
-    canEditRoleBasedAccessControls: boolean | null
+    canEditRow: (row: AccessControlRow) => boolean
     onEdit: (row: AccessControlRow) => void
     onDelete: (row: AccessControlRow) => void
 }
 
 export function AccessControlTable(props: AccessControlTableProps): JSX.Element {
-    const columns = getColumns(
-        props.activeTab,
-        props.canEditAccessControls,
-        props.canEditRoleBasedAccessControls,
-        props.onEdit,
-        props.onDelete
-    )
+    const columns = getColumns(props.activeTab, props.canEditRow, props.onEdit, props.onDelete)
 
     return (
         <LemonTable
@@ -59,14 +52,27 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
             loading={props.loading}
             emptyState="No access control rules match these filters"
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
+            onRow={(row) => ({
+                className: props.canEditRow(row) ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
+                onClick: (event) => {
+                    if (!props.canEditRow(row)) {
+                        return
+                    }
+
+                    if ((event.target as HTMLElement).closest('button, a, [role="button"]')) {
+                        return
+                    }
+
+                    props.onEdit(row)
+                },
+            })}
         />
     )
 }
 
 function getColumns(
     activeTab: AccessControlsTab,
-    canEditAccessControls: boolean | null,
-    canEditRoleBasedAccessControls: boolean | null,
+    canEditRow: (row: AccessControlRow) => boolean,
     onEdit: (row: AccessControlRow) => void,
     onDelete: (row: AccessControlRow) => void
 ): any[] {
@@ -105,9 +111,7 @@ function getColumns(
             width: 0,
             align: 'right' as const,
             render: function RenderActions(_: any, row: AccessControlRow) {
-                const isProjectRule = row.resourceKey === 'project'
-                const canEditThisRow =
-                    row.isException && (isProjectRule ? canEditAccessControls : canEditRoleBasedAccessControls)
+                const canEditThisRow = canEditRow(row)
                 const disabledReason = !canEditThisRow ? 'You cannot edit this' : undefined
                 const canDelete = row.isException && !(row.scopeType === 'default' && row.resourceKey === 'project')
 
