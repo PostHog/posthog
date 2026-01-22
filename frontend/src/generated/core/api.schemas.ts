@@ -543,7 +543,7 @@ export interface PaginatedIntegrationListApi {
  */
 export interface PatchedIntegrationApi {
     readonly id?: number
-    kind?: Kind9f6EnumApi
+    kind?: KindCf2EnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
