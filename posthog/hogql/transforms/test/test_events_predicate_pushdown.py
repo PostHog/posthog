@@ -75,6 +75,17 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_subquery_with_pushdown(self):
+        """Subquery pushdown"""
+        printed = self._print_select(
+            "SELECT event, avg($session_duration) FROM ("
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND (event = '$pageview' OR event = '$pageleave')"
+            ") GROUP BY event"
+        )
+        assert printed == self.snapshot
+
 
 class TestEventsPredicatePushdownTransformUnit:
     """Unit tests for helper methods that don't require database/context."""
