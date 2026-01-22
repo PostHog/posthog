@@ -11,12 +11,15 @@ from posthog.temporal.delete_recordings.activities import (
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
+    purge_deleted_metadata,
 )
 from posthog.temporal.delete_recordings.types import (
     BulkDeleteInput,
     BulkDeleteResult,
     DeletedRecordingEntry,
     DeletionCertificate,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,
@@ -215,4 +218,33 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
             results=results,
             dry_run=input.dry_run,
             query=input.query,
+        )
+
+
+@workflow.defn(name="purge-deleted-recording-metadata")
+class PurgeDeletedRecordingMetadataWorkflow(PostHogWorkflow):
+    """Nightly workflow to purge metadata from ClickHouse for deleted recordings.
+
+    After recordings are crypto-shredded (encryption keys deleted), the metadata
+    remains in ClickHouse with is_deleted=1. This workflow runs nightly to clean
+    up that metadata after a grace period has passed.
+    """
+
+    @staticmethod
+    def parse_inputs(input: list[str]) -> PurgeDeletedMetadataInput:
+        """Parse input from the management command CLI."""
+        loaded = json.loads(input[0])
+        return PurgeDeletedMetadataInput(**loaded)
+
+    @workflow.run
+    async def run(self, input: PurgeDeletedMetadataInput) -> PurgeDeletedMetadataResult:
+        return await workflow.execute_activity(
+            purge_deleted_metadata,
+            input,
+            start_to_close_timeout=timedelta(hours=2),
+            schedule_to_close_timeout=timedelta(hours=4),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
         )

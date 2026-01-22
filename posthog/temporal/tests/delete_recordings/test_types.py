@@ -5,6 +5,8 @@ from posthog.temporal.delete_recordings.types import (
     BulkDeleteResult,
     DeletedRecordingEntry,
     DeletionCertificate,
+    PurgeDeletedMetadataInput,
+    PurgeDeletedMetadataResult,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,
@@ -201,3 +203,50 @@ def test_deletion_certificate_dry_run():
     assert certificate.total_recordings_found == 100
     assert certificate.total_deleted == 0
     assert len(certificate.deleted_recordings) == 0
+
+
+def test_purge_deleted_metadata_input_creation():
+    input = PurgeDeletedMetadataInput(grace_period_days=14, batch_size=5000)
+    assert input.grace_period_days == 14
+    assert input.batch_size == 5000
+
+
+def test_purge_deleted_metadata_input_defaults():
+    input = PurgeDeletedMetadataInput()
+    assert input.grace_period_days == 7
+    assert input.batch_size == 10000
+
+
+def test_purge_deleted_metadata_result_creation():
+    started_at = datetime(2024, 1, 15, 3, 0, 0, tzinfo=UTC)
+    completed_at = datetime(2024, 1, 15, 3, 15, 0, tzinfo=UTC)
+
+    result = PurgeDeletedMetadataResult(
+        started_at=started_at,
+        completed_at=completed_at,
+        rows_deleted=50000,
+        batches_processed=5,
+        grace_period_days=30,
+    )
+
+    assert result.started_at == started_at
+    assert result.completed_at == completed_at
+    assert result.rows_deleted == 50000
+    assert result.batches_processed == 5
+    assert result.grace_period_days == 30
+
+
+def test_purge_deleted_metadata_result_no_rows():
+    started_at = datetime(2024, 1, 15, 3, 0, 0, tzinfo=UTC)
+    completed_at = datetime(2024, 1, 15, 3, 0, 5, tzinfo=UTC)
+
+    result = PurgeDeletedMetadataResult(
+        started_at=started_at,
+        completed_at=completed_at,
+        rows_deleted=0,
+        batches_processed=1,
+        grace_period_days=30,
+    )
+
+    assert result.rows_deleted == 0
+    assert result.batches_processed == 1
