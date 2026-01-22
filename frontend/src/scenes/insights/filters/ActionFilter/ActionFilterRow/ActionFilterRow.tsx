@@ -69,6 +69,7 @@ import {
     EntityTypes,
     FunnelExclusionLegacy,
     HogQLMathType,
+    InsightShortId,
     PropertyFilterValue,
     PropertyMathType,
 } from '~/types'
@@ -225,7 +226,7 @@ export function ActionFilterRow({
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
-    const dashboardItemId = typeKey.split('/')[0]
+    const dashboardItemId = typeKey.split('/')[0] as InsightShortId
     const { insightProps: funnelInsightProps } = useValues(
         insightLogic({ dashboardItemId: isFunnelContext ? dashboardItemId : 'new' })
     )
