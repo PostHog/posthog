@@ -8,7 +8,6 @@ describe('MemoryCachedKeyStore', () => {
     const mockSessionKey: SessionKey = {
         plaintextKey: Buffer.from([1, 2, 3]),
         encryptedKey: Buffer.from([4, 5, 6]),
-        nonce: Buffer.from([7, 8, 9]),
         sessionState: 'ciphertext',
     }
 
@@ -90,13 +89,11 @@ describe('MemoryCachedKeyStore', () => {
             const team1Key: SessionKey = {
                 plaintextKey: Buffer.from([1, 1, 1]),
                 encryptedKey: Buffer.from([1, 1, 1]),
-                nonce: Buffer.from([1, 1, 1]),
                 sessionState: 'ciphertext',
             }
             const team2Key: SessionKey = {
                 plaintextKey: Buffer.from([2, 2, 2]),
                 encryptedKey: Buffer.from([2, 2, 2]),
-                nonce: Buffer.from([2, 2, 2]),
                 sessionState: 'ciphertext',
             }
 
@@ -126,7 +123,6 @@ describe('MemoryCachedKeyStore', () => {
             const deletedKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt: 1234567890,
             }
@@ -222,12 +218,10 @@ describe('RedisCachedKeyStore', () => {
 
     const mockPlaintextKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
     const mockEncryptedKey = new Uint8Array([101, 102, 103, 104, 105])
-    const mockNonce = new Uint8Array([201, 202, 203, 204, 205, 206, 207, 208])
 
     const mockSessionKey: SessionKey = {
         plaintextKey: Buffer.from(mockPlaintextKey),
         encryptedKey: Buffer.from(mockEncryptedKey),
-        nonce: Buffer.from(mockNonce),
         sessionState: 'ciphertext',
     }
 
@@ -302,7 +296,6 @@ describe('RedisCachedKeyStore', () => {
             const cachedKey = {
                 plaintextKey: Buffer.from(mockPlaintextKey).toString('base64'),
                 encryptedKey: Buffer.from(mockEncryptedKey).toString('base64'),
-                nonce: Buffer.from(mockNonce).toString('base64'),
                 sessionState: 'ciphertext',
             }
             mockRedisClient.get.mockResolvedValue(JSON.stringify(cachedKey))
@@ -347,13 +340,11 @@ describe('RedisCachedKeyStore', () => {
             const team1CachedKey = {
                 plaintextKey: Buffer.from([1, 1, 1]).toString('base64'),
                 encryptedKey: Buffer.from([1, 1, 1]).toString('base64'),
-                nonce: Buffer.from([1, 1, 1]).toString('base64'),
                 sessionState: 'ciphertext',
             }
             const team2CachedKey = {
                 plaintextKey: Buffer.from([2, 2, 2]).toString('base64'),
                 encryptedKey: Buffer.from([2, 2, 2]).toString('base64'),
-                nonce: Buffer.from([2, 2, 2]).toString('base64'),
                 sessionState: 'ciphertext',
             }
 
@@ -376,7 +367,6 @@ describe('RedisCachedKeyStore', () => {
             const deletedKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt: 1234567890,
             }
@@ -456,14 +446,12 @@ describe('Combined MemoryCachedKeyStore and RedisCachedKeyStore', () => {
     const mockSessionKey: SessionKey = {
         plaintextKey: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
         encryptedKey: Buffer.from([101, 102, 103, 104, 105]),
-        nonce: Buffer.from([201, 202, 203, 204, 205, 206, 207, 208]),
         sessionState: 'ciphertext',
     }
 
     const mockDeletedKey: SessionKey = {
         plaintextKey: Buffer.alloc(0),
         encryptedKey: Buffer.alloc(0),
-        nonce: Buffer.alloc(0),
         sessionState: 'deleted',
         deletedAt: 1234567890,
     }
@@ -516,7 +504,6 @@ describe('Combined MemoryCachedKeyStore and RedisCachedKeyStore', () => {
             const cachedKey = {
                 plaintextKey: mockSessionKey.plaintextKey.toString('base64'),
                 encryptedKey: mockSessionKey.encryptedKey.toString('base64'),
-                nonce: mockSessionKey.nonce.toString('base64'),
                 sessionState: 'ciphertext',
             }
             mockRedisClient.get.mockResolvedValue(JSON.stringify(cachedKey))
@@ -575,7 +562,6 @@ describe('Combined MemoryCachedKeyStore and RedisCachedKeyStore', () => {
             const deletedCachedKey = {
                 plaintextKey: Buffer.alloc(0).toString('base64'),
                 encryptedKey: Buffer.alloc(0).toString('base64'),
-                nonce: Buffer.alloc(0).toString('base64'),
                 sessionState: 'deleted',
                 deletedAt: 1234567890,
             }

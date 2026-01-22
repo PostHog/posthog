@@ -44,9 +44,14 @@ export class RecordingEncryptor extends BaseRecordingEncryptor {
             return blockData // Session is stored in cleartext, do not encrypt
         }
 
-        // Session is encrypted, so encrypt block and return
-        const cipherText = sodium.crypto_secretbox_easy(blockData, sessionKey.nonce, sessionKey.plaintextKey)
-        return Buffer.from(cipherText)
+        // Generate a unique nonce for this block
+        const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
+
+        // Encrypt block data
+        const cipherText = sodium.crypto_secretbox_easy(blockData, nonce, sessionKey.plaintextKey)
+
+        // Prepend nonce to the ciphertext
+        return Buffer.concat([Buffer.from(nonce), Buffer.from(cipherText)])
     }
 }
 

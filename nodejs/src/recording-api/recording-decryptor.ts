@@ -44,8 +44,11 @@ export class RecordingDecryptor extends BaseRecordingDecryptor {
             return blockData // Session is stored in cleartext, do not decrypt
         }
 
-        // Session is encrypted, decrypt and return
-        const clearText = sodium.crypto_secretbox_open_easy(blockData, sessionKey.nonce, sessionKey.plaintextKey)
+        // Extract nonce from the beginning of the block (prepended during encryption)
+        const nonce = blockData.subarray(0, sodium.crypto_secretbox_NONCEBYTES)
+        const cipherText = blockData.subarray(sodium.crypto_secretbox_NONCEBYTES)
+
+        const clearText = sodium.crypto_secretbox_open_easy(cipherText, nonce, sessionKey.plaintextKey)
         return Buffer.from(clearText)
     }
 }

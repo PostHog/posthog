@@ -9,13 +9,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: Buffer.from([1, 2, 3, 4, 5]),
                     encryptedKey: Buffer.from([10, 20, 30, 40, 50]),
-                    nonce: Buffer.from([100, 101, 102]),
                     sessionState: 'ciphertext' as const,
                 },
                 expected: {
                     plaintextKey: 'AQIDBAU=',
                     encryptedKey: 'ChQeKDI=',
-                    nonce: 'ZGVm',
                     sessionState: 'ciphertext',
                 },
             },
@@ -24,13 +22,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'cleartext' as const,
                 },
                 expected: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'cleartext',
                 },
             },
@@ -39,14 +35,12 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'deleted' as const,
                     deletedAt: 1234567890,
                 },
                 expected: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'deleted',
                     deletedAt: 1234567890,
                 },
@@ -56,13 +50,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'deleted' as const,
                 },
                 expected: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'deleted',
                 },
             },
@@ -72,7 +64,6 @@ describe('session-key serialization', () => {
 
             expect(parsed.plaintextKey).toBe(expected.plaintextKey)
             expect(parsed.encryptedKey).toBe(expected.encryptedKey)
-            expect(parsed.nonce).toBe(expected.nonce)
             expect(parsed.sessionState).toBe(expected.sessionState)
             expect(parsed.deletedAt).toBe(expected.deletedAt)
         })
@@ -85,13 +76,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: 'AQIDBAU=',
                     encryptedKey: 'ChQeKDI=',
-                    nonce: 'ZGVm',
                     sessionState: 'ciphertext' as const,
                 },
                 expected: {
                     plaintextKey: Buffer.from([1, 2, 3, 4, 5]),
                     encryptedKey: Buffer.from([10, 20, 30, 40, 50]),
-                    nonce: Buffer.from([100, 101, 102]),
                     sessionState: 'ciphertext',
                 },
             },
@@ -100,13 +89,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'cleartext' as const,
                 },
                 expected: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'cleartext',
                 },
             },
@@ -115,14 +102,12 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'deleted' as const,
                     deletedAt: 1234567890,
                 },
                 expected: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'deleted',
                     deletedAt: 1234567890,
                 },
@@ -132,13 +117,11 @@ describe('session-key serialization', () => {
                 input: {
                     plaintextKey: '',
                     encryptedKey: '',
-                    nonce: '',
                     sessionState: 'deleted' as const,
                 },
                 expected: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'deleted',
                     deletedAt: undefined,
                 },
@@ -148,7 +131,6 @@ describe('session-key serialization', () => {
 
             expect(result.plaintextKey).toEqual(expected.plaintextKey)
             expect(result.encryptedKey).toEqual(expected.encryptedKey)
-            expect(result.nonce).toEqual(expected.nonce)
             expect(result.sessionState).toBe(expected.sessionState)
             expect(result.deletedAt).toBe(expected.deletedAt)
         })
@@ -161,7 +143,6 @@ describe('session-key serialization', () => {
                 key: {
                     plaintextKey: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
                     encryptedKey: Buffer.from([101, 102, 103, 104, 105]),
-                    nonce: Buffer.from([201, 202, 203, 204, 205, 206, 207, 208]),
                     sessionState: 'ciphertext' as const,
                 },
             },
@@ -170,7 +151,6 @@ describe('session-key serialization', () => {
                 key: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'cleartext' as const,
                 },
             },
@@ -179,7 +159,6 @@ describe('session-key serialization', () => {
                 key: {
                     plaintextKey: Buffer.alloc(0),
                     encryptedKey: Buffer.alloc(0),
-                    nonce: Buffer.alloc(0),
                     sessionState: 'deleted' as const,
                     deletedAt: 1234567890,
                 },
@@ -190,7 +169,6 @@ describe('session-key serialization', () => {
 
             expect(deserialized.plaintextKey).toEqual(key.plaintextKey)
             expect(deserialized.encryptedKey).toEqual(key.encryptedKey)
-            expect(deserialized.nonce).toEqual(key.nonce)
             expect(deserialized.sessionState).toBe(key.sessionState)
             expect(deserialized.deletedAt).toBe(key.deletedAt)
         })

@@ -19,7 +19,6 @@ export class PassthroughKeyStore extends BaseKeyStore {
         return Promise.resolve({
             plaintextKey: Buffer.alloc(0),
             encryptedKey: Buffer.alloc(0),
-            nonce: Buffer.alloc(0),
             sessionState: 'cleartext',
         })
     }
@@ -28,7 +27,6 @@ export class PassthroughKeyStore extends BaseKeyStore {
         return Promise.resolve({
             plaintextKey: Buffer.alloc(0),
             encryptedKey: Buffer.alloc(0),
-            nonce: Buffer.alloc(0),
             sessionState: 'cleartext',
         })
     }
@@ -79,8 +77,6 @@ export class KeyStore extends BaseKeyStore {
                 throw new Error('Failed to generate data key from KMS')
             }
 
-            const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
-
             await this.dynamoDBClient.send(
                 new PutItemCommand({
                     TableName: KEYS_TABLE_NAME,
@@ -88,7 +84,6 @@ export class KeyStore extends BaseKeyStore {
                         session_id: { S: sessionId },
                         team_id: { N: String(teamId) },
                         encrypted_key: { B: CiphertextBlob },
-                        nonce: { B: nonce },
                         session_state: { S: 'ciphertext' },
                         created_at: { N: String(createdAt) },
                         expires_at: { N: String(expiresAt) },
@@ -99,7 +94,6 @@ export class KeyStore extends BaseKeyStore {
             sessionKey = {
                 plaintextKey: Buffer.from(Plaintext),
                 encryptedKey: Buffer.from(CiphertextBlob),
-                nonce: Buffer.from(nonce),
                 sessionState: 'ciphertext',
             }
         } else {
@@ -119,7 +113,6 @@ export class KeyStore extends BaseKeyStore {
             sessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'cleartext',
             }
         }
@@ -141,12 +134,11 @@ export class KeyStore extends BaseKeyStore {
         const sessionState = this.parseSessionState(result.Item)
 
         if (sessionState === 'ciphertext') {
-            if (!result.Item?.encrypted_key?.B || !result.Item?.nonce?.B) {
+            if (!result.Item?.encrypted_key?.B) {
                 throw new Error(`Missing key data for session ${sessionId} team ${teamId}`)
             }
 
             const encryptedKey = Buffer.from(result.Item.encrypted_key.B)
-            const nonce = Buffer.from(result.Item.nonce.B)
 
             const decryptResult = await this.kmsClient.send(
                 new DecryptCommand({
@@ -166,7 +158,6 @@ export class KeyStore extends BaseKeyStore {
             return {
                 plaintextKey: Buffer.from(decryptResult.Plaintext),
                 encryptedKey,
-                nonce,
                 sessionState: 'ciphertext',
             }
         } else if (sessionState === 'deleted') {
@@ -174,7 +165,6 @@ export class KeyStore extends BaseKeyStore {
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt,
             }
@@ -182,7 +172,6 @@ export class KeyStore extends BaseKeyStore {
             return {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'cleartext',
             }
         }
@@ -223,7 +212,7 @@ export class KeyStore extends BaseKeyStore {
                     session_id: { S: sessionId },
                     team_id: { N: String(teamId) },
                 },
-                UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key, nonce',
+                UpdateExpression: 'SET session_state = :deleted, deleted_at = :deleted_at REMOVE encrypted_key',
                 ExpressionAttributeValues: {
                     ':deleted': { S: 'deleted' },
                     ':deleted_at': { N: String(deletedAt) },

@@ -18,15 +18,11 @@ describe('recording-encryptor', () => {
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
         31, 32,
     ])
-    const mockNonce = Buffer.from([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-    ])
     const mockEncryptedKey = Buffer.from([101, 102, 103, 104, 105])
 
     const mockSessionKey: SessionKey = {
         plaintextKey: mockPlaintextKey,
         encryptedKey: mockEncryptedKey,
-        nonce: mockNonce,
         sessionState: 'ciphertext',
     }
 
@@ -125,14 +121,17 @@ describe('recording-encryptor', () => {
             expect(result.length).toBeGreaterThan(clearText.length)
         })
 
-        it('should produce consistent output for same input', async () => {
+        it('should produce different output for same input due to random nonce', async () => {
             const encryptor = new RecordingEncryptor(mockKeyStore)
             const clearText = Buffer.from('hello world')
 
             const result1 = await encryptor.encryptBlock('session-123', 1, clearText)
             const result2 = await encryptor.encryptBlock('session-123', 1, clearText)
 
-            expect(result1).toEqual(result2)
+            // Each encryption uses a random nonce, so outputs should be different
+            expect(result1).not.toEqual(result2)
+            // But they should have the same length (nonce + ciphertext + auth tag)
+            expect(result1.length).toEqual(result2.length)
         })
 
         it('should handle binary data', async () => {
@@ -150,7 +149,6 @@ describe('recording-encryptor', () => {
             const deletedSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
                 deletedAt,
             }
@@ -176,7 +174,6 @@ describe('recording-encryptor', () => {
             const deletedSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'deleted',
             }
             mockKeyStore.getKey.mockResolvedValue(deletedSessionKey)
@@ -195,7 +192,6 @@ describe('recording-encryptor', () => {
             const cleartextSessionKey: SessionKey = {
                 plaintextKey: Buffer.alloc(0),
                 encryptedKey: Buffer.alloc(0),
-                nonce: Buffer.alloc(0),
                 sessionState: 'cleartext',
             }
             mockKeyStore.getKey.mockResolvedValue(cleartextSessionKey)
