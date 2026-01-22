@@ -48,6 +48,9 @@ Assume currency values are in {{currency}} and ALWAYS include the proper prefix 
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
 Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
 {{/include_url_reminder}}
+{{#has_truncated_values}}
+Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
+{{/has_truncated_values}}
 </system_reminder>
 """.strip()
 
