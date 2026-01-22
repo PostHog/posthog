@@ -86,6 +86,16 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_simple_events_with_person_join(self):
+        """Simple test: events with person.id should resolve without predicate pushdown issues."""
+        printed = self._print_select(
+            "SELECT event, person.id FROM events WHERE timestamp > '2024-01-01'",
+            modifiers=HogQLQueryModifiers(pushDownPredicates=False),
+        )
+
+        assert printed == self.snapshot
+
 
 class TestEventsPredicatePushdownTransformUnit:
     """Unit tests for helper methods that don't require database/context."""
