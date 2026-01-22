@@ -34,10 +34,18 @@ PROPERTY_TYPE_TO_EAV_COLUMN: dict[str, str] = {
 
 
 @dataclasses.dataclass
+class GetBackfillMonthsInputs:
+    team_id: int
+    property_name: str
+
+
+@dataclasses.dataclass
 class BackfillEAVPropertyInputs:
     team_id: int
     property_name: str
     property_type: str
+    # Month to backfill (format: YYYYMM, e.g. 202401 for January 2024)
+    month: int
 
 
 @dataclasses.dataclass
@@ -79,12 +87,63 @@ def _generate_value_extraction_sql(property_type: str, value_column: str) -> str
 
 
 @activity.defn
+def get_backfill_months(inputs: GetBackfillMonthsInputs) -> list[int]:
+    """
+    Get the list of months (as YYYYMM integers) that have events with the given property.
+
+    This is used to chunk the backfill into month-sized operations, aligned with
+    the events table partition key (toYYYYMM(timestamp)).
+    """
+    query = """
+        SELECT DISTINCT toYYYYMM(timestamp) as month
+        FROM events
+        WHERE
+            team_id = %(team_id)s
+            AND JSONHas(properties, %(property_name)s)
+        ORDER BY month
+    """
+
+    params = {
+        "team_id": inputs.team_id,
+        "property_name": inputs.property_name,
+    }
+
+    logger.info(
+        "Querying for months with property data",
+        team_id=inputs.team_id,
+        property_name=inputs.property_name,
+    )
+
+    cluster = get_cluster()
+
+    def run_query(client):
+        return client.execute(query, params)
+
+    # Query can run on any data node
+    result = cluster.any_host(run_query).result()
+    months = [row[0] for row in result]
+
+    logger.info(
+        "Found months with property data",
+        team_id=inputs.team_id,
+        property_name=inputs.property_name,
+        month_count=len(months),
+        months=months,
+    )
+
+    return months
+
+
+@activity.defn
 def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
     """
-    Backfill an EAV property by inserting rows into the event_properties table.
+    Backfill an EAV property for a specific month.
 
-    This queries historical events that have the property set and inserts
-    corresponding rows into the writable_event_properties table.
+    This queries historical events from the given month that have the property set
+    and inserts corresponding rows into the writable_event_properties table.
+
+    Month-based chunking aligns with the events table partition key (toYYYYMM),
+    ensuring efficient partition pruning and bounded resource usage per operation.
     """
     value_column = PROPERTY_TYPE_TO_EAV_COLUMN.get(inputs.property_type)
     if not value_column:
@@ -92,9 +151,23 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
 
     value_extraction = _generate_value_extraction_sql(inputs.property_type, value_column)
 
+    # Build the WHERE clause (month filter aligns with partition key for efficient pruning)
+    where_conditions = [
+        "team_id = %(team_id)s",
+        "toYYYYMM(timestamp) = %(month)s",
+        f"NOT isNull({value_extraction})",
+    ]
+
+    params: dict[str, int | str] = {
+        "team_id": inputs.team_id,
+        "property_name": inputs.property_name,
+        "month": inputs.month,
+    }
+
+    where_clause = " AND ".join(where_conditions)
+
     # Build the INSERT query
     # We select from events and insert into writable_event_properties
-    # Only include events where the property exists (JSONHas check)
     query = f"""
         INSERT INTO writable_event_properties (
             team_id,
@@ -120,15 +193,8 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
             -1 AS _offset,
             -1 AS _partition
         FROM events
-        WHERE
-            team_id = %(team_id)s
-            AND NOT isNull({value_extraction})
+        WHERE {where_clause}
     """
-
-    params = {
-        "team_id": inputs.team_id,
-        "property_name": inputs.property_name,
-    }
 
     logger.info(
         "Starting EAV backfill",
@@ -136,6 +202,7 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
         property_name=inputs.property_name,
         property_type=inputs.property_type,
         value_column=value_column,
+        month=inputs.month,
     )
 
     try:
@@ -155,6 +222,7 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
             "EAV backfill completed",
             team_id=inputs.team_id,
             property_name=inputs.property_name,
+            month=inputs.month,
         )
 
     except Exception as e:
@@ -162,6 +230,7 @@ def backfill_eav_property(inputs: BackfillEAVPropertyInputs) -> None:
             "EAV backfill failed",
             team_id=inputs.team_id,
             property_name=inputs.property_name,
+            month=inputs.month,
             error=str(e),
         )
         raise

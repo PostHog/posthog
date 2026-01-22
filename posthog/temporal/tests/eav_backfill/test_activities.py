@@ -1,11 +1,18 @@
 """End-to-end tests for EAV backfill with edge case property values."""
 
+from datetime import UTC, datetime
+
 import pytest
 from posthog.test.base import _create_event, flush_persons_and_events
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.property_definition import PropertyType
-from posthog.temporal.eav_backfill.activities import BackfillEAVPropertyInputs, backfill_eav_property
+from posthog.temporal.eav_backfill.activities import (
+    BackfillEAVPropertyInputs,
+    GetBackfillMonthsInputs,
+    backfill_eav_property,
+    get_backfill_months,
+)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -16,6 +23,10 @@ class TestEAVBackfillEndToEnd:
     Creates events with various edge case property values, runs backfill,
     and verifies the values in the event_properties table.
     """
+
+    # Fixed month for all test events (January 2024)
+    TEST_MONTH = 202401
+    TEST_TIMESTAMP = datetime(2024, 1, 15, tzinfo=UTC)
 
     @pytest.fixture
     def create_events_with_properties(self, team):
@@ -75,7 +86,7 @@ class TestEAVBackfillEndToEnd:
             ("dt_unix_timestamp", PropertyType.Datetime, "1705315800", "1705315800"),  # Stored as-is
         ]
 
-        # Create an event for each test case
+        # Create an event for each test case with a fixed timestamp
         created = []
         for prop_name, prop_type, input_value, expected in test_cases:
             event_uuid = _create_event(
@@ -83,6 +94,7 @@ class TestEAVBackfillEndToEnd:
                 event="$test_event",
                 distinct_id="test_user",
                 properties={prop_name: input_value},
+                timestamp=self.TEST_TIMESTAMP,
             )
             created.append((prop_name, prop_type, input_value, expected, event_uuid))
 
@@ -100,6 +112,7 @@ class TestEAVBackfillEndToEnd:
                     team_id=team.id,
                     property_name=prop_name,
                     property_type=str(prop_type),
+                    month=self.TEST_MONTH,
                 )
             )
 
@@ -146,3 +159,135 @@ class TestEAVBackfillEndToEnd:
                     assert actual == expected, (
                         f"Property {prop_name}: expected {expected!r}, got {actual!r} (input was {input_value!r})"
                     )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetBackfillMonths:
+    """Test the get_backfill_months activity."""
+
+    def test_returns_distinct_months(self, team):
+        """Test that get_backfill_months returns distinct months with property data."""
+        # Create events in different months
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"plan": "free"},
+            timestamp=datetime(2024, 1, 15, tzinfo=UTC),
+        )
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"plan": "pro"},
+            timestamp=datetime(2024, 1, 20, tzinfo=UTC),
+        )
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"plan": "enterprise"},
+            timestamp=datetime(2024, 3, 10, tzinfo=UTC),
+        )
+        # Event without the property - should not contribute a month
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"other_prop": "value"},
+            timestamp=datetime(2024, 2, 15, tzinfo=UTC),
+        )
+        flush_persons_and_events()
+
+        months = get_backfill_months(
+            GetBackfillMonthsInputs(
+                team_id=team.id,
+                property_name="plan",
+            )
+        )
+
+        # Should return Jan and Mar (202401, 202403), not Feb (no "plan" property)
+        assert months == [202401, 202403]
+
+    def test_returns_empty_list_when_no_data(self, team):
+        """Test that get_backfill_months returns empty list when property has no data."""
+        months = get_backfill_months(
+            GetBackfillMonthsInputs(
+                team_id=team.id,
+                property_name="nonexistent_property",
+            )
+        )
+
+        assert months == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBackfillWithMonthFilter:
+    """Test the month filtering in backfill_eav_property."""
+
+    def test_backfill_only_specified_month(self, team):
+        """Test that backfill with month parameter only processes that month."""
+        # Create events in different months
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"status": "jan_event"},
+            timestamp=datetime(2024, 1, 15, tzinfo=UTC),
+        )
+        _create_event(
+            team=team,
+            event="$test",
+            distinct_id="user1",
+            properties={"status": "feb_event"},
+            timestamp=datetime(2024, 2, 15, tzinfo=UTC),
+        )
+        flush_persons_and_events()
+
+        # Only backfill January
+        backfill_eav_property(
+            BackfillEAVPropertyInputs(
+                team_id=team.id,
+                property_name="status",
+                property_type=str(PropertyType.String),
+                month=202401,
+            )
+        )
+
+        # Check what got inserted
+        result = sync_execute(
+            """
+            SELECT value_string FROM event_properties
+            WHERE team_id = %(team_id)s AND key = 'status'
+            ORDER BY value_string
+            """,
+            {"team_id": team.id},
+        )
+
+        # Only January event should be backfilled
+        assert len(result) == 1
+        assert result[0][0] == "jan_event"
+
+        # Now backfill February
+        backfill_eav_property(
+            BackfillEAVPropertyInputs(
+                team_id=team.id,
+                property_name="status",
+                property_type=str(PropertyType.String),
+                month=202402,
+            )
+        )
+
+        # Check again - both should be present now
+        result = sync_execute(
+            """
+            SELECT value_string FROM event_properties
+            WHERE team_id = %(team_id)s AND key = 'status'
+            ORDER BY value_string
+            """,
+            {"team_id": team.id},
+        )
+
+        assert len(result) == 2
+        assert result[0][0] == "feb_event"
+        assert result[1][0] == "jan_event"

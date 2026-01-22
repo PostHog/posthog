@@ -12,8 +12,10 @@ from posthog.models.materialized_column_slots import MaterializedColumnSlotState
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.eav_backfill.activities import (
     BackfillEAVPropertyInputs,
+    GetBackfillMonthsInputs,
     UpdateEAVSlotStateInputs,
     backfill_eav_property,
+    get_backfill_months,
     update_eav_slot_state,
 )
 
@@ -67,27 +69,68 @@ class BackfillEAVPropertyWorkflow(PostHogWorkflow):
                 )
                 await workflow.sleep(dt.timedelta(seconds=inputs.cache_refresh_wait_seconds))
 
-            # Run backfill
+            # Get list of months that have data for this property
+            # This allows us to chunk the backfill and provide progress visibility
             logger.info(
-                "Starting EAV backfill",
+                "Getting months with property data",
                 team_id=inputs.team_id,
                 property_name=inputs.property_name,
-                property_type=inputs.property_type,
             )
-            await workflow.execute_activity(
-                backfill_eav_property,
-                BackfillEAVPropertyInputs(
+            months: list[int] = await workflow.execute_activity(
+                get_backfill_months,
+                GetBackfillMonthsInputs(
                     team_id=inputs.team_id,
                     property_name=inputs.property_name,
-                    property_type=inputs.property_type,
                 ),
-                start_to_close_timeout=dt.timedelta(hours=4),  # Longer timeout for large datasets
+                start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(minutes=1),
-                    maximum_interval=dt.timedelta(minutes=10),
+                    initial_interval=dt.timedelta(seconds=30),
+                    maximum_interval=dt.timedelta(minutes=5),
                     maximum_attempts=3,
                 ),
             )
+
+            if not months:
+                logger.info(
+                    "No months with property data found, skipping backfill",
+                    team_id=inputs.team_id,
+                    property_name=inputs.property_name,
+                )
+            else:
+                # Run backfill for each month
+                # Processing by month aligns with the events table partition key (toYYYYMM),
+                # ensuring efficient partition pruning and bounded resource usage per operation
+                logger.info(
+                    "Starting EAV backfill",
+                    team_id=inputs.team_id,
+                    property_name=inputs.property_name,
+                    property_type=inputs.property_type,
+                    total_months=len(months),
+                )
+
+                for i, month in enumerate(months):
+                    logger.info(
+                        "Backfilling month",
+                        team_id=inputs.team_id,
+                        property_name=inputs.property_name,
+                        month=month,
+                        progress=f"{i + 1}/{len(months)}",
+                    )
+                    await workflow.execute_activity(
+                        backfill_eav_property,
+                        BackfillEAVPropertyInputs(
+                            team_id=inputs.team_id,
+                            property_name=inputs.property_name,
+                            property_type=inputs.property_type,
+                            month=month,
+                        ),
+                        start_to_close_timeout=dt.timedelta(hours=1),  # 1 hour per month should be plenty
+                        retry_policy=RetryPolicy(
+                            initial_interval=dt.timedelta(minutes=1),
+                            maximum_interval=dt.timedelta(minutes=10),
+                            maximum_attempts=3,
+                        ),
+                    )
 
             # Update state to READY
             logger.info("EAV backfill complete, updating state to READY", slot_id=inputs.slot_id)
