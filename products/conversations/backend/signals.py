@@ -60,8 +60,14 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 
     # Detect soft-delete: was not deleted, now is deleted
     if not old_instance.deleted and instance.deleted:
-        # Decrement message count
-        Ticket.objects.filter(id=instance.item_id, team=instance.team).update(message_count=F("message_count") - 1)
+        author_type = instance.item_context.get("author_type") if isinstance(instance.item_context, dict) else None
+        is_team_message = instance.created_by and author_type != "customer"
+
+        update_fields = {"message_count": F("message_count") - 1}
+        if is_team_message:
+            update_fields["unread_customer_count"] = F("unread_customer_count") - 1
+
+        Ticket.objects.filter(id=instance.item_id, team=instance.team).update(**update_fields)
 
         # Recalculate last_message from remaining messages
         last_comment = (
