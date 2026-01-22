@@ -33,7 +33,7 @@ from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillScheduleInputs,
     backfill_range,
     backfill_schedule,
-    get_schedule_frequency,
+    get_batch_export_interval,
 )
 
 pytestmark = [pytest.mark.django_db(transaction=True)]
@@ -393,32 +393,34 @@ def test_backfill_range(start_at, end_at, step, expected):
     assert result == expected
 
 
-async def test_get_schedule_frequency_every_5_minutes_schedule(
+async def test_get_batch_export_interval_every_5_minutes_schedule(
     activity_environment, temporal_worker, temporal_schedule_every_5_minutes
 ):
-    """Test get_schedule_frequency returns the correct interval."""
+    """Test get_batch_export_interval returns the correct interval."""
     desc = await temporal_schedule_every_5_minutes.describe()
     expected = desc.schedule.spec.intervals[0].every.total_seconds()
 
-    result = await activity_environment.run(get_schedule_frequency, desc.id)
+    result = await activity_environment.run(get_batch_export_interval, desc.id)
 
     assert result == expected == 5 * 60
 
 
-async def test_get_schedule_frequency_hourly_schedule(activity_environment, temporal_worker, temporal_schedule_hourly):
-    """Test get_schedule_frequency returns correct frequency for daily calendar spec."""
+async def test_get_batch_export_interval_hourly_schedule(
+    activity_environment, temporal_worker, temporal_schedule_hourly
+):
+    """Test get_batch_export_interval returns correct interval for hourly schedule."""
     desc = await temporal_schedule_hourly.describe()
     expected = desc.schedule.spec.intervals[0].every.total_seconds()
 
-    result = await activity_environment.run(get_schedule_frequency, desc.id)
+    result = await activity_environment.run(get_batch_export_interval, desc.id)
 
     assert result == expected == 3600
 
 
-async def test_get_schedule_frequency_with_tz_and_offset(
+async def test_get_batch_export_interval_with_tz_and_offset(
     activity_environment, temporal_worker, temporal_schedule_with_tz_and_offset, schedule_interval_timezone_and_offset
 ):
-    """Test get_schedule_frequency returns correct frequency for weekly calendar spec."""
+    """Test get_batch_export_interval returns correct interval for with timezone and offset."""
     desc = await temporal_schedule_with_tz_and_offset.describe()
     interval, _, _, _ = schedule_interval_timezone_and_offset
     if interval == "day":
@@ -426,7 +428,7 @@ async def test_get_schedule_frequency_with_tz_and_offset(
     elif interval == "week":
         expected = 7 * 24 * 3600
 
-    result = await activity_environment.run(get_schedule_frequency, desc.id)
+    result = await activity_environment.run(get_batch_export_interval, desc.id)
 
     assert result == expected
 
