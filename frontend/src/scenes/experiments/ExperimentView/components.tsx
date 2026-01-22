@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconEye, IconFlask, IconPause, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconCopy, IconEye, IconFlask, IconPlusSmall, IconRefresh, IconStopFilled } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -518,7 +518,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="stop-experiment"
                                 onClick={() => openStopExperimentModal()}
                             >
-                                <IconPause /> Stop
+                                <IconStopFilled /> Stop
                             </ButtonPrimitive>
                         )}
                     </ScenePanelActionsSection>
