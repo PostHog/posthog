@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconPeople, IconRocket, IconShield } from '@posthog/icons'
 
-
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { userLogic } from '../userLogic'
 import { featureFlagLogic } from './featureFlagLogic'
@@ -39,6 +40,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             applyTemplate: () => {
                 setFeatureFlag({
                     ...featureFlag,
+                    key: featureFlag.key || 'gradual-rollout',
                     filters: {
                         ...featureFlag.filters,
                         groups: [
@@ -63,6 +65,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                 const emailDomain = user?.email?.split('@')[1] || 'example.com'
                 setFeatureFlag({
                     ...featureFlag,
+                    key: featureFlag.key || 'internal-only',
                     filters: {
                         ...featureFlag.filters,
                         groups: [
@@ -70,9 +73,9 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                                 properties: [
                                     {
                                         key: 'email',
-                                        type: 'person',
+                                        type: PropertyFilterType.Person,
                                         value: `@${emailDomain}`,
-                                        operator: 'icontains',
+                                        operator: PropertyOperator.IContains,
                                     },
                                 ],
                                 rollout_percentage: 100,
@@ -93,6 +96,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             applyTemplate: () => {
                 setFeatureFlag({
                     ...featureFlag,
+                    key: featureFlag.key || 'beta-feature',
                     filters: {
                         ...featureFlag.filters,
                         groups: [
@@ -100,9 +104,9 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
                                 properties: [
                                     {
                                         key: 'beta',
-                                        type: 'person',
+                                        type: PropertyFilterType.Person,
                                         value: ['true'],
-                                        operator: 'exact',
+                                        operator: PropertyOperator.Exact,
                                     },
                                 ],
                                 rollout_percentage: 100,
@@ -123,7 +127,8 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             applyTemplate: () => {
                 setFeatureFlag({
                     ...featureFlag,
-                    name: featureFlag.name || 'Emergency kill switch for...',
+                    key: featureFlag.key || 'kill-switch',
+                    name: featureFlag.name || 'Emergency kill switch for…',
                     active: true,
                     filters: {
                         ...featureFlag.filters,
@@ -150,6 +155,7 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
             <div className="flex gap-3 overflow-x-auto pb-2">
                 {templates.map((template) => (
                     <button
+                        type="button"
                         key={template.id}
                         onClick={template.applyTemplate}
                         className="flex-shrink-0 border rounded-lg p-4 w-36 hover:border-primary-light hover:bg-primary-highlight transition-all cursor-pointer text-left"

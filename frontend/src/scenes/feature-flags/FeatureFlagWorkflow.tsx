@@ -1,18 +1,16 @@
 import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
-import { groupsModel } from 'models/groupsModel'
 import { useState } from 'react'
 
 import {
+    IconBalance,
     IconCode,
-    IconDevices,
     IconGlobe,
     IconInfo,
     IconList,
-    IconPerson,
     IconPlus,
     IconServer,
     IconToggle,
@@ -33,42 +31,156 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AnyPropertyFilter, FeatureFlagEvaluationRuntime, FeatureFlagGroupType } from '~/types'
+import { tagsModel } from '~/models/tagsModel'
+import { FeatureFlagEvaluationRuntime } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
+import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { FeatureFlagTemplates } from './FeatureFlagTemplates'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 
 export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element {
-    const { props, featureFlag, multivariateEnabled, variants, nonEmptyVariants, variantErrors } =
+    const { props, featureFlag, multivariateEnabled, variants, variantErrors, isEditingFlag } =
         useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
         addVariant,
         removeVariant,
-        updateVariant,
         distributeVariantsEqually,
         setFeatureFlagFilters,
+        editFeatureFlag,
+        loadFeatureFlag,
     } = useActions(featureFlagLogic)
-    const { groupTypes, aggregationLabel } = useValues(groupsModel)
+    const { tags: availableTags } = useValues(tagsModel)
+    const hasEvaluationTags = useFeatureFlag('FLAG_EVALUATION_TAGS')
 
     const [showImplementation, setShowImplementation] = useState(false)
-    const [openConditions, setOpenConditions] = useState<string[]>([])
     const [openVariants, setOpenVariants] = useState<string[]>([])
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const groups = featureFlag?.filters?.groups || []
 
+    const updateVariant = (
+        index: number,
+        field: 'key' | 'name' | 'rollout_percentage',
+        value: string | number
+    ): void => {
+        const currentVariants = [...variants]
+        currentVariants[index] = { ...currentVariants[index], [field]: value }
+        setFeatureFlag({
+            ...featureFlag,
+            filters: {
+                ...featureFlag?.filters,
+                multivariate: {
+                    ...featureFlag?.filters?.multivariate,
+                    variants: currentVariants,
+                },
+            },
+        })
+    }
+
+    const updateVariantPayload = (index: number, value: string | undefined): void => {
+        const variantKey = variants[index]?.key
+        if (!variantKey) {
+            return
+        }
+        const currentPayloads = { ...featureFlag?.filters?.payloads }
+        if (value === '' || value === undefined) {
+            delete currentPayloads[variantKey]
+        } else {
+            currentPayloads[variantKey] = value
+        }
+        setFeatureFlag({
+            ...featureFlag,
+            filters: {
+                ...featureFlag?.filters,
+                payloads: currentPayloads,
+            },
+        })
+    }
+
+    if (!featureFlag) {
+        return <div>Loading...</div>
+    }
+
+    // Read-only view when not editing an existing flag
+    if (!isNewFeatureFlag && !isEditingFlag) {
+        return (
+            <>
+                <SceneTitleSection
+                    name={featureFlag.key}
+                    resourceType={{
+                        type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
+                    }}
+                    actions={
+                        <LemonButton
+                            type="primary"
+                            data-attr="edit-feature-flag"
+                            size="small"
+                            onClick={() => editFeatureFlag(true)}
+                        >
+                            Edit
+                        </LemonButton>
+                    }
+                />
+                <SceneContent>
+                    <div className="flex flex-col gap-4">
+                        {/* Summary card */}
+                        <div className="rounded border p-4 bg-bg-light">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <LemonLabel>Flag key</LemonLabel>
+                                    <div className="font-mono text-sm">{featureFlag.key}</div>
+                                </div>
+                                <div>
+                                    <LemonLabel>Status</LemonLabel>
+                                    <div className={featureFlag.active ? 'text-success' : 'text-muted'}>
+                                        {featureFlag.active ? 'Enabled' : 'Disabled'}
+                                    </div>
+                                </div>
+                                {featureFlag.name && (
+                                    <div className="col-span-2">
+                                        <LemonLabel>Description</LemonLabel>
+                                        <div className="text-sm">{featureFlag.name}</div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Release conditions - read only */}
+                        {!featureFlag.is_remote_configuration && (
+                            <div className="rounded border p-4 bg-bg-light">
+                                <FeatureFlagReleaseConditions
+                                    id={String(props.id)}
+                                    filters={featureFlag.filters}
+                                    readOnly
+                                />
+                            </div>
+                        )}
+
+                        {/* Implementation */}
+                        <div className="rounded border p-4 bg-bg-light">
+                            <FeatureFlagCodeExample featureFlag={featureFlag} />
+                        </div>
+                    </div>
+                </SceneContent>
+            </>
+        )
+    }
+
+    // Edit mode
     return (
         <>
             <Form
@@ -91,7 +203,12 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                 type="secondary"
                                 size="small"
                                 onClick={() => {
-                                    router.actions.push(urls.featureFlags())
+                                    if (isEditingFlag) {
+                                        editFeatureFlag(false)
+                                        loadFeatureFlag()
+                                    } else {
+                                        router.actions.push(urls.featureFlags())
+                                    }
                                 }}
                             >
                                 Cancel
@@ -111,27 +228,19 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
 
                 <SceneContent>
                     {/* Templates - only show for new flags */}
-                    {isNewFeatureFlag && (
-                        <FeatureFlagTemplates
-                            onTemplateApplied={(sectionsToOpen) => {
-                                // Open relevant condition sets when template is applied
-                                if (sectionsToOpen.includes('targeting')) {
-                                    setOpenConditions(['condition-0'])
-                                }
-                            }}
-                        />
-                    )}
+                    {isNewFeatureFlag && <FeatureFlagTemplates />}
 
                     {/* Two-column layout */}
                     <div className="flex gap-4 mt-4 flex-wrap">
                         {/* Left column - narrow */}
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
-                            <div className="rounded border p-3 bg-white gap-2 flex flex-col">
-                                <LemonField name="key">
-                                    <LemonLabel info="The key is used to identify the feature flag in the code. Must be unique.">
-                                        Flag key
-                                    </LemonLabel>
+                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
+                                <LemonField
+                                    name="key"
+                                    label="Flag key"
+                                    info="The key is used to identify the feature flag in the code. Must be unique."
+                                >
                                     <LemonInput
                                         data-attr="feature-flag-key"
                                         className="ph-ignore-input"
@@ -143,8 +252,7 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                     />
                                 </LemonField>
 
-                                <LemonField name="name">
-                                    <LemonLabel>Description</LemonLabel>
+                                <LemonField name="name" label="Description">
                                     <LemonTextArea
                                         className="ph-ignore-input"
                                         data-attr="feature-flag-description"
@@ -155,59 +263,68 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                 <LemonDivider />
 
                                 <LemonField name="active">
-                                    <Tooltip
-                                        title="When enabled, this flag evaluates according to your release conditions. When disabled, this flag will not be evaluated and PostHog SDKs default to returning false."
-                                        placement="right"
-                                    >
-                                        <LemonSwitch
-                                            label={
-                                                <span className="flex items-center">
-                                                    <span>Enabled</span>
-                                                    <IconInfo className="ml-1 text-lg" />
-                                                </span>
-                                            }
-                                            bordered
-                                            fullWidth
-                                            data-attr="feature-flag-enabled"
-                                        />
-                                    </Tooltip>
+                                    {({ value, onChange }) => (
+                                        <Tooltip
+                                            title="When enabled, this flag evaluates according to your release conditions. When disabled, this flag will not be evaluated and PostHog SDKs default to returning false."
+                                            placement="right"
+                                        >
+                                            <LemonSwitch
+                                                checked={value}
+                                                onChange={onChange}
+                                                label={
+                                                    <span className="flex items-center">
+                                                        <span>Enabled</span>
+                                                        <IconInfo className="ml-1 text-lg" />
+                                                    </span>
+                                                }
+                                                bordered
+                                                fullWidth
+                                                data-attr="feature-flag-enabled"
+                                            />
+                                        </Tooltip>
+                                    )}
                                 </LemonField>
 
                                 <LemonField name="ensure_experience_continuity">
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                If your feature flag is applied before identifying the user, use this to
-                                                ensure that the flag value remains consistent for the same user.
-                                                Depending on your setup, this option might not always be suitable. This
-                                                feature requires creating profiles for anonymous users.{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                    target="_blank"
-                                                >
-                                                    Learn more
-                                                </Link>
-                                            </>
-                                        }
-                                        placement="right"
-                                    >
-                                        <LemonSwitch
-                                            bordered
-                                            fullWidth
-                                            label={
-                                                <span className="flex items-center">
-                                                    <span>Persist flag across authentication steps</span>
-                                                    <IconInfo className="ml-1 text-lg" />
-                                                </span>
+                                    {({ value, onChange }) => (
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    If your feature flag is applied before identifying the user, use
+                                                    this to ensure that the flag value remains consistent for the same
+                                                    user. Depending on your setup, this option might not always be
+                                                    suitable. This feature requires creating profiles for anonymous
+                                                    users.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </>
                                             }
-                                            data-attr="feature-flag-persist-across-auth"
-                                        />
-                                    </Tooltip>
+                                            placement="right"
+                                        >
+                                            <LemonSwitch
+                                                checked={value}
+                                                onChange={onChange}
+                                                bordered
+                                                fullWidth
+                                                label={
+                                                    <span className="flex items-center">
+                                                        <span>Persist flag across authentication steps</span>
+                                                        <IconInfo className="ml-1 text-lg" />
+                                                    </span>
+                                                }
+                                                data-attr="feature-flag-persist-across-auth"
+                                            />
+                                        </Tooltip>
+                                    )}
                                 </LemonField>
                             </div>
 
                             {/* Advanced options card */}
-                            <div className="rounded border p-3 bg-white gap-2 flex flex-col">
+                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                 <LemonLabel>Advanced options</LemonLabel>
 
                                 <LemonField name="evaluation_runtime">
@@ -255,12 +372,59 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                     />
                                 </LemonField>
                             </div>
+
+                            {/* Tags & Evaluation Contexts card */}
+                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
+                                <LemonLabel
+                                    info={
+                                        hasEvaluationTags
+                                            ? 'Use tags to organize flags. Mark tags as evaluation contexts to control when flags evaluate – flags only evaluate when the SDK provides matching environment tags.'
+                                            : 'Use tags to organize and filter your feature flags.'
+                                    }
+                                >
+                                    Tags & evaluation contexts
+                                </LemonLabel>
+                                {hasEvaluationTags ? (
+                                    <LemonField name="tags">
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <LemonField name="evaluation_tags">
+                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={formTags}
+                                                        evaluationTags={formEvalTags || []}
+                                                        context="form"
+                                                        onChange={(updatedTags, updatedEvaluationTags) => {
+                                                            onChangeTags(updatedTags)
+                                                            onChangeEvalTags(updatedEvaluationTags)
+                                                        }}
+                                                        tagsAvailable={availableTags.filter(
+                                                            (tag: string) => !formTags?.includes(tag)
+                                                        )}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+                                    </LemonField>
+                                ) : (
+                                    <LemonField name="tags">
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <ObjectTags
+                                                tags={formTags}
+                                                onChange={onChangeTags}
+                                                tagsAvailable={availableTags.filter(
+                                                    (tag: string) => !formTags?.includes(tag)
+                                                )}
+                                            />
+                                        )}
+                                    </LemonField>
+                                )}
+                            </div>
                         </div>
 
                         {/* Right column - wide */}
                         <div className="flex-2 flex flex-col gap-4" style={{ minWidth: '30rem' }}>
                             {/* Flag type card */}
-                            <div className="rounded border p-3 bg-white gap-4 flex flex-col">
+                            <div className="rounded border p-3 bg-bg-light gap-4 flex flex-col">
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel>Flag type</LemonLabel>
                                     <LemonSelect
@@ -340,7 +504,12 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                     <div className="flex flex-col gap-2">
                                         <div className="flex items-center justify-between">
                                             <LemonLabel>Variants</LemonLabel>
-                                            <LemonButton size="small" onClick={distributeVariantsEqually}>
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconBalance />}
+                                                onClick={distributeVariantsEqually}
+                                                tooltip="Distribute rollout percentages equally"
+                                            >
                                                 Distribute equally
                                             </LemonButton>
                                         </div>
@@ -440,6 +609,13 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                                             data-attr={`feature-flag-variant-description-${index}`}
                                                         />
 
+                                                        <LemonLabel>Payload</LemonLabel>
+                                                        <JSONEditorInput
+                                                            onChange={(value) => updateVariantPayload(index, value)}
+                                                            value={featureFlag.filters?.payloads?.[variant.key]}
+                                                            placeholder='{"key": "value"}'
+                                                        />
+
                                                         {variants.length > 1 && (
                                                             <LemonButton
                                                                 type="secondary"
@@ -468,318 +644,56 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Payload section - for boolean and remote config flags */}
+                                {!multivariateEnabled && (
+                                    <div className="flex flex-col gap-2">
+                                        <LemonLabel
+                                            info={
+                                                featureFlag.is_remote_configuration
+                                                    ? 'Specify a JSON payload to be returned for this remote config flag.'
+                                                    : 'Optionally specify a JSON payload to be returned when the flag evaluates to true.'
+                                            }
+                                        >
+                                            Payload
+                                        </LemonLabel>
+                                        <div className="text-secondary text-xs mb-1">
+                                            {featureFlag.is_remote_configuration ? (
+                                                <>
+                                                    Remote config flags always return the payload. Access it via{' '}
+                                                    <code className="text-xs">getFeatureFlagPayload</code>.
+                                                </>
+                                            ) : (
+                                                <>
+                                                    When the flag evaluates to <code className="text-xs">true</code>,
+                                                    this payload will be available via{' '}
+                                                    <code className="text-xs">getFeatureFlagPayload</code>.
+                                                </>
+                                            )}
+                                        </div>
+                                        <Group name={['filters', 'payloads']}>
+                                            <LemonField name="true">
+                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
+                                            </LemonField>
+                                        </Group>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
-                                <div className="rounded border p-3 bg-white gap-2 flex flex-col">
-                                    <LemonLabel>Release conditions</LemonLabel>
-                                    <p className="text-sm text-muted">
-                                        Condition sets are evaluated top to bottom - the first matching set is used. A
-                                        condition matches when all property filters pass AND the target falls within the
-                                        rollout percentage.
-                                    </p>
-
-                                    {/* Bucketing identifier selector */}
-                                    <LemonSelect
-                                        fullWidth
-                                        value={
-                                            featureFlag.filters?.aggregation_group_type_index != null
-                                                ? `group_${featureFlag.filters.aggregation_group_type_index}`
-                                                : featureFlag.bucketing_identifier === 'distinct_id'
-                                                  ? 'device_id'
-                                                  : 'distinct_id'
-                                        }
-                                        onChange={(value) => {
-                                            if (value.startsWith('group_')) {
-                                                const groupTypeIndex = parseInt(value.replace('group_', ''))
-                                                setFeatureFlagFilters({
-                                                    ...featureFlag.filters,
-                                                    aggregation_group_type_index: groupTypeIndex,
-                                                    groups: [
-                                                        {
-                                                            properties: [],
-                                                            rollout_percentage: 100,
-                                                            variant: null,
-                                                        },
-                                                    ],
-                                                })
-                                            } else if (value === 'device_id') {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    bucketing_identifier: 'distinct_id',
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        aggregation_group_type_index: null,
-                                                    },
-                                                })
-                                            } else {
-                                                setFeatureFlag({
-                                                    ...featureFlag,
-                                                    bucketing_identifier: null,
-                                                    filters: {
-                                                        ...featureFlag.filters,
-                                                        aggregation_group_type_index: null,
-                                                    },
-                                                })
-                                            }
-                                        }}
-                                        options={[
-                                            {
-                                                value: 'distinct_id',
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Match by distinct ID</span>
-                                                        <span className="text-xs text-muted">
-                                                            Stable assignment for logged-in users based on their unique
-                                                            user ID.
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                icon: <IconPerson />,
-                                            },
-                                            {
-                                                value: 'device_id',
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">Device ID</span>
-                                                        <span className="text-xs text-muted">
-                                                            Stable assignment per device. Good fit for experiments on
-                                                            anonymous users.
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                icon: <IconDevices />,
-                                            },
-                                            ...Array.from(groupTypes.values()).map((groupType) => ({
-                                                value: `group_${groupType.group_type_index}`,
-                                                label: (
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">
-                                                            {aggregationLabel(groupType.group_type_index).singular}
-                                                        </span>
-                                                        <span className="text-xs text-muted">
-                                                            Stable assignment for everyone in a{' '}
-                                                            {aggregationLabel(
-                                                                groupType.group_type_index
-                                                            ).singular.toLowerCase()}
-                                                            .
-                                                        </span>
-                                                    </div>
-                                                ),
-                                                icon: <IconList />,
-                                            })),
-                                        ]}
-                                        data-attr="feature-flag-aggregation-type"
+                                <div className="rounded border p-3 bg-bg-light">
+                                    <FeatureFlagReleaseConditionsCollapsible
+                                        id={String(props.id)}
+                                        filters={featureFlag.filters}
+                                        onChange={setFeatureFlagFilters}
                                     />
-
-                                    {/* Condition sets */}
-                                    <LemonCollapse
-                                        multiple
-                                        activeKeys={openConditions}
-                                        onChange={setOpenConditions}
-                                        panels={groups.map((group: FeatureFlagGroupType, index: number) => {
-                                            const hasProperties = group.properties && group.properties.length > 0
-                                            const propertyCount = group.properties?.length || 0
-                                            const rollout = group.rollout_percentage ?? 100
-
-                                            return {
-                                                key: `condition-${index}`,
-                                                header: (
-                                                    <div className="flex gap-2 items-center flex-1">
-                                                        <Lettermark
-                                                            name={String(index + 1)}
-                                                            color={LettermarkColor.Gray}
-                                                            size="small"
-                                                        />
-                                                        <span className="text-sm font-medium mr-2">
-                                                            Condition {index + 1}
-                                                        </span>
-                                                        {hasProperties && (
-                                                            <code className="text-xs text-muted rounded px-1 py-0.5">
-                                                                {propertyCount}{' '}
-                                                                {propertyCount === 1 ? 'filter' : 'filters'}
-                                                            </code>
-                                                        )}
-                                                        <span className="flex-1" />
-                                                        <span className="text-xs text-muted">{rollout}%</span>
-                                                    </div>
-                                                ),
-                                                content: (
-                                                    <div className="flex flex-col gap-2">
-                                                        <LemonLabel>Match filters</LemonLabel>
-                                                        <PropertyFilters
-                                                            propertyFilters={group.properties || []}
-                                                            onChange={(properties) => {
-                                                                const newGroups = [...groups]
-                                                                newGroups[index] = {
-                                                                    ...newGroups[index],
-                                                                    properties: properties as AnyPropertyFilter[],
-                                                                }
-                                                                setFeatureFlagFilters({
-                                                                    ...featureFlag.filters,
-                                                                    groups: newGroups,
-                                                                })
-                                                            }}
-                                                            pageKey={`feature-flag-${featureFlag.id}-${index}`}
-                                                            taxonomicGroupTypes={[]}
-                                                            disabledReason={undefined}
-                                                        />
-
-                                                        <LemonLabel>Rollout percentage</LemonLabel>
-                                                        <div className="flex items-center gap-2">
-                                                            <LemonSlider
-                                                                className="flex-1"
-                                                                value={rollout}
-                                                                min={0}
-                                                                max={100}
-                                                                step={1}
-                                                                onChange={(value) => {
-                                                                    const newGroups = [...groups]
-                                                                    newGroups[index] = {
-                                                                        ...newGroups[index],
-                                                                        rollout_percentage: value,
-                                                                    }
-                                                                    setFeatureFlagFilters({
-                                                                        ...featureFlag.filters,
-                                                                        groups: newGroups,
-                                                                    })
-                                                                }}
-                                                            />
-                                                            <LemonInput
-                                                                type="number"
-                                                                min={0}
-                                                                max={100}
-                                                                value={rollout}
-                                                                onChange={(value) => {
-                                                                    const newGroups = [...groups]
-                                                                    newGroups[index] = {
-                                                                        ...newGroups[index],
-                                                                        rollout_percentage: parseInt(
-                                                                            value?.toString() || '100'
-                                                                        ),
-                                                                    }
-                                                                    setFeatureFlagFilters({
-                                                                        ...featureFlag.filters,
-                                                                        groups: newGroups,
-                                                                    })
-                                                                }}
-                                                                className="w-20"
-                                                                suffix={<span>%</span>}
-                                                            />
-                                                        </div>
-
-                                                        {/* Variant override for multivariate flags */}
-                                                        {multivariateEnabled && nonEmptyVariants.length > 0 && (
-                                                            <>
-                                                                <LemonLabel>Override variant (optional)</LemonLabel>
-                                                                <LemonSelect
-                                                                    fullWidth
-                                                                    allowClear
-                                                                    placeholder="No override - use variant percentages"
-                                                                    value={group.variant || null}
-                                                                    onChange={(value) => {
-                                                                        const newGroups = [...groups]
-                                                                        newGroups[index] = {
-                                                                            ...newGroups[index],
-                                                                            variant: value,
-                                                                        }
-                                                                        setFeatureFlagFilters({
-                                                                            ...featureFlag.filters,
-                                                                            groups: newGroups,
-                                                                        })
-                                                                    }}
-                                                                    options={nonEmptyVariants.map(
-                                                                        (variant, vIndex) => ({
-                                                                            value: variant.key,
-                                                                            label: (
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <Lettermark
-                                                                                        name={alphabet[vIndex]}
-                                                                                        color={LettermarkColor.Gray}
-                                                                                        size="xsmall"
-                                                                                    />
-                                                                                    <span>{variant.key}</span>
-                                                                                </div>
-                                                                            ),
-                                                                        })
-                                                                    )}
-                                                                />
-                                                            </>
-                                                        )}
-
-                                                        <LemonDivider />
-
-                                                        <LemonButton
-                                                            type="secondary"
-                                                            status="danger"
-                                                            size="small"
-                                                            icon={<IconTrash />}
-                                                            onClick={() => {
-                                                                const newGroups = groups.filter((_, i) => i !== index)
-                                                                setFeatureFlagFilters({
-                                                                    ...featureFlag.filters,
-                                                                    groups:
-                                                                        newGroups.length > 0
-                                                                            ? newGroups
-                                                                            : [
-                                                                                  {
-                                                                                      properties: [],
-                                                                                      rollout_percentage: 100,
-                                                                                      variant: null,
-                                                                                  },
-                                                                              ],
-                                                                })
-                                                                // Remove from open conditions
-                                                                setOpenConditions(
-                                                                    openConditions.filter(
-                                                                        (k) => k !== `condition-${index}`
-                                                                    )
-                                                                )
-                                                            }}
-                                                        >
-                                                            Remove condition
-                                                        </LemonButton>
-                                                    </div>
-                                                ),
-                                            }
-                                        })}
-                                    />
-
-                                    <div>
-                                        <LemonButton
-                                            type="secondary"
-                                            icon={<IconPlus />}
-                                            onClick={() => {
-                                                const newGroups = [
-                                                    ...groups,
-                                                    {
-                                                        properties: [],
-                                                        rollout_percentage: 100,
-                                                        variant: null,
-                                                    },
-                                                ]
-                                                setFeatureFlagFilters({
-                                                    ...featureFlag.filters,
-                                                    groups: newGroups,
-                                                })
-                                                // Open the new condition
-                                                setOpenConditions([
-                                                    ...openConditions,
-                                                    `condition-${newGroups.length - 1}`,
-                                                ])
-                                            }}
-                                            data-attr="feature-flag-add-condition"
-                                        >
-                                            Add condition
-                                        </LemonButton>
-                                    </div>
                                 </div>
                             )}
 
                             {/* Implementation section */}
                             {showImplementation ? (
-                                <div className="rounded border p-3 bg-white gap-2 flex flex-col">
+                                <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
                                     <LemonButton
                                         className="-m-2"
                                         icon={<IconCode />}

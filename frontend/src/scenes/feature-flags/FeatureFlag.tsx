@@ -202,7 +202,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const isNewFeatureFlag = id === 'new' || id === undefined
     const useNewUI = true // TODO: Gate with feature flag once we're ready
-    const useWorkflowUI = featureFlags[FEATURE_FLAGS.FEATURE_FLAG_WORKFLOW_UI]
+    const useWorkflowUI = true // TODO: featureFlags[FEATURE_FLAGS.FEATURE_FLAG_WORKFLOW_UI]
 
     // Call hooks before any conditional returns
     useFileSystemLogView({
@@ -219,11 +219,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         deps: [currentTeamId, featureFlag?.id, featureFlagMissing, accessDeniedToFeatureFlag, props.id],
     })
 
-    // Use new workflow UI if feature flag is enabled
-    if (useWorkflowUI) {
-        return <FeatureFlagWorkflow id={id} />
-    }
-
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
     }
@@ -237,6 +232,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 <LemonSkeleton active className="h-4 w-3/5" />
             </div>
         )
+    }
+
+    // Use new workflow UI if feature flag is enabled
+    if (useWorkflowUI) {
+        return <FeatureFlagWorkflow id={id} />
     }
 
     if (accessDeniedToFeatureFlag) {

@@ -246,7 +246,8 @@ export function VirtualizedLogsList({
             toggleSelectLog,
             selectLogRange,
             prettifiedLogIds,
-            togglePrettifyLog handleLogRowClick,
+            togglePrettifyLog,
+            handleLogRowClick,
         ]
     )
 
