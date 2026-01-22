@@ -4,14 +4,19 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
 export function ReplayIntegrations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
+
     return (
         <div className="flex flex-col gap-y-6">
             <LemonBanner type="info">
@@ -29,10 +34,12 @@ export function ReplayIntegrations(): JSX.Element {
                 <h3>GitLab</h3>
                 <GitLabIntegration />
             </div>
-            <div>
-                <h3>Jira</h3>
-                <JiraIntegration />
-            </div>
+            {jiraIntegrationEnabled && (
+                <div>
+                    <h3>Jira</h3>
+                    <JiraIntegration />
+                </div>
+            )}
         </div>
     )
 }
