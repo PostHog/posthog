@@ -18,8 +18,11 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
             if self.path in ("/metrics", "/"):
                 self._serve_combined_metrics()
             else:
-                self.send_response(404)
-                self.end_headers()
+                try:
+                    self.send_response(404)
+                    self.end_headers()
+                except (BrokenPipeError, ConnectionResetError):
+                    logger.debug("combined_metrics_server.client_disconnected_on_404")
 
         def _serve_combined_metrics(self) -> None:
             try:
@@ -45,17 +48,26 @@ def create_handler(temporal_metrics_url: str, registry: CollectorRegistry) -> ty
 
                 output = temporal_output + client_output
 
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(output)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(output)
+                except (BrokenPipeError, ConnectionResetError):
+                    # Client disconnected before we could send the response
+                    logger.debug("combined_metrics_server.client_disconnected")
+                    return
 
             except Exception as e:
                 capture_exception(e)
                 logger.exception("combined_metrics_server.error", error=str(e))
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(f"Error: {e}".encode())
+                try:
+                    self.send_response(500)
+                    self.end_headers()
+                    self.wfile.write(f"Error: {e}".encode())
+                except (BrokenPipeError, ConnectionResetError):
+                    # Client disconnected, nothing we can do
+                    logger.debug("combined_metrics_server.client_disconnected_during_error")
 
         def log_message(self, format: str, *args: object) -> None:
             logger.debug(

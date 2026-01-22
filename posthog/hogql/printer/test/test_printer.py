@@ -32,7 +32,14 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect, HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import (
+    MAX_SELECT_POSTHOG_AI_LIMIT,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLDialect,
+    HogQLGlobalSettings,
+    HogQLQuerySettings,
+    LimitContext,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
@@ -1515,6 +1522,13 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._select("select event from events limit (select 100000000) with ties"),
             f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT min2({MAX_SELECT_RETURNED_ROWS}, (SELECT 100000000)) WITH TIES",
+        )
+
+    def test_select_limit_with_posthog_ai_context(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, limit_context=LimitContext.POSTHOG_AI)
+        self.assertEqual(
+            self._select("select 1 limit 500", context=context),
+            f"SELECT 1 LIMIT {MAX_SELECT_POSTHOG_AI_LIMIT}",
         )
 
     def test_select_offset(self):
