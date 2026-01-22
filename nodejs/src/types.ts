@@ -342,8 +342,10 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_V2_MAX_EVENTS_PER_SESSION_PER_BATCH: number
     SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY: number
     SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE: number
-    /** When true, rate limiting will drop messages that exceed the limit */
-    SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED: boolean
+    /** When true, rate limiting will drop messages that exceed the limit. When false, dry run mode (metrics only) */
+    SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED: boolean
+    /** When false, skips all Redis calls for session filtering. Use to bypass Redis during outages */
+    SESSION_RECORDING_SESSION_FILTER_ENABLED: boolean
     /** TTL in milliseconds for the in-memory session tracker cache */
     SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS: number
     /** TTL in milliseconds for the in-memory session filter cache */

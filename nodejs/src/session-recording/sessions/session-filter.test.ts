@@ -43,7 +43,8 @@ describe('SessionFilter', () => {
             redisPool: mockRedisPool,
             bucketCapacity: 1000,
             bucketReplenishRate: 1,
-            rateLimitEnabled: true,
+            blockingEnabled: true,
+            filterEnabled: true,
             localCacheTtlMs: 5 * 60 * 1000,
         })
     })
@@ -265,7 +266,8 @@ describe('SessionFilter', () => {
                 redisPool: mockRedisPool,
                 bucketCapacity: 1000,
                 bucketReplenishRate: 1,
-                rateLimitEnabled: true,
+                blockingEnabled: true,
+                filterEnabled: true,
                 localCacheTtlMs: cacheTtlMs,
             })
 
@@ -306,12 +308,13 @@ describe('SessionFilter', () => {
             expect(SessionBatchMetrics.incrementSessionsBlocked).toHaveBeenCalled()
         })
 
-        it('should only increment metric but not block when rate limiting is disabled', async () => {
+        it('should only increment metric but not block when blocking is disabled (dry run)', async () => {
             const disabledFilter = new SessionFilter({
                 redisPool: mockRedisPool,
                 bucketCapacity: 1000,
                 bucketReplenishRate: 1,
-                rateLimitEnabled: false,
+                blockingEnabled: false,
+                filterEnabled: true,
                 localCacheTtlMs: 5 * 60 * 1000,
             })
             mockConsume.mockReturnValue(false)
@@ -320,6 +323,27 @@ describe('SessionFilter', () => {
 
             expect(mockRedis.set).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalled()
+        })
+
+        it('should skip all Redis calls when filter is disabled', async () => {
+            const disabledFilter = new SessionFilter({
+                redisPool: mockRedisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: false,
+                localCacheTtlMs: 5 * 60 * 1000,
+            })
+            mockConsume.mockReturnValue(false)
+
+            // handleNewSession should not call Redis when filter is disabled
+            await disabledFilter.handleNewSession(1, 'session-123')
+            expect(mockRedis.set).not.toHaveBeenCalled()
+
+            // isBlocked should return false immediately without Redis
+            const isBlocked = await disabledFilter.isBlocked(1, 'session-123')
+            expect(isBlocked).toBe(false)
+            expect(mockRedis.exists).not.toHaveBeenCalled()
         })
 
         it('should fail open on Redis acquire error during blocking', async () => {
@@ -363,7 +387,8 @@ describe('SessionFilter', () => {
                 redisPool: mockRedisPool,
                 bucketCapacity: 1000,
                 bucketReplenishRate: 1,
-                rateLimitEnabled: true,
+                blockingEnabled: true,
+                filterEnabled: true,
                 localCacheTtlMs: 5 * 60 * 1000,
                 localCacheMaxSize: 2,
             })

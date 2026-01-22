@@ -30,7 +30,8 @@ describe('SessionFilter integration', () => {
             redisPool,
             bucketCapacity: 5,
             bucketReplenishRate: 1,
-            rateLimitEnabled: true,
+            blockingEnabled: true,
+            filterEnabled: true,
             localCacheTtlMs: 100,
         })
     })
@@ -64,7 +65,8 @@ describe('SessionFilter integration', () => {
                 redisPool,
                 bucketCapacity: 1,
                 bucketReplenishRate: 0.001,
-                rateLimitEnabled: true,
+                blockingEnabled: true,
+                filterEnabled: true,
                 localCacheTtlMs: 100,
             })
 
@@ -80,7 +82,8 @@ describe('SessionFilter integration', () => {
                 redisPool,
                 bucketCapacity: 1000,
                 bucketReplenishRate: 1,
-                rateLimitEnabled: true,
+                blockingEnabled: true,
+                filterEnabled: true,
                 localCacheTtlMs: 100,
             })
 
@@ -93,14 +96,15 @@ describe('SessionFilter integration', () => {
             expect(isNewSessionBlocked).toBe(false)
         })
 
-        it('should not block sessions when rate limiting is disabled', async () => {
+        it('should not block sessions when blocking is disabled (dry run)', async () => {
             const teamId = 3
 
             const disabledFilter = new SessionFilter({
                 redisPool,
                 bucketCapacity: 1,
                 bucketReplenishRate: 0.001,
-                rateLimitEnabled: false,
+                blockingEnabled: false,
+                filterEnabled: true,
                 localCacheTtlMs: 100,
             })
 
@@ -120,7 +124,8 @@ describe('SessionFilter integration', () => {
                 redisPool,
                 bucketCapacity: 1,
                 bucketReplenishRate: 0.001,
-                rateLimitEnabled: true,
+                blockingEnabled: true,
+                filterEnabled: true,
                 localCacheTtlMs: 5 * 60 * 1000,
             })
 

@@ -12,7 +12,10 @@ export interface SessionFilterConfig {
     redisPool: RedisPool
     bucketCapacity: number
     bucketReplenishRate: number
-    rateLimitEnabled: boolean
+    /** When true, rate-limited sessions are blocked. When false, metrics are tracked but no blocking occurs (dry run mode). */
+    blockingEnabled: boolean
+    /** When false, skips all Redis calls entirely. Use to bypass Redis during outages. */
+    filterEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
 }
@@ -39,12 +42,14 @@ export class SessionFilter {
 
     private readonly redisPool: RedisPool
     private readonly sessionLimiter: Limiter
-    private readonly rateLimitEnabled: boolean
+    private readonly blockingEnabled: boolean
+    private readonly filterEnabled: boolean
 
     constructor(config: SessionFilterConfig) {
         this.redisPool = config.redisPool
         this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
-        this.rateLimitEnabled = config.rateLimitEnabled
+        this.blockingEnabled = config.blockingEnabled
+        this.filterEnabled = config.filterEnabled
 
         this.localCache = new LRUCache({
             max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
@@ -104,6 +109,11 @@ export class SessionFilter {
      * @returns true if the session is blocked, false otherwise
      */
     public async isBlocked(teamId: number, sessionId: string): Promise<boolean> {
+        // Skip Redis entirely when filter is disabled
+        if (!this.filterEnabled) {
+            return false
+        }
+
         const key = this.generateKey(teamId, sessionId)
 
         // Check local cache first to avoid Redis round-trip
@@ -160,11 +170,11 @@ export class SessionFilter {
             logger.debug('session_filter_new_session_rate_limited', {
                 teamId,
                 sessionId,
-                rateLimitEnabled: this.rateLimitEnabled,
+                blockingEnabled: this.blockingEnabled,
             })
             SessionBatchMetrics.incrementNewSessionsRateLimited()
 
-            if (this.rateLimitEnabled) {
+            if (this.blockingEnabled && this.filterEnabled) {
                 await this.blockSession(teamId, sessionId)
             }
         }

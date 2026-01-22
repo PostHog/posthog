@@ -216,7 +216,8 @@ export class SessionRecordingIngester {
             redisPool: this.redisPool,
             bucketCapacity: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             bucketReplenishRate: this.hub.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
-            rateLimitEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_RATE_LIMIT_ENABLED,
+            blockingEnabled: this.hub.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
+            filterEnabled: this.hub.SESSION_RECORDING_SESSION_FILTER_ENABLED,
             localCacheTtlMs: this.hub.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
         })
 
