@@ -539,19 +539,6 @@ export interface PaginatedIntegrationListApi {
 }
 
 /**
- * Standard Integration serializer.
- */
-export interface PatchedIntegrationApi {
-    readonly id?: number
-    kind?: KindCf2EnumApi
-    config?: unknown
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    readonly errors?: string
-    readonly display_name?: string
-}
-
-/**
  * * `email` - Email
  * `slack` - Slack
  * `webhook` - Webhook
