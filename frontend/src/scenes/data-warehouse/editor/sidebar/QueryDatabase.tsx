@@ -51,6 +51,7 @@ export const QueryDatabase = (): JSX.Element => {
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
     const { deleteDraft } = useActions(draftsLogic)
     const { setQueryInput } = useActions(multitabEditorLogic)
+    const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
@@ -118,6 +119,9 @@ export const QueryDatabase = (): JSX.Element => {
                                             'endpoints',
                                         ].includes(item.record?.type) && 'font-semibold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
+                                        item.record?.type === 'column' &&
+                                            selectedQueryColumns[`${item.record.table}.${item.record.columnName}`] &&
+                                            'underline underline-offset-2',
                                         'truncate'
                                     )}
                                 >

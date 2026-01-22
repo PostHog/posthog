@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { TeamManager } from '~/utils/team-manager'
 
 import { EventHeaders, IncomingEvent, IncomingEventWithTeam, Team } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import {
     createApplyEventRestrictionsStep,
     createDropExceptionEventsStep,
