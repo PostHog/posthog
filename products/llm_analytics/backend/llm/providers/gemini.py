@@ -11,7 +11,7 @@ from django.conf import settings
 import posthoganalytics
 from google import genai
 from google.genai.errors import APIError
-from google.genai.types import GenerateContentConfig
+from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai as posthog_genai
 
 from products.llm_analytics.backend.llm.errors import AuthenticationError
@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 class GeminiConfig:
     TEMPERATURE: float = 0
+    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
+    TIMEOUT: int = 300
 
     SUPPORTED_MODELS: list[str] = [
         "gemini-3-flash-preview",
@@ -58,10 +61,13 @@ class GeminiAdapter:
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
+        http_options = HttpOptions(timeout=GeminiConfig.TIMEOUT)
         if analytics.capture and posthog_client:
-            client = posthog_genai.Client(api_key=effective_api_key, posthog_client=posthog_client)
+            client = posthog_genai.Client(
+                api_key=effective_api_key, posthog_client=posthog_client, http_options=http_options
+            )
         else:
-            client = genai.Client(api_key=effective_api_key)
+            client = genai.Client(api_key=effective_api_key, http_options=http_options)
 
         config_kwargs = self._prepare_config_kwargs(
             system=request.system or "",
@@ -108,10 +114,13 @@ class GeminiAdapter:
         model_id = request.model
 
         posthog_client = posthoganalytics.default_client
+        http_options = HttpOptions(timeout=GeminiConfig.TIMEOUT)
         if analytics.capture and posthog_client:
-            client: genai.Client = posthog_genai.Client(api_key=effective_api_key, posthog_client=posthog_client)
+            client = posthog_genai.Client(
+                api_key=effective_api_key, posthog_client=posthog_client, http_options=http_options
+            )
         else:
-            client = genai.Client(api_key=effective_api_key)
+            client = genai.Client(api_key=effective_api_key, http_options=http_options)
 
         tools = self._convert_tools(request.tools) if request.tools else None
 
@@ -177,8 +186,8 @@ class GeminiAdapter:
         if api_key:
             try:
                 client = genai.Client(api_key=api_key)
-                all_models = [m.name for m in client.models.list()]
-                return [m.replace("models/", "") for m in all_models if "gemini" in m.lower()]
+                all_models = [m.name for m in client.models.list() if m.name]
+                return [m.replace("models/", "") for m in all_models if m and "gemini" in m.lower()]
             except Exception as e:
                 logger.exception(f"Error listing Gemini models: {e}")
                 return GeminiConfig.SUPPORTED_MODELS
@@ -226,12 +235,14 @@ class GeminiAdapter:
             }
         return {}
 
-    def _convert_tools(self, tools: list[dict]) -> list[dict]:
+    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert tools to Gemini format if needed."""
         from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 
         handler = LLMToolsHandler(tools)
-        return handler.convert_to(ToolFormat.GEMINI)
+        result = handler.convert_to(ToolFormat.GEMINI)
+        assert result is not None, "tools must be non-empty when calling _convert_tools"
+        return result
 
     def _extract_chunks_from_response(self, chunk) -> Generator[StreamChunk, None, None]:
         """Extract StreamChunks from a Gemini response chunk."""

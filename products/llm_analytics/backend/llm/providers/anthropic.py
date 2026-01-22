@@ -3,6 +3,7 @@
 import uuid
 import logging
 from collections.abc import Generator
+from typing import Any
 
 from django.conf import settings
 
@@ -27,6 +28,9 @@ class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
     TEMPERATURE: float = 0
+    # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
+    # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
+    TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
         "claude-sonnet-4-5",
@@ -82,9 +86,11 @@ class AnthropicAdapter:
 
         posthog_client = posthoganalytics.default_client
         if analytics.capture and posthog_client:
-            client = Anthropic(api_key=effective_api_key, posthog_client=posthog_client)
+            client = Anthropic(
+                api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT
+            )
         else:
-            client = anthropic.Anthropic(api_key=effective_api_key)
+            client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
 
         try:
             response = client.messages.create(
@@ -126,9 +132,11 @@ class AnthropicAdapter:
 
         posthog_client = posthoganalytics.default_client
         if analytics.capture and posthog_client:
-            client: anthropic.Anthropic = Anthropic(api_key=effective_api_key, posthog_client=posthog_client)
+            client = Anthropic(
+                api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT
+            )
         else:
-            client = anthropic.Anthropic(api_key=effective_api_key)
+            client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 
@@ -146,7 +154,7 @@ class AnthropicAdapter:
             system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": {"type": "ephemeral"}})]
             formatted_messages = self._prepare_messages_with_cache_control(messages)
         else:
-            system_prompt = [TextBlockParam(**{"text": system, "type": "text", "cache_control": None})]
+            system_prompt = [TextBlockParam(text=system, type="text")]
             formatted_messages = [MessageParam(content=msg["content"], role=msg["role"]) for msg in messages]
 
         try:
@@ -169,14 +177,14 @@ class AnthropicAdapter:
                 common_kwargs["tools"] = tools
 
             if reasoning_on:
-                stream = client.messages.create(  # type: ignore[call-overload]
+                stream = client.messages.create(
                     **common_kwargs,
                     thinking=ThinkingConfigEnabledParam(
                         type="enabled", budget_tokens=AnthropicConfig.MAX_THINKING_TOKENS
                     ),
                 )
             else:
-                stream = client.messages.create(**common_kwargs)  # type: ignore[call-overload]
+                stream = client.messages.create(**common_kwargs)
         except Exception as e:
             logger.exception(f"Anthropic API error: {e}")
             yield StreamChunk(type="error", data={"error": "Anthropic API error"})
@@ -241,12 +249,28 @@ class AnthropicAdapter:
 
     @staticmethod
     def validate_key(api_key: str) -> tuple[str, str | None]:
-        """Validate an Anthropic API key."""
+        """Validate an Anthropic API key by making a lightweight API call."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
         if not api_key.startswith("sk-ant-"):
             return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-ant-')")
-        return (LLMProviderKey.State.OK, None)
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
+            client.messages.create(
+                model="claude-3-5-haiku-20241022",
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            return (LLMProviderKey.State.OK, None)
+        except anthropic.AuthenticationError:
+            return (LLMProviderKey.State.INVALID, "Invalid API key")
+        except anthropic.RateLimitError:
+            return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
+        except anthropic.APIConnectionError:
+            return (LLMProviderKey.State.ERROR, "Could not connect to Anthropic")
+        except Exception as e:
+            logger.exception(f"Anthropic key validation error: {e}")
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
 
     @staticmethod
     def list_models(api_key: str | None = None) -> list[str]:
@@ -275,14 +299,16 @@ class AnthropicAdapter:
             }
         return {}
 
-    def _convert_tools(self, tools: list[dict]) -> list[dict]:
+    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert tools to Anthropic format if needed."""
         from products.llm_analytics.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
 
         handler = LLMToolsHandler(tools)
-        return handler.convert_to(ToolFormat.ANTHROPIC)
+        result = handler.convert_to(ToolFormat.ANTHROPIC)
+        assert result is not None, "tools must be non-empty when calling _convert_tools"
+        return result
 
-    def _prepare_messages_with_cache_control(self, messages: list[MessageParam]) -> list[MessageParam]:
+    def _prepare_messages_with_cache_control(self, messages: list[dict[str, Any]]) -> list[MessageParam]:
         """Prepare messages with cache control for supported models."""
         user_msg_indices = [i for i, msg in enumerate(messages) if msg["role"] == "user"]
         last_user_msg_index = user_msg_indices[-1] if user_msg_indices else -1
@@ -315,7 +341,3 @@ class AnthropicAdapter:
             prepared_messages.append(prepared_message)
 
         return prepared_messages
-
-
-# Backward compatibility alias
-AnthropicProvider = AnthropicAdapter

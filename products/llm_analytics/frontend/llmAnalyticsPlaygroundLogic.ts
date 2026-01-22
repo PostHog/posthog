@@ -364,11 +364,17 @@ export const llmAnalyticsPlaygroundLogic = kea<llmAnalyticsPlaygroundLogicType>(
                 startTime = performance.now()
 
                 const selectedModel = values.modelOptions.find((m) => m.id === requestModel)
+                if (!selectedModel?.provider) {
+                    lemonToast.error('Selected model not found in available models')
+                    actions.finalizeAssistantMessage()
+                    return
+                }
+
                 const requestData: any = {
                     system: requestSystemPrompt,
                     messages: messagesToSend.filter((m) => m.role === 'user' || m.role === 'assistant'),
                     model: requestModel,
-                    provider: selectedModel?.provider?.toLowerCase(),
+                    provider: selectedModel.provider.toLowerCase(),
                     thinking: values.thinking,
                 }
 

@@ -14,7 +14,13 @@ from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletio
 from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel
 
-from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    QuotaExceededError,
+    RateLimitError,
+)
 from products.llm_analytics.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -117,6 +123,10 @@ class OpenAIAdapter:
                 )
         except openai.AuthenticationError as e:
             raise AuthenticationError(str(e))
+        except openai.NotFoundError:
+            raise ModelNotFoundError(request.model)
+        except openai.PermissionDeniedError:
+            raise ModelPermissionError(request.model)
         except openai.RateLimitError as e:
             error_body = getattr(e, "body", {}) or {}
             error_code = error_body.get("error", {}).get("code", "")
@@ -136,7 +146,7 @@ class OpenAIAdapter:
 
         posthog_client = posthoganalytics.default_client
         if analytics.capture and posthog_client:
-            client: openai.OpenAI = OpenAI(
+            client = OpenAI(
                 api_key=effective_api_key,
                 posthog_client=posthog_client,
                 base_url=settings.OPENAI_BASE_URL,
@@ -322,10 +332,8 @@ class OpenAIAdapter:
             },
         )
 
-    def _convert_tools(self, tools: list[dict]) -> list[dict]:
+    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         handler = LLMToolsHandler(tools)
-        return handler.convert_to(ToolFormat.OPENAI)
-
-
-# Backward compatibility alias
-OpenAIProvider = OpenAIAdapter
+        result = handler.convert_to(ToolFormat.OPENAI)
+        assert result is not None, "tools must be non-empty when calling _convert_tools"
+        return result

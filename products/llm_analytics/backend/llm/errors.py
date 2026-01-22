@@ -37,3 +37,22 @@ class ProviderMismatchError(LLMError):
         self.key_provider = key_provider
         self.request_provider = request_provider
         super().__init__(f"Provider key is for '{key_provider}' but request specifies '{request_provider}'")
+
+
+class ModelNotFoundError(LLMError):
+    """Raised when a requested model is not found"""
+
+    def __init__(self, model: str):
+        self.model = model
+        super().__init__(f"Model '{model}' not found")
+
+
+class ModelPermissionError(LLMError):
+    """Raised when the API key doesn't have permission to access a model"""
+
+    def __init__(self, model: str | None = None):
+        self.model = model
+        msg = (
+            f"API key doesn't have access to model '{model}'" if model else "API key doesn't have access to this model"
+        )
+        super().__init__(msg)

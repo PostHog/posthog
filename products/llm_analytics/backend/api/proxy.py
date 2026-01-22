@@ -4,7 +4,6 @@ ViewSet for LLM Analytics Proxy
 Endpoints:
 - GET /api/llm_proxy/models
 - POST /api/llm_proxy/completion
-- POST /api/llm_proxy/fim/completion
 """
 
 import json
@@ -37,7 +36,6 @@ from products.llm_analytics.backend.llm import (
 )
 from products.llm_analytics.backend.llm.errors import UnsupportedProviderError
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
-from products.llm_analytics.backend.providers.codestral import CodestralConfig
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
@@ -57,13 +55,6 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
         choices=["minimal", "low", "medium", "high"], required=False, allow_null=True
     )
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
-
-
-class LLMProxyFIMSerializer(serializers.Serializer):
-    prompt = serializers.CharField()
-    suffix = serializers.CharField()
-    model = serializers.CharField()
-    stop = serializers.ListField(child=serializers.CharField())
 
 
 class LLMProxyViewSet(viewsets.ViewSet):
@@ -172,8 +163,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             provider_key_id = data.get("provider_key_id")
             try:
                 provider_key = self._get_provider_key(provider_key_id, request.user)
-            except ValueError as e:
-                return Response({"error": str(e)}, status=400)
+            except ValueError:
+                return Response({"error": "Invalid provider key configuration"}, status=400)
 
             # Provider is always explicit from request
             provider = data.get("provider")
@@ -222,8 +213,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
             return self._create_streaming_response(stream)
 
-        except UnsupportedProviderError as e:
-            return Response({"error": str(e)}, status=400)
+        except UnsupportedProviderError:
+            return Response({"error": "Unsupported provider"}, status=400)
 
         except Exception as e:
             logger.exception(f"Error in LLM proxy: {e}")
@@ -253,29 +244,6 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     getattr(request.user, "current_team", None),
                 )
 
-            return Response({"error": "An internal error occurred"}, status=500)
-
-    def _handle_fim_request(self, request: Request) -> StreamingHttpResponse | Response:
-        """Handler for FIM requests (legacy, uses direct provider)"""
-        try:
-            if not request.user or not request.user.is_authenticated:
-                return Response({"error": "You are not authorized to use this feature"}, status=401)
-
-            serializer = LLMProxyFIMSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response({"error": serializer.errors}, status=400)
-
-            data = serializer.validated_data
-            model_id = data.get("model")
-
-            if model_id not in CodestralConfig.SUPPORTED_MODELS:
-                return Response({"error": "Unsupported model"}, status=400)
-
-            # FIM uses a different interface, not migrated to Client yet
-            return Response({"error": "FIM mode not yet supported"}, status=501)
-
-        except Exception as e:
-            logger.exception(f"Error in LLM proxy FIM: {e}")
             return Response({"error": "An internal error occurred"}, status=500)
 
     def _extract_request_properties(self, validated_data: dict, model: str | None = None) -> dict:
@@ -318,8 +286,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if provider_key_id:
             try:
                 provider_key = self._get_provider_key(provider_key_id, request.user)
-            except ValueError as e:
-                return Response({"error": str(e)}, status=400)
+            except ValueError:
+                return Response({"error": "Invalid provider key configuration"}, status=400)
 
             if provider_key:
                 api_key = provider_key.encrypted_config.get("api_key")
@@ -333,7 +301,3 @@ class LLMProxyViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["POST"])
     def completion(self, request, *args, **kwargs):
         return self._handle_completion_request(request)
-
-    @action(detail=False, methods=["POST"], url_path="fim/completion")
-    def fimCompletion(self, request, *args, **kwargs):
-        return self._handle_fim_request(request)

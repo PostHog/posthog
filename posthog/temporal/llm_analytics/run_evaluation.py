@@ -19,7 +19,13 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 
 from products.llm_analytics.backend.llm import Client, CompletionRequest
-from products.llm_analytics.backend.llm.errors import AuthenticationError, QuotaExceededError, RateLimitError
+from products.llm_analytics.backend.llm.errors import (
+    AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    QuotaExceededError,
+    RateLimitError,
+)
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
@@ -257,9 +263,9 @@ Output: {output_data}"""
         response = client.complete(
             CompletionRequest(
                 model=DEFAULT_JUDGE_MODEL,
+                system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
                 provider="openai",
-                system=system_prompt,
                 response_format=response_format,
             )
         )
@@ -268,6 +274,14 @@ Output: {output_data}"""
             raise ApplicationError(
                 "API key is invalid or has been deleted.",
                 {"error_type": "auth_error", "key_id": key_id},
+                non_retryable=True,
+            )
+        raise
+    except ModelPermissionError:
+        if is_byok:
+            raise ApplicationError(
+                "API key doesn't have access to this model.",
+                {"error_type": "permission_error", "key_id": key_id},
                 non_retryable=True,
             )
         raise
@@ -282,20 +296,11 @@ Output: {output_data}"""
     except RateLimitError:
         # Regular rate limit - let it retry (default behavior)
         raise
-    except Exception as e:
-        if "not found" in str(e).lower():
-            raise ApplicationError(
-                f"Model '{DEFAULT_JUDGE_MODEL}' not found.",
-                non_retryable=True,
-            )
-        if "permission" in str(e).lower():
-            if is_byok:
-                raise ApplicationError(
-                    "API key doesn't have access to this model.",
-                    {"error_type": "permission_error", "key_id": key_id},
-                    non_retryable=True,
-                )
-        raise
+    except ModelNotFoundError:
+        raise ApplicationError(
+            f"Model '{DEFAULT_JUDGE_MODEL}' not found.",
+            non_retryable=True,
+        )
 
     # Parse structured output
     result = response.parsed

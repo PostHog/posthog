@@ -6,7 +6,7 @@ Provides a single entry point for all LLMA-internal LLM API calls.
 
 import uuid
 from collections.abc import Generator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from products.llm_analytics.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
 from products.llm_analytics.backend.llm.types import (
@@ -29,8 +29,8 @@ class Client:
         provider_key: "LLMProviderKey | None" = None,
         distinct_id: str = "",
         trace_id: str | None = None,
-        properties: dict | None = None,
-        groups: dict | None = None,
+        properties: dict[str, Any] | None = None,
+        groups: dict[str, Any] | None = None,
         capture_analytics: bool = True,
     ):
         self.provider_key = provider_key
