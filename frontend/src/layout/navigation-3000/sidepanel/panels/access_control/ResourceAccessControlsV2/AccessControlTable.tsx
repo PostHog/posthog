@@ -106,7 +106,8 @@ function getColumns(
             align: 'right' as const,
             render: function RenderActions(_: any, row: AccessControlRow) {
                 const isProjectRule = row.resourceKey === 'project'
-                const canEditThisRow = isProjectRule ? canEditAccessControls : canEditRoleBasedAccessControls
+                const canEditThisRow =
+                    row.isException && (isProjectRule ? canEditAccessControls : canEditRoleBasedAccessControls)
                 const disabledReason = !canEditThisRow ? 'You cannot edit this' : undefined
                 const canDelete = row.isException && !(row.scopeType === 'default' && row.resourceKey === 'project')
 
@@ -116,7 +117,13 @@ function getColumns(
                         closeOnClickInside={true}
                         overlay={
                             <div className="flex flex-col">
-                                <LemonButton size="small" fullWidth icon={<IconPencil />} onClick={() => onEdit(row)}>
+                                <LemonButton
+                                    size="small"
+                                    fullWidth
+                                    icon={<IconPencil />}
+                                    disabledReason={disabledReason}
+                                    onClick={() => onEdit(row)}
+                                >
                                     Edit
                                 </LemonButton>
                                 {canDelete ? (

@@ -146,23 +146,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
         allMembers: [(s) => [s.sortedMembers], (sortedMembers): OrganizationMemberType[] => sortedMembers ?? []],
 
-        projectResourceLabel: [
-            (s) => [s.currentTeam],
-            (currentTeam): string => {
-                const projectName = currentTeam?.name ?? 'Untitled'
-                return `Project (${projectName})`
-            },
-        ],
-
         resourcesWithProject: [
-            (s) => [s.resources, s.projectResourceLabel],
-            (resources, projectResourceLabel): { key: APIScopeObject; label: string }[] => {
+            (s) => [s.resources],
+            (resources): { key: APIScopeObject; label: string }[] => {
                 const resourcesList = resources as unknown as AccessControlType['resource'][]
                 const resourceOptions = resourcesList.map((resource) => ({
                     key: resource,
                     label: toSentenceCase(pluralizeResource(resource)),
                 }))
-                return [{ key: 'project' as APIScopeObject, label: projectResourceLabel }, ...resourceOptions]
+                return [{ key: 'project' as APIScopeObject, label: 'Project' }, ...resourceOptions]
             },
         ],
 
@@ -236,7 +228,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 s.allMembers,
                 s.projectDefaultLevel,
                 s.projectMemberOverrideByMemberId,
-                s.projectResourceLabel,
                 s.projectRoleOverrideByRoleId,
                 s.resourceMemberOverrideByMemberIdAndResourceKey,
                 s.resourceRoleOverrideByRoleIdAndResourceKey,
@@ -249,7 +240,6 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 allMembers,
                 projectDefaultLevel,
                 projectMemberOverrideByMemberId,
-                projectResourceLabel,
                 projectRoleOverrideByRoleId,
                 resourceMemberOverrideByMemberIdAndResourceKey,
                 resourceRoleOverrideByRoleIdAndResourceKey,
@@ -272,7 +262,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     scopeId: null,
                     scopeLabel: 'Default',
                     resourceKey: 'project',
-                    resourceLabel: projectResourceLabel,
+                    resourceLabel: 'Project',
                     level: projectDefaultLevel,
                     isException: true,
                 })
@@ -304,7 +294,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                                 scopeId: role.id,
                                 scopeLabel: role.name,
                                 resourceKey: 'project',
-                                resourceLabel: projectResourceLabel,
+                                resourceLabel: 'Project',
                                 level: roleProjectOverride,
                                 isException: true,
                             })
@@ -330,17 +320,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 // Member scope rows
                 for (const member of allMembers) {
                     const memberProjectOverride = projectMemberOverrideByMemberId.get(member.id)
-                    if (memberProjectOverride !== undefined) {
-                        addRow({
-                            scopeType: 'member',
-                            scopeId: member.id,
-                            scopeLabel: fullName(member.user),
-                            resourceKey: 'project',
-                            resourceLabel: projectResourceLabel,
-                            level: memberProjectOverride,
-                            isException: true,
-                        })
-                    }
+                    addRow({
+                        scopeType: 'member',
+                        scopeId: member.id,
+                        scopeLabel: fullName(member.user),
+                        resourceKey: 'project',
+                        resourceLabel: 'Project',
+                        level: memberProjectOverride ?? projectDefaultLevel,
+                        isException: memberProjectOverride !== undefined,
+                    })
 
                     const overrides = resourceMemberOverrideByMemberIdAndResourceKey.get(member.id)
                     if (overrides) {
