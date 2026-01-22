@@ -26,7 +26,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
 from posthog.batch_exports.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
@@ -396,6 +396,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
     latest_runs = BatchExportRunSerializer(many=True, read_only=True)
     interval = serializers.ChoiceField(choices=BATCH_EXPORT_INTERVALS)
     hogql_query = HogQLSelectQueryField(required=False)
+    timezone = serializers.ChoiceField(choices=TIMEZONES, required=False, allow_null=True)
     offset_day = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=6)
     offset_hour = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=23)
 
@@ -1148,10 +1149,8 @@ def create_backfill(
     if start_at is None or end_at is None:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
 
-    if start_at == end_at:
-        raise ValidationError("The initial backfill datetime 'start_at' and 'end_at' are the same")
-    if start_at > end_at:
-        raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
+    if start_at >= end_at:
+        raise ValidationError("The initial backfill datetime 'start_at' must be before 'end_at'")
     if end_at > dt.datetime.now(dt.UTC):
         raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 

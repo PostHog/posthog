@@ -67,7 +67,11 @@ export function BatchExportGeneralEditFields({
                                 Create in paused state
                                 <Tooltip
                                     title={
-                                        "If selected, the batch export will be created, but no runs will be automatically triggered until it is resumed. Manual backfills can still be triggered even if the batch export is paused."
+                                        <>
+                                            If selected, the batch export will be created, but no runs will be
+                                            automatically triggered until it is resumed. Manual backfills can still be
+                                            triggered even if the batch export is paused.
+                                        </>
                                     }
                                 >
                                     <IconInfo className="text-lg text-secondary" />
@@ -747,8 +751,8 @@ export function BatchExportsEditFields({
                         label="Container name"
                         info={
                             <>
-                                The name of the Azure Blob Storage container where data will be exported. The
-                                container must already exist.
+                                The name of the Azure Blob Storage container where data will be exported. The container
+                                must already exist.
                             </>
                         }
                     >
@@ -761,9 +765,8 @@ export function BatchExportsEditFields({
                         showOptional
                         info={
                             <>
-                                Optional prefix for blob names. Supports template variables: {'{year}'}, {'{month}'}
-                                , {'{day}'}, {'{hour}'}, {'{minute}'}, {'{data_interval_start}'},{' '}
-                                {'{data_interval_end}'}.
+                                Optional prefix for blob names. Supports template variables: {'{year}'}, {'{month}'},{' '}
+                                {'{day}'}, {'{hour}'}, {'{minute}'}, {'{data_interval_start}'}, {'{data_interval_end}'}.
                             </>
                         }
                     >
@@ -792,8 +795,8 @@ export function BatchExportsEditFields({
                             className="flex-1"
                             info={
                                 <>
-                                    Files over this max file size will be split into multiple files. Leave empty or
-                                    set to 0 for no splitting regardless of file size.
+                                    Files over this max file size will be split into multiple files. Leave empty or set
+                                    to 0 for no splitting regardless of file size.
                                 </>
                             }
                         >
@@ -820,8 +823,8 @@ export function BatchExportsEditFields({
                                 batchExportConfigForm.file_format === 'Parquet'
                                     ? parquetCompressionOptions
                                     : batchExportConfigForm.file_format === 'JSONLines'
-                                        ? jsonLinesCompressionOptions
-                                        : []
+                                      ? jsonLinesCompressionOptions
+                                      : []
 
                             const isSelectedCompressionOptionValid = (val: string | null): boolean => {
                                 if (batchExportConfigForm.file_format === 'Parquet') {

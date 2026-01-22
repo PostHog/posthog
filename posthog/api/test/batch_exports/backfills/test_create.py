@@ -178,8 +178,8 @@ def test_batch_export_backfill_for_daily_schedule_with_datetime_strings_fails(
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == (
-        "Input 2021-01-01T00:00:00+00:00 is not a valid date string for a daily or weekly batch export. "
-        "Daily or weekly batch export backfills expect a date string, not a datetime string."
+        "Input '2021-01-01T00:00:00+00:00' is not a valid ISO formatted date. "
+        "Daily or weekly batch export backfills expect only the date component, but a time was included."
     )
 
 
@@ -260,8 +260,8 @@ def test_batch_export_backfill_for_weekly_schedule_with_datetime_strings_fails(
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == (
-        "Input 2026-01-04T00:00:00+00:00 is not a valid date string for a daily or weekly batch export. "
-        "Daily or weekly batch export backfills expect a date string, not a datetime string."
+        "Input '2026-01-04T00:00:00+00:00' is not a valid ISO formatted date. "
+        "Daily or weekly batch export backfills expect only the date component, but a time was included."
     )
 
 

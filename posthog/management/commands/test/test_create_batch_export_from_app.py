@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 
 from asgiref.sync import async_to_sync
+from temporalio.client import ScheduleDescription, ScheduleRange
 
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
@@ -282,6 +283,23 @@ def plugin_config(
         attachment.delete()
 
 
+def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int = 0):
+    """Assert the schedule is a daily schedule."""
+    calendars = schedule.schedule.spec.calendars
+    assert len(calendars) == 1
+    # ensure it's running every day of the week
+    assert calendars[0].day_of_week == (ScheduleRange(start=0, end=6),)
+    assert calendars[0].hour == (ScheduleRange(start=expected_hour, end=expected_hour),)
+    assert schedule.schedule.spec.jitter == dt.timedelta(hours=1)
+
+
+def assert_is_hourly_schedule(schedule: ScheduleDescription):
+    """Assert the schedule is a hourly schedule."""
+    intervals = schedule.schedule.spec.intervals
+    assert len(intervals) == 1
+    assert intervals[0].every == dt.timedelta(hours=1)
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "plugin_config,config,expected_type",
@@ -419,8 +437,10 @@ def test_create_batch_export_from_app(
     temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
-    expected_interval = dt.timedelta(**{f"{interval}s": 1})
-    assert schedule.schedule.spec.intervals[0].every == expected_interval
+    if interval == "hour":
+        assert_is_hourly_schedule(schedule)
+    elif interval == "day":
+        assert_is_daily_schedule(schedule)
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
@@ -491,8 +511,10 @@ def test_create_batch_export_from_app_with_disabled_plugin(
     temporal = sync_connect()
 
     schedule = describe_schedule(temporal, str(batch_export_data["id"]))
-    expected_interval = dt.timedelta(**{f"{interval}s": 1})
-    assert schedule.schedule.spec.intervals[0].every == expected_interval
+    if interval == "hour":
+        assert_is_hourly_schedule(schedule)
+    elif interval == "day":
+        assert_is_daily_schedule(schedule)
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)

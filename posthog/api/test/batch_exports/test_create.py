@@ -1,4 +1,5 @@
 import json
+import typing as t
 import datetime as dt
 from zoneinfo import ZoneInfo
 
@@ -54,7 +55,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal
         "integration": None,
     }
 
-    batch_export_data = {
+    batch_export_data: dict[str, t.Any] = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": interval,
@@ -158,13 +159,13 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, temporal
         ("week", None, None, None, None),  # should run at midnight on Sunday UTC
         ("week", "Asia/Kathmandu", None, None, None),  # should run at midnight on Sunday Asia/Kathmandu time
         ("week", "Asia/Kathmandu", 0, 0, 0),  # should also run at midnight on Sunday Asia/Kathmandu time
-        ("week", "Europe/Berlin", 1, 2, 25200),  # should run at 2am on Monday Europe/Berlin time (3 days + 2 hours)
+        ("week", "Europe/Berlin", 1, 2, 93600),  # should run at 2am on Monday Europe/Berlin time (1 days + 2 hours)
         (
             "week",
             "Europe/Berlin",
             7,
             2,
-            25200,
+            None,
         ),  # should return an error as 7 is not a valid offset day for weekly exports
     ],
 )
@@ -202,7 +203,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         },
     }
 
-    batch_export_data = {
+    batch_export_data: dict[str, t.Any] = {
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": interval,
@@ -258,6 +259,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     expected_timezone = timezone if timezone else "UTC"
     assert schedule.schedule.spec.time_zone_name == expected_timezone
     assert batch_export.timezone == expected_timezone
+    assert batch_export.interval_offset == expected_interval_offset
 
     if interval == "hour":
         intervals = schedule.schedule.spec.intervals
@@ -324,9 +326,9 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
             assert actual_day_temporal == 0  # Sunday
         elif expected_interval_offset == 108_000:
             assert actual_day_temporal == 1  # Monday
-        assert (
-            actual_day_temporal == expected_day
-        ), f"Next run {next_run_local} is on day {actual_day_temporal}, expected {expected_day}"
+        assert actual_day_temporal == expected_day, (
+            f"Next run {next_run_local} is on day {actual_day_temporal}, expected {expected_day}"
+        )
         assert time_diff <= jitter.total_seconds(), (
             f"Next run {next_run_local} is at {next_run_local.hour}:{next_run_local.minute}, "
             f"expected {expected_hour}:00 within jitter tolerance of {jitter}"
