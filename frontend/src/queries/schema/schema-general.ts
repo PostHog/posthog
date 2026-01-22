@@ -1022,6 +1022,20 @@ export interface ChartSettingsDisplay {
     displayType?: 'auto' | 'line' | 'bar'
 }
 
+export interface HeatmapGradientStop {
+    value: number
+    color: string
+}
+
+export interface HeatmapSettings {
+    xAxisColumn?: string
+    yAxisColumn?: string
+    valueColumn?: string
+    xAxisLabel?: string
+    yAxisLabel?: string
+    gradient?: HeatmapGradientStop[]
+}
+
 export interface YAxisSettings {
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
@@ -1046,6 +1060,7 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showTotalRow?: boolean
+    heatmap?: HeatmapSettings
 }
 
 export interface ConditionalFormattingRule {

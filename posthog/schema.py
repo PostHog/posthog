@@ -641,6 +641,7 @@ class ChartDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
+    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
 class DisplayType(StrEnum):
@@ -4485,11 +4486,32 @@ class ChartAxis(BaseModel):
     settings: Settings | None = None
 
 
+class HeatmapGradientStop(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    value: float
+
+
+class HeatmapSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gradient: list[HeatmapGradientStop] | None = None
+    valueColumn: str | None = None
+    xAxisColumn: str | None = None
+    xAxisLabel: str | None = None
+    yAxisColumn: str | None = None
+    yAxisLabel: str | None = None
+
+
 class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     goalLines: list[GoalLine] | None = None
+    heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
     rightYAxisSettings: YAxisSettings | None = None
     seriesBreakdownColumn: str | None = None
