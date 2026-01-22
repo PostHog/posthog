@@ -141,8 +141,8 @@ def fetch_trace_embeddings_for_clustering(
     # Build base query - add IN clause if we have eligible trace IDs
     # We also fetch rendering to link embeddings to their source summarization run
     # Backwards compatibility: support both old and new document type formats
-    # - New format: document_type = "llm-trace-summary-detailed" (mode in document_type, batch_run_id in rendering)
-    # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_detailed"
+    # - New format: document_type = "llm-trace-summary-minimal" (mode in document_type, batch_run_id in rendering)
+    # - Old format: document_type = "llm-trace-summary" AND rendering = "llma_trace_minimal"
     if eligible_trace_ids:
         query = parse_select(
             """
@@ -215,8 +215,8 @@ def fetch_trace_embeddings_for_clustering(
 
     # Legacy rendering values that are NOT batch_run_ids
     legacy_rendering_values = {
-        constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_detailed"
-        "llma_trace_minimal",  # Other legacy mode
+        constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_minimal"
+        "llma_trace_detailed",  # Other legacy mode
     }
 
     for row in rows:

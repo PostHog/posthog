@@ -9,7 +9,7 @@ from products.llm_analytics.backend.summarization.models import OpenAIModel, Sum
 # Window processing configuration
 DEFAULT_MAX_TRACES_PER_WINDOW = 10  # Max traces to process per window (conservative for worst-case 30s/trace)
 DEFAULT_BATCH_SIZE = 3  # Number of traces to process in parallel (reduced to avoid rate limits)
-DEFAULT_MODE = SummarizationMode.DETAILED
+DEFAULT_MODE = SummarizationMode.MINIMAL
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_PROVIDER = SummarizationProvider.OPENAI
 DEFAULT_MODEL = OpenAIModel.GPT_4_1_MINI
