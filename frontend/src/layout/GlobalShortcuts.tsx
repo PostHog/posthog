@@ -14,7 +14,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SidePanelTab } from '~/types'
+
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
+import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
 
 export function GlobalShortcuts(): null {
     const { user } = useValues(userLogic)
@@ -25,6 +28,8 @@ export function GlobalShortcuts(): null {
     const { toggleZenMode } = useActions(navigation3000Logic)
     const isNewSearchUx = useFeatureFlag('NEW_SEARCH_UX')
     const { toggleCommand } = useActions(commandLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const showDebugQueries =
         user?.is_staff || user?.is_impersonated || preflight?.is_debug || preflight?.instance_preferences?.debug_queries
@@ -86,6 +91,14 @@ export function GlobalShortcuts(): null {
                 router.actions.push(urls.sqlEditor())
             }
         },
+    })
+
+    useAppShortcut({
+        name: 'toggle-help-menu',
+        keybind: [keyBinds.helpMenu],
+        intent: 'Toggle help menu',
+        interaction: 'function',
+        callback: () => (sidePanelOpen ? closeSidePanel() : openSidePanel(SidePanelTab.Support)),
     })
 
     return null

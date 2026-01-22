@@ -97,7 +97,7 @@ export function NotebookScene(): JSX.Element {
                     This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
-                <p>
+                <p className="text-center">
                     You can navigate around PostHog and <b>drag and drop</b> thing into it. Or you can close the sidebar
                     and it will be full screen here instead.
                 </p>

@@ -172,6 +172,7 @@ export const FEATURE_FLAGS = {
     AI_FIRST: 'ai-first', // this a larger change, not released to team yet
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // used to remove the sidepanel from the experience
     UX_REMOVE_SIDEPANEL_MAX: 'ux-remove-sidepanel-max', // building on UX_REMOVE_SIDEPANEL, remove all instances of open sidepanel, maxtool still opens it for now
+    UX_REMOVE_SIDEPANEL_HELP: 'ux-remove-sidepanel-help', // building on UX_REMOVE_SIDEPANEL, UX_REMOVE_SIDEPANEL_MAX, remove all instances of open sidepanel, move help
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation

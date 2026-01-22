@@ -17,6 +17,7 @@ import {
     activationLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
+import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { activationTaskContentMap } from './ActivationTaskContent'
 
@@ -31,8 +32,8 @@ export const SidePanelActivation = (): JSX.Element | null => {
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="py-4 deprecated-space-y-2 overflow-y-auto no-scrollbar">
-                <div className="flex flex-col px-4 deprecated-space-y-2">
+            <SidePanelContentContainer>
+                <div className="flex flex-col deprecated-space-y-2">
                     <div className="flex">
                         <p>
                             Use our Quick Start guide to learn about everything PostHog can do for you and your product.
@@ -54,7 +55,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                     {sections
                         .filter((section) => section.visible)
                         .map((section) => (
-                            <div className="px-4" key={section.key}>
+                            <div key={section.key}>
                                 <ActivationSectionComponent sectionKey={section.key} section={section} />
                             </div>
                         ))}
@@ -62,7 +63,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                 {hasHiddenSections && (
                     <div className="w-full">
                         <button
-                            className="px-4 py-2 flex items-center justify-between w-full cursor-pointer"
+                            className="py-2 flex items-center justify-between w-full cursor-pointer"
                             onClick={() => toggleShowHiddenSections()}
                             role="button"
                             aria-expanded={showHiddenSections}
@@ -86,7 +87,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         </div>
                     </div>
                 )}
-            </div>
+            </SidePanelContentContainer>
         </>
     )
 }

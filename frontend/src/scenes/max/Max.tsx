@@ -23,6 +23,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -125,7 +126,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
-                    <div
+                    <SidePanelContentContainer
                         className={clsx(
                             '@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow',
                             !sidePanel && 'min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]'
@@ -137,7 +138,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                         </div>
 
                         {!isRemovingSidePanelMaxFlag && <HistoryPreview sidePanel={sidePanel} />}
-                    </div>
+                    </SidePanelContentContainer>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
                     <ThreadAutoScroller>
