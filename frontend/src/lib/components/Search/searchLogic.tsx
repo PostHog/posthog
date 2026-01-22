@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { IconClock } from '@posthog/icons'
+
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,7 +13,7 @@ import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils
 import { groupsModel } from '~/models/groupsModel'
 import { getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemViewLogEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { ActivityTab, Group, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 
@@ -305,7 +307,7 @@ export const searchLogic = kea<searchLogicType>([
                     return true
                 })
 
-                const items = filteredProducts.map((product) => ({
+                const items: SearchItem[] = filteredProducts.map((product) => ({
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.path,
@@ -321,6 +323,26 @@ export const searchLogic = kea<searchLogicType>([
                         iconColor: product.iconColor,
                     },
                 }))
+
+                // Add Activity manually
+                const activityHref = urls.activity(ActivityTab.ExploreEvents)
+                items.push({
+                    id: 'app-activity',
+                    name: 'Activity',
+                    displayName: 'Activity',
+                    category: 'apps',
+                    productCategory: null,
+                    href: activityHref,
+                    icon: <IconClock />,
+                    itemType: null,
+                    tags: undefined,
+                    lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
+                    record: {
+                        type: 'activity',
+                        iconType: undefined,
+                        iconColor: undefined,
+                    },
+                })
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
