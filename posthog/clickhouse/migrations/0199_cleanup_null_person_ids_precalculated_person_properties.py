@@ -8,7 +8,7 @@ def CLEANUP_NULL_PERSON_IDS():
     These are rows that existed before the person_id column was added and cannot be used
     for person-based cohort queries.
 
-    Expected to delete approximately 5M records.
+    Expected to delete approximately 5B records.
 
     Uses ALTER TABLE DELETE syntax.
     """
