@@ -106,6 +106,7 @@ class TestCacheFaviconsAsset:
             result: dagster.MaterializeResult = cache_favicons(context, s3, config)  # type: ignore[assignment]
 
         mock_download.assert_called_once()
+        assert result.metadata is not None
         assert result.metadata["domains_skipped"] == 1
         assert result.metadata["favicons_cached"] == 1
 
@@ -138,5 +139,6 @@ class TestCacheFaviconsAsset:
 
         mock_get_cached.assert_not_called()
         assert mock_download.call_count == 2
+        assert result.metadata is not None
         assert result.metadata["domains_skipped"] == 0
         assert result.metadata["favicons_cached"] == 2
