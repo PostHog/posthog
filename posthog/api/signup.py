@@ -388,7 +388,12 @@ class InviteSignupSerializer(serializers.Serializer):
                         code="passkey_session_expired",
                     )
 
-                if passkey_credential and session_email and session_email.lower() != invite.target_email.lower():
+                if (
+                    passkey_credential
+                    and session_email
+                    and invite.target_email
+                    and session_email.lower() != invite.target_email.lower()
+                ):
                     raise serializers.ValidationError(
                         "Email does not match the email used for passkey registration", code="email_mismatch"
                     )
