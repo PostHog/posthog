@@ -193,12 +193,7 @@ impl RestrictionManager {
         let mut manager = Self::new();
         let pipeline_str = pipeline.as_pipeline_name();
 
-        for restriction_type in [
-            RestrictionType::DropEvent,
-            RestrictionType::ForceOverflow,
-            RestrictionType::RedirectToDlq,
-            RestrictionType::SkipPersonProcessing,
-        ] {
+        for restriction_type in RestrictionType::all() {
             let key = format!("{}:{}", REDIS_KEY_PREFIX, restriction_type.redis_key());
 
             let json_str = match redis.get(key.clone()).await {
