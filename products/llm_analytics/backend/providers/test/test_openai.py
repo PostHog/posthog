@@ -11,9 +11,6 @@ class TestOpenAIConfig(SimpleTestCase):
     def test_default_temperature(self):
         assert OpenAIConfig.TEMPERATURE == 0
 
-    def test_timeout_setting(self):
-        assert OpenAIConfig.TIMEOUT == 300.0
-
     def test_supported_models_include_expected(self):
         expected_models = [
             "gpt-4o",

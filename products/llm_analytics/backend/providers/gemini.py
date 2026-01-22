@@ -29,6 +29,21 @@ class GeminiProvider:
     def get_api_key(cls) -> str:
         return GeminiAdapter.get_api_key()
 
+    def validate_model(self, model_id: str) -> None:
+        """Validate that the model is supported."""
+        if model_id not in GeminiConfig.SUPPORTED_MODELS:
+            raise ValueError(f"Model {model_id} is not supported. Supported models: {GeminiConfig.SUPPORTED_MODELS}")
+
+    @staticmethod
+    def prepare_config_kwargs(
+        system: str,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        tools: list[dict] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare Gemini config kwargs - delegates to adapter."""
+        return GeminiAdapter._prepare_config_kwargs(system, temperature, max_tokens, tools)
+
     def stream_response(
         self,
         system: str,
