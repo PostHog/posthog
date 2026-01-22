@@ -13,10 +13,10 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
+    config::CaptureMode,
     debug_or_info,
     event_restrictions::{
         AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-        IngestionPipeline,
     },
     prometheus::report_dropped_events,
     router, sinks,
@@ -169,7 +169,7 @@ pub async fn process_events<'a>(
 
             let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
             let applied =
-                AppliedRestrictions::from_restrictions(&restrictions, IngestionPipeline::Analytics);
+                AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Events);
 
             if applied.should_drop {
                 report_dropped_events("event_restriction_drop", 1);
@@ -369,9 +369,10 @@ mod tests {
     }
 
     // Mock sink for testing process_events with restrictions
+    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        EventRestrictionService, IngestionPipeline, Restriction, RestrictionFilters,
-        RestrictionManager, RestrictionScope, RestrictionType,
+        EventRestrictionService, Restriction, RestrictionFilters, RestrictionManager,
+        RestrictionScope, RestrictionType,
     };
     use crate::sinks;
     use async_trait::async_trait;
@@ -427,8 +428,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with DropEvent
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -471,8 +471,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with ForceOverflow
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -516,8 +515,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with SkipPersonProcessing
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -561,8 +559,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with RedirectToDlq
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -606,8 +603,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction service with multiple restrictions
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
             "test_token".to_string(),
@@ -693,8 +689,7 @@ mod tests {
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
         // Create restriction that only applies to different event name
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let mut manager = RestrictionManager::new();
         let mut filters = RestrictionFilters::default();
         filters.event_names.insert("$pageview".to_string()); // our event is "test_event"

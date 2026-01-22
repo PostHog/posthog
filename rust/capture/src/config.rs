@@ -5,10 +5,11 @@ use envconfig::Envconfig;
 use health::HealthStrategy;
 use tracing::Level;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
     Recordings,
+    Ai,
 }
 
 impl CaptureMode {
@@ -16,6 +17,26 @@ impl CaptureMode {
         match self {
             CaptureMode::Events => "events",
             CaptureMode::Recordings => "recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    /// Returns the pipeline name used in Redis restriction configs.
+    /// These must match the values in Django's EventIngestionRestrictionConfig.pipelines.
+    pub fn as_pipeline_name(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "analytics",
+            CaptureMode::Recordings => "session_recordings",
+            CaptureMode::Ai => "ai",
+        }
+    }
+
+    pub fn parse_pipeline_name(s: &str) -> Option<Self> {
+        match s {
+            "analytics" => Some(Self::Events),
+            "session_recordings" => Some(Self::Recordings),
+            "ai" => Some(Self::Ai),
+            _ => None,
         }
     }
 }
@@ -27,6 +48,7 @@ impl std::str::FromStr for CaptureMode {
         match s.trim().to_lowercase().as_ref() {
             "events" => Ok(CaptureMode::Events),
             "recordings" => Ok(CaptureMode::Recordings),
+            "ai" => Ok(CaptureMode::Ai),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }

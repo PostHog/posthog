@@ -21,10 +21,10 @@ use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
+    config::CaptureMode,
     debug_or_info,
     event_restrictions::{
         AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-        IngestionPipeline,
     },
     prometheus::report_dropped_events,
     sinks,
@@ -231,10 +231,8 @@ pub async fn process_replay_events<'a>(
         };
 
         let restrictions = service.get_restrictions(&context.token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(
-            &restrictions,
-            IngestionPipeline::SessionRecordings,
-        );
+        let applied =
+            AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Recordings);
 
         if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);
@@ -485,9 +483,9 @@ mod tests {
     // ============ Restriction tests ============
 
     use crate::api::CaptureError;
+    use crate::config::CaptureMode;
     use crate::event_restrictions::{
-        EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager,
-        RestrictionScope,
+        EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
     };
     use crate::sinks::Event;
     use crate::v0_request::ProcessedEvent;
@@ -548,10 +546,8 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service = EventRestrictionService::new(
-            IngestionPipeline::SessionRecordings,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -579,10 +575,8 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service = EventRestrictionService::new(
-            IngestionPipeline::SessionRecordings,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -612,10 +606,8 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service = EventRestrictionService::new(
-            IngestionPipeline::SessionRecordings,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -645,10 +637,8 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service = EventRestrictionService::new(
-            IngestionPipeline::SessionRecordings,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -698,10 +688,8 @@ mod tests {
             events: events_captured.clone(),
         });
 
-        let service = EventRestrictionService::new(
-            IngestionPipeline::SessionRecordings,
-            Duration::from_secs(300),
-        );
+        let service =
+            EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
         // Create a restriction that only applies to a different session
         let mut manager = RestrictionManager::new();

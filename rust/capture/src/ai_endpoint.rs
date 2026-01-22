@@ -25,9 +25,8 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use crate::event_restrictions::{
-    AppliedRestrictions, EventContext as RestrictionEventContext, IngestionPipeline,
-};
+use crate::config::CaptureMode;
+use crate::event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext};
 use crate::extractors::extract_body_with_timeout;
 use crate::prometheus::report_dropped_events;
 use crate::router::State as AppState;
@@ -219,7 +218,7 @@ pub async fn ai_handler(
         };
 
         let restrictions = service.get_restrictions(token, &event_ctx).await;
-        let applied = AppliedRestrictions::from_restrictions(&restrictions, IngestionPipeline::Ai);
+        let applied = AppliedRestrictions::from_restrictions(&restrictions, CaptureMode::Ai);
 
         if applied.should_drop {
             report_dropped_events("event_restriction_drop", 1);

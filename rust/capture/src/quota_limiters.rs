@@ -82,13 +82,13 @@ impl CaptureQuotaLimiter {
             redis_client.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             config.redis_key_prefix.clone(),
-            Self::get_resource_for_mode(config.capture_mode.clone()),
+            Self::get_resource_for_mode(config.capture_mode),
             ServiceName::Capture,
         )
         .expect(&err_msg);
 
         Self {
-            capture_mode: config.capture_mode.clone(),
+            capture_mode: config.capture_mode,
             redis_timeout,
             redis_key_prefix: config.redis_key_prefix.clone(),
             redis_client: redis_client.clone(),
@@ -181,7 +181,7 @@ impl CaptureQuotaLimiter {
         // drop everything if this limiter is exceeded after all others have filtered the batch
         if self.global_limiter.is_limited(token).await {
             let dropped_count = filtered_indices.len() as u64;
-            let global_resource_tag = Self::get_resource_for_mode(self.capture_mode.clone());
+            let global_resource_tag = Self::get_resource_for_mode(self.capture_mode);
             report_quota_limit_exceeded(&global_resource_tag, dropped_count);
             let dropped_events_tag = format!("{}_over_quota", global_resource_tag.as_str());
             counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => dropped_events_tag)
@@ -213,7 +213,7 @@ impl CaptureQuotaLimiter {
 
     pub fn get_resource_for_mode(mode: CaptureMode) -> QuotaResource {
         match mode {
-            CaptureMode::Events => QuotaResource::Events,
+            CaptureMode::Events | CaptureMode::Ai => QuotaResource::Events,
             CaptureMode::Recordings => QuotaResource::Recordings,
         }
     }

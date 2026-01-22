@@ -8,8 +8,7 @@ use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager, RestrictionScope,
-    RestrictionType,
+    EventRestrictionService, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
 };
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -86,10 +85,7 @@ async fn setup_recordings_router_with_restriction(
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
-    let service = EventRestrictionService::new(
-        IngestionPipeline::SessionRecordings,
-        Duration::from_secs(300),
-    );
+    let service = EventRestrictionService::new(CaptureMode::Recordings, Duration::from_secs(300));
 
     let mut manager = RestrictionManager::new();
     manager.restrictions.insert(

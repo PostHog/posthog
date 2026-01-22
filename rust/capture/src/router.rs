@@ -292,7 +292,7 @@ pub fn router<
         .layer(DefaultBodyLimit::max(ai_body_limit));
 
     let mut router = match capture_mode {
-        CaptureMode::Events => Router::new()
+        CaptureMode::Events | CaptureMode::Ai => Router::new()
             .merge(batch_router)
             .merge(event_router)
             .merge(test_router)

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::config::CaptureMode;
 use common_redis::{Client as RedisClient, CustomRedisError};
 use metrics::{counter, gauge};
 use serde::Deserialize;
@@ -74,10 +75,10 @@ impl AppliedRestrictions {
     /// Apply restrictions and emit metrics.
     pub fn from_restrictions(
         restrictions: &HashSet<RestrictionType>,
-        pipeline: IngestionPipeline,
+        pipeline: CaptureMode,
     ) -> Self {
         let mut result = Self::default();
-        let pipeline_str = pipeline.as_str();
+        let pipeline_str = pipeline.as_pipeline_name();
 
         for restriction_type in RestrictionType::all() {
             if restrictions.contains(&restriction_type) {
@@ -98,33 +99,6 @@ impl AppliedRestrictions {
         }
 
         result
-    }
-}
-
-/// Ingestion pipeline types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IngestionPipeline {
-    Analytics,
-    SessionRecordings,
-    Ai,
-}
-
-impl IngestionPipeline {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Analytics => "analytics",
-            Self::SessionRecordings => "session_recordings",
-            Self::Ai => "ai",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "analytics" => Some(Self::Analytics),
-            "session_recordings" => Some(Self::SessionRecordings),
-            "ai" => Some(Self::Ai),
-            _ => None,
-        }
     }
 }
 
@@ -212,12 +186,12 @@ impl RestrictionManager {
     /// Fetch restrictions from Redis for the given pipeline.
     pub async fn fetch_from_redis(
         redis: &Arc<dyn RedisClient + Send + Sync>,
-        pipeline: IngestionPipeline,
+        pipeline: CaptureMode,
     ) -> Result<Self, CustomRedisError> {
-        info!(pipeline = %pipeline.as_str(), "Fetching event restrictions from Redis");
+        info!(pipeline = %pipeline.as_pipeline_name(), "Fetching event restrictions from Redis");
 
         let mut manager = Self::new();
-        let pipeline_str = pipeline.as_str();
+        let pipeline_str = pipeline.as_pipeline_name();
 
         for restriction_type in [
             RestrictionType::DropEvent,
@@ -285,12 +259,12 @@ pub struct EventRestrictionService {
     manager: Arc<RwLock<RestrictionManager>>,
     last_successful_refresh: Arc<AtomicI64>,
     fail_open_after: Duration,
-    pipeline: IngestionPipeline,
+    pipeline: CaptureMode,
 }
 
 impl EventRestrictionService {
     /// Create a new service. Call `start_refresh_task` to begin background updates.
-    pub fn new(pipeline: IngestionPipeline, fail_open_after: Duration) -> Self {
+    pub fn new(pipeline: CaptureMode, fail_open_after: Duration) -> Self {
         Self {
             manager: Arc::new(RwLock::new(RestrictionManager::new())),
             last_successful_refresh: Arc::new(AtomicI64::new(0)),
@@ -306,7 +280,7 @@ impl EventRestrictionService {
         refresh_interval: Duration,
     ) {
         let service = self.clone();
-        let pipeline_str = self.pipeline.as_str();
+        let pipeline_str = self.pipeline.as_pipeline_name();
 
         let mut interval = interval(refresh_interval);
 
@@ -374,8 +348,9 @@ impl EventRestrictionService {
         }
 
         let now = chrono::Utc::now().timestamp();
-        let age = Duration::from_secs((now - last_refresh) as u64);
-        age > self.fail_open_after
+        // Use saturating_sub to handle potential clock skew (if now < last_refresh, age = 0)
+        let age_secs = (now as u64).saturating_sub(last_refresh as u64);
+        Duration::from_secs(age_secs) > self.fail_open_after
     }
 
     /// Get restrictions for an event. Returns empty set if fail-open is active.
@@ -387,7 +362,7 @@ impl EventRestrictionService {
         if self.is_stale() {
             gauge!(
                 "capture_event_restrictions_stale",
-                "pipeline" => self.pipeline.as_str().to_string()
+                "pipeline" => self.pipeline.as_pipeline_name().to_string()
             )
             .set(1.0);
             return HashSet::new();
@@ -477,15 +452,18 @@ mod tests {
     #[test]
     fn test_ingestion_pipeline_parse() {
         assert_eq!(
-            IngestionPipeline::parse("analytics"),
-            Some(IngestionPipeline::Analytics)
+            CaptureMode::parse_pipeline_name("analytics"),
+            Some(CaptureMode::Events)
         );
         assert_eq!(
-            IngestionPipeline::parse("session_recordings"),
-            Some(IngestionPipeline::SessionRecordings)
+            CaptureMode::parse_pipeline_name("session_recordings"),
+            Some(CaptureMode::Recordings)
         );
-        assert_eq!(IngestionPipeline::parse("ai"), Some(IngestionPipeline::Ai));
-        assert_eq!(IngestionPipeline::parse("unknown"), None);
+        assert_eq!(
+            CaptureMode::parse_pipeline_name("ai"),
+            Some(CaptureMode::Ai)
+        );
+        assert_eq!(CaptureMode::parse_pipeline_name("unknown"), None);
     }
 
     #[test]
@@ -770,8 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_is_stale_when_never_refreshed() {
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         // last_successful_refresh is 0, so should be stale (fail-open)
         let restrictions = service
             .get_restrictions("token", &EventContext::default())
@@ -781,8 +758,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_returns_restrictions_after_update() {
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -801,8 +777,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_returns_empty_for_unknown_token() {
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -823,7 +798,7 @@ mod tests {
     #[tokio::test]
     async fn test_service_fail_open_after_timeout() {
         let service = EventRestrictionService::new(
-            IngestionPipeline::Analytics,
+            CaptureMode::Events,
             Duration::from_secs(1), // 1 second timeout
         );
 
@@ -858,8 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_clone_shares_state() {
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
         let service_clone = service.clone();
 
         // Update via original
@@ -882,8 +856,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_multiple_restrictions_same_token() {
-        let service =
-            EventRestrictionService::new(IngestionPipeline::Analytics, Duration::from_secs(300));
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
 
         let mut manager = RestrictionManager::new();
         manager.restrictions.insert(
@@ -930,7 +903,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -970,7 +943,7 @@ mod tests {
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
 
         // Analytics pipeline should see token_analytics and token_both
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
         assert!(manager.restrictions.contains_key("token_analytics"));
@@ -1004,10 +977,9 @@ mod tests {
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
 
         // SessionRecordings pipeline should only see token_recordings
-        let manager =
-            RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::SessionRecordings)
-                .await
-                .unwrap();
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Recordings)
+            .await
+            .unwrap();
         assert!(!manager.restrictions.contains_key("token_analytics"));
         assert!(manager.restrictions.contains_key("token_recordings"));
     }
@@ -1045,7 +1017,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1064,7 +1036,7 @@ mod tests {
         let mock = MockRedisClient::new();
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
 
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1097,7 +1069,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1131,7 +1103,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1161,7 +1133,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1212,7 +1184,7 @@ mod tests {
         );
 
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock);
-        let manager = RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics)
+        let manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events)
             .await
             .unwrap();
 
@@ -1236,8 +1208,7 @@ mod tests {
         let mock = MockRedisClient::new();
         let redis: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(mock.clone());
 
-        let _manager =
-            RestrictionManager::fetch_from_redis(&redis, IngestionPipeline::Analytics).await;
+        let _manager = RestrictionManager::fetch_from_redis(&redis, CaptureMode::Events).await;
 
         // Verify all 4 restriction type keys were queried
         let calls = mock.get_calls();

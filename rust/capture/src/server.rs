@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
-use crate::event_restrictions::{EventRestrictionService, IngestionPipeline};
+use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
@@ -307,7 +307,7 @@ where
     // event individually, so we should instead allow for some small multiple of our max compressed
     // body size to be unpacked. If a single event is still too big, we'll drop it at kafka send time.
     let event_payload_max_bytes = match config.capture_mode {
-        CaptureMode::Events => BATCH_BODY_SIZE * 5,
+        CaptureMode::Events | CaptureMode::Ai => BATCH_BODY_SIZE * 5,
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
@@ -390,13 +390,8 @@ where
                 .expect("failed to create event restrictions redis client"),
             );
 
-            let pipeline = match config.capture_mode {
-                CaptureMode::Events => IngestionPipeline::Analytics,
-                CaptureMode::Recordings => IngestionPipeline::SessionRecordings,
-            };
-
             let service = EventRestrictionService::new(
-                pipeline,
+                config.capture_mode,
                 Duration::from_secs(config.event_restrictions_fail_open_after_secs),
             );
 
@@ -411,7 +406,7 @@ where
             });
 
             info!(
-                pipeline = %pipeline.as_str(),
+                pipeline = %config.capture_mode.as_pipeline_name(),
                 refresh_interval_secs = config.event_restrictions_refresh_interval_secs,
                 fail_open_after_secs = config.event_restrictions_fail_open_after_secs,
                 "Event restrictions enabled"
