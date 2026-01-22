@@ -1,6 +1,5 @@
 import { LemonInputSelect, Link } from '@posthog/lemon-ui'
 
-// NEEDED? ALREDY EXISTS? CORRECT NAME?
 export function MultiSelectFilterDropdown<T extends string = string>(props: {
     title: string
     placeholder: string

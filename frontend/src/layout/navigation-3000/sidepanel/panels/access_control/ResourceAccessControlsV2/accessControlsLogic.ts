@@ -159,8 +159,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (resources, projectResourceLabel): { key: APIScopeObject; label: string }[] => {
                 const resourcesList = resources as unknown as AccessControlType['resource'][]
                 const resourceOptions = resourcesList.map((resource) => ({
-                    key: resource as APIScopeObject,
-                    label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                    key: resource,
+                    label: toSentenceCase(pluralizeResource(resource)),
                 }))
                 return [{ key: 'project' as APIScopeObject, label: projectResourceLabel }, ...resourceOptions]
             },
@@ -181,11 +181,11 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             (s) => [s.accessControlMembers],
             (accessControlMembers): Map<string, AccessControlLevel> =>
                 new Map(
-                    (accessControlMembers as (AccessControlTypeMember | any)[])
+                    accessControlMembers
                         .filter(
                             (ac): ac is AccessControlTypeMember => !!(ac as AccessControlTypeMember).organization_member
                         )
-                        .map((ac) => [ac.organization_member as string, ac.access_level as AccessControlLevel])
+                        .map((ac) => [ac.organization_member, ac.access_level ?? AccessControlLevel.None])
                 ),
         ],
 
@@ -278,8 +278,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 })
 
                 for (const resourceKey of resourcesList) {
-                    const explicitLevel = defaultResourceAccessControls.accessControlByResource[resourceKey]
-                        ?.access_level as AccessControlLevel | null | undefined
+                    const explicitLevel =
+                        defaultResourceAccessControls.accessControlByResource[resourceKey]?.access_level
                     if (explicitLevel === null || explicitLevel === undefined) {
                         continue
                     }
@@ -288,7 +288,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                         scopeId: null,
                         scopeLabel: 'Default',
                         resourceKey,
-                        resourceLabel: toSentenceCase(pluralizeResource(resourceKey as APIScopeObject)),
+                        resourceLabel: toSentenceCase(pluralizeResource(resourceKey)),
                         level: explicitLevel,
                         isException: true,
                     })
@@ -416,7 +416,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     }
 
                     if (filters.ruleLevels.length > 0) {
-                        if (row.level !== null && !filters.ruleLevels.includes(row.level)) {
+                        if (!filters.ruleLevels.includes(row.level ?? AccessControlLevel.None)) {
                             return false
                         }
                     }
@@ -502,7 +502,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             actions.updateResourceAccessControls(
                 [
                     {
-                        resource: resourceKey as APIScopeObject,
+                        resource: resourceKey,
                         access_level: level,
                         role: scopeType === 'role' ? scopeId : null,
                         organization_member: scopeType === 'member' ? scopeId : null,
