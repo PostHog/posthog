@@ -36,12 +36,12 @@ def _get_redis_client():
         pass
 
 
-def get_idempotency_key(team_id: str, schema_id: str, run_uuid: str, batch_index: int) -> str:
+def get_idempotency_key(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> str:
     """Generate a unique idempotency key for a batch."""
     return f"{IDEMPOTENCY_KEY_PREFIX}:{team_id}:{schema_id}:{run_uuid}:{batch_index}"
 
 
-def is_batch_already_processed(team_id: str, schema_id: str, run_uuid: str, batch_index: int) -> bool:
+def is_batch_already_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> bool:
     """Check if a batch has already been processed."""
     with _get_redis_client() as redis_client:
         if redis_client is None:
@@ -51,7 +51,7 @@ def is_batch_already_processed(team_id: str, schema_id: str, run_uuid: str, batc
         return redis_client.exists(key) == 1
 
 
-def mark_batch_as_processed(team_id: str, schema_id: str, run_uuid: str, batch_index: int) -> None:
+def mark_batch_as_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> None:
     """Mark a batch as processed in the cache."""
     with _get_redis_client() as redis_client:
         if redis_client is None:
