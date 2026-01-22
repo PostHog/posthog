@@ -34,6 +34,7 @@ export function calculateDuplicateLayout(
     const { x, y, w, h } = originalSmLayout
     const columnCount = BREAKPOINT_COLUMN_COUNTS.sm
 
+    // for the xs layout, we can always place the tile just below the original
     const xsLayoutForDuplicate = originalXsLayout
         ? {
               x: originalXsLayout.x,
@@ -43,6 +44,7 @@ export function calculateDuplicateLayout(
           }
         : undefined
 
+    // place the tile on the right if there's space
     if (canPlaceToRight(currentLayouts?.sm || [], tileId, x, y, w, h, columnCount)) {
         result.duplicateLayouts = {
             sm: { x: x + w, y, w, h },
@@ -51,16 +53,20 @@ export function calculateDuplicateLayout(
         return result
     }
 
+    // otherwise, place it below
     const insertY = y + h
     result.duplicateLayouts = {
         sm: { x, y: insertY, w, h },
         xs: xsLayoutForDuplicate,
     }
 
+    // shift down any tiles that would overlap with the new placement
     for (const smLayout of currentLayouts?.sm || []) {
+        // ignore the duplicated tile and tiles above the insertion point
         if (String(smLayout.i) === String(tileId) || smLayout.y < insertY) {
             continue
         }
+
         const xsLayout = currentLayouts?.xs?.find((l) => l.i === smLayout.i)
         const xsInsertY = originalXsLayout ? originalXsLayout.y + originalXsLayout.h : undefined
         result.tilesToUpdate.push({
