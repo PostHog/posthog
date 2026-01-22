@@ -1,7 +1,7 @@
 from typing import cast
 
 from freezegun import freeze_time
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
 from django.test import override_settings
 
@@ -20,6 +20,7 @@ from posthog.models.utils import uuid7
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentSessionPropertyMetrics(ExperimentQueryRunnerBaseTest):
+    @snapshot_clickhouse_queries
     @freeze_time("2024-01-01T12:00:00Z")
     def test_session_duration_not_multiplied_across_events(self):
         feature_flag = self.create_feature_flag()
