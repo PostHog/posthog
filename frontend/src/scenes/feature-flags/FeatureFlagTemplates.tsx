@@ -148,11 +148,11 @@ export function FeatureFlagTemplates({ onTemplateApplied }: FeatureFlagTemplates
     ]
 
     return (
-        <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
+        <div className="mt-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
                 <h3 className="mb-0 text-sm font-semibold">Start with a template</h3>
             </div>
-            <div className="flex gap-3 overflow-x-auto pb-2">
+            <div className="flex gap-3 overflow-x-auto">
                 {templates.map((template) => (
                     <button
                         type="button"

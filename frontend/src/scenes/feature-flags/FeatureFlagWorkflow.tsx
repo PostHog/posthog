@@ -136,7 +136,7 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                     }
                 />
                 <SceneContent>
-                    <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-4 mt-4">
                         {/* Summary card */}
                         <div className="rounded border p-4 bg-bg-light">
                             <div className="grid grid-cols-2 gap-4">
@@ -231,7 +231,7 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                     {isNewFeatureFlag && <FeatureFlagTemplates />}
 
                     {/* Two-column layout */}
-                    <div className="flex gap-4 mt-4 flex-wrap">
+                    <div className={`flex gap-4 flex-wrap ${!isNewFeatureFlag ? 'mt-4' : ''}`}>
                         {/* Left column - narrow */}
                         <div className="flex-1 min-w-[20rem] flex flex-col gap-4">
                             {/* Main settings card */}
@@ -284,43 +284,53 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                         </Tooltip>
                                     )}
                                 </LemonField>
+                            </div>
 
-                                <LemonField name="ensure_experience_continuity">
-                                    {({ value, onChange }) => (
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    If your feature flag is applied before identifying the user, use
-                                                    this to ensure that the flag value remains consistent for the same
-                                                    user. Depending on your setup, this option might not always be
-                                                    suitable. This feature requires creating profiles for anonymous
-                                                    users.{' '}
-                                                    <Link
-                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                        target="_blank"
-                                                    >
-                                                        Learn more
-                                                    </Link>
-                                                </>
-                                            }
-                                            placement="right"
-                                        >
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                bordered
-                                                fullWidth
-                                                label={
-                                                    <span className="flex items-center">
-                                                        <span>Persist flag across authentication steps</span>
-                                                        <IconInfo className="ml-1 text-lg" />
-                                                    </span>
-                                                }
-                                                data-attr="feature-flag-persist-across-auth"
+                            {/* Tags & Evaluation Contexts card */}
+                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
+                                <LemonLabel
+                                    info={
+                                        hasEvaluationTags
+                                            ? 'Use tags to organize flags. Mark tags as evaluation contexts to control when flags evaluate – flags only evaluate when the SDK provides matching environment tags.'
+                                            : 'Use tags to organize and filter your feature flags.'
+                                    }
+                                >
+                                    Tags & evaluation contexts
+                                </LemonLabel>
+                                {hasEvaluationTags ? (
+                                    <LemonField name="tags">
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <LemonField name="evaluation_tags">
+                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
+                                                    <FeatureFlagEvaluationTags
+                                                        tags={formTags}
+                                                        evaluationTags={formEvalTags || []}
+                                                        context="form"
+                                                        onChange={(updatedTags, updatedEvaluationTags) => {
+                                                            onChangeTags(updatedTags)
+                                                            onChangeEvalTags(updatedEvaluationTags)
+                                                        }}
+                                                        tagsAvailable={availableTags.filter(
+                                                            (tag: string) => !formTags?.includes(tag)
+                                                        )}
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
+                                    </LemonField>
+                                ) : (
+                                    <LemonField name="tags">
+                                        {({ value: formTags, onChange: onChangeTags }) => (
+                                            <ObjectTags
+                                                tags={formTags}
+                                                onChange={onChangeTags}
+                                                tagsAvailable={availableTags.filter(
+                                                    (tag: string) => !formTags?.includes(tag)
+                                                )}
                                             />
-                                        </Tooltip>
-                                    )}
-                                </LemonField>
+                                        )}
+                                    </LemonField>
+                                )}
                             </div>
 
                             {/* Advanced options card */}
@@ -371,53 +381,43 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                         data-attr="feature-flag-evaluation-runtime"
                                     />
                                 </LemonField>
-                            </div>
 
-                            {/* Tags & Evaluation Contexts card */}
-                            <div className="rounded border p-3 bg-bg-light gap-2 flex flex-col">
-                                <LemonLabel
-                                    info={
-                                        hasEvaluationTags
-                                            ? 'Use tags to organize flags. Mark tags as evaluation contexts to control when flags evaluate – flags only evaluate when the SDK provides matching environment tags.'
-                                            : 'Use tags to organize and filter your feature flags.'
-                                    }
-                                >
-                                    Tags & evaluation contexts
-                                </LemonLabel>
-                                {hasEvaluationTags ? (
-                                    <LemonField name="tags">
-                                        {({ value: formTags, onChange: onChangeTags }) => (
-                                            <LemonField name="evaluation_tags">
-                                                {({ value: formEvalTags, onChange: onChangeEvalTags }) => (
-                                                    <FeatureFlagEvaluationTags
-                                                        tags={formTags}
-                                                        evaluationTags={formEvalTags || []}
-                                                        context="form"
-                                                        onChange={(updatedTags, updatedEvaluationTags) => {
-                                                            onChangeTags(updatedTags)
-                                                            onChangeEvalTags(updatedEvaluationTags)
-                                                        }}
-                                                        tagsAvailable={availableTags.filter(
-                                                            (tag: string) => !formTags?.includes(tag)
-                                                        )}
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
-                                    </LemonField>
-                                ) : (
-                                    <LemonField name="tags">
-                                        {({ value: formTags, onChange: onChangeTags }) => (
-                                            <ObjectTags
-                                                tags={formTags}
-                                                onChange={onChangeTags}
-                                                tagsAvailable={availableTags.filter(
-                                                    (tag: string) => !formTags?.includes(tag)
-                                                )}
+                                <LemonField name="ensure_experience_continuity">
+                                    {({ value, onChange }) => (
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    If your feature flag is applied before identifying the user, use
+                                                    this to ensure that the flag value remains consistent for the same
+                                                    user. Depending on your setup, this option might not always be
+                                                    suitable. This feature requires creating profiles for anonymous
+                                                    users.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more
+                                                    </Link>
+                                                </>
+                                            }
+                                            placement="right"
+                                        >
+                                            <LemonSwitch
+                                                checked={value}
+                                                onChange={onChange}
+                                                bordered
+                                                fullWidth
+                                                label={
+                                                    <span className="flex items-center">
+                                                        <span>Persist flag across authentication steps</span>
+                                                        <IconInfo className="ml-1 text-lg" />
+                                                    </span>
+                                                }
+                                                data-attr="feature-flag-persist-across-auth"
                                             />
-                                        )}
-                                    </LemonField>
-                                )}
+                                        </Tooltip>
+                                    )}
+                                </LemonField>
                             </div>
                         </div>
 
@@ -509,9 +509,7 @@ export function FeatureFlagWorkflow({ id }: FeatureFlagLogicProps): JSX.Element 
                                                 icon={<IconBalance />}
                                                 onClick={distributeVariantsEqually}
                                                 tooltip="Distribute rollout percentages equally"
-                                            >
-                                                Distribute equally
-                                            </LemonButton>
+                                            />
                                         </div>
 
                                         <LemonCollapse

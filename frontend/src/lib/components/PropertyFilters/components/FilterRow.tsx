@@ -86,6 +86,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 size={size}
                                 className="ml-2"
                                 noPadding
+                                tooltip="Remove filter"
                             />
                         ) : null}
                     </>
