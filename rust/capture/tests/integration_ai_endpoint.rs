@@ -8,10 +8,6 @@ use axum_test_helper::TestClient;
 use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::event_restrictions::{
-    EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager, RestrictionScope,
-    RestrictionType,
-};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;

@@ -11,7 +11,7 @@ use capture::event_restrictions::{
     EventRestrictionService, IngestionPipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
 };
-use capture::limiters::CaptureQuotaLimiter;
+use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
@@ -103,6 +103,7 @@ async fn setup_analytics_router_with_restriction(
         liveness,
         sink,
         redis,
+        None, // global_rate_limiter
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -119,6 +120,7 @@ async fn setup_analytics_router_with_restriction(
         None, // no blob storage for analytics
         Some(10),
         None,
+        256, // body_read_chunk_size_kb
     );
 
     (router, sink_clone)
