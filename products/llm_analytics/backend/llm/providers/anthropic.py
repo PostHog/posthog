@@ -85,6 +85,7 @@ class AnthropicAdapter:
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
+        client: Any
         if analytics.capture and posthog_client:
             client = Anthropic(
                 api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT
@@ -92,11 +93,13 @@ class AnthropicAdapter:
         else:
             client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
 
+        messages: Any = request.messages
+
         try:
             response = client.messages.create(
                 model=request.model,
                 system=request.system or "",
-                messages=request.messages,
+                messages=messages,
                 max_tokens=request.max_tokens or AnthropicConfig.MAX_TOKENS,
                 temperature=request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
                 **(self._build_analytics_kwargs(analytics, client)),
@@ -131,6 +134,7 @@ class AnthropicAdapter:
         model_id = request.model
 
         posthog_client = posthoganalytics.default_client
+        client: Any
         if analytics.capture and posthog_client:
             client = Anthropic(
                 api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT

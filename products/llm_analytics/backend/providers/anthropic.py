@@ -9,6 +9,7 @@ This shim will be removed in a future release.
 """
 
 from collections.abc import Generator
+from typing import Any, cast
 
 from anthropic.types import MessageParam
 
@@ -46,7 +47,7 @@ class AnthropicProvider:
         """Generator function that yields SSE formatted data."""
         request = CompletionRequest(
             model=self.model_id,
-            messages=list(messages),
+            messages=cast(list[dict[str, Any]], list(messages)),
             provider="anthropic",
             system=system,
             temperature=temperature,

@@ -62,6 +62,7 @@ class GeminiAdapter:
 
         posthog_client = posthoganalytics.default_client
         http_options = HttpOptions(timeout=GeminiConfig.TIMEOUT)
+        client: Any
         if analytics.capture and posthog_client:
             client = posthog_genai.Client(
                 api_key=effective_api_key, posthog_client=posthog_client, http_options=http_options
@@ -115,6 +116,7 @@ class GeminiAdapter:
 
         posthog_client = posthoganalytics.default_client
         http_options = HttpOptions(timeout=GeminiConfig.TIMEOUT)
+        client: Any
         if analytics.capture and posthog_client:
             client = posthog_genai.Client(
                 api_key=effective_api_key, posthog_client=posthog_client, http_options=http_options

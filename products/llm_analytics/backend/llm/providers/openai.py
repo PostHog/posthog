@@ -78,6 +78,7 @@ class OpenAIAdapter:
         effective_api_key = api_key or self._get_default_api_key()
 
         posthog_client = posthoganalytics.default_client
+        client: Any
         if analytics.capture and posthog_client:
             client = OpenAI(
                 api_key=effective_api_key,
@@ -87,7 +88,7 @@ class OpenAIAdapter:
         else:
             client = openai.OpenAI(api_key=effective_api_key, base_url=settings.OPENAI_BASE_URL)
 
-        messages = self._build_messages(request)
+        messages: Any = self._build_messages(request)
 
         try:
             if request.response_format and issubclass(request.response_format, BaseModel):
@@ -107,15 +108,15 @@ class OpenAIAdapter:
                     parsed=parsed,
                 )
             else:
-                response = client.chat.completions.create(
+                create_response = client.chat.completions.create(
                     model=request.model,
                     messages=messages,
                     temperature=request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE,
                     max_completion_tokens=request.max_tokens,
                     **(self._build_analytics_kwargs(analytics, client)),
                 )
-                content = response.choices[0].message.content or ""
-                usage = self._extract_usage(response.usage)
+                content = create_response.choices[0].message.content or ""
+                usage = self._extract_usage(create_response.usage)
                 return CompletionResponse(
                     content=content,
                     model=request.model,
@@ -145,6 +146,7 @@ class OpenAIAdapter:
         model_id = request.model
 
         posthog_client = posthoganalytics.default_client
+        client: Any
         if analytics.capture and posthog_client:
             client = OpenAI(
                 api_key=effective_api_key,
