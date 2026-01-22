@@ -71,7 +71,7 @@ function HorizontalLayout({
             <div
                 ref={playlistRef}
                 className={clsx('relative flex flex-col shrink-0', {
-                    'w-5': isPlaylistCollapsed,
+                    'w-3': isPlaylistCollapsed,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={isPlaylistCollapsed ? {} : { width: desiredSize ?? 320, minWidth: 200, maxWidth: '50%' }}

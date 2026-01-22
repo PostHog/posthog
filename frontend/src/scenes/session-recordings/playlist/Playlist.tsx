@@ -210,15 +210,12 @@ export function Playlist({
     // Show collapsed view
     if (isPlaylistCollapsed) {
         return (
-            <div className="flex items-center justify-center h-full w-full px-0">
-                <LemonButton
-                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
-                    onClick={() => setPlaylistCollapsed(false)}
-                    tooltip="Expand playlist"
-                    size="xsmall"
-                    noPadding
-                    data-attr="expand-playlist"
-                />
+            <div
+                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
+                onClick={() => setPlaylistCollapsed(false)}
+                data-attr="expand-playlist"
+            >
+                <LemonButton icon={<IconSidebarClose />} tooltip="Expand playlist" size="xsmall" noPadding />
             </div>
         )
     }
