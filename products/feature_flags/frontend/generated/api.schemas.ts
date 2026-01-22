@@ -77,10 +77,11 @@ export interface UserBasicApi {
  * `web_experiments` - web_experiments
  * `product_tours` - product_tours
  */
-export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
+export type FeatureFlagCreationContextEnumApi =
+    (typeof FeatureFlagCreationContextEnumApi)[keyof typeof FeatureFlagCreationContextEnumApi]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CreationContextEnumApi = {
+export const FeatureFlagCreationContextEnumApi = {
     feature_flags: 'feature_flags',
     experiments: 'experiments',
     surveys: 'surveys',
@@ -167,7 +168,7 @@ export interface FeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -254,7 +255,7 @@ export interface PatchedFeatureFlagApi {
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments
 * `product_tours` - product_tours */
-    creation_context?: CreationContextEnumApi
+    creation_context?: FeatureFlagCreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
