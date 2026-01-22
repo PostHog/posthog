@@ -383,6 +383,7 @@ class Display(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
+    TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
 
 
 class YAxisScaleType(StrEnum):
@@ -1821,6 +1822,33 @@ class GoogleAdsTableExclusions(StrEnum):
 
 class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
+
+
+class HeatmapGradientStop(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    color: str
+    value: float
+
+
+class GradientScaleMode(StrEnum):
+    ABSOLUTE = "absolute"
+    RELATIVE = "relative"
+
+
+class HeatmapSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    gradient: list[HeatmapGradientStop] | None = None
+    gradientPreset: str | None = None
+    gradientScaleMode: GradientScaleMode | None = None
+    valueColumn: str | None = None
+    xAxisColumn: str | None = None
+    xAxisLabel: str | None = None
+    yAxisColumn: str | None = None
+    yAxisLabel: str | None = None
 
 
 class HedgehogColorOptions(StrEnum):
@@ -4484,26 +4512,6 @@ class ChartAxis(BaseModel):
     )
     column: str
     settings: Settings | None = None
-
-
-class HeatmapGradientStop(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    color: str
-    value: float
-
-
-class HeatmapSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    gradient: list[HeatmapGradientStop] | None = None
-    valueColumn: str | None = None
-    xAxisColumn: str | None = None
-    xAxisLabel: str | None = None
-    yAxisColumn: str | None = None
-    yAxisLabel: str | None = None
 
 
 class ChartSettings(BaseModel):
