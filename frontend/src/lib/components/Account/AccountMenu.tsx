@@ -7,7 +7,6 @@ import {
     IconCopy,
     IconDatabase,
     IconDay,
-    IconEllipsis,
     IconExpand45,
     IconFeatures,
     IconGear,
@@ -23,7 +22,6 @@ import {
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
@@ -50,7 +48,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -66,7 +63,6 @@ import { SidePanelTab, UserTheme } from '~/types'
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { openCHQueriesDebugModal } from '../AppShortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
-import { ProjectCombobox } from './ProjectCombobox'
 
 interface AccountMenuProps extends DropdownMenuContentProps {
     trigger: JSX.Element
@@ -156,8 +152,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { setAppShortcutMenuOpen } = useActions(appShortcutLogic)
     const { toggleZenMode } = useActions(navigation3000Logic)
-    const { currentTeam } = useValues(teamLogic)
-    const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     return (
         <DropdownMenu>
@@ -195,7 +189,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </div>
                         </Link>
                     </DropdownMenuItem>
-                    {!isRemovingSidePanelFlag && isCloudOrDev ? (
+                    {isCloudOrDev ? (
                         <DropdownMenuItem asChild>
                             <Link
                                 to={
@@ -214,91 +208,21 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             </Link>
                         </DropdownMenuItem>
                     ) : null}
-                    {!isRemovingSidePanelFlag ? (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    showInviteModal()
-                                    reportInviteMembersButtonClicked()
-                                }}
-                                menuItem
-                                tooltip="Invite members"
-                                tooltipPlacement="right"
-                                data-attr="top-menu-invite-team-members"
-                            >
-                                <IconPlusSmall />
-                                Invite members
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ) : null}
-                    <Label intent="menu" className="px-2 mt-2">
-                        Projects
-                    </Label>
-                    <DropdownMenuSeparator />
-
-                    {isAuthenticatedTeam(currentTeam) && isRemovingSidePanelFlag && (
-                        <DropdownMenuItem asChild>
-                            <Link
-                                to={urls.settings('project')}
-                                buttonProps={{
-                                    className: 'flex items-center gap-2',
-                                    menuItem: true,
-                                    truncate: true,
-                                }}
-                                tooltip="Project settings"
-                                tooltipPlacement="right"
-                                data-attr="top-menu-project-settings"
-                            >
-                                <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-4 dark:text-tertiary text-[8px]">
-                                    {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
-                                </div>
-                                <span className="truncate font-semibold">
-                                    {currentTeam ? currentTeam.name : 'Select project'}
-                                </span>
-                                {currentTeam && (
-                                    <div className="ml-auto flex items-center gap-1">
-                                        <IconGear className="text-tertiary" />
-                                    </div>
-                                )}
-                            </Link>
-                        </DropdownMenuItem>
-                    )}
-
-                    {isRemovingSidePanelFlag ? (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    showInviteModal()
-                                    reportInviteMembersButtonClicked()
-                                }}
-                                menuItem
-                                tooltip="Invite members"
-                                tooltipPlacement="right"
-                                data-attr="top-menu-invite-team-members"
-                            >
-                                <IconPlusSmall />
-                                Invite members
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ) : null}
-
-                    <DropdownMenuSub>
-                        <DropdownMenuSubTrigger asChild>
-                            <ButtonPrimitive menuItem>
-                                {!isRemovingSidePanelFlag ? (
-                                    <IconBlank />
-                                ) : (
-                                    <IconEllipsis className="text-tertiary p-px" />
-                                )}
-                                Other {!isRemovingSidePanelFlag && 'projects'}
-                                <MenuOpenIndicator intent="sub" />
-                            </ButtonPrimitive>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="min-w-[var(--project-panel-width)]">
-                            <ProjectCombobox />
-                        </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            onClick={() => {
+                                showInviteModal()
+                                reportInviteMembersButtonClicked()
+                            }}
+                            menuItem
+                            tooltip="Invite members"
+                            tooltipPlacement="right"
+                            data-attr="top-menu-invite-team-members"
+                        >
+                            <IconPlusSmall />
+                            Invite members
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
                     <Label intent="menu" className="px-2 mt-2">
                         Organizations
                     </Label>
@@ -337,35 +261,11 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         </Link>
                     </DropdownMenuItem>
 
-                    {isRemovingSidePanelFlag && isCloudOrDev ? (
-                        <DropdownMenuItem asChild>
-                            <Link
-                                to={
-                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                        ? urls.organizationBillingSection('overview')
-                                        : urls.organizationBilling()
-                                }
-                                buttonProps={{
-                                    className: 'flex items-center gap-2',
-                                    menuItem: true,
-                                    truncate: true,
-                                }}
-                            >
-                                <IconReceipt />
-                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS] ? 'Billing & Usage' : 'Billing'}
-                            </Link>
-                        </DropdownMenuItem>
-                    ) : null}
-
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
                             <ButtonPrimitive menuItem>
-                                {!isRemovingSidePanelFlag ? (
-                                    <IconBlank />
-                                ) : (
-                                    <IconEllipsis className="text-tertiary p-px" />
-                                )}
-                                Other {!isRemovingSidePanelFlag && 'organizations'}
+                                <IconBlank />
+                                Other organizations
                                 <MenuOpenIndicator intent="sub" />
                             </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
@@ -413,167 +313,163 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         </>
                     )}
 
-                    {!isRemovingSidePanelFlag ? (
-                        <>
-                            <ThemeMenu />
+                    <ThemeMenu />
 
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive
-                                    tooltip="Hide navigation and focus on content"
-                                    tooltipPlacement="right"
-                                    onClick={toggleZenMode}
-                                    menuItem
-                                >
-                                    <IconExpand45 />
-                                    Zen mode
-                                    <KeyboardShortcut command option z className="ml-auto" />
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Hide navigation and focus on content"
+                            tooltipPlacement="right"
+                            onClick={toggleZenMode}
+                            menuItem
+                        >
+                            <IconExpand45 />
+                            Zen mode
+                            <KeyboardShortcut command option z className="ml-auto" />
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
 
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive
-                                    tooltip="Open shortcut menu"
-                                    tooltipPlacement="right"
-                                    onClick={() => setAppShortcutMenuOpen(true)}
-                                    menuItem
-                                >
-                                    <span className="size-4 flex items-center justify-center">⌘</span>
-                                    Shortcuts
-                                    <div className="flex gap-1 ml-auto items-center">
-                                        <KeyboardShortcut command option k />
-                                        <span className="text-xs opacity-75">or</span>
-                                        <KeyboardShortcut command shift k />
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive
+                            tooltip="Open shortcut menu"
+                            tooltipPlacement="right"
+                            onClick={() => setAppShortcutMenuOpen(true)}
+                            menuItem
+                        >
+                            <span className="size-4 flex items-center justify-center">⌘</span>
+                            Shortcuts
+                            <div className="flex gap-1 ml-auto items-center">
+                                <KeyboardShortcut command option k />
+                                <span className="text-xs opacity-75">or</span>
+                                <KeyboardShortcut command shift k />
+                            </div>
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuItem asChild>
+                        <Link
+                            to="https://posthog.com/changelog"
+                            buttonProps={{
+                                menuItem: true,
+                            }}
+                            onClick={(e) => {
+                                if (!mobileLayout) {
+                                    e.preventDefault()
+                                    openSidePanel(SidePanelTab.Docs, '/changelog')
+                                }
+                            }}
+                            data-attr="whats-new-button"
+                            target="_blank"
+                            tooltip="View our changelog"
+                            tooltipPlacement="right"
+                        >
+                            <IconLive />
+                            What's new?
+                        </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <Link
+                            to={urls.settings('user-feature-previews')}
+                            buttonProps={{
+                                menuItem: true,
+                            }}
+                            data-attr="top-menu-feature-previews"
+                            tooltip="View and access upcoming features"
+                            tooltipPlacement="right"
+                        >
+                            <IconFeatures />
+                            Feature previews
+                        </Link>
+                    </DropdownMenuItem>
+
+                    {featureFlags[FEATURE_FLAGS.GAME_CENTER] && (
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger asChild>
+                                <ButtonPrimitive menuItem>
+                                    <IconCake />
+                                    Game center
+                                    <div className="ml-auto">
+                                        <MenuOpenIndicator intent="sub" className="ml-auto" />
                                     </div>
                                 </ButtonPrimitive>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuItem asChild>
-                                <Link
-                                    to="https://posthog.com/changelog"
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    onClick={(e) => {
-                                        if (!mobileLayout) {
-                                            e.preventDefault()
-                                            openSidePanel(SidePanelTab.Docs, '/changelog')
-                                        }
-                                    }}
-                                    data-attr="whats-new-button"
-                                    target="_blank"
-                                    tooltip="View our changelog"
-                                    tooltipPlacement="right"
-                                >
-                                    <IconLive />
-                                    What's new?
-                                </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link
-                                    to={urls.settings('user-feature-previews')}
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    data-attr="top-menu-feature-previews"
-                                    tooltip="View and access upcoming features"
-                                    tooltipPlacement="right"
-                                >
-                                    <IconFeatures />
-                                    Feature previews
-                                </Link>
-                            </DropdownMenuItem>
-
-                            {featureFlags[FEATURE_FLAGS.GAME_CENTER] && (
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger asChild>
-                                        <ButtonPrimitive menuItem>
-                                            <IconCake />
-                                            Game center
-                                            <div className="ml-auto">
-                                                <MenuOpenIndicator intent="sub" className="ml-auto" />
-                                            </div>
-                                        </ButtonPrimitive>
-                                    </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent>
-                                        <DropdownMenuGroup>
-                                            {getTreeItemsGames().map((game) => (
-                                                <DropdownMenuItem asChild key={game.path}>
-                                                    <Link to={game.href} buttonProps={{ menuItem: true }}>
-                                                        {game.path}
-                                                    </Link>
-                                                </DropdownMenuItem>
-                                            ))}
-                                        </DropdownMenuGroup>
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                            )}
-                            {user?.is_staff && (
-                                <>
-                                    <DropdownMenuItem asChild>
-                                        <Link
-                                            to="/admin/"
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            data-attr="top-menu-django-admin"
-                                            disableClientSideRouting
-                                        >
-                                            <IconShieldLock />
-                                            Django admin
-                                        </Link>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem asChild>
-                                        <Link
-                                            to={urls.instanceStatus()}
-                                            buttonProps={{
-                                                menuItem: true,
-                                            }}
-                                            tooltip="Async migrations"
-                                            tooltipPlacement="right"
-                                            data-attr="top-menu-instance-panel"
-                                        >
-                                            <IconServer />
-                                            Instance panel
-                                        </Link>
-                                    </DropdownMenuItem>
-
-                                    {user?.is_impersonated ||
-                                    preflight?.is_debug ||
-                                    preflight?.instance_preferences?.debug_queries ? (
-                                        <DropdownMenuItem asChild>
-                                            <ButtonPrimitive
-                                                menuItem
-                                                onClick={() => {
-                                                    openCHQueriesDebugModal()
-                                                }}
-                                                data-attr="menu-item-debug-ch-queries"
-                                            >
-                                                <IconDatabase />
-                                                Debug CH queries
-                                                <KeyboardShortcut command option tab className="ml-auto" />
-                                            </ButtonPrimitive>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent>
+                                <DropdownMenuGroup>
+                                    {getTreeItemsGames().map((game) => (
+                                        <DropdownMenuItem asChild key={game.path}>
+                                            <Link to={game.href} buttonProps={{ menuItem: true }}>
+                                                {game.path}
+                                            </Link>
                                         </DropdownMenuItem>
-                                    ) : null}
-                                </>
-                            )}
-                            {!isCloud && (
-                                <DropdownMenuItem asChild>
-                                    <Link
-                                        to={urls.moveToPostHogCloud()}
-                                        buttonProps={{
-                                            menuItem: true,
-                                        }}
-                                        data-attr="top-menu-item-upgrade-to-cloud"
-                                    >
-                                        <IconConfetti />
-                                        Try PostHog Cloud
-                                    </Link>
-                                </DropdownMenuItem>
-                            )}
+                                    ))}
+                                </DropdownMenuGroup>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                    {user?.is_staff && (
+                        <>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to="/admin/"
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                    data-attr="top-menu-django-admin"
+                                    disableClientSideRouting
+                                >
+                                    <IconShieldLock />
+                                    Django admin
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.instanceStatus()}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                    tooltip="Async migrations"
+                                    tooltipPlacement="right"
+                                    data-attr="top-menu-instance-panel"
+                                >
+                                    <IconServer />
+                                    Instance panel
+                                </Link>
+                            </DropdownMenuItem>
 
-                            <DropdownMenuSeparator />
+                            {user?.is_impersonated ||
+                            preflight?.is_debug ||
+                            preflight?.instance_preferences?.debug_queries ? (
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            openCHQueriesDebugModal()
+                                        }}
+                                        data-attr="menu-item-debug-ch-queries"
+                                    >
+                                        <IconDatabase />
+                                        Debug CH queries
+                                        <KeyboardShortcut command option tab className="ml-auto" />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </>
-                    ) : null}
+                    )}
+                    {!isCloud && (
+                        <DropdownMenuItem asChild>
+                            <Link
+                                to={urls.moveToPostHogCloud()}
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                                data-attr="top-menu-item-upgrade-to-cloud"
+                            >
+                                <IconConfetti />
+                                Try PostHog Cloud
+                            </Link>
+                        </DropdownMenuItem>
+                    )}
+
+                    <DropdownMenuSeparator />
 
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive menuItem onClick={logout} data-attr="top-menu-item-logout">

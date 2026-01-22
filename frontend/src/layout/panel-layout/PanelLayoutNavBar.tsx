@@ -23,9 +23,11 @@ import {
 import { Link } from '@posthog/lemon-ui'
 
 import { AccountMenu } from 'lib/components/Account/AccountMenu'
+import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
 import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -42,11 +44,9 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
-import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -105,7 +105,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
     const { firstTabIsActive } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleCommand } = useActions(commandLogic)
-    const { currentTeam } = useValues(teamLogic)
     const isRemovingSidePanelFlag = useFeatureFlag('UX_REMOVE_SIDEPANEL')
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -339,46 +338,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 </>
                             ) : (
                                 <>
-                                    <AccountMenu
-                                        trigger={
-                                            <ButtonPrimitive
-                                                tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
-                                                tooltipPlacement="right"
-                                                iconOnly={isLayoutNavCollapsed}
-                                                className={cn('max-w-[175px]', {
-                                                    'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
-                                                })}
-                                                data-attr="menu-item-me"
-                                            >
-                                                {isAuthenticatedTeam(currentTeam) && (
-                                                    <>
-                                                        <div
-                                                            className={cn(
-                                                                'Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-5 dark:text-tertiary',
-                                                                {
-                                                                    'size-[30px] rounded': isLayoutNavCollapsed,
-                                                                }
-                                                            )}
-                                                        >
-                                                            {String.fromCodePoint(
-                                                                currentTeam.name.codePointAt(0)!
-                                                            ).toLocaleUpperCase()}
-                                                        </div>
-                                                        {!isLayoutNavCollapsed && (
-                                                            <span className="truncate">
-                                                                asd fasdf ljas dlnasdlna sdflnsafd laslasf
-                                                                {currentTeam.name ?? 'Project'}
-                                                            </span>
-                                                        )}
-                                                    </>
-                                                )}
-                                                {!isLayoutNavCollapsed && <MenuOpenIndicator />}
-                                            </ButtonPrimitive>
-                                        }
-                                        side="bottom"
-                                        alignOffset={10}
-                                        align="start"
-                                    />
+                                    <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />
                                 </>
                             )}
                         </div>
@@ -665,6 +625,8 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             <IconQuestion className="size-5" />
                                         </span>
                                     </ButtonPrimitive>
+
+                                    <HelpMenu />
                                 </>
                             )}
                         </div>
