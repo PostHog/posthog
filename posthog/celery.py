@@ -109,8 +109,6 @@ def _is_longrunning_worker() -> bool:
     """Check if this is a long-running worker that handles cohort calculations."""
     from posthog.tasks.utils import CeleryQueue
 
-    from posthog.tasks.utils import CeleryQueue
-
     # Check if LONG_RUNNING queue is in the worker's queue list
     worker_queues = os.environ.get("CELERY_WORKER_QUEUES", "").split(",")
     return CeleryQueue.LONG_RUNNING.value in worker_queues
