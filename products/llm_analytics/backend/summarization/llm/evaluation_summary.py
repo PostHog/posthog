@@ -20,6 +20,9 @@ async def summarize_evaluation_runs(
     team_id: int,
     model: OpenAIModel,
     filter_type: str = "all",
+    evaluation_name: str = "",
+    evaluation_description: str = "",
+    evaluation_prompt: str = "",
 ) -> EvaluationSummaryResponse:
     """
     Generate summary of evaluation runs using OpenAI API with structured outputs.
@@ -29,6 +32,9 @@ async def summarize_evaluation_runs(
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
         filter_type: The filter applied ('all', 'pass', 'fail', 'na')
+        evaluation_name: Name of the evaluation being summarized
+        evaluation_description: Description of what the evaluation tests for
+        evaluation_prompt: The prompt used by the LLM judge
 
     Returns:
         Structured evaluation summary response
@@ -54,7 +60,15 @@ async def summarize_evaluation_runs(
     fail_count = sum(1 for run in evaluation_runs if run["result"] is False)
     na_count = sum(1 for run in evaluation_runs if run["result"] is None)
 
-    system_prompt = load_summarization_template("prompts/evaluation_summary.djt", {"filter": filter_type})
+    system_prompt = load_summarization_template(
+        "prompts/evaluation_summary.djt",
+        {
+            "filter": filter_type,
+            "evaluation_name": evaluation_name,
+            "evaluation_description": evaluation_description,
+            "evaluation_prompt": evaluation_prompt,
+        },
+    )
     stats_parts = []
     if pass_count > 0:
         stats_parts.append(f"{pass_count} passed")

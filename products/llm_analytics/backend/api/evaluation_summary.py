@@ -50,6 +50,14 @@ class EvaluationRunDataSerializer(serializers.Serializer):
 
 class EvaluationSummaryRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.CharField(help_text="Unique identifier for the evaluation being summarized")
+    evaluation_name = serializers.CharField(help_text="Name of the evaluation")
+    evaluation_description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Description of what the evaluation tests for",
+    )
+    evaluation_prompt = serializers.CharField(help_text="The prompt used by the LLM judge to evaluate responses")
     evaluation_runs = serializers.ListField(
         child=EvaluationRunDataSerializer(),
         min_length=1,
@@ -149,6 +157,9 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 description="Summarize evaluation results",
                 value={
                     "evaluation_id": "eval_12345",
+                    "evaluation_name": "Response Accuracy",
+                    "evaluation_description": "Checks if the LLM response is factually accurate and helpful",
+                    "evaluation_prompt": "Evaluate if the response is accurate and helpful. Return true if it meets quality standards.",
                     "evaluation_runs": [
                         {
                             "generation_id": "gen_abc123",
@@ -233,6 +244,9 @@ and failing evaluations, providing actionable recommendations.
 
         try:
             evaluation_id = serializer.validated_data["evaluation_id"]
+            evaluation_name = serializer.validated_data["evaluation_name"]
+            evaluation_description = serializer.validated_data.get("evaluation_description", "")
+            evaluation_prompt = serializer.validated_data["evaluation_prompt"]
             runs = serializer.validated_data["evaluation_runs"]
             filter_type = serializer.validated_data.get("filter", "all")
             force_refresh = serializer.validated_data.get("force_refresh", False)
@@ -263,6 +277,9 @@ and failing evaluations, providing actionable recommendations.
                 team_id=self.team_id,
                 model=OpenAIModel.GPT_5_MINI,
                 filter_type=filter_type,
+                evaluation_name=evaluation_name,
+                evaluation_description=evaluation_description,
+                evaluation_prompt=evaluation_prompt,
             )
             duration_seconds = time.time() - start_time
 
