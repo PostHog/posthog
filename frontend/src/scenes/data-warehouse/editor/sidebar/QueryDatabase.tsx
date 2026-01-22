@@ -65,6 +65,13 @@ export const QueryDatabase = (): JSX.Element => {
     const { setQueryInput } = useActions(multitabEditorLogic)
     const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const formatTraversalChain = (chain?: (string | number)[]): string | null => {
+        if (!chain || chain.length === 0) {
+            return null
+        }
+
+        return chain.map((segment) => String(segment)).join('.')
+    }
     const getFieldTypeIconClassName = (fieldType: DatabaseSerializedFieldType): string => {
         switch (fieldType) {
             case 'string':
@@ -558,6 +565,19 @@ export const QueryDatabase = (): JSX.Element => {
                 // Show tooltip with full name for items that could be truncated
                 const tooltipTypes = ['table', 'view', 'managed-view', 'endpoint', 'draft', 'column', 'unsaved-query']
                 if (tooltipTypes.includes(item.record?.type)) {
+                    if (item.record?.type === 'column' && item.record?.field?.type === 'field_traverser') {
+                        const traversalChain = formatTraversalChain(item.record.field.chain)
+                        if (traversalChain) {
+                            return `${item.name} → ${traversalChain}`
+                        }
+                    }
+                    return item.name
+                }
+                if (item.record?.type === 'field-traverser') {
+                    const traversalChain = formatTraversalChain(item.record?.field?.chain)
+                    if (traversalChain) {
+                        return `${item.name} → ${traversalChain}`
+                    }
                     return item.name
                 }
                 return undefined

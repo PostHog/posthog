@@ -169,6 +169,89 @@ const createVirtualTableField = (
     }
 }
 
+const formatTraversalChain = (chain?: (string | number)[]): string | null => {
+    if (!chain || chain.length === 0) {
+        return null
+    }
+
+    return chain.map((segment) => String(segment)).join('.')
+}
+
+const resolveFieldTraverserTarget = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    tableLookup?: TableLookup,
+    visitedChains: Set<string> = new Set()
+): DatabaseSchemaField | null => {
+    if (!field.chain || !tableLookup) {
+        return null
+    }
+
+    const baseTable = tableLookup[tableName]
+    if (!baseTable || !('fields' in baseTable)) {
+        return null
+    }
+
+    let currentTable: DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | null = baseTable
+    let currentField: DatabaseSchemaField | null = null
+    let index = 0
+
+    while (index < field.chain.length) {
+        const segment = field.chain[index]
+        const segmentKey = String(segment)
+
+        if (segmentKey === '..') {
+            return null
+        }
+
+        if (!currentField) {
+            const nextField = currentTable?.fields?.[segmentKey]
+            if (!nextField) {
+                return null
+            }
+            currentField = nextField
+            index += 1
+            continue
+        }
+
+        if (currentField.type === 'lazy_table') {
+            currentTable = currentField.table ? (tableLookup[currentField.table] ?? null) : null
+            currentField = null
+            continue
+        }
+
+        if (currentField.type === 'virtual_table') {
+            if (!currentField.fields?.includes(segmentKey)) {
+                return null
+            }
+            currentField = createVirtualTableField(segmentKey, currentField, tableLookup)
+            index += 1
+            continue
+        }
+
+        if (currentField.type === 'field_traverser' && currentField.chain) {
+            const chainKey = formatTraversalChain(currentField.chain)
+            if (!chainKey || visitedChains.has(chainKey)) {
+                return null
+            }
+            visitedChains.add(chainKey)
+            currentField = resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains)
+            if (!currentField) {
+                return null
+            }
+            continue
+        }
+
+        return null
+    }
+
+    if (currentField?.type === 'field_traverser') {
+        return resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains) ?? currentField
+    }
+
+    return currentField
+}
+
 const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
     return {
         id: `${lazyNodeId}-placeholder/`,
@@ -212,6 +295,73 @@ const createLazyTableChildren = (
     )
 }
 
+const createTraversedLazyTableNode = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    traversedField: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup: TableLookup | undefined,
+    expandedLazyNodeIds: Set<string>
+): TreeDataItem => {
+    const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
+    const isExpanded = expandedLazyNodeIds.has(lazyNodeId)
+    const lazyChildren = isExpanded
+        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, expandedLazyNodeIds)
+        : []
+    const children = isExpanded
+        ? lazyChildren.length > 0
+            ? lazyChildren
+            : [createLazyTableEmptyNode(lazyNodeId)]
+        : [createLazyTablePlaceholderNode(lazyNodeId)]
+
+    return {
+        id: lazyNodeId,
+        name: field.name,
+        type: 'node',
+        record: {
+            type: 'field-traverser',
+            field,
+            table: tableName,
+            referencedTable: traversedField.table,
+        },
+        children,
+    }
+}
+
+const createTraversedVirtualTableNode = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    traversedField: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup: TableLookup | undefined,
+    expandedLazyNodeIds: Set<string>
+): TreeDataItem => {
+    const children =
+        traversedField.fields
+            ?.slice()
+            .sort((a, b) => a.localeCompare(b))
+            .map((fieldName) => {
+                const childField = createVirtualTableField(fieldName, traversedField, tableLookup)
+                return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup, {
+                    expandedLazyNodeIds,
+                })
+            }) ?? []
+
+    return {
+        id: `${isSearch ? 'search-' : ''}traverser-${tableName}-${columnPath}`,
+        name: field.name,
+        type: 'node',
+        record: {
+            type: 'field-traverser',
+            field,
+            table: tableName,
+        },
+        children,
+    }
+}
+
 const createFieldNode = (
     tableName: string,
     field: DatabaseSchemaField,
@@ -245,6 +395,33 @@ const createFieldNode = (
                 table: tableName,
             },
             children,
+        }
+    }
+
+    if (field.type === 'field_traverser') {
+        const traversedField = resolveFieldTraverserTarget(tableName, field, tableLookup)
+        if (traversedField?.type === 'lazy_table' && expandedLazyNodeIds) {
+            return createTraversedLazyTableNode(
+                tableName,
+                field,
+                traversedField,
+                isSearch,
+                columnPath,
+                tableLookup,
+                expandedLazyNodeIds
+            )
+        }
+
+        if (traversedField?.type === 'virtual_table') {
+            return createTraversedVirtualTableNode(
+                tableName,
+                field,
+                traversedField,
+                isSearch,
+                columnPath,
+                tableLookup,
+                expandedLazyNodeIds ?? new Set<string>()
+            )
         }
     }
 
