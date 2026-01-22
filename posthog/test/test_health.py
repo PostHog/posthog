@@ -1,17 +1,13 @@
-import logging
 import os
 import random
+import logging
 from contextlib import contextmanager
 from typing import Optional
+
+import pytest
 from unittest import mock
 from unittest.mock import patch
 
-import django_redis.exceptions
-import kombu.connection
-import kombu.exceptions
-import psycopg2
-import pytest
-import requests
 from django.core.cache import cache
 from django.db import (
     DEFAULT_DB_ALIAS,
@@ -20,11 +16,16 @@ from django.db import (
 )
 from django.http import HttpResponse, JsonResponse
 from django.test import Client
+
+import psycopg2
+import requests
+import kombu.connection
+import kombu.exceptions
+import django_redis.exceptions
 from kafka.errors import KafkaError
 
 from posthog.health import logger
 from posthog.kafka_client.client import KafkaProducerForTests
-
 
 # Service availability by role/environment:
 # - kafka_connected: Required for worker and async roles in production, not needed for web role or CI
