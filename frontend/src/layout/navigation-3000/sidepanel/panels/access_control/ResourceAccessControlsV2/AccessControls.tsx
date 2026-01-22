@@ -33,11 +33,12 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         resourcesWithProject,
         ruleOptions,
         filteredSortedRows,
+        hasRuleConflict,
+        availableLevelsForResource,
+        levelOptionsForResource,
         canEditAny,
         loading,
         roles,
-        projectAvailableLevels,
-        resourceAvailableLevels,
         canEditAccessControls,
         canEditRoleBasedAccessControls,
     } = useValues(logic)
@@ -128,13 +129,14 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     roles={roles ?? []}
                     members={allMembers}
                     resources={resourcesWithProject}
-                    projectAvailableLevels={projectAvailableLevels}
-                    resourceAvailableLevels={resourceAvailableLevels}
+                    availableLevelsForResource={availableLevelsForResource}
+                    levelOptionsForResource={levelOptionsForResource}
                     canEditAccessControls={canEditAccessControls ?? false}
                     canEditRoleBasedAccessControls={canEditRoleBasedAccessControls ?? false}
                     onSave={saveRule}
                     loading={loading}
                     projectId={projectId}
+                    hasRuleConflict={hasRuleConflict}
                 />
             )}
         </>

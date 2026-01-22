@@ -4,13 +4,12 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter, fullName, wordPluralize } from 'lib/utils'
-import { getMaximumAccessLevel, getMinimumAccessLevel } from 'lib/utils/accessControlUtils'
 
 import { APIScopeObject, AccessControlLevel, OrganizationMemberType, RoleType } from '~/types'
 
 import { accessControlLogic } from '../accessControlLogic'
 import { SearchableSelect } from './SearchableSelect'
-import { getScopeTypeNoun, humanizeAccessControlLevel } from './helpers'
+import { getScopeTypeNoun } from './helpers'
 import { RuleModalState, ScopeType } from './types'
 
 export function AccessControlRuleModal(props: {
@@ -20,8 +19,8 @@ export function AccessControlRuleModal(props: {
     roles: RoleType[]
     members: OrganizationMemberType[]
     resources: { key: APIScopeObject; label: string }[]
-    projectAvailableLevels: AccessControlLevel[]
-    resourceAvailableLevels: AccessControlLevel[]
+    availableLevelsForResource: AccessControlLevel[]
+    levelOptionsForResource: { value: AccessControlLevel; label: string; disabledReason?: string }[]
     canEditAccessControls: boolean
     canEditRoleBasedAccessControls: boolean
     onSave: (params: {
@@ -32,6 +31,7 @@ export function AccessControlRuleModal(props: {
     }) => void
     loading: boolean
     projectId: string
+    hasRuleConflict: boolean
 }): JSX.Element {
     const logic = accessControlLogic({
         resource: 'project',
@@ -49,35 +49,9 @@ export function AccessControlRuleModal(props: {
     const resourceKey = ruleForm.resourceKey
     const level = ruleForm.level
     const canEdit = resourceKey === 'project' ? props.canEditAccessControls : props.canEditRoleBasedAccessControls
+    const isScopeValid = scopeType === 'default' || !!scopeId
 
-    const { availableLevelsForResource, levelOptions } = useMemo(() => {
-        const availableLevels = resourceKey === 'project' ? props.projectAvailableLevels : props.resourceAvailableLevels
-        const uniqueLevels = Array.from(new Set(availableLevels))
-        const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
-        const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
-        const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
-        const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
-
-        const options = uniqueLevels.map((lvl) => {
-            const levelIndex = uniqueLevels.indexOf(lvl)
-            const isBelowMinimum = minimumIndex !== null && minimumIndex !== -1 ? levelIndex < minimumIndex : false
-            const isAboveMaximum = maximumIndex !== null && maximumIndex !== -1 ? levelIndex > maximumIndex : false
-            const isDisabled = isBelowMinimum || isAboveMaximum
-
-            return {
-                value: lvl,
-                label: humanizeAccessControlLevel(lvl),
-                disabledReason: isDisabled ? 'Not available for this feature' : undefined,
-            }
-        })
-
-        const enabledLevels = options.filter((option) => !option.disabledReason).map((option) => option.value)
-
-        return {
-            availableLevelsForResource: enabledLevels,
-            levelOptions: options,
-        }
-    }, [props.projectAvailableLevels, props.resourceAvailableLevels, resourceKey])
+    const availableLevelsForResource = props.availableLevelsForResource
 
     useEffect(() => {
         setRuleFormValues({
@@ -107,7 +81,7 @@ export function AccessControlRuleModal(props: {
         setRuleFormValue('level', fallbackLevel)
     }, [availableLevelsForResource, level, props.state.mode, setRuleFormValue])
 
-    const isValid = scopeType === 'default' || !!scopeId
+    const isValid = isScopeValid
 
     return (
         <LemonModal
@@ -125,9 +99,10 @@ export function AccessControlRuleModal(props: {
                     canEdit={canEdit ?? false}
                     close={props.close}
                     isValid={isValid}
+                    hasRuleConflict={props.hasRuleConflict}
                     loading={props.loading}
                     onSave={() => {
-                        if (!isValid || !canEdit) {
+                        if (!isValid || !canEdit || props.hasRuleConflict) {
                             return
                         }
                         props.onSave({
@@ -152,7 +127,7 @@ export function AccessControlRuleModal(props: {
                 roles={props.roles}
                 members={props.members}
                 resources={props.resources}
-                levelOptions={levelOptions}
+                levelOptions={props.levelOptionsForResource}
             />
         </LemonModal>
     )
@@ -163,6 +138,7 @@ function AccessControlRuleModalFooter(props: {
     loading: boolean
     canEdit: boolean
     isValid: boolean
+    hasRuleConflict: boolean
     onSave: () => void
     scopeType: ScopeType
 }): JSX.Element {
@@ -173,6 +149,10 @@ function AccessControlRuleModalFooter(props: {
 
         if (!props.isValid) {
             return `Please select a ${getScopeTypeNoun(props.scopeType)}`
+        }
+
+        if (props.hasRuleConflict) {
+            return 'A rule for this feature already exists'
         }
 
         return undefined

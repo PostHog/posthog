@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { fullName, toSentenceCase } from 'lib/utils'
-import { pluralizeResource } from 'lib/utils/accessControlUtils'
+import { getMaximumAccessLevel, getMinimumAccessLevel, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -73,6 +73,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 description: '',
             }),
             [
+                'ruleForm',
                 'accessControlDefault',
                 'accessControlRoles',
                 'accessControlMembers',
@@ -350,6 +351,31 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             },
         ],
 
+        hasRuleConflict: [
+            (s) => [s.ruleModalState, s.ruleForm, s.allRows],
+            (ruleModalState, ruleForm, allRows): boolean => {
+                if (!ruleModalState || ruleModalState.mode !== 'add') {
+                    return false
+                }
+
+                const scopeType = ruleModalState.initialScopeType ?? 'default'
+                const scopeId = scopeType === 'default' ? null : ruleForm.scopeId
+                const resourceKey = ruleForm.resourceKey
+                const isScopeValid = scopeType === 'default' || !!scopeId
+
+                if (!isScopeValid) {
+                    return false
+                }
+
+                return allRows.some(
+                    (row) =>
+                        row.scopeType === scopeType &&
+                        row.resourceKey === resourceKey &&
+                        (row.scopeId ?? null) === scopeId
+                )
+            },
+        ],
+
         ruleOptions: [
             (s) => [s.projectAvailableLevels, s.resourceAvailableLevels],
             (projectAvailableLevels, resourceAvailableLevels): { key: string; label: string }[] => {
@@ -365,6 +391,58 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 return [...levelSet]
                     .sort((a, b) => a.localeCompare(b))
                     .map((level) => ({ key: level, label: humanizeAccessControlLevel(level as AccessControlLevel) }))
+            },
+        ],
+
+        availableLevelsForResource: [
+            (s) => [s.ruleForm, s.projectAvailableLevels, s.resourceAvailableLevels],
+            (ruleForm, projectAvailableLevels, resourceAvailableLevels): AccessControlLevel[] => {
+                const resourceKey = ruleForm.resourceKey
+                const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
+                const uniqueLevels = Array.from(new Set(availableLevels))
+                const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
+                const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
+                const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
+                const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
+
+                return uniqueLevels.filter((level, index) => {
+                    if (minimumIndex !== null && minimumIndex !== -1 && index < minimumIndex) {
+                        return false
+                    }
+                    if (maximumIndex !== null && maximumIndex !== -1 && index > maximumIndex) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+
+        levelOptionsForResource: [
+            (s) => [s.ruleForm, s.projectAvailableLevels, s.resourceAvailableLevels],
+            (
+                ruleForm,
+                projectAvailableLevels,
+                resourceAvailableLevels
+            ): { value: AccessControlLevel; label: string; disabledReason?: string }[] => {
+                const resourceKey = ruleForm.resourceKey
+                const availableLevels = resourceKey === 'project' ? projectAvailableLevels : resourceAvailableLevels
+                const uniqueLevels = Array.from(new Set(availableLevels))
+                const minimumLevel = resourceKey === 'project' ? null : getMinimumAccessLevel(resourceKey)
+                const maximumLevel = resourceKey === 'project' ? null : getMaximumAccessLevel(resourceKey)
+                const minimumIndex = minimumLevel ? uniqueLevels.indexOf(minimumLevel) : null
+                const maximumIndex = maximumLevel ? uniqueLevels.indexOf(maximumLevel) : null
+
+                return uniqueLevels.map((level, index) => {
+                    const isBelowMinimum = minimumIndex !== null && minimumIndex !== -1 ? index < minimumIndex : false
+                    const isAboveMaximum = maximumIndex !== null && maximumIndex !== -1 ? index > maximumIndex : false
+                    const isDisabled = isBelowMinimum || isAboveMaximum
+
+                    return {
+                        value: level,
+                        label: humanizeAccessControlLevel(level),
+                        disabledReason: isDisabled ? 'Not available for this feature' : undefined,
+                    }
+                })
             },
         ],
 
