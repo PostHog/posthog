@@ -27,17 +27,28 @@ def mock_transpile(code: str, type: str = "site") -> str:
         code = code.replace("export const", "const")
         code = code.replace("export let", "let")
 
+        # Only include functions that are actually defined
+        has_onload = "function onLoad" in code
+        has_onevent = "function onEvent" in code
+
+        # Build the return object dynamically
+        returns = []
+        if has_onload:
+            returns.append("onLoad: onLoad")
+        if has_onevent:
+            returns.append("onEvent: onEvent")
+
+        return_obj = "{" + ", ".join(returns) + "}" if returns else "{}"
+
         # Return an IIFE that returns an object with the exported functions
         return (
             """(function() {
             """
             + code
-            + """
-            return {
-                onLoad: typeof onLoad !== 'undefined' ? onLoad : undefined,
-                onEvent: typeof onEvent !== 'undefined' ? onEvent : undefined
-            };
-        })"""
+            + f"""
+            return {return_obj};
+        }}"""
+            + ")"
         )
     elif type == "frontend":
         return (

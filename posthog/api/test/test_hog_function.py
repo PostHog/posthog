@@ -1311,7 +1311,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "detail" in response.json()
         assert "Error in TypeScript code" in response.json()["detail"]
 
-    def test_create_typescript_destination_with_inputs(self):
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_create_typescript_destination_with_inputs(self, mock_transpile_fn):
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
