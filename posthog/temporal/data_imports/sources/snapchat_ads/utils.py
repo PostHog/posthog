@@ -34,15 +34,7 @@ class SnapchatErrorHandler:
 
     @staticmethod
     def is_retryable(exception: Exception) -> bool:
-        """
-        Determine if a Snapchat API exception should be retried.
-
-        Snapchat rate limits:
-        - Default: 600 requests per minute per app
-        - Some endpoints have specific limits
-
-        https://developers.snap.com/api/marketing-api/Ads-API/rate-limits
-        """
+        """Determine if exception should trigger a retry."""
         if isinstance(exception, SnapchatAdsAPIError):
             return True
 
@@ -132,38 +124,7 @@ class SnapchatStatsResource:
 
     @staticmethod
     def transform_stats_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Flatten Snapchat stats response structure.
-
-        Snapchat returns stats in a nested structure:
-        {
-            "timeseries_stats": [
-                {
-                    "timeseries_stat": {
-                        "id": "...",
-                        "type": "CAMPAIGN",
-                        "granularity": "DAY",
-                        "start_time": "...",
-                        "end_time": "...",
-                        "finalized_data_end_time": "...",
-                        "timeseries": [
-                            {
-                                "start_time": "2024-01-01T00:00:00.000-08:00",
-                                "end_time": "2024-01-01T23:59:59.999-08:00",
-                                "stats": {
-                                    "impressions": 1234,
-                                    "swipes": 56,
-                                    ...
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]
-        }
-
-        We flatten this to individual daily records with id and start_time.
-        """
+        """Flatten nested timeseries_stat structure to individual daily records."""
         processed_reports = []
 
         for report in reports:
@@ -187,16 +148,7 @@ class SnapchatStatsResource:
 
     @staticmethod
     def transform_entity_reports(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Standardize entity reports (campaigns, ad_squads, ads).
-
-        Snapchat returns entities wrapped in their type:
-        {"campaigns": [{"campaign": {...}}, ...]}
-        {"adsquads": [{"adsquad": {...}}, ...]}
-        {"ads": [{"ad": {...}}, ...]}
-
-        We extract the inner objects.
-        """
+        """Extract inner objects from wrapped entity responses (campaign/adsquad/ad)."""
         processed_reports = []
 
         for report in reports:
@@ -218,9 +170,7 @@ class SnapchatStatsResource:
 
     @classmethod
     def apply_stream_transformations(cls, endpoint_type: EndpointType, reports: Iterable[Any]) -> list[dict[str, Any]]:
-        """
-        Apply appropriate transformations based on the endpoint type.
-        """
+        """Apply transformations based on endpoint type."""
         reports_list = list(reports)
 
         match endpoint_type:
@@ -242,10 +192,7 @@ class SnapchatStatsResource:
         ad_account_id: str,
         chunk_days: int = MAX_SNAPCHAT_DAYS_TO_QUERY,
     ) -> list[dict]:
-        """
-        Create multiple resources for date chunking with rest_api_resources.
-        Each chunk becomes a separate resource.
-        """
+        """Create chunked resources for date range queries."""
         date_chunks = SnapchatDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
         resources = []
 
@@ -326,12 +273,7 @@ class SnapchatStatsResource:
 
 
 class SnapchatAdsPaginator(BasePaginator):
-    """
-    Snapchat Ads API paginator using cursor-based pagination.
-
-    Snapchat uses "paging" object in responses with:
-    - next_link: URL for next page (if more results exist)
-    """
+    """Cursor-based paginator using next_link from paging object."""
 
     def __init__(self):
         super().__init__()
@@ -379,10 +321,7 @@ class SnapchatAdsPaginator(BasePaginator):
             raise SnapchatAdsAPIError(f"Failed to parse Snapchat API response: {str(e)}", response=response)
 
     def update_request(self, request: Request) -> None:
-        """Update the request with pagination parameters."""
-        # Snapchat uses cursor-based pagination via next_link
-        # The next_link contains the full URL with cursor, but we need to extract the cursor
-        # https://developers.snap.com/api/marketing-api/Ads-API/measurement#pagination
+        """Extract cursor from next_link and add to request params."""
         if self._next_link and request.params is not None:
             # Extract cursor from next_link query params
             from urllib.parse import parse_qs, urlparse

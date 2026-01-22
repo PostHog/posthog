@@ -106,7 +106,7 @@ def snapchat_ads_source(
         "resources": cast(list, resources),
     }
 
-    # Add paginator to each resource individually to avoid shared state
+    # Add paginator to each resource to avoid shared state issues
     resources_list = config["resources"]
     if isinstance(resources_list, list):
         for resource_item in resources_list:
@@ -134,7 +134,6 @@ def snapchat_ads_source(
         assert len(dlt_resources) == 1, f"Expected 1 resource for {endpoint_type} endpoint, got {len(dlt_resources)}"
         items = dlt_resources[0]
 
-    # Apply appropriate transformations based on endpoint type
     items = SnapchatStatsResource.apply_stream_transformations(endpoint_type, items)
 
     return SourceResponse(
