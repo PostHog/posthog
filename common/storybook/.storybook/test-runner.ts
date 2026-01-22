@@ -189,7 +189,77 @@ async function expectStoryToMatchSnapshot(
         // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
         // to account for slower CI environments while still catching stuck elements
         const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        const loaderSelectors = LOADER_SELECTORS.join(',')
+        
+        // Diagnostic logging: Count initial loaders
+        const initialLoaderCount = await page.locator(loaderSelectors).count()
+        const visibleLoaderCount = await page.locator(loaderSelectors).filter({ hasText: /./ }).count()
+        // eslint-disable-next-line no-console
+        console.log(`[${context.id}] Starting wait for loaders to hide. Total: ${initialLoaderCount}, Visible: ${visibleLoaderCount}, Timeout: ${timeout}ms`)
+        // eslint-disable-next-line no-console
+        console.log(`[${context.id}] Loader selectors: ${loaderSelectors}`)
+        
+        // Periodic logging during wait
+        const startTime = Date.now()
+        const checkInterval = setInterval(async () => {
+            try {
+                const stillVisible = await page.locator(loaderSelectors).filter({ hasText: /./ }).count()
+                const elapsed = Date.now() - startTime
+                // eslint-disable-next-line no-console
+                console.log(`[${context.id}] ${elapsed}ms elapsed: ${stillVisible} loaders still visible`)
+                
+                // Log which specific loaders are stuck when we're 80% through timeout
+                if (elapsed > timeout * 0.8) {
+                    const stuckLoaders = await page.locator(loaderSelectors).all()
+                    for (let i = 0; i < stuckLoaders.length; i++) {
+                        const loader = stuckLoaders[i]
+                        const isVisible = await loader.isVisible().catch(() => false)
+                        if (isVisible) {
+                            const tagName = await loader.evaluate((el) => el.tagName).catch(() => 'unknown')
+                            const className = await loader.evaluate((el) => el.className).catch(() => 'unknown')
+                            const innerHTML = await loader.innerHTML().catch(() => '')
+                            // eslint-disable-next-line no-console
+                            console.log(`[${context.id}] Stuck loader ${i + 1}: <${tagName} class="${className}"> ${innerHTML.substring(0, 100)}`)
+                        }
+                    }
+                }
+            } catch (error) {
+                // Ignore errors during periodic checks
+            }
+        }, 5000)
+        
+        try {
+            await page.waitForSelector(loaderSelectors, { state: 'hidden', timeout })
+            const elapsed = Date.now() - startTime
+            // eslint-disable-next-line no-console
+            console.log(`[${context.id}] ✓ All loaders hidden after ${elapsed}ms`)
+        } catch (error) {
+            const elapsed = Date.now() - startTime
+            // eslint-disable-next-line no-console
+            console.error(`[${context.id}] ✗ Timeout after ${elapsed}ms waiting for loaders to hide`)
+            
+            // Log final state of all loaders
+            const finalLoaders = await page.locator(loaderSelectors).all()
+            // eslint-disable-next-line no-console
+            console.error(`[${context.id}] Final state: ${finalLoaders.length} loader elements still present in DOM`)
+            
+            for (let i = 0; i < finalLoaders.length; i++) {
+                const loader = finalLoaders[i]
+                const isVisible = await loader.isVisible().catch(() => false)
+                const tagName = await loader.evaluate((el) => el.tagName).catch(() => 'unknown')
+                const className = await loader.evaluate((el) => el.className).catch(() => 'unknown')
+                const ariaLabel = await loader.getAttribute('aria-label').catch(() => null)
+                const dataAttr = await loader.getAttribute('data-attr').catch(() => null)
+                // eslint-disable-next-line no-console
+                console.error(
+                    `[${context.id}] Loader ${i + 1}: <${tagName} class="${className}"${ariaLabel ? ` aria-label="${ariaLabel}"` : ''}${dataAttr ? ` data-attr="${dataAttr}"` : ''}> visible=${isVisible}`
+                )
+            }
+            
+            throw error
+        } finally {
+            clearInterval(checkInterval)
+        }
     }
 
     if (typeof waitForSelector === 'string') {
