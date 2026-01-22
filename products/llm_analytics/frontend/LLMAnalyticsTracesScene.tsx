@@ -15,13 +15,15 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
-import { llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
-        useActions(llmAnalyticsLogic)
-    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
+        useActions(llmAnalyticsSharedLogic)
+    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { tracesQuery } = useValues(llmAnalyticsTracesTabLogic)
 
     return (
         <DataTable

@@ -14,10 +14,12 @@ import { DashboardPlacement } from '~/types'
 import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
+import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 
 export function LLMAnalyticsReloadAction(): JSX.Element {
-    const { activeTab, selectedDashboardId } = useValues(llmAnalyticsLogic)
+    const { activeTab } = useValues(llmAnalyticsSharedLogic)
+    const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
     const shouldUseDashboardLogic = selectedDashboardId && activeTab === 'dashboard'
     const dashboardLogicInstance = dashboardLogic({
