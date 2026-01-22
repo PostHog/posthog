@@ -250,8 +250,8 @@ impl RestrictionManager {
                     continue;
                 }
 
-                // Skip old format entries (version must be 1)
-                if entry.version != Some(1) {
+                // Skip old format entries (version must be 2)
+                if entry.version != Some(2) {
                     continue;
                 }
 
@@ -717,14 +717,14 @@ mod tests {
     fn test_redis_entry_parsing() {
         let json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token1",
                 "pipelines": ["analytics"],
                 "distinct_ids": ["user1", "user2"],
                 "event_names": ["$pageview"]
             },
             {
-                "version": 1,
+                "version": 2,
                 "token": "token2",
                 "pipelines": ["analytics", "session_recordings"]
             }
@@ -917,7 +917,7 @@ mod tests {
 
         let drop_event_json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token1",
                 "pipelines": ["analytics"]
             }
@@ -945,17 +945,17 @@ mod tests {
 
         let json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token_analytics",
                 "pipelines": ["analytics"]
             },
             {
-                "version": 1,
+                "version": 2,
                 "token": "token_recordings",
                 "pipelines": ["session_recordings"]
             },
             {
-                "version": 1,
+                "version": 2,
                 "token": "token_both",
                 "pipelines": ["analytics", "session_recordings"]
             }
@@ -984,12 +984,12 @@ mod tests {
 
         let json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token_analytics",
                 "pipelines": ["analytics"]
             },
             {
-                "version": 1,
+                "version": 2,
                 "token": "token_recordings",
                 "pipelines": ["session_recordings"]
             }
@@ -1018,8 +1018,8 @@ mod tests {
 
         let json = r#"[
             {
-                "version": 1,
-                "token": "token_v1",
+                "version": 2,
+                "token": "token_v2",
                 "pipelines": ["analytics"]
             },
             {
@@ -1032,8 +1032,8 @@ mod tests {
                 "pipelines": ["analytics"]
             },
             {
-                "version": 2,
-                "token": "token_v2",
+                "version": 1,
+                "token": "token_v1",
                 "pipelines": ["analytics"]
             }
         ]"#;
@@ -1049,11 +1049,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Only version 1 entries should be included
-        assert!(manager.restrictions.contains_key("token_v1"));
+        // Only version 2 entries should be included
+        assert!(manager.restrictions.contains_key("token_v2"));
         assert!(!manager.restrictions.contains_key("token_no_version"));
         assert!(!manager.restrictions.contains_key("token_v0"));
-        assert!(!manager.restrictions.contains_key("token_v2"));
+        assert!(!manager.restrictions.contains_key("token_v1"));
     }
 
     #[tokio::test]
@@ -1086,7 +1086,7 @@ mod tests {
         // But force_overflow returns valid data
         let force_overflow_json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token1",
                 "pipelines": ["analytics"]
             }
@@ -1120,7 +1120,7 @@ mod tests {
         // But redirect_to_dlq returns valid data
         let dlq_json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token1",
                 "pipelines": ["analytics"]
             }
@@ -1146,7 +1146,7 @@ mod tests {
 
         let json = r#"[
             {
-                "version": 1,
+                "version": 2,
                 "token": "token1",
                 "pipelines": ["analytics"],
                 "distinct_ids": ["user1", "user2"],
@@ -1188,10 +1188,10 @@ mod tests {
     async fn test_fetch_from_redis_multiple_restriction_types() {
         use common_redis::MockRedisClient;
 
-        let drop_json = r#"[{"version": 1, "token": "token1", "pipelines": ["analytics"]}]"#;
-        let overflow_json = r#"[{"version": 1, "token": "token1", "pipelines": ["analytics"]}]"#;
-        let dlq_json = r#"[{"version": 1, "token": "token2", "pipelines": ["analytics"]}]"#;
-        let skip_json = r#"[{"version": 1, "token": "token1", "pipelines": ["analytics"]}]"#;
+        let drop_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
+        let overflow_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
+        let dlq_json = r#"[{"version": 2, "token": "token2", "pipelines": ["analytics"]}]"#;
+        let skip_json = r#"[{"version": 2, "token": "token1", "pipelines": ["analytics"]}]"#;
 
         let mut mock = MockRedisClient::new();
         mock.get_ret(
