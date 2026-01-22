@@ -205,7 +205,7 @@ export type CdpConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-/** The lane type for ingestion consumers - determines overflow behavior */
+/** The lane type for ingestion consumers */
 export type IngestionLaneType = 'main' | 'overflow' | 'historical' | 'async'
 
 export type IngestionConsumerConfig = {
