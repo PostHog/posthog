@@ -535,7 +535,7 @@ Jane Smith,25
         self.assertIn("name, age", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
-    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
+    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",), ("Person.id")])
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_person_uuid_column(
         self, person_id_column_header, patch_calculate_cohort_from_list

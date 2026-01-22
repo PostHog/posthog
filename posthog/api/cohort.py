@@ -346,14 +346,14 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
-    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
+    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id", "Person.id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'Person.id', 'distinct_id', 'distinct-id', or 'email'. Found columns: {columns}"
         NO_VALID_IDS = "CSV file contains no valid person IDs, distinct IDs, or email addresses. Please ensure your file has data rows with person IDs, distinct IDs, or email addresses."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
