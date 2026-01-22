@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from hogli.devenv.profile import DeveloperProfile, ProfileManager, ProfileOverrides
-from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, Preset, Unit, load_intent_map
+from hogli.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, Preset, load_intent_map
 from parameterized import parameterized
 
 
@@ -69,18 +69,6 @@ def create_test_intent_map() -> IntentMap:
                 description="Product analytics",
                 capabilities=["event_ingestion"],
             ),
-        },
-        units={
-            "backend": Unit(name="backend", process="backend", type="python", autostart=True),
-            "frontend": Unit(name="frontend", process="frontend", type="node", autostart=True),
-            "docker-compose": Unit(name="docker-compose", process="docker-compose", type="docker", autostart=True),
-            "migrate-postgres": Unit(name="migrate-postgres", process="migrate-postgres", type="migration"),
-            "nodejs": Unit(name="nodejs", process="nodejs", type="node"),
-            "capture": Unit(name="capture", process="capture", type="rust"),
-            "capture-replay": Unit(name="capture-replay", process="capture-replay", type="rust"),
-            "cymbal": Unit(name="cymbal", process="cymbal", type="rust"),
-            "feature-flags": Unit(name="feature-flags", process="feature-flags", type="rust"),
-            "storybook": Unit(name="storybook", process="storybook", type="node", autostart=False),
         },
         presets={
             "minimal": Preset(
@@ -269,10 +257,6 @@ class TestDockerProfiles:
                     capabilities=["temporal_workflows"],
                 ),
             },
-            units={
-                "docker-compose": Unit(name="docker-compose", process="docker-compose", type="docker"),
-                "temporal-worker": Unit(name="temporal-worker", process="temporal-worker", type="python"),
-            },
             presets={},
             always_required=[],
         )
@@ -315,7 +299,6 @@ class TestDockerProfiles:
                     capabilities=["replay_storage"],
                 ),
             },
-            units={},
             presets={},
             always_required=[],
         )
@@ -352,7 +335,6 @@ class TestDockerProfiles:
                     capabilities=["core_infra"],
                 ),
             },
-            units={},
             presets={
                 "backend": Preset(
                     name="backend",
@@ -403,7 +385,6 @@ class TestIntentMapLoading:
         assert intent_map.version == "1.0"
         assert len(intent_map.intents) > 0
         assert len(intent_map.capabilities) > 0
-        assert len(intent_map.units) > 0
         assert len(intent_map.presets) > 0
 
     def test_real_intent_map_has_key_intents(self) -> None:

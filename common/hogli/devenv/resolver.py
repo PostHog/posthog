@@ -40,17 +40,6 @@ class Intent:
 
 
 @dataclass
-class Unit:
-    """A unit represents an mprocs process."""
-
-    name: str
-    process: str
-    type: str
-    checks: list[str] = field(default_factory=list)
-    autostart: bool = True
-
-
-@dataclass
 class Preset:
     """A preset is a predefined combination of intents."""
 
@@ -68,7 +57,6 @@ class IntentMap:
     version: str
     capabilities: dict[str, Capability]
     intents: dict[str, Intent]
-    units: dict[str, Unit]
     presets: dict[str, Preset]
     always_required: list[str]
 
@@ -101,16 +89,6 @@ class IntentMap:
                 capabilities=intent_data.get("capabilities", []),
             )
 
-        units = {}
-        for name, unit_data in data.get("units", {}).items():
-            units[name] = Unit(
-                name=name,
-                process=unit_data.get("process", name),
-                type=unit_data.get("type", "unknown"),
-                checks=unit_data.get("checks", []),
-                autostart=unit_data.get("autostart", True),
-            )
-
         presets = {}
         for name, preset_data in data.get("presets", {}).items():
             presets[name] = Preset(
@@ -125,7 +103,6 @@ class IntentMap:
             version=data.get("version", "1.0"),
             capabilities=capabilities,
             intents=intents,
-            units=units,
             presets=presets,
             always_required=data.get("always_required", []),
         )
@@ -386,9 +363,13 @@ class IntentResolver:
         """Get list of available presets with descriptions."""
         return [(name, preset.description) for name, preset in sorted(self.intent_map.presets.items())]
 
-    def get_available_units(self) -> list[tuple[str, str]]:
-        """Get list of available units with their types."""
-        return [(name, unit.type) for name, unit in sorted(self.intent_map.units.items())]
+    def get_all_units(self) -> set[str]:
+        """Get all units defined across all capabilities."""
+        units: set[str] = set()
+        for cap in self.intent_map.capabilities.values():
+            units.update(cap.units)
+        units.update(self.intent_map.always_required)
+        return units
 
     def explain_resolution(self, resolved: ResolvedEnvironment) -> str:
         """Generate human-readable explanation of resolution."""
@@ -420,14 +401,10 @@ class IntentResolver:
             lines.append("\nDocker profiles: (core only)")
 
         # Units
-        lines.append("\nUnits to start:")
+        lines.append("\nProcesses to start:")
         for unit_name in sorted(resolved.units):
-            unit = self.intent_map.units.get(unit_name)
-            if unit:
-                autostart = "auto" if unit.autostart else "manual"
-                lines.append(f"  • {unit_name} ({unit.type}, {autostart})")
-            else:
-                lines.append(f"  • {unit_name} (custom)")
+            reason = resolved.get_unit_reason(unit_name)
+            lines.append(f"  • {unit_name}: {reason}")
 
         # Overrides
         if resolved.overrides_applied:

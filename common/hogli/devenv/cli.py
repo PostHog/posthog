@@ -156,7 +156,7 @@ def dev_start(
         return
 
     # Generate mprocs config
-    generator = create_generator(intent_map=intent_map)
+    generator = create_generator()
     output_path = manager.get_generated_mprocs_path()
     manager.ensure_generated_dir()
 

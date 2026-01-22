@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from .resolver import IntentMap, ResolvedEnvironment
+from .resolver import ResolvedEnvironment
 
 
 @dataclass
@@ -52,19 +52,13 @@ class MprocsConfig:
 class MprocsGenerator:
     """Generates mprocs configuration from resolved environment."""
 
-    def __init__(
-        self,
-        base_config_path: Path,
-        intent_map: IntentMap,
-    ):
+    def __init__(self, base_config_path: Path):
         """Initialize generator.
 
         Args:
             base_config_path: Path to the full mprocs.yaml to use as template
-            intent_map: The intent map with unit definitions
         """
         self.base_config_path = base_config_path
-        self.intent_map = intent_map
         self._base_config: MprocsConfig | None = None
 
     @property
@@ -91,30 +85,15 @@ class MprocsGenerator:
         procs: dict[str, dict[str, Any]] = {}
 
         for unit_name in resolved.units:
-            # Get the process name from intent map
-            unit = self.intent_map.units.get(unit_name)
-            if unit is None:
-                # Custom override unit, try to find in base config
-                process_name = unit_name
-            else:
-                process_name = unit.process
-
-            # Get process definition from base config
-            if process_name in self.base_config.procs:
-                proc_config = self.base_config.procs[process_name].copy()
-
-                # Handle autostart based on unit definition
-                if unit is not None and not unit.autostart:
-                    proc_config["autostart"] = False
+            # Unit name = process name (they're always the same)
+            if unit_name in self.base_config.procs:
+                proc_config = self.base_config.procs[unit_name].copy()
 
                 # Add startup message showing why this process is starting
                 reason = resolved.get_unit_reason(unit_name)
-                proc_config = self._add_startup_message(proc_config, process_name, reason)
+                proc_config = self._add_startup_message(proc_config, unit_name, reason)
 
-                procs[process_name] = proc_config
-            else:
-                # Unit not in base config, might be a special case
-                pass
+                procs[unit_name] = proc_config
 
         # Handle typegen specially
         if not skip_typegen and "typegen" in self.base_config.procs:
@@ -219,25 +198,16 @@ def get_default_base_config_path() -> Path:
     return Path.cwd() / "bin" / "mprocs.yaml"
 
 
-def create_generator(
-    base_config_path: Path | None = None,
-    intent_map: IntentMap | None = None,
-) -> MprocsGenerator:
+def create_generator(base_config_path: Path | None = None) -> MprocsGenerator:
     """Create an mprocs generator with defaults.
 
     Args:
         base_config_path: Path to base mprocs.yaml, or None for default
-        intent_map: IntentMap to use, or None to load default
 
     Returns:
         Configured MprocsGenerator
     """
-    from .resolver import load_intent_map
-
     if base_config_path is None:
         base_config_path = get_default_base_config_path()
 
-    if intent_map is None:
-        intent_map = load_intent_map()
-
-    return MprocsGenerator(base_config_path, intent_map)
+    return MprocsGenerator(base_config_path)
