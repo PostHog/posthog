@@ -4,10 +4,8 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
-        ("posthog", "0979_survey_enable_iframe_embedding"),
+        ("posthog", "0982_comment_conversations_index"),
     ]
 
     operations = [
