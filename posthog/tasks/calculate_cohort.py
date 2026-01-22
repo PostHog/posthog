@@ -309,7 +309,11 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 @shared_task(ignore_result=True, max_retries=1)
 def calculate_cohort_from_list(
-    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+    cohort_id: int,
+    items: list[str],
+    team_id: Optional[int] = None,
+    id_type: str = "distinct_id",
+    email_column_name: Optional[str] = None,
 ) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -325,7 +329,7 @@ def calculate_cohort_from_list(
     elif id_type == "person_id":
         batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
     elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_column_name)
     else:
         raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
