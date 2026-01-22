@@ -1,5 +1,5 @@
 import { EventHeaders, IncomingEventWithTeam } from '../../types'
-import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restrictions'
 import { ok } from '../pipelines/results'
 import { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 

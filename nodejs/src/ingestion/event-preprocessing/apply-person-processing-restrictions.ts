@@ -1,16 +1,16 @@
 import { EventHeaders, IncomingEventWithTeam } from '../../types'
-import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, RestrictionType } from '../../utils/event-ingestion-restrictions'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
-    restrictions: ReadonlySet<Restriction>,
+    restrictions: ReadonlySet<RestrictionType>,
     team_person_processing_opt_out: boolean
 ): void {
     const { event } = eventWithTeam
 
-    const shouldSkipPerson = restrictions.has(Restriction.SKIP_PERSON_PROCESSING) || team_person_processing_opt_out
+    const shouldSkipPerson = restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING) || team_person_processing_opt_out
 
     if (shouldSkipPerson) {
         if (event.properties) {
@@ -26,6 +26,7 @@ export function createApplyPersonProcessingRestrictionsStep<
 >(eventIngestionRestrictionManager: EventIngestionRestrictionManager): ProcessingStep<T, T> {
     return async function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam, headers } = input
+
         const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(headers.token, headers)
         applyPersonProcessingRestrictions(
             eventWithTeam,
