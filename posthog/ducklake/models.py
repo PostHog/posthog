@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
-class DuckLakeCatalog(UUIDTModel):
+class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Per-team DuckLake catalog configuration.
 
     Stores RDS connection details and bucket configuration for teams that need
@@ -30,10 +30,6 @@ class DuckLakeCatalog(UUIDTModel):
     # Bucket settings (no secrets - credentials come from IRSA or storage.py)
     bucket = models.CharField(max_length=255)
     bucket_region = models.CharField(max_length=50, default="us-east-1")
-
-    # Metadata
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "posthog_ducklakecatalog"

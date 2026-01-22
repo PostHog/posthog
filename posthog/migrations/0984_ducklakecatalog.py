@@ -22,6 +22,23 @@ class Migration(migrations.Migration):
                         default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
                     ),
                 ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to="posthog.user",
+                    ),
+                ),
+                ("updated_at", models.DateTimeField(auto_now=True, blank=True, null=True)),
+                (
+                    "team",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="ducklake_catalog", to="posthog.team"
+                    ),
+                ),
                 ("rds_host", models.CharField(max_length=255)),
                 ("rds_port", models.IntegerField(default=5432)),
                 ("rds_database", models.CharField(default="ducklake", max_length=255)),
@@ -29,14 +46,6 @@ class Migration(migrations.Migration):
                 ("rds_password", posthog.helpers.encrypted_fields.EncryptedTextField(max_length=500)),
                 ("bucket", models.CharField(max_length=255)),
                 ("bucket_region", models.CharField(default="us-east-1", max_length=50)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                (
-                    "team",
-                    models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="ducklake_catalog", to="posthog.team"
-                    ),
-                ),
             ],
             options={
                 "verbose_name": "DuckLake catalog",
