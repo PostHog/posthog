@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from django.conf import settings
+
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
@@ -66,7 +68,11 @@ async def delete_property_definitions_from_clickhouse(
     delete_query_id = str(uuid4())
     logger.info(f"Executing lightweight delete with query_id: {delete_query_id}")
 
-    async with get_client() as client:
+    # In production, use lightweight_deletes_sync=0 to avoid waiting for all replicas.
+    # In tests, use lightweight_deletes_sync=2 to ensure deletes are visible immediately.
+    lightweight_deletes_sync = 2 if settings.TEST else 0
+
+    async with get_client(lightweight_deletes_sync=lightweight_deletes_sync) as client:
         await client.execute_query(
             delete_query,
             query_parameters={
