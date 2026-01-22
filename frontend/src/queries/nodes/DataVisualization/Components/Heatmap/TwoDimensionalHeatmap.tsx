@@ -2,6 +2,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { HeatmapSettings } from '~/queries/schema/schema-general'
@@ -41,6 +43,7 @@ type HeatmapData = {
     yValues: string[]
     cellValues: Record<string, Record<string, number | null>>
     numericValues: number[]
+    duplicateCellCount: number
 }
 
 const buildHeatmapData = (
@@ -52,13 +55,25 @@ const buildHeatmapData = (
     const yValues: string[] = []
     const cellValues: Record<string, Record<string, number | null>> = {}
     const numericValues: number[] = []
+    let duplicateCellCount = 0
 
     const xIndex = columnIndexes[heatmapSettings.xAxisColumn ?? '']
     const yIndex = columnIndexes[heatmapSettings.yAxisColumn ?? '']
     const valueIndex = columnIndexes[heatmapSettings.valueColumn ?? '']
 
+    if (xIndex === undefined || yIndex === undefined || valueIndex === undefined) {
+        return {
+            xValues,
+            yValues,
+            cellValues,
+            numericValues,
+            duplicateCellCount,
+        }
+    }
+
     const xIndexMap = new Map<string, number>()
     const yIndexMap = new Map<string, number>()
+    const seenCells = new Set<string>()
 
     rows.forEach((row) => {
         const xLabel = formatCategoryValue(row[xIndex])
@@ -79,11 +94,22 @@ const buildHeatmapData = (
             cellValues[yLabel] = {}
         }
 
-        cellValues[yLabel][xLabel] = numericValue
-
-        if (numericValue !== null) {
-            numericValues.push(numericValue)
+        const cellKey = `${yLabel}||${xLabel}`
+        if (seenCells.has(cellKey)) {
+            duplicateCellCount += 1
         }
+        seenCells.add(cellKey)
+
+        cellValues[yLabel][xLabel] = numericValue
+    })
+
+    yValues.forEach((yValue) => {
+        xValues.forEach((xValue) => {
+            const cellValue = cellValues[yValue]?.[xValue]
+            if (cellValue !== null && cellValue !== undefined) {
+                numericValues.push(cellValue)
+            }
+        })
     })
 
     return {
@@ -91,6 +117,7 @@ const buildHeatmapData = (
         yValues,
         cellValues,
         numericValues,
+        duplicateCellCount,
     }
 }
 
@@ -125,6 +152,7 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                 yValues: [],
                 cellValues: {},
                 numericValues: [],
+                duplicateCellCount: 0,
             }
         }
 
@@ -163,6 +191,13 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2 p-2">
+            {heatmapData.duplicateCellCount > 0 && (
+                <LemonBanner type="warning">
+                    {`Some rows share the same X/Y combination. Only the latest value is shown for ${heatmapData.duplicateCellCount} duplicate cell${
+                        heatmapData.duplicateCellCount === 1 ? '' : 's'
+                    }.`}
+                </LemonBanner>
+            )}
             <div className="text-center text-sm font-medium">{xAxisLabel}</div>
             <div className="overflow-auto">
                 <table className="min-w-full border-collapse text-xs">
@@ -171,8 +206,8 @@ export const TwoDimensionalHeatmap = (): JSX.Element => {
                             <th className="sticky left-0 z-10 bg-surface-primary border border-border px-2 py-1 text-left">
                                 {yAxisLabel}
                             </th>
-                            {heatmapData.xValues.map((xValue) => (
-                                <th key={xValue} className="border border-border px-2 py-1 text-left">
+                            {heatmapData.xValues.map((xValue, index) => (
+                                <th key={`${xValue}-${index}`} className="border border-border px-2 py-1 text-left">
                                     {xValue}
                                 </th>
                             ))}

@@ -184,7 +184,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                             <LemonInput
                                 className="flex-1"
                                 type="number"
-                                value={stop.value}
+                                value={stop.value ?? 0}
                                 onChange={(value) => {
                                     const nextStops = [...gradientStops]
                                     nextStops[index] = {

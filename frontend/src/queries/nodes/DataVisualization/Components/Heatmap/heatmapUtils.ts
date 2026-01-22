@@ -161,13 +161,12 @@ export const interpolateHeatmapColor = (value: number, stops: HeatmapGradientSto
         return lastStop.color
     }
 
-    const lowerIndex = sortedStops.findIndex((stop, index) => {
-        const nextStop = sortedStops[index + 1]
-        return nextStop ? value >= stop.value && value <= nextStop.value : false
-    })
+    const upperIndex = sortedStops.findIndex((stop) => value <= stop.value)
+    const resolvedUpperIndex = upperIndex === -1 ? sortedStops.length - 1 : upperIndex
+    const resolvedLowerIndex = Math.max(0, resolvedUpperIndex - 1)
 
-    const lowerStop = sortedStops[Math.max(0, lowerIndex)]
-    const upperStop = sortedStops[Math.min(sortedStops.length - 1, lowerIndex + 1)]
+    const lowerStop = sortedStops[resolvedLowerIndex]
+    const upperStop = sortedStops[resolvedUpperIndex]
 
     if (upperStop.value === lowerStop.value) {
         return upperStop.color
