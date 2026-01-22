@@ -2,11 +2,22 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconCalculator,
+    IconCalendar,
+    IconCheck,
+    IconClock,
+    IconCode,
+    IconCode2,
+    IconDatabase,
+    IconPlusSmall,
+} from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { IconTextSize } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -18,6 +29,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -53,6 +65,40 @@ export const QueryDatabase = (): JSX.Element => {
     const { setQueryInput } = useActions(multitabEditorLogic)
     const { selectedQueryColumns } = useValues(multitabEditorLogic)
     const builtTabLogic = useMountedLogic(multitabEditorLogic)
+    const getFieldTypeIcon = (fieldType?: DatabaseSerializedFieldType): JSX.Element | null => {
+        if (!fieldType) {
+            return null
+        }
+
+        switch (fieldType) {
+            case 'string':
+                return <IconTextSize className="text-tertiary" />
+            case 'integer':
+            case 'float':
+            case 'decimal':
+                return <IconCalculator className="text-tertiary" />
+            case 'boolean':
+                return <IconCheck className="text-tertiary" />
+            case 'datetime':
+                return <IconClock className="text-tertiary" />
+            case 'date':
+                return <IconCalendar className="text-tertiary" />
+            case 'array':
+            case 'json':
+                return <IconBrackets className="text-tertiary" />
+            case 'expression':
+                return <IconCode className="text-tertiary" />
+            case 'field_traverser':
+                return <IconCode2 className="text-tertiary" />
+            case 'view':
+            case 'materialized_view':
+            case 'lazy_table':
+            case 'virtual_table':
+                return <IconDatabase className="text-tertiary" />
+            default:
+                return <IconCode2 className="text-tertiary" />
+        }
+    }
 
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
@@ -488,7 +534,7 @@ export const QueryDatabase = (): JSX.Element => {
             }}
             renderItemIcon={(item) => {
                 if (item.record?.type === 'column') {
-                    return <></>
+                    return getFieldTypeIcon(item.record.field?.type)
                 }
                 return (
                     <TreeNodeDisplayIcon

@@ -95,6 +95,34 @@ const draftsFuse = new Fuse<DataWarehouseSavedQueryDraft>([], FUSE_OPTIONS)
 // Factory functions for creating tree nodes
 type TableLookup = Record<string, DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable>
 
+const getPrimaryKeyName = (tableName: string, fields: DatabaseSchemaField[]): string | null => {
+    const fieldNames = new Set(fields.map((field) => field.name))
+    const baseTableName = tableName.split('.').pop() ?? tableName
+    const candidates = ['id', `${baseTableName}_id`, 'uuid']
+
+    for (const candidate of candidates) {
+        if (fieldNames.has(candidate)) {
+            return candidate
+        }
+    }
+
+    return null
+}
+
+const sortFieldsWithPrimary = (tableName: string, fields: DatabaseSchemaField[]): DatabaseSchemaField[] => {
+    const primaryKeyName = getPrimaryKeyName(tableName, fields)
+
+    return [...fields].sort((a, b) => {
+        if (primaryKeyName && a.name === primaryKeyName) {
+            return -1
+        }
+        if (primaryKeyName && b.name === primaryKeyName) {
+            return 1
+        }
+        return a.name.localeCompare(b.name)
+    })
+}
+
 const createColumnNode = (
     tableName: string,
     field: DatabaseSchemaField,
@@ -141,10 +169,13 @@ const createFieldNode = (
 ): TreeDataItem => {
     if (field.type === 'virtual_table') {
         const children =
-            field.fields?.map((fieldName) => {
-                const childField = createVirtualTableField(fieldName, field, tableLookup)
-                return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup)
-            }) ?? []
+            field.fields
+                ?.slice()
+                .sort((a, b) => a.localeCompare(b))
+                .map((fieldName) => {
+                    const childField = createVirtualTableField(fieldName, field, tableLookup)
+                    return createFieldNode(tableName, childField, isSearch, `${columnPath}.${fieldName}`, tableLookup)
+                }) ?? []
 
         return {
             id: `${isSearch ? 'search-' : ''}virtual-${tableName}-${columnPath}`,
@@ -171,7 +202,7 @@ const createTableNode = (
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
-        Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
+        sortFieldsWithPrimary(table.name, Object.values(table.fields)).forEach((field: DatabaseSchemaField) => {
             tableChildren.push(createFieldNode(table.name, field, isSearch, field.name, tableLookup))
         })
     }
@@ -224,7 +255,7 @@ const createViewNode = (
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
-    Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
+    sortFieldsWithPrimary(view.name, Object.values(view.columns)).forEach((column: DatabaseSchemaField) => {
         viewChildren.push(createFieldNode(view.name, column, isSearch, column.name, tableLookup))
     })
 
@@ -259,7 +290,7 @@ const createManagedViewNode = (
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
 
-    Object.values(managedView.fields).forEach((field: DatabaseSchemaField) => {
+    sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields)).forEach((field: DatabaseSchemaField) => {
         viewChildren.push(createFieldNode(managedView.name, field, isSearch, field.name, tableLookup))
     })
 
@@ -287,7 +318,7 @@ const createEndpointNode = (
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
-    Object.values(endpoint.fields).forEach((field: DatabaseSchemaField) => {
+    sortFieldsWithPrimary(endpoint.name, Object.values(endpoint.fields)).forEach((field: DatabaseSchemaField) => {
         endpointChildren.push(createFieldNode(endpoint.name, field, isSearch, field.name, tableLookup))
     })
 
@@ -1142,7 +1173,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 if ('fields' in table && table !== null) {
-                    return Object.values(table.fields).map((field) => ({
+                    return sortFieldsWithPrimary(table.name, Object.values(table.fields)).map((field) => ({
                         name: field.name,
                         type: field.type,
                         menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
@@ -1150,7 +1181,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 if ('columns' in table && table !== null) {
-                    return Object.values(table.columns).map((column) => ({
+                    return sortFieldsWithPrimary(table.name, Object.values(table.columns)).map((column) => ({
                         name: column.name,
                         type: column.type,
                         menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
