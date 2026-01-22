@@ -151,16 +151,16 @@ export class MainLaneOverflowRedirect extends BaseOverflowRedirectService {
 
         // Step 4: Batch flag newly rate-limited keys in Redis (stateful only)
         if (this.statefulEnabled && newlyFlagged.length > 0) {
-            await this.batchFlagInRedis(type, newlyFlagged)
-
-            // Update local cache for newly flagged keys
+            // Update local cache BEFORE Redis write to prevent race condition where
+            // a subsequent batch could check the rate limiter again before Redis completes
             for (const event of newlyFlagged) {
                 const cacheKey = this.localCacheKey(type, event.key.token, event.key.distinctId)
                 this.setCachedValue(cacheKey, true)
             }
-
-            // Update cache size metric after adding newly flagged
             overflowRedirectCacheSize.set(this.localCache.size)
+
+            // Async Redis write - cache already updated so concurrent batches will see the flag
+            await this.batchFlagInRedis(type, newlyFlagged)
         }
 
         // Record key-level metrics

@@ -196,11 +196,11 @@ export class IngestionConsumer {
         if (this.overflowEnabled()) {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisPool: this.hub.redisPool,
-                redisTTLSeconds: 300, // 5 minutes
-                localCacheTTLSeconds: 60, // 1 minute
+                redisTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+                localCacheTTLSeconds: this.hub.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.hub.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.hub.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: false, // TODO: Add config flag for stateful overflow
+                statefulEnabled: this.hub.INGESTION_STATEFUL_OVERFLOW_ENABLED,
             })
         }
 

@@ -314,7 +314,11 @@ describe.each([
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                    `${team.api_token}:overflow-distinct-id`,
+                    1000,
+                    now()
+                )
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await ingester.handleKafkaBatch(overflowMessages)
                 expect(
@@ -335,7 +339,10 @@ describe.each([
                 const overflowIngester = await createIngestionConsumer(hub, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
-                overflowIngester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
+
+                // Overflow consumer doesn't have overflowRedirectService (overflowEnabled() returns false)
+                // so events are never redirected back to overflow
+                expect(overflowIngester['overflowRedirectService']).toBeUndefined()
 
                 const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
                 await overflowIngester.handleKafkaBatch(overflowMessages)
