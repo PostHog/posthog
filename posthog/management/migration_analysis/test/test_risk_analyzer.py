@@ -1725,3 +1725,24 @@ class TestAtomicFalsePolicy:
 
         assert any("BLOCKED" in v for v in migration_risk.policy_violations)
         assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)
+
+    def test_product_app_detected_by_module_path(self):
+        """Product apps with short labels like 'endpoints' should be detected via __module__"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "endpoints"  # Short label from apps.py
+        mock_migration.name = "0001_test"
+        # Product module path - this is what makes it detectable
+        mock_migration.__module__ = "products.endpoints.backend.migrations.0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="endpoint", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(
+            mock_migration, "products/endpoints/backend/migrations/0001_test.py"
+        )
+
+        # Product app should trigger policy checks - atomic=False without CONCURRENTLY warns
+        assert any("atomic=False" in v for v in migration_risk.policy_violations)

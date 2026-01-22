@@ -187,6 +187,46 @@ class TestUserCostThrottle:
         assert result.allowed is True
         get_settings.cache_clear()
 
+    @pytest.mark.asyncio
+    async def test_tracks_but_does_not_enforce_when_limits_disabled(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When limits are disabled, we still track (log) exceeded limits but don't enforce them."""
+        monkeypatch.setenv("LLM_GATEWAY_USER_COST_LIMITS_DISABLED", "true")
+        get_settings.cache_clear()
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        await throttle.record_cost(context, 1000.0)
+        result = await throttle.allow_request(context)
+
+        captured = capsys.readouterr()
+        assert result.allowed is True, "Request should be allowed when limits disabled"
+        assert "cost_throttle_exceeded" in captured.out, (
+            "Should still log that limit was exceeded for tracking purposes"
+        )
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_enforces_when_limits_enabled(self) -> None:
+        """Verify limits are enforced when not disabled (control test)."""
+        get_settings.cache_clear()
+
+        from llm_gateway.rate_limiting.cost_throttles import UserCostThrottle
+
+        throttle = UserCostThrottle(redis=None)
+        context = make_context()
+
+        await throttle.record_cost(context, 1000.0)
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False, "Request should be denied when over limit and limits enabled"
+        assert result.scope == "user_cost"
+        get_settings.cache_clear()
+
 
 class TestRetryAfterHeader:
     @pytest.mark.asyncio

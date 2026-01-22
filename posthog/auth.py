@@ -575,23 +575,20 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         return (None, team)
 
 
-def authenticate_secondarily(endpoint):
+def session_auth_required(endpoint):
     """
-    DEPRECATED: Used for supporting legacy endpoints not on DRF.
-    Authentication for function views.
+    DEPRECATED: Require session authentication for function-based views.
+
+    Returns 401 if user is not authenticated via session.
     """
 
     @functools.wraps(endpoint)
     def wrapper(request: HttpRequest):
         if not request.user.is_authenticated:
-            try:
-                auth_result = PersonalAPIKeyAuthentication().authenticate(request)
-                if isinstance(auth_result, tuple) and auth_result[0].__class__.__name__ == "User":
-                    request.user = auth_result[0]
-                else:
-                    raise AuthenticationFailed("Authentication credentials were not provided.")
-            except AuthenticationFailed as e:
-                return JsonResponse({"detail": e.detail}, status=401)
+            return JsonResponse(
+                {"detail": "Authentication credentials were not provided."},
+                status=401,
+            )
         return endpoint(request)
 
     return wrapper
