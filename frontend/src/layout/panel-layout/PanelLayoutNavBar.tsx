@@ -42,6 +42,7 @@ import {
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -341,28 +342,37 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <AccountMenu
                                         trigger={
                                             <ButtonPrimitive
-                                                menuItem={!isLayoutNavCollapsed}
                                                 tooltip={isLayoutNavCollapsed ? 'Account' : undefined}
                                                 tooltipPlacement="right"
                                                 iconOnly={isLayoutNavCollapsed}
+                                                className={cn('max-w-[175px]', {
+                                                    'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
+                                                })}
                                                 data-attr="menu-item-me"
                                             >
-                                                <ProfilePicture user={user} size="xs" />
                                                 {isAuthenticatedTeam(currentTeam) && (
                                                     <>
-                                                        {isLayoutNavCollapsed ? (
-                                                            <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
-                                                                {String.fromCodePoint(
-                                                                    currentTeam.name.codePointAt(0)!
-                                                                ).toLocaleUpperCase()}
-                                                            </div>
-                                                        ) : (
+                                                        <div
+                                                            className={cn(
+                                                                'Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] size-5 dark:text-tertiary',
+                                                                {
+                                                                    'size-[30px] rounded': isLayoutNavCollapsed,
+                                                                }
+                                                            )}
+                                                        >
+                                                            {String.fromCodePoint(
+                                                                currentTeam.name.codePointAt(0)!
+                                                            ).toLocaleUpperCase()}
+                                                        </div>
+                                                        {!isLayoutNavCollapsed && (
                                                             <span className="truncate">
+                                                                asd fasdf ljas dlnasdlna sdflnsafd laslasf
                                                                 {currentTeam.name ?? 'Project'}
                                                             </span>
                                                         )}
                                                     </>
                                                 )}
+                                                {!isLayoutNavCollapsed && <MenuOpenIndicator />}
                                             </ButtonPrimitive>
                                         }
                                         side="bottom"
@@ -519,7 +529,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div
                             className={cn('p-1 flex flex-col gap-px items-center', {
-                                'pb-2 pl-2': isRemovingSidePanelFlag,
+                                'pb-2 pl-2 items-start': isRemovingSidePanelFlag,
                             })}
                         >
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
@@ -644,18 +654,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             ) : (
                                 <>
                                     <ButtonPrimitive
-                                        menuItem={!isLayoutNavCollapsed}
                                         onClick={() =>
                                             sidePanelOpen ? closeSidePanel() : openSidePanel(SidePanelTab.Support)
                                         }
                                         tooltip={isLayoutNavCollapsed ? 'Help' : undefined}
                                         tooltipPlacement="right"
-                                        iconOnly={isLayoutNavCollapsed}
+                                        iconOnly
                                     >
-                                        <span className="flex text-tertiary group-hover:text-primary">
-                                            <IconQuestion />
+                                        <span className="flex group-hover:text-primary">
+                                            <IconQuestion className="size-5" />
                                         </span>
-                                        {!isLayoutNavCollapsed && 'Help'}
                                     </ButtonPrimitive>
                                 </>
                             )}
