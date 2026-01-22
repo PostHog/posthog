@@ -675,8 +675,8 @@ importers:
         specifier: ^1.2.3
         version: 1.2.3(chart.js@4.5.1)(dayjs@1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852))
       chartjs-plugin-annotation:
-        specifier: 2.2.1
-        version: 2.2.1(chart.js@4.5.1)
+        specifier: ^3.1.0
+        version: 3.1.0(chart.js@4.5.1)
       chartjs-plugin-crosshair:
         specifier: 2.0.0
         version: 2.0.0(patch_hash=b40c879817dfedb5ac7ec8296f1e73d02fd3bdddd18a0a731b441ff05ff62f8a)(chart.js@4.5.1)
@@ -687,8 +687,8 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0(chart.js@4.5.1)
       chartjs-plugin-trendline:
-        specifier: ^2.1.2
-        version: 2.1.2
+        specifier: ^3.2.0
+        version: 3.2.0
       chokidar:
         specifier: ^3.5.3
         version: 3.6.0
@@ -11356,10 +11356,10 @@ packages:
       chart.js: '>=2.8.0'
       dayjs: ^1.9.7
 
-  chartjs-plugin-annotation@2.2.1:
-    resolution: {integrity: sha512-RL9UtrFr2SXd7C47zD0MZqn6ZLgrcRt3ySC6cYal2amBdANcYB1QcwFXcpKWAYnO4SGJYRok7P5rKDDNgJMA/w==}
+  chartjs-plugin-annotation@3.1.0:
+    resolution: {integrity: sha512-EkAed6/ycXD/7n0ShrlT1T2Hm3acnbFhgkIEJLa0X+M6S16x0zwj1Fv4suv/2bwayCT3jGPdAtI9uLcAMToaQQ==}
     peerDependencies:
-      chart.js: '>=3.7.0'
+      chart.js: '>=4.0.0'
 
   chartjs-plugin-crosshair@2.0.0:
     resolution: {integrity: sha512-Vs6strRvYpzL92v40r/rAWhh+7au8VnfyC/m2ZHXcXeLEWeFjDgMvXjWdX+eARhbgHQo+uGIKyq9fmkS79GIyQ==}
@@ -11376,8 +11376,8 @@ packages:
     peerDependencies:
       chart.js: '>=3.8.0'
 
-  chartjs-plugin-trendline@2.1.2:
-    resolution: {integrity: sha512-8XmGSI4I1tS3Balm0SsYWQjy4eNtY9aDSpErlD/Z+Zqlhfzir/p8U9zn3ahHsNolfVL/s35MgZ5jM+BCbCGP7A==}
+  chartjs-plugin-trendline@3.2.0:
+    resolution: {integrity: sha512-UQ309v67EPc6KQsEIfn8YEBOclsZGvfddjbK8ZIN9QhEHQKzUrtJPpMc1F8o5G7ErgIFvmtFnt5YP9vkTPswSg==}
 
   check-error@2.1.1:
     resolution: {integrity: sha512-OAlb+T7V4Op9OwdkjmguYRqncdlx5JiofwOAUkmTF+jNdHwzTaTs4sRAGpzLF3oOz5xAyDGrPgeIDFQmDOTiJw==}
@@ -32290,7 +32290,7 @@ snapshots:
       chart.js: 4.5.1
       dayjs: 1.11.11(patch_hash=2e3e09d22bbc20d8961e0392c318f12ffada0babb6422f03b5538af8b2707852)
 
-  chartjs-plugin-annotation@2.2.1(chart.js@4.5.1):
+  chartjs-plugin-annotation@3.1.0(chart.js@4.5.1):
     dependencies:
       chart.js: 4.5.1
 
@@ -32306,7 +32306,7 @@ snapshots:
     dependencies:
       chart.js: 4.5.1
 
-  chartjs-plugin-trendline@2.1.2: {}
+  chartjs-plugin-trendline@3.2.0: {}
 
   check-error@2.1.1: {}
 
