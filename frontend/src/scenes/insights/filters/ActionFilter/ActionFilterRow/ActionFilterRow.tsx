@@ -800,6 +800,11 @@ export function ActionFilterRow({
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
+                        dataWarehouseTableName={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? (filter.name ?? undefined)
+                                : undefined
+                        }
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                     />
