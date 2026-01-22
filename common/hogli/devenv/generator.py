@@ -89,6 +89,9 @@ class MprocsGenerator(ConfigGenerator):
             if not is_resolved and not is_manual_start:
                 continue
 
+            # Copy config to avoid mutating registry's internal state
+            proc_config = proc_config.copy()
+
             # Remove metadata fields - not mprocs config
             proc_config.pop("capability", None)
             proc_config.pop("ask_skip", None)

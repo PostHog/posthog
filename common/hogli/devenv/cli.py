@@ -95,12 +95,27 @@ def dev_start(
 
     # Determine intents to use
     if preset:
-        # Use preset directly
+        # Use preset directly, merging any additional intents
         try:
-            resolved = resolver.resolve_preset(
-                preset,
-                include_units=list(with_intents),
+            preset_obj = resolver.intent_map.presets[preset]
+        except KeyError:
+            available = ", ".join(sorted(resolver.intent_map.presets.keys()))
+            click.echo(f"Error: Unknown preset '{preset}'. Available: {available}", err=True)
+            raise SystemExit(1)
+
+        if preset_obj.all_intents:
+            intents = list(resolver.intent_map.intents.keys())
+        else:
+            intents = preset_obj.intents.copy()
+
+        # Merge additional intents from --with
+        intents.extend(with_intents)
+
+        try:
+            resolved = resolver.resolve(
+                intents,
                 exclude_units=list(without_units),
+                include_capabilities=list(preset_obj.include_capabilities) or None,
             )
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
@@ -301,21 +316,6 @@ def dev_setup() -> None:
     except FileNotFoundError:
         click.echo("Error: intent-map.yaml not found in dev/", err=True)
         click.echo("Are you in the PostHog repository root?", err=True)
-        raise SystemExit(1)
-
-    manager = ProfileManager()
-    run_setup_wizard(intent_map, manager)
-
-
-@cli.command(name="dev:edit", help="Re-run setup wizard to edit your profile")
-def dev_edit() -> None:
-    """Re-run the setup wizard to modify your existing profile."""
-    from .wizard import run_setup_wizard
-
-    try:
-        intent_map = load_intent_map()
-    except FileNotFoundError:
-        click.echo("Error: intent-map.yaml not found in dev/", err=True)
         raise SystemExit(1)
 
     manager = ProfileManager()

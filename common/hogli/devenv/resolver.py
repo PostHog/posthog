@@ -208,18 +208,23 @@ class IntentResolver:
         # 4. Capabilities → Docker profiles
         docker_profiles = self._capabilities_to_docker_profiles(expanded_capabilities)
 
-        # 5. Apply overrides
+        # 5. Apply include overrides
         for unit in include_units:
             if unit not in units:
                 units.add(unit)
                 unit_provenance[unit] = "manually included"
-        units = units - set(exclude_units)
 
         # 6. Add always-required
         for unit in self.intent_map.always_required:
             if unit not in units:
                 units.add(unit)
                 unit_provenance[unit] = "always required"
+
+        # 7. Apply exclude overrides (after always-required so --without can remove them)
+        excluded_set = set(exclude_units)
+        units = units - excluded_set
+        for unit in excluded_set:
+            unit_provenance.pop(unit, None)
 
         # Track what overrides were applied
         overrides_applied: dict[str, list[str]] = {}

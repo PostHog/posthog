@@ -190,7 +190,7 @@ presets:
 
     full:
         all_intents: true
-        description: 'Full stack with all services'
+        description: 'All products enabled - maximum resource usage'
         include_capabilities: [observability, dev_tools]
 
 # Always-required processes regardless of intent

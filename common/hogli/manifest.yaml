@@ -91,7 +91,6 @@ devenv:
     dev:intents:
     dev:presets:
     dev:profile:
-    dev:edit:
 core:
     categories:
         description: Show all available commands grouped by category

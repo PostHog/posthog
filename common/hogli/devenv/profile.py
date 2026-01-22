@@ -139,7 +139,8 @@ class ProfileManager:
 
         try:
             return DeveloperProfile.from_yaml(self.profile_path)
-        except Exception:
+        except (yaml.YAMLError, ValueError, KeyError, OSError):
+            # Corrupt or unreadable profile - treat as missing
             return None
 
     def save_profile(self, profile: DeveloperProfile) -> None:

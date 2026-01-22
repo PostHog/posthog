@@ -47,6 +47,11 @@ class ProcessRegistry(ABC):
         """Get the original config for a process (for output generation)."""
         ...
 
+    @abstractmethod
+    def get_global_settings(self) -> dict[str, Any]:
+        """Get global settings (scrollback, mouse_scroll_speed, etc.)."""
+        ...
+
 
 class MprocsRegistry(ProcessRegistry):
     """Process registry backed by mprocs.yaml."""
