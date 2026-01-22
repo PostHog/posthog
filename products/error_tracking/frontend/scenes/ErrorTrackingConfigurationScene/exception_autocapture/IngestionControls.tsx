@@ -7,19 +7,29 @@ import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
 import { sdkPolicyConfigLogic } from 'lib/components/IngestionControls/sdkPolicyConfigLogic'
 import { UrlConfigLogicProps, urlConfigLogic } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
-import { SDKPolicyConfig, TriggerType } from 'lib/components/IngestionControls/types'
+import { SDKPolicyConfig } from 'lib/components/IngestionControls/types'
 
 import { AccessControlResourceType } from '~/types'
 
 export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean }): JSX.Element | null {
     const logic = sdkPolicyConfigLogic({ logicKey: 'error-tracking' })
 
-    const { policy, triggers, matchType, sampleRate, linkedFeatureFlag, eventTriggers, urlTriggers, urlBlocklist } =
-        useValues(logic)
+    const {
+        policy,
+        triggers,
+        matchType,
+        sampleRate,
+        minimumDurationMilliseconds,
+        linkedFeatureFlag,
+        eventTriggers,
+        urlTriggers,
+        urlBlocklist,
+    } = useValues(logic)
     const {
         loadPolicy,
         setMatchType,
         setSampleRate,
+        setMinimumDurationMilliseconds,
         setLinkedFeatureFlag,
         setEventTriggers,
         setUrlTriggers,
@@ -50,10 +60,7 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                     </LemonBanner>
                 )}
                 <div className="flex flex-col gap-y-2">
-                    <IngestionControlsSummary
-                        triggers={triggers.filter((t) => t.type !== TriggerType.MIN_DURATION)}
-                        controlDescription="exceptions captured"
-                    />
+                    <IngestionControlsSummary triggers={triggers} controlDescription="exceptions captured" />
                     <div className="flex flex-col gap-y-2 border rounded py-2 px-4 mb-2">
                         <UrlConfig
                             logicProps={{
@@ -76,6 +83,10 @@ export function ErrorTrackingIngestionControls({ disabled }: { disabled: boolean
                         <EventTriggers value={eventTriggers} onChange={setEventTriggers} />
                         <LinkedFlagSelector value={linkedFeatureFlag} onChange={setLinkedFeatureFlag} />
                         <Sampling initialValue={sampleRate} onChange={setSampleRate} />
+                        <MinDuration
+                            value={minimumDurationMilliseconds}
+                            onChange={(v) => setMinimumDurationMilliseconds(v ?? null)}
+                        />
                     </div>
                 </div>
             </div>
@@ -91,10 +102,26 @@ const Sampling = ({
     onChange: (sampleRate: SDKPolicyConfig['sample_rate']) => void
 }): JSX.Element => {
     return (
-        <div>
+        <div className="space-y-2">
             <LemonLabel className="text-base">Sampling</LemonLabel>
             <IngestionControls.SamplingTrigger initialSampleRate={initialValue * 100} onChange={onChange} />
             <p>Choose how many exceptions to capture. 100% = capture every exception, 50% = capture roughly half.</p>
+        </div>
+    )
+}
+
+const MinDuration = ({
+    value,
+    onChange,
+}: {
+    value: SDKPolicyConfig['minimum_duration_milliseconds']
+    onChange: (minimumDurationMilliseconds: number | null | undefined) => void
+}): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <LemonLabel className="text-base">Minimum duration (seconds)</LemonLabel>
+            <IngestionControls.MinDuration value={value} onChange={onChange} />
+            <p>Only capture exceptions from sessions that have been active for at least this long.</p>
         </div>
     )
 }
