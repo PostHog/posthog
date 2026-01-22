@@ -119,9 +119,6 @@ class _LivenessWorkflowInterceptor(WorkflowInboundInterceptor):
 class LivenessInterceptor(Interceptor):
     """Interceptor that tracks worker liveness for health checks."""
 
-    def __init__(self, tracker: LivenessTracker | None = None):
-        self._tracker = tracker or get_liveness_tracker()
-
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _LivenessActivityInboundInterceptor(super().intercept_activity(next))
 
