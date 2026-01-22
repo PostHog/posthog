@@ -693,7 +693,9 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-        const showSummaryTab = true
+        const showSummaryTab =
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         const showClustersTab = !!event && isTraceLevel(event) && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERS_TAB]
 
